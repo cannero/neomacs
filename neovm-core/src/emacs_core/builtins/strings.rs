@@ -692,10 +692,7 @@ pub(crate) fn builtin_ngettext(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_format_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_format_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     // With specbind, dynamic let-bindings are written directly to the obarray,
     // so print_options_from_state correctly resolves print-* variables.
     builtin_format_in_state(

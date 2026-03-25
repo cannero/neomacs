@@ -1,7 +1,7 @@
 use crate::emacs_core::eval::GuiFrameHostSize;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{
-    DisplayHost, Context, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
+    Context, DisplayHost, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
 };
 use std::cell::RefCell;
 use std::rc::Rc;

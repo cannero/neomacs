@@ -209,10 +209,7 @@ pub(crate) fn finish_make_indirect_buffer_hooks(
 }
 
 /// (get-buffer NAME-OR-BUFFER) → buffer or nil
-pub(crate) fn builtin_get_buffer(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_get_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_get_buffer_in_manager(&eval.buffers, args)
 }
 
@@ -243,11 +240,8 @@ pub(crate) fn builtin_get_buffer_in_manager(
 /// Returns the first live buffer whose VARIABLE value is `eq` to VALUE.
 /// Buffer-local bindings take precedence; otherwise dynamic/global bindings are
 /// used as fallback. Signals `void-variable` when VARIABLE is unbound.
-pub(crate) fn builtin_find_buffer(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_find_buffer_in_state(eval.obarray(), eval.dynamic.as_slice(), &eval.buffers, args)
+pub(crate) fn builtin_find_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    builtin_find_buffer_in_state(eval.obarray(), &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_find_buffer_in_state(
@@ -356,7 +350,7 @@ pub(crate) fn builtin_get_file_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_file_buffer_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_get_file_buffer_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_get_file_buffer_in_state(
@@ -392,10 +386,7 @@ pub(crate) fn builtin_get_file_buffer_in_state(
 }
 
 /// (kill-buffer &optional BUFFER-OR-NAME) → t or nil
-pub(crate) fn builtin_kill_buffer(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_kill_buffer_in_state(&mut eval.buffers, &mut eval.frames, args)
 }
 
@@ -475,10 +466,7 @@ pub(crate) fn builtin_kill_buffer_in_state(
 }
 
 /// (set-buffer BUFFER-OR-NAME) → buffer
-pub(crate) fn builtin_set_buffer(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_set_buffer_in_manager(&mut eval.buffers, &args)
 }
 
@@ -534,10 +522,7 @@ pub(crate) fn builtin_current_buffer_in_manager(
 }
 
 /// (buffer-name &optional BUFFER) → string
-pub(crate) fn builtin_buffer_name(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_buffer_name(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_buffer_name_in_manager(&eval.buffers, args)
 }
 
@@ -1187,7 +1172,7 @@ pub(crate) fn builtin_insert_and_inherit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_and_inherit_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_insert_and_inherit_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 /// `(insert-before-markers-and-inherit &rest ARGS)` -> nil
@@ -1196,12 +1181,7 @@ pub(crate) fn builtin_insert_before_markers_and_inherit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_before_markers_and_inherit_in_state(
-        &eval.obarray,
-        &eval.dynamic,
-        &mut eval.buffers,
-        args,
-    )
+    builtin_insert_before_markers_and_inherit_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 /// `(insert-buffer-substring BUFFER &optional START END)` -> nil
@@ -1209,7 +1189,7 @@ pub(crate) fn builtin_insert_buffer_substring(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_buffer_substring_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_insert_buffer_substring_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_insert_buffer_substring_in_state(
@@ -1377,7 +1357,7 @@ pub(crate) fn builtin_replace_region_contents_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_replace_region_contents_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_replace_region_contents_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_replace_region_contents_in_state(
@@ -1933,7 +1913,7 @@ pub(crate) fn builtin_constrain_to_field(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_constrain_to_field_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_constrain_to_field_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_constrain_to_field_in_state(
@@ -2215,7 +2195,7 @@ pub(crate) fn builtin_field_beginning(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_field_beginning_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+    builtin_field_beginning_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_field_beginning_in_state(
@@ -2249,7 +2229,7 @@ pub(crate) fn builtin_field_beginning_in_state(
 
 /// `(field-end &optional POS ESCAPE-FROM-EDGE LIMIT)` -> position
 pub(crate) fn builtin_field_end(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_field_end_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+    builtin_field_end_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_field_end_in_state(
@@ -2282,7 +2262,7 @@ pub(crate) fn builtin_field_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_field_string_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+    builtin_field_string_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_field_string_in_state(
@@ -2302,7 +2282,7 @@ pub(crate) fn builtin_field_string_no_properties(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_field_string_no_properties_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+    builtin_field_string_no_properties_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_field_string_no_properties_in_state(
@@ -2325,7 +2305,7 @@ pub(crate) fn builtin_delete_field(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_delete_field_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_delete_field_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_delete_field_in_state(
@@ -2545,7 +2525,7 @@ fn apply_inherited_text_properties(
 
 /// (insert &rest ARGS) → nil
 pub(crate) fn builtin_insert(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_insert_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_insert_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_insert_in_state(
@@ -2654,11 +2634,8 @@ pub(super) fn insert_char_code_from_value(value: &Value) -> Result<i64, Flow> {
 }
 
 /// `(insert-char CHARACTER &optional COUNT INHERIT)` -> nil
-pub(crate) fn builtin_insert_char(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_insert_char_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    builtin_insert_char_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_insert_char_in_state(
@@ -2707,11 +2684,8 @@ pub(crate) fn builtin_insert_char_in_state(
 }
 
 /// `(insert-byte BYTE COUNT &optional INHERIT)` -> nil
-pub(crate) fn builtin_insert_byte(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_insert_byte_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    builtin_insert_byte_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_insert_byte_in_state(
@@ -2771,12 +2745,7 @@ pub(crate) fn builtin_delete_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_delete_region_in_state(
-        &eval.obarray,
-        &eval.dynamic,
-        &mut eval.buffers,
-        args,
-    )
+    super::editfns::builtin_delete_region_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 /// `(delete-and-extract-region START END)` -> deleted text
@@ -2786,7 +2755,7 @@ pub(crate) fn builtin_delete_and_extract_region(
 ) -> EvalResult {
     super::editfns::builtin_delete_and_extract_region_in_state(
         &eval.obarray,
-        &eval.dynamic,
+        &[],
         &mut eval.buffers,
         args,
     )
@@ -2797,7 +2766,7 @@ pub(crate) fn builtin_subst_char_in_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_subst_char_in_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_subst_char_in_region_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_subst_char_in_region_in_state(
@@ -2886,12 +2855,7 @@ pub(crate) fn builtin_erase_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_erase_buffer_in_state(
-        &eval.obarray,
-        &eval.dynamic,
-        &mut eval.buffers,
-        args,
-    )
+    super::editfns::builtin_erase_buffer_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 /// (buffer-enable-undo &optional BUFFER) -> nil
@@ -3017,10 +2981,7 @@ pub(crate) fn builtin_buffer_disable_undo_in_manager(
 }
 
 /// (buffer-size &optional BUFFER) → integer
-pub(crate) fn builtin_buffer_size(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_buffer_size(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_buffer_size_in_manager(&eval.buffers, args)
 }
 
@@ -3191,10 +3152,7 @@ pub(crate) fn builtin_buffer_chars_modified_tick_in_manager(
 }
 
 /// (buffer-list) → list of buffers
-pub(crate) fn builtin_buffer_list(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_buffer_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_buffer_list_in_manager(&eval.buffers, args)
 }
 
@@ -3315,10 +3273,7 @@ pub(crate) fn builtin_bufferp(args: Vec<Value>) -> EvalResult {
 }
 
 /// (char-after &optional POS) → integer or nil
-pub(crate) fn builtin_char_after(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_char_after(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_char_after_in_manager(&eval.buffers, args)
 }
 
@@ -3351,10 +3306,7 @@ pub(crate) fn builtin_char_after_in_manager(
 }
 
 /// (char-before &optional POS) → integer or nil
-pub(crate) fn builtin_char_before(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_char_before(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_char_before_in_manager(&eval.buffers, args)
 }
 

@@ -72,17 +72,10 @@ pub(crate) fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> us
 
 fn dynamic_buffer_or_global_symbol_value(
     obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     buf: Option<&Buffer>,
     name: &str,
 ) -> Option<Value> {
-    let name_id = intern(name);
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return Some(*value);
-        }
-    }
-
     if let Some(buf) = buf
         && let Some(value) = buf.get_buffer_local(name)
     {
@@ -97,15 +90,6 @@ pub(crate) fn buffer_read_only_active_in_state(
     dynamic: &[OrderedRuntimeBindingMap],
     buf: &Buffer,
 ) -> bool {
-    let inhibit_name_id = intern("inhibit-read-only");
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&inhibit_name_id)
-            && value.is_truthy()
-        {
-            return false;
-        }
-    }
-
     if let Some(value) = buf.get_buffer_local("inhibit-read-only")
         && value.is_truthy()
     {
@@ -128,7 +112,7 @@ pub(crate) fn buffer_read_only_active_in_state(
 }
 
 fn buffer_read_only_active(eval: &super::eval::Context, buf: &crate::buffer::Buffer) -> bool {
-    buffer_read_only_active_in_state(&eval.obarray, &eval.dynamic, buf)
+    buffer_read_only_active_in_state(&eval.obarray, &[], buf)
 }
 
 pub(crate) fn ensure_current_buffer_writable_in_state(
@@ -145,7 +129,7 @@ pub(crate) fn ensure_current_buffer_writable_in_state(
 }
 
 pub(crate) fn ensure_current_buffer_writable(eval: &super::eval::Context) -> Result<(), Flow> {
-    ensure_current_buffer_writable_in_state(&eval.obarray, &eval.dynamic, &eval.buffers)
+    ensure_current_buffer_writable_in_state(&eval.obarray, &[], &eval.buffers)
 }
 
 fn expect_integer_or_marker_in_buffers(
@@ -249,7 +233,7 @@ pub(crate) fn builtin_insert_before_markers(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_before_markers_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_insert_before_markers_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_insert_before_markers_in_state(
@@ -267,11 +251,8 @@ pub(crate) fn builtin_insert_before_markers_in_state(
 }
 
 /// `(delete-char N &optional KILLFLAG)` — delete N characters forward.
-pub(crate) fn builtin_delete_char(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_delete_char_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+pub(crate) fn builtin_delete_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    builtin_delete_char_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_delete_char_in_state(

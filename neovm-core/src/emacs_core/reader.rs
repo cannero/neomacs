@@ -212,10 +212,7 @@ fn restore_minibuffer_window_in_state(
     *active_minibuffer_window = saved.previous_active_minibuffer_window;
 }
 
-fn restore_minibuffer_window(
-    eval: &mut super::eval::Context,
-    saved: ActiveMinibufferWindowState,
-) {
+fn restore_minibuffer_window(eval: &mut super::eval::Context, saved: ActiveMinibufferWindowState) {
     restore_minibuffer_window_in_state(
         &mut eval.frames,
         &mut eval.minibuffer_selected_window,
@@ -924,10 +921,7 @@ fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<String> {
 /// `(read-string PROMPT &optional INITIAL HISTORY DEFAULT INHERIT-INPUT-METHOD)`
 ///
 /// Read a string from the minibuffer.  Delegates to `read-from-minibuffer`.
-pub(crate) fn builtin_read_string(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_read_string(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_read_string_in_runtime(eval, &args)?;
     finish_read_string_in_eval(eval, &args)
 }
@@ -1012,10 +1006,7 @@ pub(crate) fn finish_read_string_in_vm_runtime(
 /// Read a numeric value from the minibuffer.
 /// Delegates to read-from-minibuffer with READ=t, then validates the result
 /// is a number.
-pub(crate) fn builtin_read_number(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_read_number(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_read_number_in_runtime(eval, &args)?;
     finish_read_number_in_eval(eval, &args)
 }
@@ -1156,7 +1147,6 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
     let minibuffer_args = completing_read_minibuffer_args(obarray, args);
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
         obarray,
-        dynamic,
         buffers,
         custom,
         specpdl,
@@ -1165,7 +1155,6 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
     );
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
         obarray,
-        dynamic,
         buffers,
         custom,
         specpdl,
@@ -1177,7 +1166,6 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
 
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
         obarray,
-        dynamic,
         buffers,
         custom,
         specpdl,
@@ -1186,7 +1174,6 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
     );
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
         obarray,
-        dynamic,
         buffers,
         custom,
         specpdl,
@@ -1386,7 +1373,6 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
     let minibuffer_args = completing_read_minibuffer_args(&shared.obarray, args);
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
         &mut shared.obarray,
-        shared.dynamic.as_mut_slice(),
         &mut shared.buffers,
         &shared.custom,
         shared.specpdl.as_slice(),
@@ -1395,7 +1381,6 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
     );
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
         &mut shared.obarray,
-        shared.dynamic.as_mut_slice(),
         &mut shared.buffers,
         &shared.custom,
         shared.specpdl.as_slice(),
@@ -1405,7 +1390,6 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
     let result = finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, &minibuffer_args);
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
         &mut shared.obarray,
-        shared.dynamic.as_mut_slice(),
         &mut shared.buffers,
         &shared.custom,
         shared.specpdl.as_slice(),
@@ -1414,7 +1398,6 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
     );
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
         &mut shared.obarray,
-        shared.dynamic.as_mut_slice(),
         &mut shared.buffers,
         &shared.custom,
         shared.specpdl.as_slice(),
@@ -1557,7 +1540,7 @@ pub(crate) fn builtin_input_pending_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_input_pending_p_in_state(&eval.obarray, eval.dynamic.as_slice(), args)
+    builtin_input_pending_p_in_state(&eval.obarray, &[], args)
 }
 
 pub(crate) fn builtin_input_pending_p_in_state(
@@ -1584,7 +1567,7 @@ pub(crate) fn builtin_discard_input(
 ) -> EvalResult {
     builtin_discard_input_in_state(
         &mut eval.obarray,
-        eval.dynamic.as_mut_slice(),
+        &mut [],
         &mut eval.buffers,
         &eval.custom,
         eval.specpdl.as_slice(),
@@ -1603,7 +1586,6 @@ pub(crate) fn builtin_discard_input_in_state(
     expect_args("discard-input", &args, 0)?;
     super::eval::set_runtime_binding_in_state(
         obarray,
-        dynamic,
         buffers,
         custom,
         specpdl,
@@ -1894,10 +1876,7 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>
 /// Ask user a yes-or-no question requiring "yes" or "no" typed in full.
 /// In interactive mode, uses read-from-minibuffer.
 /// In batch mode, signals end-of-file.
-pub(crate) fn builtin_yes_or_no_p(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_yes_or_no_p(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_yes_or_no_p_in_runtime(eval, &args)?;
     finish_yes_or_no_p_in_eval(eval, &args)
 }
@@ -2141,9 +2120,8 @@ pub(crate) fn sf_with_output_to_string(
         .generate_new_buffer_name(" *with-output-to-string*");
     let temp_id = eval.buffers.create_buffer(&temp_name);
 
-    let mut frame = OrderedRuntimeBindingMap::new();
-    frame.insert(intern("standard-output"), Value::Buffer(temp_id));
-    eval.dynamic.push(frame);
+    let count = eval.specpdl.len();
+    eval.specbind(intern("standard-output"), Value::Buffer(temp_id));
 
     let body_result = eval.sf_progn(tail);
     let captured = eval
@@ -2152,7 +2130,7 @@ pub(crate) fn sf_with_output_to_string(
         .map(|buf| buf.buffer_string())
         .unwrap_or_default();
 
-    let _ = eval.dynamic.pop();
+    eval.unbind_to(count);
     eval.buffers.kill_buffer(temp_id);
 
     body_result.map(|_| Value::string(captured))

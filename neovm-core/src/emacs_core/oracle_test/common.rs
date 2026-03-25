@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
-use crate::emacs_core::{EvalError, Context, Value, print_value_with_buffers};
+use crate::emacs_core::{Context, EvalError, Value, print_value_with_buffers};
 
 /// Maximum virtual address space (in bytes) for each spawned oracle Emacs
 /// process.  This prevents runaway evaluations from consuming unbounded

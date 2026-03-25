@@ -735,7 +735,6 @@ pub(crate) fn builtin_find_font(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-
 /// Context-aware variant of `find-font`.
 ///
 /// Accepts live frame designators in the optional FRAME slot.
@@ -914,7 +913,6 @@ pub(crate) fn builtin_close_font(args: Vec<Value>) -> EvalResult {
     }
     Ok(Value::Nil)
 }
-
 
 #[derive(Clone, Debug)]
 enum FaceLayer {
@@ -2467,7 +2465,6 @@ pub(crate) fn builtin_internal_make_lisp_face_eval(
     Ok(result)
 }
 
-
 /// `(internal-copy-lisp-face FROM TO FRAME NEW-FRAME)` -- copy defaults overrides to
 /// `TO` and return `TO`.
 pub(crate) fn builtin_internal_copy_lisp_face(args: Vec<Value>) -> EvalResult {
@@ -2492,7 +2489,6 @@ pub(crate) fn builtin_internal_copy_lisp_face(args: Vec<Value>) -> EvalResult {
     copy_defaults_overrides(&from_name, &to_name);
     Ok(args[1])
 }
-
 
 /// Eval-backed version of `internal-copy-lisp-face` that also mirrors the
 /// copied face into the evaluator's `FaceTable`.
@@ -2567,7 +2563,6 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute(args: Vec<Value>) -> Eval
 
     Ok(*face)
 }
-
 
 /// Eval-backed version of `internal-set-lisp-face-attribute` that also
 /// updates the evaluator's `FaceTable`, making the face attributes
@@ -3062,7 +3057,6 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(args: Vec<Value>) -> Eval
     ))
 }
 
-
 pub(crate) fn builtin_internal_get_lisp_face_attribute_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -3200,7 +3194,6 @@ pub(crate) fn builtin_internal_merge_in_global_face(args: Vec<Value>) -> EvalRes
     merge_defaults_overrides_into_selected(&face_name);
     Ok(Value::Nil)
 }
-
 
 pub(crate) fn builtin_internal_merge_in_global_face_eval(
     eval: &mut super::eval::Context,

@@ -39,7 +39,7 @@ use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::{
     TerminalRuntimeConfig, configure_terminal_runtime, reset_terminal_runtime,
 };
-use neovm_core::emacs_core::{DisplayHost, Context, GuiFrameHostRequest};
+use neovm_core::emacs_core::{Context, DisplayHost, GuiFrameHostRequest};
 use neovm_core::face::{FaceHeight, FontSlant, FontWeight, FontWidth};
 use neovm_core::window::{FrameId, Window};
 

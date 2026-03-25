@@ -1572,10 +1572,7 @@ pub(crate) fn builtin_window_group_start_in_state(
 }
 
 /// `(window-end &optional WINDOW UPDATE)` -> integer position.
-pub(crate) fn builtin_window_end(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_window_end(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_window_end_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -2358,10 +2355,7 @@ fn default_scroll_columns_in_state(frames: &FrameManager, fid: FrameId, wid: Win
 }
 
 /// `(scroll-left &optional SET-MINIMUM ARG)` -> new horizontal scroll amount.
-pub(crate) fn builtin_scroll_left(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scroll_left(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_scroll_left_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -3142,10 +3136,7 @@ pub(crate) fn builtin_window_total_width_in_state(
 }
 
 /// `(window-list &optional FRAME MINIBUF ALL-FRAMES)` -> list of window objects.
-pub(crate) fn builtin_window_list(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_window_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_window_list_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -3928,10 +3919,7 @@ pub(crate) fn builtin_other_window_for_scrolling_in_state(
 }
 
 /// `(next-window &optional WINDOW MINIBUF ALL-FRAMES)` -> window object.
-pub(crate) fn builtin_next_window(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_next_window(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_next_window_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -4548,10 +4536,7 @@ pub(crate) fn builtin_scroll_up_in_state(
 ///
 /// Mirror GNU Emacs Fscroll_down (window.c): move point backward by ARG lines
 /// (or a windowful if nil).  Signals beginning-of-buffer if already at start.
-pub(crate) fn builtin_scroll_down(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scroll_down(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_scroll_down_in_state(&eval.obarray, &mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -4928,10 +4913,7 @@ pub(crate) fn builtin_select_frame_set_input_focus_in_state(
 }
 
 /// `(frame-list)` -> list of frame objects.
-pub(crate) fn builtin_frame_list(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_frame_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_frame_list_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -5474,10 +5456,7 @@ pub(crate) fn builtin_set_frame_position_in_state(
 /// if the current runtime has an active GUI display host (or the caller
 /// explicitly requests a GUI window-system), delegate to the GUI boundary;
 /// otherwise create a plain frame directly.
-pub(crate) fn builtin_make_frame(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_make_frame(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let backend = resolve_make_frame_backend_request(args.first(), eval.display_host.is_some());
     tracing::debug!(
         "builtin_make_frame: backend={backend:?} display_host_available={} args={:?}",

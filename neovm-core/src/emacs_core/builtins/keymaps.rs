@@ -242,10 +242,7 @@ pub(super) fn builtin_make_sparse_keymap(
 }
 
 /// `(copy-keymap KEYMAP)` -> keymap copy.
-pub(super) fn builtin_copy_keymap(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(super) fn builtin_copy_keymap(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_copy_keymap_in_obarray(eval.obarray(), &args)
 }
 
@@ -256,10 +253,7 @@ pub(crate) fn builtin_copy_keymap_in_obarray(obarray: &Obarray, args: &[Value]) 
 }
 
 /// (define-key KEYMAP KEY DEF &optional REMOVE) -> DEF
-pub(super) fn builtin_define_key(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(super) fn builtin_define_key(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("define-key", &args, 3)?;
     expect_max_args("define-key", &args, 4)?;
     let keymap = expect_keymap(eval, &args[0])?;
@@ -277,10 +271,7 @@ pub(super) fn builtin_define_key(
 }
 
 /// (lookup-key KEYMAP KEY) -> binding or nil
-pub(super) fn builtin_lookup_key(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_lookup_key_in_obarray(eval.obarray(), &args)
 }
 
@@ -405,7 +396,6 @@ pub(super) fn builtin_use_local_map(
     Ok(Value::Nil)
 }
 
-
 /// (use-global-map KEYMAP)
 pub(super) fn builtin_use_global_map(
     eval: &mut super::eval::Context,
@@ -459,7 +449,7 @@ pub(super) fn builtin_current_active_maps(
 ) -> EvalResult {
     builtin_current_active_maps_in_state(
         &mut eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         eval.buffers.current_local_map(),
         &args,
     )
@@ -494,7 +484,7 @@ pub(super) fn builtin_current_minor_mode_maps(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_minor_mode_maps_in_state(eval.obarray(), eval.dynamic.as_slice(), &args)
+    builtin_current_minor_mode_maps_in_state(eval.obarray(), &[], &args)
 }
 
 pub(crate) fn builtin_current_minor_mode_maps_in_state(
@@ -518,7 +508,7 @@ pub(crate) fn builtin_current_minor_mode_maps_in_state(
 /// 2. `minor-mode-overriding-map-alist`
 /// 3. `minor-mode-map-alist` (entries already in overriding alist are skipped)
 fn collect_minor_mode_maps(eval: &super::eval::Context) -> Vec<Value> {
-    collect_minor_mode_maps_in_state(eval.obarray(), eval.dynamic.as_slice())
+    collect_minor_mode_maps_in_state(eval.obarray(), &[])
 }
 
 fn collect_minor_mode_maps_in_state(
@@ -587,13 +577,7 @@ fn collect_maps_from_alist(
     skip_if_in: Option<&Value>,
     maps: &mut Vec<Value>,
 ) {
-    collect_maps_from_alist_in_state(
-        eval.obarray(),
-        eval.dynamic.as_slice(),
-        alist,
-        skip_if_in,
-        maps,
-    )
+    collect_maps_from_alist_in_state(eval.obarray(), &[], alist, skip_if_in, maps)
 }
 
 fn collect_maps_from_alist_in_state(
@@ -731,10 +715,7 @@ pub(crate) fn execute_keymap_iteration_callbacks(
 ///
 /// Call FUNCTION for each binding in KEYMAP and its parents.
 /// FUNCTION receives two arguments: the event and the binding definition.
-pub(super) fn builtin_map_keymap(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(super) fn builtin_map_keymap(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("map-keymap", &args, 2)?;
     expect_max_args("map-keymap", &args, 3)?;
     let function = args[0];
@@ -1047,10 +1028,7 @@ pub(crate) fn builtin_key_description(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(recent-keys &optional INCLUDE-CMDS)` -> vector of recent input events.
-pub(crate) fn builtin_recent_keys(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_recent_keys(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_recent_keys_in_state(eval.recent_input_events(), args)
 }
 

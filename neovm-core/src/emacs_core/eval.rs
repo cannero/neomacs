@@ -568,8 +568,6 @@ pub struct Context {
     pub(crate) heap: Box<LispHeap>,
     /// The obarray — unified symbol table with value cells, function cells, plists.
     pub(crate) obarray: Obarray,
-    /// Dynamic binding stack (each frame is one `let`/function call scope).
-    pub(crate) dynamic: Vec<OrderedRuntimeBindingMap>,
     /// Specpdl — special binding stack that writes directly to the obarray.
     /// Matches GNU Emacs's specpdl design.
     pub(crate) specpdl: Vec<SpecBinding>,
@@ -1035,7 +1033,6 @@ fn lambda_arity_cons(params: &LambdaParams) -> Value {
 
 fn begin_lambda_call_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
@@ -1143,7 +1140,6 @@ fn begin_lambda_call_in_state(
 
 fn finish_lambda_call_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
@@ -1164,7 +1160,6 @@ fn finish_lambda_call_in_state(
 
 fn begin_macro_expansion_scope_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
     specpdl: &[SpecBinding],
     buffers: &mut BufferManager,
     custom: &CustomManager,
@@ -1206,7 +1201,6 @@ fn begin_macro_expansion_scope_in_state(
     obarray.set_symbol_value("lexical-binding", Value::bool(!lexenv.is_nil()));
     set_runtime_binding_in_state(
         obarray,
-        dynamic.as_mut_slice(),
         buffers,
         custom,
         specpdl,
@@ -1223,7 +1217,6 @@ fn begin_macro_expansion_scope_in_state(
 
 fn finish_macro_expansion_scope_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
     specpdl: &[SpecBinding],
     buffers: &mut BufferManager,
     custom: &CustomManager,
@@ -1232,7 +1225,6 @@ fn finish_macro_expansion_scope_in_state(
 ) {
     set_runtime_binding_in_state(
         obarray,
-        dynamic.as_mut_slice(),
         buffers,
         custom,
         specpdl,
@@ -1452,7 +1444,6 @@ impl Context {
             .set_symbol_value("most-positive-fixnum", Value::Int(i64::MAX >> 2));
         ev.obarray
             .set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
-        ev.dynamic.clear();
         ev.specpdl.clear();
         ev.lexenv = Value::Nil;
         ev.features.clear();
@@ -2892,7 +2883,6 @@ impl Context {
             interner,
             heap,
             obarray,
-            dynamic: Vec::new(),
             specpdl: Vec::new(),
             lexenv: Value::Nil,
             features: Vec::new(),
@@ -2979,7 +2969,6 @@ impl Context {
         interner: Box<StringInterner>,
         heap: Box<LispHeap>,
         obarray: Obarray,
-        dynamic: Vec<OrderedRuntimeBindingMap>,
         lexenv: Value,
         features: Vec<SymId>,
         require_stack: Vec<SymId>,
@@ -3005,7 +2994,6 @@ impl Context {
             interner,
             heap,
             obarray,
-            dynamic,
             specpdl: Vec::new(),
             lexenv,
             features,
@@ -3097,9 +3085,6 @@ impl Context {
         roots.extend(self.catch_tags.iter().cloned());
         roots.extend(self.recent_input_events.iter().cloned());
         roots.extend(self.read_command_keys.iter().cloned());
-        for scope in &self.dynamic {
-            roots.extend(scope.values().cloned());
-        }
         // Root old_value entries on the specpdl so GC doesn't collect them.
         for entry in &self.specpdl {
             match entry {
@@ -4730,7 +4715,6 @@ impl Context {
     ) -> Result<ActiveLambdaCallState, Flow> {
         begin_lambda_call_in_state(
             &mut self.obarray,
-            &mut self.dynamic,
             &mut self.specpdl,
             &mut self.lexenv,
             &mut self.saved_lexenvs,
@@ -4744,7 +4728,6 @@ impl Context {
     pub(crate) fn finish_lambda_call(&mut self, state: ActiveLambdaCallState) {
         finish_lambda_call_in_state(
             &mut self.obarray,
-            &mut self.dynamic,
             &mut self.specpdl,
             &mut self.lexenv,
             &mut self.saved_lexenvs,
@@ -4838,21 +4821,13 @@ impl Context {
     ) {
         let Self {
             obarray,
-            dynamic,
             buffers,
             frames,
             threads,
             current_message,
             ..
         } = self;
-        (
-            obarray,
-            dynamic.as_slice(),
-            buffers,
-            frames,
-            threads,
-            current_message,
-        )
+        (obarray, &[], buffers, frames, threads, current_message)
     }
 
     /// Public read access to the face table.
@@ -7751,7 +7726,6 @@ impl Context {
     ) -> Result<T, Flow> {
         let state = begin_macro_expansion_scope_in_state(
             &mut self.obarray,
-            &mut self.dynamic,
             &self.specpdl,
             &mut self.buffers,
             &self.custom,
@@ -7761,7 +7735,6 @@ impl Context {
         let result = f(self);
         finish_macro_expansion_scope_in_state(
             &mut self.obarray,
-            &mut self.dynamic,
             &self.specpdl,
             &mut self.buffers,
             &self.custom,
@@ -7995,7 +7968,6 @@ pub(crate) fn unbind_to_in_state(
 
 pub(crate) fn set_runtime_binding_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     custom: &CustomManager,
     specpdl: &[SpecBinding],
@@ -8038,7 +8010,6 @@ pub(crate) fn set_runtime_binding_in_state(
 
 pub(crate) fn makunbound_runtime_binding_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     custom: &CustomManager,
     _specpdl: &[SpecBinding],
@@ -8183,7 +8154,6 @@ impl Context {
     pub(crate) fn begin_macro_expansion_scope(&mut self) -> ActiveMacroExpansionScopeState {
         begin_macro_expansion_scope_in_state(
             &mut self.obarray,
-            &mut self.dynamic,
             &self.specpdl,
             &mut self.buffers,
             &self.custom,
@@ -8195,7 +8165,6 @@ impl Context {
     pub(crate) fn finish_macro_expansion_scope(&mut self, state: ActiveMacroExpansionScopeState) {
         finish_macro_expansion_scope_in_state(
             &mut self.obarray,
-            &mut self.dynamic,
             &self.specpdl,
             &mut self.buffers,
             &self.custom,
@@ -8212,7 +8181,6 @@ impl Context {
         &mut self,
     ) -> (
         &mut Obarray,
-        &mut Vec<OrderedRuntimeBindingMap>,
         &mut BufferManager,
         &mut FrameManager,
         &mut ThreadManager,
@@ -8220,7 +8188,6 @@ impl Context {
     ) {
         (
             &mut self.obarray,
-            &mut self.dynamic,
             &mut self.buffers,
             &mut self.frames,
             &mut self.threads,
@@ -8270,7 +8237,6 @@ impl Context {
 
         set_runtime_binding_in_state(
             &mut self.obarray,
-            self.dynamic.as_mut_slice(),
             &mut self.buffers,
             &self.custom,
             &self.specpdl,
@@ -8290,7 +8256,6 @@ impl Context {
     ) -> Option<crate::buffer::BufferId> {
         set_runtime_binding_in_state(
             &mut self.obarray,
-            self.dynamic.as_mut_slice(),
             &mut self.buffers,
             &self.custom,
             &self.specpdl,
@@ -8302,7 +8267,6 @@ impl Context {
     pub(crate) fn makunbound_runtime_binding_by_id(&mut self, sym_id: SymId) {
         makunbound_runtime_binding_in_state(
             &mut self.obarray,
-            self.dynamic.as_mut_slice(),
             &mut self.buffers,
             &self.custom,
             &[],

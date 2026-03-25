@@ -342,7 +342,7 @@ pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
 }
 
 pub(crate) fn builtin_boundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_boundp_in_state(eval.obarray(), eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_boundp_in_state(eval.obarray(), &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_boundp_in_state(
@@ -611,7 +611,7 @@ pub(crate) fn builtin_symbol_value(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_symbol_value_in_state(eval.obarray(), eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_symbol_value_in_state(eval.obarray(), &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_symbol_value_in_state(
@@ -725,8 +725,7 @@ pub(crate) fn builtin_function_get(
             break;
         }
         // Check fboundp
-        if eval.obarray.symbol_function_id(sym_id).is_none()
-        {
+        if eval.obarray.symbol_function_id(sym_id).is_none() {
             break;
         }
         let fundef =
@@ -905,10 +904,7 @@ pub(crate) fn would_create_function_alias_cycle_in_obarray(
     }
 }
 
-pub(crate) fn builtin_makunbound(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_makunbound(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("makunbound", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id(eval, symbol)?;
@@ -971,10 +967,7 @@ pub(crate) fn builtin_defconst_1_eval(
     Ok(Value::Symbol(symbol))
 }
 
-pub(crate) fn builtin_fmakunbound(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_fmakunbound(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_fmakunbound_in_obarray(eval.obarray_mut(), args)
 }
 
@@ -2344,10 +2337,7 @@ pub(super) fn resolve_indirect_symbol(eval: &super::eval::Context, name: &str) -
     resolve_indirect_symbol_with_name(eval, name).map(|(_, value)| value)
 }
 
-pub(crate) fn builtin_macrop_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_macrop_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("macrop", &args, 1)?;
     if let Some(symbol) = symbol_id(&args[0]) {
         if is_canonical_symbol_id(symbol) {
@@ -2447,10 +2437,7 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
     Ok(Value::symbol(name))
 }
 
-pub(crate) fn builtin_intern_soft(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_intern_soft(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if let Some(obarray) = args.get(1).filter(|v| !v.is_nil()) {
         if is_global_obarray_proxy(eval, obarray) {
             let mut global_args = args;
@@ -3131,15 +3118,9 @@ pub(super) fn fontset_list_value() -> Value {
 
 fn dynamic_or_global_symbol_value_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     name: &str,
 ) -> Option<Value> {
-    let name_id = intern(name);
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return Some(*value);
-        }
-    }
     obarray.symbol_value(name).copied()
 }
 
@@ -3177,7 +3158,7 @@ pub(crate) fn builtin_new_fontset_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_new_fontset_in_state(eval.obarray(), eval.dynamic.as_slice(), args)
+    builtin_new_fontset_in_state(eval.obarray(), &[], args)
 }
 
 pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
@@ -3486,7 +3467,7 @@ pub(crate) fn builtin_set_fontset_font_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_fontset_font_in_state(eval.obarray(), eval.dynamic.as_slice(), args)
+    builtin_set_fontset_font_in_state(eval.obarray(), &[], args)
 }
 
 pub(crate) fn builtin_set_frame_window_state_change(args: Vec<Value>) -> EvalResult {
@@ -3943,7 +3924,7 @@ pub(crate) fn builtin_xw_display_color_p_eval(
     if super::super::display::display_window_system_symbol_in_state(
         &eval.frames,
         &eval.obarray,
-        &eval.dynamic,
+        &[],
         args.first(),
     )?
     .is_some_and(super::super::display::gui_window_system_active_value)

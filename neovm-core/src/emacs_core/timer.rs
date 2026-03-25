@@ -414,10 +414,7 @@ fn expect_timer_id(value: &Value) -> Result<TimerId, Flow> {
 /// (run-at-time TIME REPEAT FUNCTION &rest ARGS) -> timer
 ///
 /// TIME is seconds from now (float or int). REPEAT is nil or seconds.
-pub(crate) fn builtin_run_at_time(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_run_at_time(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("run-at-time", &args, 3)?;
     let delay = parse_run_at_time_delay(&args[0])?;
     let repeat = if args[1].is_nil() {
@@ -439,10 +436,7 @@ pub(crate) fn builtin_run_at_time(
 /// Legacy timeout helper used by some runtime paths. In batch mode oracle
 /// accepts any non-nil REPEAT marker and signals an "Invalid or uninitialized
 /// timer" error when REPEAT is nil.
-pub(crate) fn builtin_add_timeout(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_add_timeout(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("add-timeout", &args, 3)?;
     if args.len() > 4 {
         return Err(signal(
@@ -566,10 +560,7 @@ pub(crate) fn builtin_timer_activate(
 /// Sleep for the given duration, but poll process output every 50ms so that
 /// subprocess filters/sentinels run promptly (matching GNU Emacs behavior
 /// where `sleep-for` services process output while waiting).
-pub(crate) fn builtin_sleep_for(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("sleep-for", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(

@@ -28,10 +28,7 @@ fn x_window_system_active_falls_back_to_window_system_when_initial_is_nil() {
     eval.set_variable("window-system", Value::symbol(gui_window_system_symbol()));
 
     assert!(x_window_system_active(&eval));
-    assert!(x_window_system_active_in_state(
-        &eval.obarray,
-        &eval.dynamic
-    ));
+    assert!(x_window_system_active_in_state(&eval.obarray, &[]));
 }
 
 #[test]
@@ -1981,48 +1978,6 @@ fn x_clipboard_input_context_batch_semantics() {
         "Window system frame should be used",
     );
     assert_wrong_number(builtin_x_wm_set_size_hint(vec![Value::Nil, Value::Nil]));
-}
-
-#[test]
-fn x_win_suspend_error_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "x-win-suspend-error"
-    ));
-}
-
-#[test]
-fn x_clipboard_yank_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "x-clipboard-yank"
-    ));
-}
-
-#[test]
-fn x_clear_preedit_text_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "x-clear-preedit-text"
-    ));
-}
-
-#[test]
-fn x_preedit_text_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "x-preedit-text"
-    ));
-}
-
-#[test]
-fn x_device_class_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "x-device-class"
-    ));
-}
-
-#[test]
-fn x_get_input_coding_system_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "x-get-input-coding-system"
-    ));
 }
 
 #[test]

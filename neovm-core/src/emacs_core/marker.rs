@@ -601,10 +601,7 @@ pub(crate) fn builtin_copy_marker_in_buffers(
 /// Set the position and (optionally) the buffer of MARKER.  If POSITION is
 /// nil, the marker is unset (points nowhere).  BUFFER defaults to the current
 /// buffer.
-pub(crate) fn builtin_set_marker(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_set_marker(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_set_marker_in_buffers(&mut eval.buffers, args)
 }
 
@@ -723,10 +720,7 @@ pub(crate) fn builtin_set_marker_in_buffers(
 /// GNU Emacs exposes `move-marker` as the marker-moving primitive used by
 /// Lisp code such as `indent.el`. Its observable behavior matches
 /// `set-marker`, so reuse that implementation.
-pub(crate) fn builtin_move_marker(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_move_marker(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_move_marker_in_buffers(&mut eval.buffers, args)
 }
 
@@ -857,10 +851,7 @@ pub(crate) fn builtin_point_max_marker_in_buffers(
 }
 
 /// (mark-marker) -> marker at mark, or error if no mark set
-pub(crate) fn builtin_mark_marker(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_mark_marker(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_mark_marker_in_buffers(&eval.buffers, args)
 }
 

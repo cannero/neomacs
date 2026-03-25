@@ -296,13 +296,6 @@ fn gnu_sit_for_matches_subr_el() {
 }
 
 #[test]
-fn sit_for_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "sit-for"
-    ));
-}
-
-#[test]
 fn test_builtin_sleep_for() {
     use super::super::eval::Context;
 

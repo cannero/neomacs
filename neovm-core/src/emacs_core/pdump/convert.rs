@@ -1290,7 +1290,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         interner: dump_interner(&eval.interner),
         heap: dump_heap(&eval.heap),
         obarray: dump_obarray(&eval.obarray),
-        dynamic: eval.dynamic.iter().map(dump_ordered_sym_map).collect(),
+        dynamic: Vec::new(),
         lexenv: dump_value(&eval.lexenv),
         features: eval.features.iter().map(|s| s.0).collect(),
         require_stack: eval.require_stack.iter().map(|s| s.0).collect(),

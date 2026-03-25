@@ -514,10 +514,7 @@ pub(crate) fn builtin_signal(args: Vec<Value>) -> EvalResult {
 /// Eval-aware `signal` — checks error hierarchy and converts
 /// unregistered error symbols to `(error "Invalid error symbol" SYM)`,
 /// matching GNU eval.c:1949-1951.
-pub(crate) fn builtin_signal_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_signal_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",

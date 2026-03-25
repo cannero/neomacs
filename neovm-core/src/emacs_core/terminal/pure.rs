@@ -367,7 +367,6 @@ pub(crate) fn builtin_terminal_name_eval(
     Ok(Value::string(TERMINAL_NAME))
 }
 
-
 /// (terminal-list) -> list containing one opaque terminal handle.
 pub(crate) fn builtin_terminal_list(args: Vec<Value>) -> EvalResult {
     expect_max_args("terminal-list", &args, 0)?;
@@ -409,7 +408,6 @@ pub(crate) fn builtin_frame_terminal_eval(
     Ok(terminal_handle_value())
 }
 
-
 /// (terminal-live-p TERMINAL) -> t
 pub(crate) fn builtin_terminal_live_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("terminal-live-p", &args, 1, 1)?;
@@ -439,7 +437,6 @@ pub(crate) fn builtin_terminal_live_p_eval(
     }
 }
 
-
 /// (terminal-parameter TERMINAL PARAMETER) -> value
 pub(crate) fn builtin_terminal_parameter(args: Vec<Value>) -> EvalResult {
     expect_args("terminal-parameter", &args, 2)?;
@@ -460,7 +457,6 @@ pub(crate) fn builtin_terminal_parameter_eval(
     let key = expect_symbol_key(&args[1])?;
     TERMINAL_PARAMS.with(|slot| Ok(lookup_terminal_parameter_value(&slot.borrow(), &key)))
 }
-
 
 /// (terminal-parameters &optional TERMINAL) -> alist of terminal parameters
 pub(crate) fn builtin_terminal_parameters(args: Vec<Value>) -> EvalResult {
@@ -494,7 +490,6 @@ pub(crate) fn builtin_terminal_parameters_eval(
         Ok(make_alist(merged))
     })
 }
-
 
 /// (set-terminal-parameter TERMINAL PARAMETER VALUE) -> previous value
 pub(crate) fn builtin_set_terminal_parameter(args: Vec<Value>) -> EvalResult {
@@ -550,7 +545,6 @@ pub(crate) fn builtin_set_terminal_parameter_eval(
         Ok(previous)
     })
 }
-
 
 // ---------------------------------------------------------------------------
 // TTY builtins (we are not a TTY, so these return nil)
@@ -625,7 +619,6 @@ pub(crate) fn builtin_tty_top_frame_eval(
     })
 }
 
-
 /// (tty-display-color-p &optional TERMINAL) -> nil
 pub(crate) fn builtin_tty_display_color_p(args: Vec<Value>) -> EvalResult {
     expect_max_args("tty-display-color-p", &args, 1)?;
@@ -646,7 +639,6 @@ pub(crate) fn builtin_tty_display_color_p_eval(
     }
     Ok(Value::bool(terminal_runtime().supports_color()))
 }
-
 
 /// (tty-display-color-cells &optional TERMINAL) -> 0
 pub(crate) fn builtin_tty_display_color_cells(args: Vec<Value>) -> EvalResult {
@@ -669,7 +661,6 @@ pub(crate) fn builtin_tty_display_color_cells_eval(
     Ok(Value::Int(terminal_runtime().color_cells))
 }
 
-
 /// (tty-no-underline &optional TERMINAL) -> nil
 pub(crate) fn builtin_tty_no_underline(args: Vec<Value>) -> EvalResult {
     expect_max_args("tty-no-underline", &args, 1)?;
@@ -691,7 +682,6 @@ pub(crate) fn builtin_tty_no_underline_eval(
     Ok(Value::Nil)
 }
 
-
 /// (controlling-tty-p &optional TERMINAL) -> nil
 pub(crate) fn builtin_controlling_tty_p(args: Vec<Value>) -> EvalResult {
     expect_max_args("controlling-tty-p", &args, 1)?;
@@ -712,7 +702,6 @@ pub(crate) fn builtin_controlling_tty_p_eval(
     }
     Ok(Value::bool(terminal_runtime().controlling_tty))
 }
-
 
 /// (suspend-tty &optional TTY) -> error in GUI/non-text terminal context.
 pub(crate) fn builtin_suspend_tty(args: Vec<Value>) -> EvalResult {

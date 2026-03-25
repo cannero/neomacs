@@ -218,7 +218,7 @@ fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer(
 
     let rendered = builtin_format_mode_line_in_state(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         &eval.frames,
         &mut eval.buffers,
         &eval.processes,
@@ -279,7 +279,7 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
 
     let rendered = finish_format_mode_line_in_state_with_eval(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         &eval.frames,
         &mut eval.buffers,
         &eval.processes,
@@ -352,7 +352,7 @@ fn test_format_mode_line_string_valued_symbols_render_literally() {
 
     let rendered = builtin_format_mode_line_in_state(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         &eval.frames,
         &mut eval.buffers,
         &eval.processes,
@@ -376,7 +376,7 @@ fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
 
     let rendered = builtin_format_mode_line_in_state(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         &eval.frames,
         &mut eval.buffers,
         &eval.processes,
@@ -404,7 +404,7 @@ fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics()
 
     let rendered = builtin_format_mode_line_in_state(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         &eval.frames,
         &mut eval.buffers,
         &eval.processes,

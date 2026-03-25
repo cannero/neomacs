@@ -1618,10 +1618,7 @@ pub(crate) fn modify_syntax_entry_in_buffers(
 }
 
 /// `(char-syntax CHAR)` — return the syntax class designator char.
-pub(crate) fn builtin_char_syntax(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_char_syntax(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_char_syntax_in_buffers(&eval.buffers, args)
 }
 
@@ -2502,10 +2499,7 @@ pub(crate) fn builtin_backward_sexp(
 /// `(scan-lists FROM COUNT DEPTH)` — scan across balanced expressions.
 ///
 /// This uses the same core scanner as `forward-sexp`/`backward-sexp`.
-pub(crate) fn builtin_scan_lists(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scan_lists(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_scan_lists_in_manager(&eval.buffers, args)
 }
 
@@ -2564,10 +2558,7 @@ pub(crate) fn builtin_scan_lists_in_manager(
 }
 
 /// `(scan-sexps FROM COUNT)` — scan over COUNT sexps from FROM.
-pub(crate) fn builtin_scan_sexps(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scan_sexps(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_scan_sexps_in_manager(&eval.buffers, args)
 }
 
@@ -3164,10 +3155,7 @@ pub(crate) fn builtin_parse_partial_sexp_in_manager(
 }
 
 /// `(syntax-ppss &optional POS)` — parser state at POS.
-pub(crate) fn builtin_syntax_ppss(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_syntax_ppss_in_manager(&eval.buffers, args)
 }
 

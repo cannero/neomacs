@@ -5,7 +5,7 @@ pub(crate) fn builtin_get_pos_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_pos_property_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+    builtin_get_pos_property_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_get_pos_property_in_state(
@@ -472,7 +472,6 @@ pub(crate) fn builtin_provide(eval: &mut super::eval::Context, args: Vec<Value>)
     eval.provide_value(args[0], args.get(1).cloned())
 }
 
-
 pub(crate) fn builtin_require(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("require", &args, 1, 3)?;
     eval.require_value(args[0], args.get(1).cloned(), args.get(2).cloned())
@@ -564,20 +563,14 @@ pub(super) fn dynamic_or_global_symbol_value(
     eval: &super::eval::Context,
     name: &str,
 ) -> Option<Value> {
-    dynamic_or_global_symbol_value_in_state(&eval.obarray, &eval.dynamic, name)
+    eval.obarray.symbol_value(name).cloned()
 }
 
 pub(super) fn dynamic_or_global_symbol_value_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     name: &str,
 ) -> Option<Value> {
-    let name_id = intern(name);
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return Some(*value);
-        }
-    }
     obarray.symbol_value(name).cloned()
 }
 
@@ -682,15 +675,6 @@ pub(super) fn buffer_read_only_active(
     eval: &super::eval::Context,
     buf: &crate::buffer::Buffer,
 ) -> bool {
-    let inhibit_name_id = intern("inhibit-read-only");
-    for frame in eval.dynamic.iter().rev() {
-        if let Some(value) = frame.get(&inhibit_name_id)
-            && value.is_truthy()
-        {
-            return false;
-        }
-    }
-
     if let Some(value) = buf.get_buffer_local("inhibit-read-only")
         && value.is_truthy()
     {
@@ -709,13 +693,6 @@ pub(super) fn buffer_read_only_active(
         return true;
     }
 
-    let name_id = intern("buffer-read-only");
-    for frame in eval.dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return value.is_truthy();
-        }
-    }
-
     if let Some(value) = buf.get_buffer_local("buffer-read-only") {
         return value.is_truthy();
     }
@@ -729,7 +706,7 @@ pub(crate) fn builtin_barf_if_buffer_read_only(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_barf_if_buffer_read_only_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+    builtin_barf_if_buffer_read_only_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_barf_if_buffer_read_only_in_state(
@@ -1229,16 +1206,13 @@ pub(crate) fn builtin_prin1(args: Vec<Value>) -> EvalResult {
     Ok(args[0])
 }
 
-pub(crate) fn builtin_princ_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_princ_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("princ", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
         return builtin_princ_in_state(
             &eval.obarray,
-            &eval.dynamic,
+            &[],
             &mut eval.buffers,
             &eval.frames,
             &eval.threads,
@@ -1276,16 +1250,13 @@ pub(crate) fn builtin_princ_in_state(
     Ok(args[0])
 }
 
-pub(crate) fn builtin_prin1_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_prin1_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("prin1", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
         return builtin_prin1_in_state(
             &eval.obarray,
-            &eval.dynamic,
+            &[],
             &mut eval.buffers,
             &eval.frames,
             &eval.threads,
@@ -1366,16 +1337,13 @@ pub(crate) fn builtin_terpri(args: Vec<Value>) -> EvalResult {
     Ok(Value::True)
 }
 
-pub(crate) fn builtin_print_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_print_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("print", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
         return builtin_print_in_state(
             &eval.obarray,
-            &eval.dynamic,
+            &[],
             &mut eval.buffers,
             &eval.frames,
             &eval.threads,
@@ -1421,16 +1389,10 @@ pub(crate) fn builtin_print_in_state(
     Ok(args[0])
 }
 
-pub(crate) fn builtin_terpri_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    if let Some(result) = builtin_terpri_in_state(
-        &eval.obarray,
-        &eval.dynamic,
-        &mut eval.buffers,
-        args.clone(),
-    )? {
+pub(crate) fn builtin_terpri_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) =
+        builtin_terpri_in_state(&eval.obarray, &[], &mut eval.buffers, args.clone())?
+    {
         return Ok(result);
     }
     finish_terpri_in_eval(eval, &args)
@@ -1451,10 +1413,7 @@ pub(crate) fn builtin_terpri_in_state(
     Ok(None)
 }
 
-pub(crate) fn finish_terpri_in_eval(
-    eval: &mut super::eval::Context,
-    args: &[Value],
-) -> EvalResult {
+pub(crate) fn finish_terpri_in_eval(eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
     expect_max_args("terpri", args, 2)?;
     let target = resolve_print_target(eval, args.first());
     write_terpri_output(eval, target)?;
@@ -1481,12 +1440,9 @@ pub(crate) fn builtin_write_char_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    if let Some(result) = builtin_write_char_in_state(
-        &eval.obarray,
-        &eval.dynamic,
-        &mut eval.buffers,
-        args.clone(),
-    )? {
+    if let Some(result) =
+        builtin_write_char_in_state(&eval.obarray, &[], &mut eval.buffers, args.clone())?
+    {
         return Ok(result);
     }
     finish_write_char_in_eval(eval, &args)

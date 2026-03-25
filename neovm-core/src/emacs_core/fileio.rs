@@ -986,14 +986,6 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
 }
 
 fn temporary_file_directory_for_eval(eval: &Context) -> Option<String> {
-    let name_id = intern("temporary-file-directory");
-    for frame in eval.dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            if let Value::Str(id) = value {
-                return Some(with_heap(|h| h.get_string(*id).to_owned()));
-            }
-        }
-    }
     match eval.obarray.symbol_value("temporary-file-directory") {
         Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
@@ -1167,7 +1159,7 @@ pub(crate) fn builtin_expand_file_name_in_state(
 }
 
 pub(crate) fn builtin_expand_file_name_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_expand_file_name_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_expand_file_name_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (make-temp-file PREFIX &optional DIR-FLAG SUFFIX TEXT) -> string
@@ -1371,7 +1363,7 @@ pub(crate) fn builtin_file_truename_in_state(
 }
 
 pub(crate) fn builtin_file_truename_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_truename_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_truename_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-name-directory FILENAME) -> string or nil
@@ -1455,18 +1447,9 @@ pub(crate) fn builtin_substitute_in_file_name(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn default_directory_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
 ) -> Option<String> {
-    let name_id = intern("default-directory");
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return match value {
-                Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-                _ => None,
-            };
-        }
-    }
     if let Some(buf) = buffers.current_buffer()
         && let Some(Value::Str(id)) = buf.get_buffer_local("default-directory")
     {
@@ -1479,7 +1462,7 @@ pub(crate) fn default_directory_in_state(
 }
 
 fn default_directory_for_eval(eval: &Context) -> Option<String> {
-    default_directory_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers)
+    default_directory_in_state(&eval.obarray, &[], &eval.buffers)
 }
 
 pub(crate) fn resolve_filename_in_state(
@@ -1496,12 +1479,7 @@ pub(crate) fn resolve_filename_in_state(
 }
 
 pub(crate) fn resolve_filename_for_eval(eval: &Context, filename: &str) -> String {
-    resolve_filename_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        filename,
-    )
+    resolve_filename_in_state(&eval.obarray, &[], &eval.buffers, filename)
 }
 
 fn file_error_symbol(kind: ErrorKind) -> &'static str {
@@ -1651,7 +1629,7 @@ pub(crate) fn builtin_access_file_in_state(
 }
 
 pub(crate) fn builtin_access_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_access_file_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_access_file_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-exists-p FILENAME) -> t or nil
@@ -1676,7 +1654,7 @@ pub(crate) fn builtin_file_exists_p_in_state(
 }
 
 pub(crate) fn builtin_file_exists_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_exists_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_exists_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-readable-p FILENAME) -> t or nil
@@ -1701,7 +1679,7 @@ pub(crate) fn builtin_file_readable_p_in_state(
 }
 
 pub(crate) fn builtin_file_readable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_readable_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_readable_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-writable-p FILENAME) -> t or nil
@@ -1726,7 +1704,7 @@ pub(crate) fn builtin_file_writable_p_in_state(
 }
 
 pub(crate) fn builtin_file_writable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_writable_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_writable_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-accessible-directory-p FILENAME) -> t or nil
@@ -1754,12 +1732,7 @@ pub(crate) fn builtin_file_accessible_directory_p_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_file_accessible_directory_p_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+    builtin_file_accessible_directory_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-executable-p FILENAME) -> t or nil
@@ -1784,7 +1757,7 @@ pub(crate) fn builtin_file_executable_p_in_state(
 }
 
 pub(crate) fn builtin_file_executable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_executable_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_executable_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-acl FILENAME) -> ACL string or nil
@@ -1807,7 +1780,7 @@ pub(crate) fn builtin_file_acl_in_state(
 
 /// Context-aware variant of `file-acl`.
 pub(crate) fn builtin_file_acl_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_acl_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_acl_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-acl FILENAME ACL) -> nil
@@ -1817,7 +1790,6 @@ pub(crate) fn builtin_set_file_acl(args: Vec<Value>) -> EvalResult {
     let _acl = &args[1];
     Ok(Value::Nil)
 }
-
 
 /// (file-locked-p FILENAME) -> locker info or nil
 pub(crate) fn builtin_file_locked_p(args: Vec<Value>) -> EvalResult {
@@ -1841,7 +1813,7 @@ pub(crate) fn builtin_file_locked_p_in_state(
 }
 
 pub(crate) fn builtin_file_locked_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_locked_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_locked_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-selinux-context FILENAME) -> (user role type range)
@@ -1874,13 +1846,11 @@ pub(crate) fn builtin_file_selinux_context_in_state(
 }
 
 /// Context-aware variant of `file-selinux-context`.
-pub(crate) fn builtin_file_selinux_context_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_selinux_context_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+pub(crate) fn builtin_file_selinux_context_eval(
+    eval: &mut Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_file_selinux_context_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-selinux-context FILENAME CONTEXT) -> nil
@@ -1890,7 +1860,6 @@ pub(crate) fn builtin_set_file_selinux_context(args: Vec<Value>) -> EvalResult {
     let _context = &args[1];
     Ok(Value::Nil)
 }
-
 
 /// (file-system-info PATH) -> (total free avail) in bytes
 pub(crate) fn builtin_file_system_info(args: Vec<Value>) -> EvalResult {
@@ -1924,7 +1893,7 @@ pub(crate) fn builtin_file_system_info_in_state(
 }
 
 pub(crate) fn builtin_file_system_info_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_system_info_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_system_info_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-directory-p FILENAME) -> t or nil
@@ -1949,7 +1918,7 @@ pub(crate) fn builtin_file_directory_p_in_state(
 }
 
 pub(crate) fn builtin_file_directory_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_directory_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_directory_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-regular-p FILENAME) -> t or nil
@@ -1974,7 +1943,7 @@ pub(crate) fn builtin_file_regular_p_in_state(
 }
 
 pub(crate) fn builtin_file_regular_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_regular_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_regular_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-symlink-p FILENAME) -> t or nil
@@ -1999,7 +1968,7 @@ pub(crate) fn builtin_file_symlink_p_in_state(
 }
 
 pub(crate) fn builtin_file_symlink_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_symlink_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_symlink_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-name-case-insensitive-p FILENAME) -> t or nil
@@ -2028,12 +1997,7 @@ pub(crate) fn builtin_file_name_case_insensitive_p_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_file_name_case_insensitive_p_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+    builtin_file_name_case_insensitive_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-newer-than-file-p FILE1 FILE2) -> t or nil
@@ -2066,12 +2030,7 @@ pub(crate) fn builtin_file_newer_than_file_p_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_file_newer_than_file_p_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+    builtin_file_newer_than_file_p_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-modes FILENAME &optional FLAG) -> integer or nil
@@ -2114,7 +2073,7 @@ pub(crate) fn builtin_file_modes_in_state(
 /// Context-aware variant of `file-modes` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_file_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_modes_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_modes_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-modes FILENAME MODE &optional FLAG) -> nil
@@ -2193,7 +2152,7 @@ pub(crate) fn builtin_set_file_modes_in_state(
 /// Context-aware variant of `set-file-modes` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_set_file_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_set_file_modes_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_set_file_modes_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-times FILENAME &optional TIMESTAMP FLAG) -> t
@@ -2252,7 +2211,7 @@ pub(crate) fn builtin_set_file_times_in_state(
 /// Context-aware variant of `set-file-times` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_set_file_times_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_set_file_times_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_set_file_times_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 fn validate_optional_buffer_arg_in_state(
@@ -2314,10 +2273,7 @@ pub(crate) fn builtin_verify_visited_file_modtime(
 }
 
 /// (set-visited-file-modtime &optional TIME-LIST) -> nil
-pub(crate) fn builtin_set_visited_file_modtime(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_set_visited_file_modtime(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_set_visited_file_modtime_in_state(&eval.buffers, args)
 }
 
@@ -2430,13 +2386,11 @@ pub(crate) fn builtin_delete_file_internal_in_state(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_delete_file_internal_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_delete_file_internal_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+pub(crate) fn builtin_delete_file_internal_eval(
+    eval: &mut Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_delete_file_internal_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (delete-directory DIRECTORY &optional RECURSIVE TRASH) -> nil
@@ -2491,12 +2445,7 @@ pub(crate) fn builtin_delete_directory_internal_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_delete_directory_internal_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+    builtin_delete_directory_internal_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// Context-aware variant of `delete-directory` that resolves relative paths
@@ -2611,7 +2560,7 @@ pub(crate) fn builtin_make_symbolic_link_in_state(
 }
 
 pub(crate) fn builtin_make_symbolic_link_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_make_symbolic_link_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_make_symbolic_link_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (rename-file FROM TO) -> nil
@@ -2684,7 +2633,7 @@ pub(crate) fn builtin_rename_file_in_state(
 }
 
 pub(crate) fn builtin_rename_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_rename_file_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_rename_file_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (copy-file FROM TO) -> nil
@@ -2749,7 +2698,7 @@ pub(crate) fn builtin_copy_file_in_state(
 }
 
 pub(crate) fn builtin_copy_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_copy_file_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_copy_file_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (add-name-to-file OLDNAME NEWNAME &optional OK-IF-ALREADY-EXISTS) -> nil
@@ -2809,7 +2758,7 @@ pub(crate) fn builtin_add_name_to_file_in_state(
 }
 
 pub(crate) fn builtin_add_name_to_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_add_name_to_file_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_add_name_to_file_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (make-directory-internal DIR) -> nil
@@ -2839,12 +2788,7 @@ pub(crate) fn builtin_make_directory_internal_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_make_directory_internal_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+    builtin_make_directory_internal_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (find-file-name-handler FILENAME OPERATION) -> handler or nil
@@ -2873,12 +2817,7 @@ pub(crate) fn builtin_find_file_name_handler_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_find_file_name_handler_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+    builtin_find_file_name_handler_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (directory-files DIR &optional FULL MATCH NOSORT COUNT) -> list of strings
@@ -2975,7 +2914,7 @@ pub(crate) fn builtin_directory_files_in_state(
 }
 
 pub(crate) fn builtin_directory_files_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_directory_files_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_directory_files_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 // ===========================================================================
@@ -3225,12 +3164,7 @@ pub(crate) fn builtin_insert_file_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_file_contents_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &mut eval.buffers,
-        args,
-    )
+    builtin_insert_file_contents_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_write_region_in_state(
@@ -3297,12 +3231,7 @@ pub(crate) fn builtin_write_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_write_region_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &mut eval.buffers,
-        args,
-    )
+    builtin_write_region_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 /// (find-file-noselect FILENAME &optional NOWARN RAWFILE) -> buffer

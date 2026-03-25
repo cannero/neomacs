@@ -212,17 +212,6 @@ impl OrderedRuntimeBindingMap {
     }
 }
 
-pub fn lookup_runtime_binding(
-    dynamic: &[OrderedRuntimeBindingMap],
-    key: SymId,
-) -> Option<RuntimeBindingValue> {
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get_binding(&key) {
-            return Some(*value);
-        }
-    }
-    None
-}
 use crate::gc::heap::LispHeap;
 use crate::gc::types::ObjId;
 

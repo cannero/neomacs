@@ -6,30 +6,16 @@ use crate::emacs_core::symbol::Obarray;
 // Hook system
 // ===========================================================================
 
-fn symbol_dynamic_buffer_or_global_value(
-    eval: &super::eval::Context,
-    name: &str,
-) -> Option<Value> {
-    symbol_dynamic_buffer_or_global_value_in_state(
-        eval.obarray(),
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        name,
-    )
+fn symbol_dynamic_buffer_or_global_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
+    symbol_dynamic_buffer_or_global_value_in_state(eval.obarray(), &[], &eval.buffers, name)
 }
 
 pub(crate) fn symbol_dynamic_buffer_or_global_value_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     name: &str,
 ) -> Option<Value> {
-    let name_id = intern(name);
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return Some(*value);
-        }
-    }
     if let Some(buf) = buffers.current_buffer()
         && let Some(value) = buf.get_buffer_local(name)
     {

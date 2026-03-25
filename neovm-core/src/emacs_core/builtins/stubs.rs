@@ -1545,7 +1545,6 @@ pub(crate) fn builtin_font_at(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-
 pub(crate) fn builtin_font_face_attributes(args: Vec<Value>) -> EvalResult {
     expect_range_args("font-face-attributes", &args, 1, 2)?;
     if !is_font_object(&args[0]) {

@@ -353,10 +353,7 @@ fn generated_make_obsolete_variable(
     Ok(obsolete_name)
 }
 
-fn generated_defalias(
-    eval: &mut super::eval::Context,
-    args: &[Expr],
-) -> Result<Value, EvalError> {
+fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<Value, EvalError> {
     if !(2..=3).contains(&args.len()) {
         return Err(EvalError::Signal {
             symbol: intern("wrong-number-of-arguments"),
@@ -919,10 +916,7 @@ impl CacheExprDecoder {
     }
 }
 
-fn sync_interner_growth(
-    live_eval: &mut super::eval::Context,
-    working_eval: &super::eval::Context,
-) {
+fn sync_interner_growth(live_eval: &mut super::eval::Context, working_eval: &super::eval::Context) {
     let live_len = live_eval.interner.strings().len();
     let working_strings = working_eval.interner.strings();
     if working_strings.len() <= live_len {

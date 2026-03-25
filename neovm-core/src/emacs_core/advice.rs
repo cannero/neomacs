@@ -215,7 +215,6 @@ pub(crate) fn builtin_add_variable_watcher(
     Ok(Value::Nil)
 }
 
-
 /// `(remove-variable-watcher SYMBOL WATCH-FUNCTION)`
 ///
 /// Remove WATCH-FUNCTION from the watchers of SYMBOL.
@@ -233,7 +232,6 @@ pub(crate) fn builtin_remove_variable_watcher(
     eval.watchers.remove_watcher(&resolved, &callback);
     Ok(Value::Nil)
 }
-
 
 /// `(get-variable-watchers SYMBOL)`
 ///

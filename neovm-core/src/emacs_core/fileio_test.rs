@@ -384,7 +384,7 @@ fn test_builtin_delete_directory_eval_resolves_default_directory() {
 
     let child = base.join("child");
     fs::create_dir_all(&child).unwrap();
-    builtin_delete_directory_eval(&eval, vec![Value::string("child")]).unwrap();
+    builtin_delete_directory_eval(&mut eval, vec![Value::string("child")]).unwrap();
     assert!(!child.exists());
 
     let _ = fs::remove_dir_all(base);
@@ -446,7 +446,7 @@ fn test_builtin_make_symbolic_link_eval_uses_default_directory() {
 
     fs::write(base.join("target.txt"), b"x").unwrap();
     builtin_make_symbolic_link_eval(
-        &eval,
+        &mut eval,
         vec![Value::string("target.txt"), Value::string("link.txt")],
     )
     .unwrap();
@@ -756,14 +756,14 @@ fn test_builtin_expand_file_name_eval_uses_default_directory() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/neovm-expand/"));
 
-    let with_implicit = builtin_expand_file_name_eval(&eval, vec![Value::string("alpha.txt")]);
+    let with_implicit = builtin_expand_file_name_eval(&mut eval, vec![Value::string("alpha.txt")]);
     assert_eq!(
         with_implicit.unwrap().as_str(),
         Some("/tmp/neovm-expand/alpha.txt")
     );
 
     let with_nil =
-        builtin_expand_file_name_eval(&eval, vec![Value::string("beta.txt"), Value::Nil]);
+        builtin_expand_file_name_eval(&mut eval, vec![Value::string("beta.txt"), Value::Nil]);
     assert_eq!(
         with_nil.unwrap().as_str(),
         Some("/tmp/neovm-expand/beta.txt")
@@ -788,27 +788,27 @@ fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
         .expect("buffer local default-directory should set");
 
     assert_eq!(
-        builtin_expand_file_name_eval(&eval, vec![Value::string("alpha.txt")])
+        builtin_expand_file_name_eval(&mut eval, vec![Value::string("alpha.txt")])
             .unwrap()
             .as_str(),
         Some(base.join("alpha.txt").to_string_lossy().as_ref())
     );
     assert_eq!(
-        builtin_file_truename_eval(&eval, vec![Value::string("alpha.txt")])
+        builtin_file_truename_eval(&mut eval, vec![Value::string("alpha.txt")])
             .unwrap()
             .as_str(),
         Some(base.join("alpha.txt").to_string_lossy().as_ref())
     );
     assert_eq!(
-        builtin_file_exists_p_eval(&eval, vec![Value::string("alpha.txt")]).unwrap(),
+        builtin_file_exists_p_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap(),
         Value::True
     );
     assert_eq!(
-        builtin_file_directory_p_eval(&eval, vec![Value::string("subdir")]).unwrap(),
+        builtin_file_directory_p_eval(&mut eval, vec![Value::string("subdir")]).unwrap(),
         Value::True
     );
     assert_eq!(
-        builtin_file_regular_p_eval(&eval, vec![Value::string("alpha.txt")]).unwrap(),
+        builtin_file_regular_p_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap(),
         Value::True
     );
 
@@ -857,7 +857,7 @@ fn test_builtin_file_truename_eval_uses_default_directory() {
         Value::string("/tmp/neovm-file-truename/"),
     );
 
-    let value = builtin_file_truename_eval(&eval, vec![Value::string("alpha.txt")]).unwrap();
+    let value = builtin_file_truename_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     assert_eq!(value.as_str(), Some("/tmp/neovm-file-truename/alpha.txt"));
 }
 
@@ -917,7 +917,7 @@ fn test_builtin_make_temp_file_eval_honors_temp_directory() {
         Value::string(format!("{}/", dir.to_string_lossy())),
     );
 
-    let value = builtin_make_temp_file_eval(&eval, vec![Value::string("eval-neo-")]).unwrap();
+    let value = builtin_make_temp_file_eval(&mut eval, vec![Value::string("eval-neo-")]).unwrap();
     let path = value.as_str().unwrap().to_string();
     assert!(path.starts_with(&dir.to_string_lossy().to_string()));
     assert!(file_exists_p(&path));
@@ -965,8 +965,8 @@ fn test_builtin_make_nearby_temp_file_eval_relative_prefix_uses_temp_dir() {
         Value::string(format!("{}/", base.to_string_lossy())),
     );
 
-    let err =
-        builtin_make_nearby_temp_file_eval(&eval, vec![Value::string("sub/child-")]).unwrap_err();
+    let err = builtin_make_nearby_temp_file_eval(&mut eval, vec![Value::string("sub/child-")])
+        .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-missing"),
         other => panic!("expected signal, got {:?}", other),
@@ -1063,7 +1063,7 @@ fn test_builtin_file_modes_eval_respects_default_directory() {
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
     );
-    let mode = builtin_file_modes_eval(&eval, vec![Value::string("alpha.txt")]).unwrap();
+    let mode = builtin_file_modes_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     assert!(matches!(mode, Value::Int(_)));
 
     let _ = fs::remove_dir_all(&base);
@@ -1110,8 +1110,11 @@ fn test_builtin_set_file_modes_eval_respects_default_directory() {
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
     );
-    builtin_set_file_modes_eval(&eval, vec![Value::string("alpha.txt"), Value::Int(0o600)])
-        .unwrap();
+    builtin_set_file_modes_eval(
+        &mut eval,
+        vec![Value::string("alpha.txt"), Value::Int(0o600)],
+    )
+    .unwrap();
     assert_eq!(
         builtin_file_modes(vec![Value::string(file.to_string_lossy().to_string())])
             .unwrap()
@@ -1229,7 +1232,7 @@ fn test_builtin_directory_files_eval_respects_default_directory() {
         .set_symbol_value("default-directory", Value::string(&base_str));
 
     let result = builtin_directory_files_eval(
-        &eval,
+        &mut eval,
         vec![
             Value::string("fixtures"),
             Value::Nil,
@@ -1286,25 +1289,25 @@ fn test_builtin_file_ops_eval_respects_default_directory() {
         .set_symbol_value("default-directory", Value::string(&base_str));
 
     builtin_copy_file_eval(
-        &eval,
+        &mut eval,
         vec![Value::string("alpha.txt"), Value::string("beta.txt")],
     )
     .unwrap();
     assert!(base.join("beta.txt").exists());
 
     builtin_rename_file_eval(
-        &eval,
+        &mut eval,
         vec![Value::string("beta.txt"), Value::string("gamma.txt")],
     )
     .unwrap();
     assert!(!base.join("beta.txt").exists());
     assert!(base.join("gamma.txt").exists());
 
-    builtin_delete_file_eval(&eval, vec![Value::string("gamma.txt")]).unwrap();
+    builtin_delete_file_eval(&mut eval, vec![Value::string("gamma.txt")]).unwrap();
     assert!(!base.join("gamma.txt").exists());
 
     builtin_add_name_to_file_eval(
-        &eval,
+        &mut eval,
         vec![Value::string("alpha.txt"), Value::string("delta.txt")],
     )
     .unwrap();
@@ -1313,7 +1316,7 @@ fn test_builtin_file_ops_eval_respects_default_directory() {
         &base.join("alpha.txt").to_string_lossy(),
         &base.join("delta.txt").to_string_lossy(),
     );
-    builtin_delete_file_eval(&eval, vec![Value::string("delta.txt")]).unwrap();
+    builtin_delete_file_eval(&mut eval, vec![Value::string("delta.txt")]).unwrap();
 
     let _ = fs::remove_dir_all(&base);
 }
@@ -1332,7 +1335,7 @@ fn test_builtin_rename_file_eval_overwrite_semantics() {
         .set_symbol_value("default-directory", Value::string(&base_str));
 
     let err = builtin_rename_file_eval(
-        &eval,
+        &mut eval,
         vec![Value::string("src.txt"), Value::string("dst.txt")],
     )
     .unwrap_err();
@@ -1343,7 +1346,7 @@ fn test_builtin_rename_file_eval_overwrite_semantics() {
 
     assert_eq!(
         builtin_rename_file_eval(
-            &eval,
+            &mut eval,
             vec![
                 Value::string("src.txt"),
                 Value::string("dst.txt"),
@@ -1373,7 +1376,7 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
         .set_symbol_value("default-directory", Value::string(&base_str));
 
     let err = builtin_copy_file_eval(
-        &eval,
+        &mut eval,
         vec![Value::string("src.txt"), Value::string("dst.txt")],
     )
     .unwrap_err();
@@ -1384,7 +1387,7 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
 
     assert_eq!(
         builtin_copy_file_eval(
-            &eval,
+            &mut eval,
             vec![
                 Value::string("src.txt"),
                 Value::string("dst.txt"),
@@ -1665,11 +1668,11 @@ fn test_eval_file_predicates_respect_default_directory() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string(dir.to_string_lossy()));
 
-    let is_dir = builtin_file_directory_p_eval(&eval, vec![Value::string("subdir")])
+    let is_dir = builtin_file_directory_p_eval(&mut eval, vec![Value::string("subdir")])
         .expect("file-directory-p eval");
     assert!(is_dir.is_truthy());
 
-    let exists = builtin_file_exists_p_eval(&eval, vec![Value::string("subdir")])
+    let exists = builtin_file_exists_p_eval(&mut eval, vec![Value::string("subdir")])
         .expect("file-exists-p eval");
     assert!(exists.is_truthy());
 
@@ -1696,7 +1699,7 @@ fn test_file_name_case_insensitive_eval_respects_default_directory() {
         Value::string(format!("{}/", dir.to_string_lossy())),
     );
     let relative =
-        builtin_file_name_case_insensitive_p_eval(&eval, vec![Value::string("alpha.txt")])
+        builtin_file_name_case_insensitive_p_eval(&mut eval, vec![Value::string("alpha.txt")])
             .expect("relative case-insensitive query");
     assert_eq!(relative, absolute);
 
@@ -1774,7 +1777,7 @@ fn test_file_newer_than_file_p_eval_respects_default_directory() {
     );
 
     let result = builtin_file_newer_than_file_p_eval(
-        &eval,
+        &mut eval,
         vec![Value::string("new.txt"), Value::string("old.txt")],
     )
     .expect("relative newer check");
@@ -1837,7 +1840,7 @@ fn test_set_file_times_eval_respects_default_directory() {
     );
 
     assert_eq!(
-        builtin_set_file_times_eval(&eval, vec![Value::string("alpha.txt"), Value::Int(0)],)
+        builtin_set_file_times_eval(&mut eval, vec![Value::string("alpha.txt"), Value::Int(0)],)
             .expect("eval set-file-times"),
         Value::True
     );

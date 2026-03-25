@@ -154,10 +154,7 @@ pub(crate) fn sf_with_temp_buffer(eval: &mut super::eval::Context, tail: &[Expr]
 
 /// `(save-current-buffer BODY...)` -- save the current buffer, execute BODY,
 /// then restore the previous current buffer.
-pub(crate) fn sf_save_current_buffer(
-    eval: &mut super::eval::Context,
-    tail: &[Expr],
-) -> EvalResult {
+pub(crate) fn sf_save_current_buffer(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
     let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
     let result = eval.sf_progn(tail);
     if let Some(saved_id) = saved_buf {
@@ -706,7 +703,7 @@ pub(crate) fn builtin_recursion_depth(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_recursion_depth_in_state(eval.dynamic.len(), args)
+    builtin_recursion_depth_in_state(0, args)
 }
 
 pub(crate) fn builtin_recursion_depth_in_state(

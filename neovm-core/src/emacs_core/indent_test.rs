@@ -304,27 +304,6 @@ fn gnu_back_to_indentation_matches_simple_el() {
 }
 
 #[test]
-fn back_to_indentation_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "back-to-indentation"
-    ));
-}
-
-#[test]
-fn indent_region_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "indent-region"
-    ));
-}
-
-#[test]
-fn indent_for_tab_command_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "indent-for-tab-command"
-    ));
-}
-
-#[test]
 fn gnu_indent_region_matches_indent_el() {
     let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
@@ -529,20 +508,6 @@ fn reindent_then_newline_and_indent_normalizes_split_whitespace() {
                    (append (buffer-string) nil)))"#,
     );
     assert_eq!(results[0], "OK (nil 3 (97 10 98))");
-}
-
-#[test]
-fn reindent_then_newline_and_indent_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "reindent-then-newline-and-indent"
-    ));
-}
-
-#[test]
-fn indent_according_to_mode_is_not_dispatch_builtin() {
-    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
-        "indent-according-to-mode"
-    ));
 }
 
 #[test]

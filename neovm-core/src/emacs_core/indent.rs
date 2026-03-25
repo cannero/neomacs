@@ -74,16 +74,10 @@ fn expect_wholenump(val: &Value) -> Result<usize, Flow> {
 
 fn dynamic_buffer_or_global_symbol_value(
     obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     buf: Option<&Buffer>,
     name: &str,
 ) -> Option<Value> {
-    let name_id = intern(name);
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return Some(*value);
-        }
-    }
     if let Some(buf) = buf
         && let Some(value) = buf.get_buffer_local(name)
     {
@@ -126,7 +120,7 @@ fn buffer_read_only_active_in_state(
 }
 
 fn buffer_read_only_active(eval: &super::eval::Context, buf: &Buffer) -> bool {
-    buffer_read_only_active_in_state(&eval.obarray, &eval.dynamic, buf)
+    buffer_read_only_active_in_state(&eval.obarray, &[], buf)
 }
 
 fn line_bounds(text: &str, begv: usize, zv: usize, point: usize) -> (usize, usize) {
@@ -462,7 +456,7 @@ pub(crate) fn builtin_current_indentation_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_indentation_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+    builtin_current_indentation_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (current-column) -> integer
@@ -472,7 +466,7 @@ pub(crate) fn builtin_current_column_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_column_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+    builtin_current_column_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (move-to-column COLUMN &optional FORCE) -> COLUMN-REACHED
@@ -482,7 +476,7 @@ pub(crate) fn builtin_move_to_column_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_move_to_column_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_move_to_column_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 /// (indent-to COLUMN &optional MINIMUM) -> COLUMN
@@ -492,7 +486,7 @@ pub(crate) fn builtin_indent_to_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_indent_to_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+    builtin_indent_to_in_state(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 // ---------------------------------------------------------------------------

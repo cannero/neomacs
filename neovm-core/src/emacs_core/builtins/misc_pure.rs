@@ -330,10 +330,7 @@ pub(crate) fn builtin_error(args: Vec<Value>) -> EvalResult {
     Err(signal("error", vec![Value::string(msg)]))
 }
 
-pub(crate) fn builtin_error_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_error_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("error", &args, 1)?;
     let msg = match builtin_format_message_eval(eval, args)? {
         Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),

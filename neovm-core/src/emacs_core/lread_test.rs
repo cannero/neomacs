@@ -645,11 +645,14 @@ fn locate_file_finds_first_matching_suffix() {
     fs::write(dir.join("probe.el"), "(setq vm-locate 1)\n").expect("write .el");
     fs::write(dir.join("probe.elc"), "compiled").expect("write .elc");
 
-    let result = builtin_locate_file(&mut ctx, vec![
-        Value::string("probe"),
-        Value::list(vec![Value::string(dir.to_string_lossy())]),
-        Value::list(vec![Value::string(".el"), Value::string(".elc")]),
-    ])
+    let result = builtin_locate_file(
+        &mut ctx,
+        vec![
+            Value::string("probe"),
+            Value::list(vec![Value::string(dir.to_string_lossy())]),
+            Value::list(vec![Value::string(".el"), Value::string(".elc")]),
+        ],
+    )
     .expect("locate-file should succeed");
     let found = result.as_str().expect("locate-file should return path");
     assert!(
@@ -674,24 +677,30 @@ fn locate_file_respects_symbol_predicates() {
     fs::create_dir_all(&dir).expect("create temp dir");
     fs::write(dir.join("probe.el"), "(setq vm-locate 1)\n").expect("write .el");
 
-    let regular = builtin_locate_file(&mut ctx, vec![
-        Value::string("probe"),
-        Value::list(vec![Value::string(dir.to_string_lossy())]),
-        Value::list(vec![Value::string(".el")]),
-        Value::symbol("file-regular-p"),
-    ])
+    let regular = builtin_locate_file(
+        &mut ctx,
+        vec![
+            Value::string("probe"),
+            Value::list(vec![Value::string(dir.to_string_lossy())]),
+            Value::list(vec![Value::string(".el")]),
+            Value::symbol("file-regular-p"),
+        ],
+    )
     .expect("locate-file with file-regular-p should evaluate");
     assert!(
         regular.as_str().is_some(),
         "regular-file predicate should accept candidate",
     );
 
-    let directory = builtin_locate_file(&mut ctx, vec![
-        Value::string("probe"),
-        Value::list(vec![Value::string(dir.to_string_lossy())]),
-        Value::list(vec![Value::string(".el")]),
-        Value::symbol("file-directory-p"),
-    ])
+    let directory = builtin_locate_file(
+        &mut ctx,
+        vec![
+            Value::string("probe"),
+            Value::list(vec![Value::string(dir.to_string_lossy())]),
+            Value::list(vec![Value::string(".el")]),
+            Value::symbol("file-directory-p"),
+        ],
+    )
     .expect("locate-file with file-directory-p should evaluate");
     assert!(directory.is_nil(), "directory predicate should reject file");
 
@@ -712,12 +721,15 @@ fn locate_file_unknown_predicate_defaults_to_truthy_match() {
     fs::create_dir_all(&dir).expect("create temp dir");
     fs::write(dir.join("probe.el"), "(setq vm-locate 1)\n").expect("write .el");
 
-    let result = builtin_locate_file(&mut ctx, vec![
-        Value::string("probe"),
-        Value::list(vec![Value::string(dir.to_string_lossy())]),
-        Value::list(vec![Value::string(".el")]),
-        Value::symbol("definitely-not-a-real-predicate"),
-    ])
+    let result = builtin_locate_file(
+        &mut ctx,
+        vec![
+            Value::string("probe"),
+            Value::list(vec![Value::string(dir.to_string_lossy())]),
+            Value::list(vec![Value::string(".el")]),
+            Value::symbol("definitely-not-a-real-predicate"),
+        ],
+    )
     .expect("locate-file should evaluate");
     let found = result
         .as_str()
@@ -730,11 +742,14 @@ fn locate_file_unknown_predicate_defaults_to_truthy_match() {
 #[test]
 fn locate_file_internal_returns_nil_when_missing() {
     let mut ctx = test_eval_ctx();
-    let result = builtin_locate_file_internal(&mut ctx, vec![
-        Value::string("definitely-missing-neovm-file"),
-        Value::list(vec![Value::string(".")]),
-        Value::list(vec![Value::string(".el")]),
-    ])
+    let result = builtin_locate_file_internal(
+        &mut ctx,
+        vec![
+            Value::string("definitely-missing-neovm-file"),
+            Value::list(vec![Value::string(".")]),
+            Value::list(vec![Value::string(".el")]),
+        ],
+    )
     .expect("locate-file-internal should evaluate");
     assert!(result.is_nil());
 }
@@ -753,11 +768,14 @@ fn locate_file_internal_finds_requested_suffix() {
     fs::create_dir_all(&dir).expect("create temp dir");
     fs::write(dir.join("probe.elc"), "compiled").expect("write .elc");
 
-    let result = builtin_locate_file_internal(&mut ctx, vec![
-        Value::string("probe"),
-        Value::list(vec![Value::string(dir.to_string_lossy())]),
-        Value::list(vec![Value::string(".elc")]),
-    ])
+    let result = builtin_locate_file_internal(
+        &mut ctx,
+        vec![
+            Value::string("probe"),
+            Value::list(vec![Value::string(dir.to_string_lossy())]),
+            Value::list(vec![Value::string(".elc")]),
+        ],
+    )
     .expect("locate-file-internal should succeed");
     let found = result
         .as_str()
@@ -791,12 +809,15 @@ fn locate_file_internal_treats_tilde_prefixed_names_as_absolute_like_gnu() {
             .to_string_lossy()
     );
 
-    let result = builtin_locate_file_internal(&mut ctx, vec![
-        Value::string(&tilde_name),
-        Value::list(vec![Value::string("./")]),
-        Value::Nil,
-        Value::symbol("file-directory-p"),
-    ])
+    let result = builtin_locate_file_internal(
+        &mut ctx,
+        vec![
+            Value::string(&tilde_name),
+            Value::list(vec![Value::string("./")]),
+            Value::Nil,
+            Value::symbol("file-directory-p"),
+        ],
+    )
     .expect("locate-file-internal tilde path should evaluate");
 
     assert_eq!(
@@ -811,13 +832,16 @@ fn locate_file_internal_treats_tilde_prefixed_names_as_absolute_like_gnu() {
 #[test]
 fn locate_file_rejects_over_arity() {
     let mut ctx = test_eval_ctx();
-    let result = builtin_locate_file(&mut ctx, vec![
-        Value::string("probe"),
-        Value::list(vec![Value::string(".")]),
-        Value::list(vec![Value::string(".el")]),
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let result = builtin_locate_file(
+        &mut ctx,
+        vec![
+            Value::string("probe"),
+            Value::list(vec![Value::string(".")]),
+            Value::list(vec![Value::string(".el")]),
+            Value::Nil,
+            Value::Nil,
+        ],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -827,13 +851,16 @@ fn locate_file_rejects_over_arity() {
 #[test]
 fn locate_file_internal_rejects_over_arity() {
     let mut ctx = test_eval_ctx();
-    let result = builtin_locate_file_internal(&mut ctx, vec![
-        Value::string("probe"),
-        Value::list(vec![Value::string(".")]),
-        Value::list(vec![Value::string(".el")]),
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let result = builtin_locate_file_internal(
+        &mut ctx,
+        vec![
+            Value::string("probe"),
+            Value::list(vec![Value::string(".")]),
+            Value::list(vec![Value::string(".el")]),
+            Value::Nil,
+            Value::Nil,
+        ],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"

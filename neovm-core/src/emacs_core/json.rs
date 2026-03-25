@@ -1130,10 +1130,7 @@ pub(crate) fn builtin_json_parse_buffer_in_manager(
 /// `(json-insert VALUE &rest ARGS)` — insert JSON text at point.
 ///
 /// Keyword arguments mirror `json-serialize` (`:null-object`, `:false-object`).
-pub(crate) fn builtin_json_insert(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_json_insert(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_json_insert_in_manager(&mut eval.buffers, args)
 }
 

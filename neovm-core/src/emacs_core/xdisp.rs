@@ -253,8 +253,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
     validate_optional_window_designator_in_state(&shared.frames, args.get(2), "windowp")?;
     validate_optional_buffer_designator_in_state(&shared.buffers, args.get(3))?;
 
-    let target_buffer =
-        resolve_mode_line_buffer_in_state(&shared.frames, args.get(2), args.get(3));
+    let target_buffer = resolve_mode_line_buffer_in_state(&shared.frames, args.get(2), args.get(3));
     let saved_buffer = shared.buffers.current_buffer_id();
     if let Some(buffer_id) = target_buffer {
         shared.buffers.set_current(buffer_id);
@@ -293,17 +292,10 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
 
 fn mode_line_symbol_value_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     name: &str,
 ) -> Option<Value> {
-    let name_id = intern(name);
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return Some(*value);
-        }
-    }
-
     if let Some(buf) = buffers.current_buffer()
         && let Some(value) = buf.get_buffer_local(name)
     {
@@ -880,7 +872,7 @@ fn format_mode_line_recursive(
 
         Value::Str(_) => append_mode_line_string_in_state(
             &eval.obarray,
-            &eval.dynamic,
+            &[],
             &eval.buffers,
             &eval.processes,
             eval.command_loop.recursive_depth,
@@ -900,17 +892,14 @@ fn format_mode_line_recursive(
                     result.push_plain_char(' ');
                     return;
                 }
-                if let Some(val) = mode_line_symbol_value_in_state(
-                    &eval.obarray,
-                    eval.dynamic.as_slice(),
-                    &eval.buffers,
-                    name,
-                ) && !val.is_nil()
+                if let Some(val) =
+                    mode_line_symbol_value_in_state(&eval.obarray, &[], &eval.buffers, name)
+                    && !val.is_nil()
                 {
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
                             &eval.obarray,
-                            &eval.dynamic,
+                            &[],
                             &eval.buffers,
                             &eval.processes,
                             eval.command_loop.recursive_depth,
@@ -978,13 +967,8 @@ fn format_mode_line_recursive(
 
             if car.is_symbol() && !car.is_symbol_named("t") {
                 if let Some(sym_name) = car.as_symbol_name()
-                    && mode_line_symbol_value_in_state(
-                        &eval.obarray,
-                        eval.dynamic.as_slice(),
-                        &eval.buffers,
-                        sym_name,
-                    )
-                    .is_some_and(|value| value.is_truthy())
+                    && mode_line_symbol_value_in_state(&eval.obarray, &[], &eval.buffers, sym_name)
+                        .is_some_and(|value| value.is_truthy())
                     && let Some(branch) = mode_line_conditional_branch(cdr, true)
                 {
                     format_mode_line_recursive(eval, pctx, &branch, result, depth + 1, risky);
@@ -1373,7 +1357,7 @@ fn format_mode_line_recursive_in_vm_runtime(
 
         Value::Str(_) => append_mode_line_string_in_state(
             &shared.obarray,
-            shared.dynamic.as_slice(),
+            &[],
             &shared.buffers,
             &shared.processes,
             shared.recursive_command_loop_depth(),
@@ -1393,7 +1377,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                 }
                 let value = {
                     let obarray = &shared.obarray;
-                    let dynamic = shared.dynamic.as_slice();
+                    let dynamic = &[];
                     let buffers = &shared.buffers;
                     mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                 };
@@ -1403,7 +1387,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
                             &shared.obarray,
-                            shared.dynamic.as_slice(),
+                            &[],
                             &shared.buffers,
                             &shared.processes,
                             shared.recursive_command_loop_depth(),
@@ -1507,7 +1491,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                 if let Some(sym_name) = car.as_symbol_name() {
                     let value = {
                         let obarray = &shared.obarray;
-                        let dynamic = shared.dynamic.as_slice();
+                        let dynamic = &[];
                         let buffers = &shared.buffers;
                         mode_line_symbol_value_in_state(obarray, dynamic, buffers, sym_name)
                     };

@@ -318,7 +318,7 @@ pub(crate) fn builtin_make_local_variable(
     args: Vec<Value>,
 ) -> EvalResult {
     let obarray = &eval.obarray;
-    let dynamic = eval.dynamic.as_slice();
+    let dynamic = &[];
     let buffers = &mut eval.buffers;
     builtin_make_local_variable_in_state(obarray, dynamic, buffers, args)
 }
@@ -554,7 +554,7 @@ pub(crate) fn builtin_default_value(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_default_value_in_state(eval.obarray(), eval.dynamic.as_slice(), args)
+    builtin_default_value_in_state(eval.obarray(), &[], args)
 }
 
 pub(crate) fn builtin_default_value_in_state(
@@ -597,10 +597,7 @@ pub(crate) fn builtin_default_value_in_state(
 ///
 /// For buffer-local variables, `set-default` writes to the obarray
 /// (default cell) directly, not to the dynamic frame or buffer-local slot.
-pub(crate) fn builtin_set_default(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("set-default", &args, 2)?;
     let symbol = match args[0] {
         Value::Nil => intern("nil"),
@@ -642,7 +639,6 @@ pub(crate) fn builtin_set_default(
     }
     Ok(value)
 }
-
 
 // ---------------------------------------------------------------------------
 // Special form handlers (called from eval.rs try_special_form dispatch)

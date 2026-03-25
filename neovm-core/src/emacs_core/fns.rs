@@ -1056,7 +1056,10 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
 
 /// (widget-apply WIDGET PROPERTY &rest ARGS)
 /// Apply WIDGET's PROPERTY function to WIDGET and ARGS.
-pub(crate) fn builtin_widget_apply(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_widget_apply(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("widget-apply", &args, 2)?;
     let widget = args[0];
     let property = args[1];

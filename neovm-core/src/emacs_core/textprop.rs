@@ -85,10 +85,7 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     }
 }
 
-fn expect_integer_or_marker_eval(
-    eval: &super::eval::Context,
-    value: &Value,
-) -> Result<i64, Flow> {
+fn expect_integer_or_marker_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Flow> {
     match value {
         Value::Int(n) => Ok(*n),
         Value::Char(c) => Ok(*c as i64),
@@ -1483,10 +1480,7 @@ pub(crate) fn builtin_delete_overlay_in_buffers(
 }
 
 /// (overlay-put OVERLAY PROP VAL)
-pub(crate) fn builtin_overlay_put(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_overlay_put(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_overlay_put_in_buffers(&mut eval.buffers, args)
 }
 
@@ -1504,10 +1498,7 @@ pub(crate) fn builtin_overlay_put_in_buffers(
 }
 
 /// (overlay-get OVERLAY PROP)
-pub(crate) fn builtin_overlay_get(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_overlay_get(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_overlay_get_in_buffers(&eval.buffers, args)
 }
 
@@ -1548,10 +1539,7 @@ pub(crate) fn builtin_overlayp_pure(args: Vec<Value>) -> EvalResult {
 }
 
 /// (overlays-at POS &optional SORTED)
-pub(crate) fn builtin_overlays_at(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_overlays_at(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_overlays_at_in_buffers(&eval.buffers, args)
 }
 
@@ -1580,10 +1568,7 @@ pub(crate) fn builtin_overlays_at_in_buffers(
 }
 
 /// (overlays-in BEG END)
-pub(crate) fn builtin_overlays_in(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_overlays_in(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_overlays_in_in_buffers(&eval.buffers, args)
 }
 
@@ -1725,10 +1710,7 @@ pub(crate) fn builtin_overlay_start_in_buffers(
 }
 
 /// (overlay-end OVERLAY)
-pub(crate) fn builtin_overlay_end(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_overlay_end(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_overlay_end_in_buffers(&eval.buffers, args)
 }
 

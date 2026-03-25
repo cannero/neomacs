@@ -296,7 +296,6 @@ pub(crate) fn builtin_send_string_to_terminal_eval(
     }
 }
 
-
 /// (internal-show-cursor WINDOW SHOW) -> nil
 pub(crate) fn builtin_internal_show_cursor(args: Vec<Value>) -> EvalResult {
     expect_args("internal-show-cursor", &args, 2)?;
@@ -322,7 +321,6 @@ pub(crate) fn builtin_internal_show_cursor_eval(
     }
     Ok(Value::Nil)
 }
-
 
 /// (internal-show-cursor-p &optional WINDOW) -> t/nil
 pub(crate) fn builtin_internal_show_cursor_p(args: Vec<Value>) -> EvalResult {
@@ -350,7 +348,6 @@ pub(crate) fn builtin_internal_show_cursor_p_eval(
     }
     Ok(Value::bool(CURSOR_VISIBLE.with(|slot| slot.get())))
 }
-
 
 /// (force-window-update &optional OBJECT) -> t/nil
 pub(crate) fn builtin_force_window_update(args: Vec<Value>) -> EvalResult {

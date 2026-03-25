@@ -556,10 +556,7 @@ fn expect_cv_id(manager: &ThreadManager, value: &Value) -> Result<u64, Flow> {
 ///
 /// In our single-threaded simulation the function is executed immediately.
 /// Returns a `(thread . ID)` object.
-pub(crate) fn builtin_make_thread(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_make_thread(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (thread_id, function) = prepare_make_thread_in_state(&mut eval.threads, &args)?;
     let saved_current = eval.threads.enter_thread(thread_id);
     let result = eval.apply(function, vec![]);
@@ -662,10 +659,7 @@ pub(crate) fn builtin_thread_join_in_state(
     Ok(threads.thread_result(id))
 }
 
-pub(crate) fn builtin_thread_join(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_thread_join(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_thread_join_in_state(&mut eval.threads, args)
 }
 
@@ -703,10 +697,7 @@ pub(crate) fn builtin_thread_name_in_state(
     }
 }
 
-pub(crate) fn builtin_thread_name(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_thread_name(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_thread_name_in_state(&eval.threads, args)
 }
 
@@ -821,10 +812,7 @@ pub(crate) fn builtin_all_threads_in_state(
     Ok(Value::list(objects))
 }
 
-pub(crate) fn builtin_all_threads(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_all_threads(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_all_threads_in_state(&eval.threads, args)
 }
 
@@ -890,10 +878,7 @@ pub(crate) fn builtin_make_mutex_in_state(
         .unwrap_or_else(|| tagged_object_value("mutex", id)))
 }
 
-pub(crate) fn builtin_make_mutex(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_make_mutex(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_make_mutex_in_state(&mut eval.threads, args)
 }
 
@@ -925,10 +910,7 @@ pub(crate) fn builtin_mutex_name_in_state(threads: &ThreadManager, args: Vec<Val
     }
 }
 
-pub(crate) fn builtin_mutex_name(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_mutex_name(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_mutex_name_in_state(&eval.threads, args)
 }
 
@@ -951,10 +933,7 @@ pub(crate) fn builtin_mutex_lock_in_state(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_mutex_lock(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_mutex_lock(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_mutex_lock_in_state(&mut eval.threads, args)
 }
 

@@ -368,7 +368,7 @@ pub(crate) fn builtin_symbol_with_pos_pos(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_char_equal(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_char_equal_in_state(&eval.obarray, &eval.dynamic, args)
+    builtin_char_equal_in_state(&eval.obarray, &[], args)
 }
 
 pub(crate) fn builtin_char_equal_in_state(

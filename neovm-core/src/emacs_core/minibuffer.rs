@@ -733,10 +733,7 @@ pub(crate) fn finish_read_directory_name_in_vm_runtime(
 ///
 /// Read a buffer name from the minibuffer with completion.
 /// In interactive mode, delegates to completing-read with buffer name candidates.
-pub(crate) fn builtin_read_buffer(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_read_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_read_buffer_in_runtime(eval, &args)?;
     finish_read_buffer_in_eval(eval, &args)
 }

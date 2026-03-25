@@ -1022,12 +1022,15 @@ fn widget_apply_passes_rest_arguments() {
         Value::symbol("list"),
     ]);
     let mut ctx = test_eval_ctx();
-    let r = builtin_widget_apply(&mut ctx, vec![
-        widget,
-        Value::keyword("action"),
-        Value::Int(1),
-        Value::Int(2),
-    ])
+    let r = builtin_widget_apply(
+        &mut ctx,
+        vec![
+            widget,
+            Value::keyword("action"),
+            Value::Int(1),
+            Value::Int(2),
+        ],
+    )
     .unwrap();
     assert_eq!(r, Value::list(vec![widget, Value::Int(1), Value::Int(2)]));
 }

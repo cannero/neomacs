@@ -512,7 +512,7 @@ pub(crate) fn builtin_command_modes_eval(eval: &mut Context, args: Vec<Value>) -
 pub(crate) fn builtin_command_remapping(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_command_remapping_in_state(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         &eval.buffers,
         eval.buffers.current_local_map(),
         args,
@@ -1076,20 +1076,14 @@ fn interactive_u_arg(context: &mut InteractiveInvocationContext) -> Value {
 }
 
 fn dynamic_or_global_symbol_value(eval: &Context, name: &str) -> Option<Value> {
-    dynamic_or_global_symbol_value_in_state(&eval.obarray, eval.dynamic.as_slice(), name)
+    eval.obarray.symbol_value(name).cloned()
 }
 
 fn dynamic_or_global_symbol_value_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     name: &str,
 ) -> Option<Value> {
-    let name_id = intern(name);
-    for frame in dynamic.iter().rev() {
-        if let Some(v) = frame.get(&name_id) {
-            return Some(*v);
-        }
-    }
     obarray.symbol_value(name).cloned()
 }
 
@@ -1098,26 +1092,15 @@ fn dynamic_buffer_or_global_symbol_value(
     buf: &crate::buffer::Buffer,
     name: &str,
 ) -> Option<Value> {
-    dynamic_buffer_or_global_symbol_value_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        buf,
-        name,
-    )
+    dynamic_buffer_or_global_symbol_value_in_state(&eval.obarray, &[], buf, name)
 }
 
 fn dynamic_buffer_or_global_symbol_value_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     buf: &crate::buffer::Buffer,
     name: &str,
 ) -> Option<Value> {
-    let name_id = intern(name);
-    for frame in dynamic.iter().rev() {
-        if let Some(v) = frame.get(&name_id) {
-            return Some(*v);
-        }
-    }
     if let Some(v) = buf.get_buffer_local(name) {
         return Some(*v);
     }
@@ -1148,7 +1131,7 @@ fn prefix_numeric_value(value: &Value) -> i64 {
 }
 
 fn interactive_prefix_raw_arg(eval: &Context, kind: CommandInvocationKind) -> Value {
-    interactive_prefix_raw_arg_in_state(&eval.obarray, eval.dynamic.as_slice(), kind)
+    interactive_prefix_raw_arg_in_state(&eval.obarray, &[], kind)
 }
 
 fn interactive_prefix_raw_arg_in_state(
@@ -1177,10 +1160,7 @@ fn interactive_prefix_numeric_arg_in_state(
     Value::Int(prefix_numeric_value(&raw))
 }
 
-fn interactive_region_args(
-    eval: &Context,
-    missing_mark_signal: &str,
-) -> Result<Vec<Value>, Flow> {
+fn interactive_region_args(eval: &Context, missing_mark_signal: &str) -> Result<Vec<Value>, Flow> {
     interactive_region_args_in_buffers(&eval.buffers, missing_mark_signal)
 }
 
@@ -1345,7 +1325,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
     let parsed = parse_interactive_code_entries(code);
     interactive_apply_prefix_flags_in_state(
         &mut shared.obarray,
-        shared.dynamic.as_mut_slice(),
+        &mut [],
         &mut shared.buffers,
         &shared.custom,
         shared.specpdl.as_slice(),
@@ -1419,7 +1399,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
             'e' => {
                 if let Some(event) = interactive_next_event_with_parameters_in_state(
                     &mut shared.obarray,
-                    &shared.dynamic,
+                    &[],
                     context,
                 ) {
                     args.push(event);
@@ -1497,11 +1477,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
             }
             'm' => args.push(interactive_mark_arg_in_buffers(&shared.buffers)?),
             'N' => {
-                let raw = interactive_prefix_raw_arg_in_state(
-                    &shared.obarray,
-                    shared.dynamic.as_slice(),
-                    kind,
-                );
+                let raw = interactive_prefix_raw_arg_in_state(&shared.obarray, &[], kind);
                 if raw.is_nil() {
                     let letter_args = [Value::string(prompt)];
                     args.push(super::reader::finish_read_number_in_vm_runtime(
@@ -1515,18 +1491,24 @@ fn interactive_args_from_string_code_in_vm_runtime(
             }
             'p' => args.push(interactive_prefix_numeric_arg_in_state(
                 &shared.obarray,
-                shared.dynamic.as_slice(),
+                &[],
                 kind,
             )),
             'P' => args.push(interactive_prefix_raw_arg_in_state(
                 &shared.obarray,
-                shared.dynamic.as_slice(),
+                &[],
                 kind,
             )),
-            'r' => args.extend(interactive_region_args_in_buffers(&shared.buffers, "error")?),
+            'r' => args.extend(interactive_region_args_in_buffers(
+                &shared.buffers,
+                "error",
+            )?),
             'R' => {
                 if interactive_use_region_p_in_vm_runtime(shared, vm_gc_roots)? {
-                    args.extend(interactive_region_args_in_buffers(&shared.buffers, "error")?);
+                    args.extend(interactive_region_args_in_buffers(
+                        &shared.buffers,
+                        "error",
+                    )?);
                 } else {
                     args.push(Value::Nil);
                     args.push(Value::Nil);
@@ -1602,11 +1584,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 Value::string(prompt),
             ])?),
             'Z' => {
-                let raw = interactive_prefix_raw_arg_in_state(
-                    &shared.obarray,
-                    shared.dynamic.as_slice(),
-                    kind,
-                );
+                let raw = interactive_prefix_raw_arg_in_state(&shared.obarray, &[], kind);
                 if raw.is_nil() {
                     args.push(Value::Nil);
                 } else {
@@ -1766,7 +1744,7 @@ fn interactive_use_region_p_in_vm_runtime(
 }
 
 fn interactive_buffer_read_only_active(eval: &Context, buf: &crate::buffer::Buffer) -> bool {
-    interactive_buffer_read_only_active_in_state(&eval.obarray, eval.dynamic.as_slice(), buf)
+    interactive_buffer_read_only_active_in_state(&eval.obarray, &[], buf)
 }
 
 fn interactive_buffer_read_only_active_in_state(
@@ -1782,11 +1760,7 @@ fn interactive_buffer_read_only_active_in_state(
 }
 
 fn interactive_require_writable_current_buffer(eval: &Context) -> Result<(), Flow> {
-    interactive_require_writable_current_buffer_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-    )
+    interactive_require_writable_current_buffer_in_state(&eval.obarray, &[], &eval.buffers)
 }
 
 fn interactive_require_writable_current_buffer_in_state(
@@ -1811,7 +1785,7 @@ fn interactive_require_writable_current_buffer_in_state(
 fn interactive_apply_shift_selection_prefix(eval: &mut Context) {
     interactive_apply_shift_selection_prefix_in_state(
         &mut eval.obarray,
-        eval.dynamic.as_mut_slice(),
+        &mut [],
         &mut eval.buffers,
         &eval.custom,
         eval.specpdl.as_slice(),
@@ -1848,7 +1822,6 @@ fn interactive_apply_shift_selection_prefix_in_state(
     if mark_activated {
         let _ = super::eval::set_runtime_binding_in_state(
             obarray,
-            dynamic,
             buffers,
             custom,
             specpdl,
@@ -1861,7 +1834,7 @@ fn interactive_apply_shift_selection_prefix_in_state(
 fn interactive_apply_prefix_flags(eval: &mut Context, prefix_flags: &[char]) -> Result<(), Flow> {
     interactive_apply_prefix_flags_in_state(
         &mut eval.obarray,
-        eval.dynamic.as_mut_slice(),
+        &mut [],
         &mut eval.buffers,
         &eval.custom,
         eval.specpdl.as_slice(),
@@ -2282,13 +2255,7 @@ fn default_command_execute_args(eval: &Context, name: &str) -> Result<Vec<Value>
 }
 
 fn default_call_interactively_args(eval: &Context, name: &str) -> Result<Vec<Value>, Flow> {
-    default_call_interactively_args_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        &eval.frames,
-        name,
-    )
+    default_call_interactively_args_in_state(&eval.obarray, &[], &eval.buffers, &eval.frames, name)
 }
 
 fn resolve_command_target(eval: &Context, designator: &Value) -> Option<(String, Value)> {
@@ -2559,7 +2526,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
         func,
         default_call_interactively_args_in_state(
             &shared.obarray,
-            shared.dynamic.as_slice(),
+            &[],
             &shared.buffers,
             &shared.frames,
             &plan.resolved_name,
@@ -2657,7 +2624,7 @@ pub(crate) fn builtin_keyboard_quit(_eval: &mut Context, args: Vec<Value>) -> Ev
 pub(crate) fn builtin_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_key_binding_in_state(
         &mut eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         &eval.buffers,
         eval.buffers.current_local_map(),
         args,
@@ -2770,10 +2737,7 @@ pub(crate) fn builtin_key_binding_in_state(
     Ok(Value::Nil)
 }
 
-fn interactive_validate_integer_position_arg(
-    eval: &Context,
-    position: &Value,
-) -> Result<(), Flow> {
+fn interactive_validate_integer_position_arg(eval: &Context, position: &Value) -> Result<(), Flow> {
     interactive_validate_integer_position_arg_in_buffers(&eval.buffers, position)
 }
 
@@ -2853,11 +2817,7 @@ fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
 }
 
 /// Look up a key sequence in a keymap Value, returning the binding if found.
-fn key_binding_lookup_in_keymap(
-    eval: &Context,
-    keymap: &Value,
-    events: &[Value],
-) -> Option<Value> {
+fn key_binding_lookup_in_keymap(eval: &Context, keymap: &Value, events: &[Value]) -> Option<Value> {
     key_binding_lookup_in_keymap_in_obarray(&eval.obarray, keymap, events)
 }
 
@@ -2931,7 +2891,7 @@ fn ensure_global_keymap(eval: &mut Context) -> Value {
 fn key_binding_apply_remap(eval: &Context, binding: Value, no_remap: bool) -> Value {
     key_binding_apply_remap_in_state(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         eval.buffers.current_local_map(),
         binding,
         no_remap,
@@ -2967,12 +2927,7 @@ fn key_binding_lookup_in_minor_mode_alist(
     events: &[Value],
     alist_value: &Value,
 ) -> Option<Value> {
-    key_binding_lookup_in_minor_mode_alist_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        events,
-        alist_value,
-    )
+    key_binding_lookup_in_minor_mode_alist_in_state(&eval.obarray, &[], events, alist_value)
 }
 
 fn key_binding_lookup_in_minor_mode_alist_in_state(
@@ -3005,7 +2960,7 @@ fn key_binding_lookup_in_minor_mode_alist_in_state(
 }
 
 fn key_binding_lookup_in_minor_mode_maps(eval: &Context, events: &[Value]) -> Option<Value> {
-    key_binding_lookup_in_minor_mode_maps_in_state(&eval.obarray, eval.dynamic.as_slice(), events)
+    key_binding_lookup_in_minor_mode_maps_in_state(&eval.obarray, &[], events)
 }
 
 fn key_binding_lookup_in_minor_mode_maps_in_state(
@@ -3055,12 +3010,7 @@ fn lookup_minor_mode_binding_in_alist(
     events: &[KeyEvent],
     alist_value: &Value,
 ) -> Result<Option<(String, Value)>, Flow> {
-    lookup_minor_mode_binding_in_alist_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        events,
-        alist_value,
-    )
+    lookup_minor_mode_binding_in_alist_in_state(&eval.obarray, &[], events, alist_value)
 }
 
 fn lookup_minor_mode_binding_in_alist_in_state(
@@ -3120,7 +3070,7 @@ fn lookup_minor_mode_binding_in_alist_in_state(
 /// `(minor-mode-key-binding KEY &optional ACCEPT-DEFAULTS)`
 /// Look up KEY in active minor mode keymaps.
 pub(crate) fn builtin_minor_mode_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_minor_mode_key_binding_in_state(&eval.obarray, eval.dynamic.as_slice(), args)
+    builtin_minor_mode_key_binding_in_state(&eval.obarray, &[], args)
 }
 
 pub(crate) fn builtin_minor_mode_key_binding_in_state(
@@ -3259,10 +3209,7 @@ pub(crate) fn builtin_this_command_keys_in_state(
 }
 
 /// `(this-command-keys-vector)` -> vector of keys that invoked current command.
-pub(crate) fn builtin_this_command_keys_vector(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_this_command_keys_vector(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_this_command_keys_vector_in_state(eval.read_command_keys(), &eval.interactive, args)
 }
 
@@ -3338,10 +3285,7 @@ pub(crate) fn builtin_this_single_command_raw_keys_in_state(
 }
 
 /// `(this-single-command-keys)` -> vector of keys that invoked current command.
-pub(crate) fn builtin_this_single_command_keys(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_this_single_command_keys(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_this_single_command_keys_in_state(&eval.interactive, eval.read_command_keys(), args)
 }
 
@@ -3358,10 +3302,7 @@ pub(crate) fn builtin_this_single_command_raw_keys(
 /// Clears current command-key context used by `this-command-keys*`.
 /// When KEEP-RECORD is nil or omitted, also clears recent input history used
 /// by `recent-keys`.
-pub(crate) fn builtin_clear_this_command_keys(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_clear_this_command_keys(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_clear_this_command_keys_in_runtime(eval, args)
 }
 
@@ -3439,7 +3380,7 @@ fn command_remapping_lookup_in_minor_mode_alist(
 ) -> Option<Value> {
     command_remapping_lookup_in_minor_mode_alist_in_state(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         command_name,
         alist_value,
     )
@@ -3477,11 +3418,7 @@ fn command_remapping_lookup_in_minor_mode_maps(
     eval: &Context,
     command_name: &str,
 ) -> Option<Value> {
-    command_remapping_lookup_in_minor_mode_maps_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        command_name,
-    )
+    command_remapping_lookup_in_minor_mode_maps_in_state(&eval.obarray, &[], command_name)
 }
 
 fn command_remapping_lookup_in_minor_mode_maps_in_state(
@@ -3530,13 +3467,10 @@ fn command_remapping_lookup_in_minor_mode_maps_in_state(
     None
 }
 
-fn command_remapping_lookup_in_active_keymaps(
-    eval: &Context,
-    command_name: &str,
-) -> Option<Value> {
+fn command_remapping_lookup_in_active_keymaps(eval: &Context, command_name: &str) -> Option<Value> {
     command_remapping_lookup_in_active_keymaps_in_state(
         &eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         eval.buffers.current_local_map(),
         command_name,
     )
@@ -3761,7 +3695,7 @@ fn where_is_internal_explicit_keymaps(eval: &Context, value: &Value) -> Result<V
 fn where_is_internal_active_keymaps(eval: &mut Context) -> Vec<Value> {
     match super::builtins::keymaps::builtin_current_active_maps_in_state(
         &mut eval.obarray,
-        eval.dynamic.as_slice(),
+        &[],
         eval.buffers.current_local_map(),
         &[],
     ) {

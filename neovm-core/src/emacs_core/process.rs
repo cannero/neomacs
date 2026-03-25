@@ -2661,7 +2661,6 @@ pub(crate) fn builtin_internal_default_process_filter(
     Ok(Value::Nil)
 }
 
-
 /// (internal-default-process-sentinel PROCESS STRING) -> nil
 pub(crate) fn builtin_internal_default_process_sentinel(
     eval: &mut super::eval::Context,
@@ -2686,10 +2685,7 @@ pub(crate) fn builtin_internal_default_process_sentinel_in_state(
 /// TYPE is ignored (GNU uses it for credential type).
 /// PROPLIST is a keyword plist; we extract `:hostname` for SNI.
 #[cfg(unix)]
-pub(crate) fn builtin_gnutls_boot(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_gnutls_boot(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-boot", &args, 3)?;
     let id = resolve_process_or_wrong_type_any_in_manager(&eval.processes, &args[0])?;
 
@@ -3450,7 +3446,6 @@ pub(crate) fn builtin_make_network_process(
 
     Ok(Value::Int(id as i64))
 }
-
 
 /// (make-pipe-process &rest ARGS) -> process-or-nil
 pub(crate) fn builtin_make_pipe_process(
@@ -5566,10 +5561,7 @@ pub(crate) fn builtin_accept_process_output(
 }
 
 /// (get-process NAME) -> process-or-nil
-pub(crate) fn builtin_get_process(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_get_process(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_get_process_in_state(&eval.processes, args)
 }
 
@@ -5659,10 +5651,7 @@ pub(crate) fn builtin_process_live_p_in_state(
 }
 
 /// (process-id PROCESS) -> integer
-pub(crate) fn builtin_process_id(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_process_id(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_process_id_in_state(&eval.processes, args)
 }
 
@@ -6013,10 +6002,7 @@ pub(crate) fn builtin_set_process_plist_in_state(
 }
 
 /// (process-put PROCESS PROP VALUE) -> plist
-pub(crate) fn builtin_process_put(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_process_put(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("process-put", &args, 3)?;
     let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
     let current_plist = eval
@@ -6041,10 +6027,7 @@ pub(crate) fn builtin_process_put(
 }
 
 /// (process-get PROCESS PROP) -> value
-pub(crate) fn builtin_process_get(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_process_get(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("process-get", &args, 2)?;
     let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
     let plist = eval
@@ -6140,17 +6123,7 @@ pub(crate) fn builtin_getenv_internal_eval(
     }
 
     // Check process-environment variable first (GNU callproc.c:1720).
-    let proc_env = {
-        let name_id = super::intern::intern("process-environment");
-        let mut found = None;
-        for frame in eval.dynamic.iter().rev() {
-            if let Some(v) = frame.get(&name_id) {
-                found = Some(*v);
-                break;
-            }
-        }
-        found.or_else(|| eval.obarray.symbol_value("process-environment").cloned())
-    };
+    let proc_env = eval.obarray.symbol_value("process-environment").cloned();
     if let Some(pe) = proc_env {
         if pe.is_cons() {
             let result = getenv_from_list(&varname, pe)?;

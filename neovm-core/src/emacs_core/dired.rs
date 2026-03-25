@@ -480,12 +480,7 @@ pub(crate) fn builtin_directory_files_and_attributes_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_directory_files_and_attributes_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+    builtin_directory_files_and_attributes_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalResult {
@@ -575,7 +570,8 @@ pub(crate) fn builtin_file_name_completion(eval: &mut Context, args: Vec<Value>)
         return Ok(Value::Nil);
     }
     let completions = collect_file_name_completions(&file, &directory)?;
-    let completions = filter_completions_by_symbol_predicate(eval, predicate, &directory, completions)?;
+    let completions =
+        filter_completions_by_symbol_predicate(eval, predicate, &directory, completions)?;
     Ok(resolve_file_name_completion(&file, completions))
 }
 
@@ -583,7 +579,7 @@ pub(crate) fn builtin_file_name_completion_in_state(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let plan = prepare_file_name_completion_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, &args)?;
+    let plan = prepare_file_name_completion_in_state(&eval.obarray, &[], &eval.buffers, &args)?;
     let predicate = args.get(2);
     let completions =
         filter_completions_by_symbol_predicate(eval, predicate, &plan.directory, plan.completions)?;
@@ -597,12 +593,7 @@ pub(crate) fn builtin_file_name_completion_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let plan = prepare_file_name_completion_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        &args,
-    )?;
+    let plan = prepare_file_name_completion_in_state(&eval.obarray, &[], &eval.buffers, &args)?;
     let predicate = args.get(2);
     finish_file_name_completion_with_eval_predicate(
         eval,
@@ -661,12 +652,7 @@ pub(crate) fn builtin_file_name_all_completions_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_file_name_all_completions_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.buffers,
-        args,
-    )
+    builtin_file_name_all_completions_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 fn collect_file_name_completions(file: &str, directory: &str) -> Result<Vec<String>, Flow> {
@@ -861,9 +847,7 @@ fn symbol_predicate_matches_candidate(
     directory: &str,
     candidate: &str,
 ) -> Result<bool, Flow> {
-    if let Some(result) =
-        eval.dispatch_subr(symbol, vec![Value::string(candidate)])
-    {
+    if let Some(result) = eval.dispatch_subr(symbol, vec![Value::string(candidate)]) {
         let result = result?;
         if result.is_truthy() || !is_builtin_path_predicate(symbol) {
             return Ok(result.is_truthy());
@@ -871,9 +855,7 @@ fn symbol_predicate_matches_candidate(
 
         let absolute = std::path::Path::new(directory).join(candidate);
         let absolute = absolute.to_string_lossy().into_owned();
-        if let Some(result) =
-            eval.dispatch_subr(symbol, vec![Value::string(absolute)])
-        {
+        if let Some(result) = eval.dispatch_subr(symbol, vec![Value::string(absolute)]) {
             return Ok(result?.is_truthy());
         }
         return Ok(false);
@@ -882,9 +864,7 @@ fn symbol_predicate_matches_candidate(
     // Fallback: try absolute path to make path predicates useful.
     let absolute = std::path::Path::new(directory).join(candidate);
     let absolute = absolute.to_string_lossy().into_owned();
-    if let Some(result) =
-        eval.dispatch_subr(symbol, vec![Value::string(absolute)])
-    {
+    if let Some(result) = eval.dispatch_subr(symbol, vec![Value::string(absolute)]) {
         return Ok(result?.is_truthy());
     }
 
@@ -915,11 +895,10 @@ fn with_default_directory_binding<T>(
     directory: &str,
     f: impl FnOnce(&mut Context) -> Result<T, Flow>,
 ) -> Result<T, Flow> {
-    let mut frame = OrderedRuntimeBindingMap::new();
-    frame.insert(intern("default-directory"), Value::string(directory));
-    eval.dynamic.push(frame);
+    let count = eval.specpdl.len();
+    eval.specbind(intern("default-directory"), Value::string(directory));
     let result = f(eval);
-    eval.dynamic.pop();
+    eval.unbind_to(count);
     result
 }
 
@@ -1009,7 +988,7 @@ pub(crate) fn builtin_file_attributes_in_state(
 /// Context-backed variant of `file-attributes`.
 /// Resolves relative FILENAME against dynamic/default `default-directory`.
 pub(crate) fn builtin_file_attributes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_attributes_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+    builtin_file_attributes_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-attributes-lessp F1 F2)

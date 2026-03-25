@@ -73,12 +73,6 @@ fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Op
         }
     }
 
-    for frame in eval.dynamic.iter().rev() {
-        if let Some(v) = frame.get(&name_id) {
-            return Some(*v);
-        }
-    }
-
     if let Some(buf) = eval.buffers.current_buffer() {
         if let Some(v) = buf.get_buffer_local(name) {
             return Some(*v);
@@ -355,10 +349,7 @@ pub(crate) fn builtin_line_number_at_pos(
 }
 
 /// (count-lines BEG END)
-pub(crate) fn builtin_count_lines(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_count_lines(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("count-lines", &args, 2)?;
     expect_max_args("count-lines", &args, 3)?;
     let beg = expect_int(&args[0])?;
@@ -463,10 +454,7 @@ pub(crate) fn builtin_beginning_of_line_in_manager(
 }
 
 /// (end-of-line &optional N)
-pub(crate) fn builtin_end_of_line(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_end_of_line(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_end_of_line_in_manager(&mut eval.buffers, args)
 }
 
@@ -779,10 +767,7 @@ pub(crate) fn builtin_region_beginning_in_manager(
 }
 
 /// (region-end) -> integer
-pub(crate) fn builtin_region_end(
-    eval: &mut super::eval::Context,
-    _args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_region_end(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
     builtin_region_end_in_manager(&eval.buffers, _args)
 }
 

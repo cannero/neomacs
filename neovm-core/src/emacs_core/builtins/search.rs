@@ -499,10 +499,7 @@ pub(crate) fn builtin_search_backward_regexp_with_state(
     builtin_re_search_backward_with_state(case_fold, buffers, match_data, args)
 }
 
-pub(crate) fn builtin_looking_at(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_looking_at(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);

@@ -96,10 +96,7 @@ pub(crate) fn eval_forms_from_source_in_runtime(
     Ok(Value::Nil)
 }
 
-pub(crate) fn eval_forms_from_source(
-    eval: &mut super::eval::Context,
-    source: &str,
-) -> EvalResult {
+pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &str) -> EvalResult {
     eval_forms_from_source_in_runtime(source, |form| {
         eval.eval(form)?;
         eval.gc_safe_point();
@@ -188,10 +185,7 @@ pub(crate) fn eval_region_source_text_in_state(
 /// `(eval-buffer &optional BUFFER PRINTFLAG FILENAME UNIBYTE DO-ALLOW-PRINT)`
 ///
 /// Evaluate all forms from BUFFER (or current buffer) and return nil.
-pub(crate) fn builtin_eval_buffer(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("eval-buffer", &args, 5)?;
     let source = eval_buffer_source_text_in_state(&eval.buffers, args.first())?;
     eval_forms_from_source(eval, &source)
@@ -200,10 +194,7 @@ pub(crate) fn builtin_eval_buffer(
 /// `(eval-region START END &optional PRINTFLAG READ-FUNCTION)`
 ///
 /// Evaluate forms in the [START, END) region of the current buffer.
-pub(crate) fn builtin_eval_region(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_eval_region(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let source = eval_region_source_text_in_state(&eval.buffers, &args)?;
     if source.is_empty() {
         return Ok(Value::Nil);
@@ -264,10 +255,7 @@ fn expect_optional_prompt_string(args: &[Value]) -> Result<(), Flow> {
 /// Read an event from the command input.
 /// In batch mode, reads from `unread-command-events`, returns nil if empty.
 /// In interactive mode, blocks on the input channel via `read_char()`.
-pub(crate) fn builtin_read_event(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_read_event(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if let Some(value) = builtin_read_event_in_runtime(eval, &args)? {
         return Ok(value);
     }
@@ -425,7 +413,6 @@ pub(crate) fn builtin_get_load_suffixes(args: Vec<Value>) -> EvalResult {
     ]))
 }
 
-
 /// `(locate-file FILENAME PATH SUFFIXES &optional PREDICATE)`
 ///
 /// Search PATH for FILENAME with each suffix in SUFFIXES.
@@ -446,7 +433,10 @@ pub(crate) fn builtin_locate_file(eval: &mut super::eval::Context, args: Vec<Val
 /// `(locate-file-internal FILENAME PATH SUFFIXES &optional PREDICATE)`
 ///
 /// Internal variant of `locate-file`; currently uses the same lookup behavior.
-pub(crate) fn builtin_locate_file_internal(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_locate_file_internal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("locate-file-internal", &args, 2)?;
     expect_max_args("locate-file-internal", &args, 4)?;
     let filename = expect_string(&args[0])?;
@@ -569,7 +559,8 @@ fn locate_file_with_path_and_suffixes(
         let expanded = crate::emacs_core::fileio::expand_file_name(filename, None);
         for suffix in &effective_suffixes {
             let candidate = format!("{expanded}{suffix}");
-            if Path::new(&candidate).exists() && predicate_matches_candidate(eval, predicate, &candidate)?
+            if Path::new(&candidate).exists()
+                && predicate_matches_candidate(eval, predicate, &candidate)?
             {
                 return Ok(Some(candidate));
             }
@@ -581,7 +572,8 @@ fn locate_file_with_path_and_suffixes(
         let base = crate::emacs_core::fileio::expand_file_name(filename, Some(dir));
         for suffix in &effective_suffixes {
             let candidate = format!("{base}{suffix}");
-            if Path::new(&candidate).exists() && predicate_matches_candidate(eval, predicate, &candidate)?
+            if Path::new(&candidate).exists()
+                && predicate_matches_candidate(eval, predicate, &candidate)?
             {
                 return Ok(Some(candidate));
             }
@@ -591,7 +583,11 @@ fn locate_file_with_path_and_suffixes(
     Ok(None)
 }
 
-fn predicate_matches_candidate(eval: &mut super::eval::Context, predicate: Option<&Value>, candidate: &str) -> Result<bool, Flow> {
+fn predicate_matches_candidate(
+    eval: &mut super::eval::Context,
+    predicate: Option<&Value>,
+    candidate: &str,
+) -> Result<bool, Flow> {
     let Some(predicate) = predicate else {
         return Ok(true);
     };
@@ -604,9 +600,7 @@ fn predicate_matches_candidate(eval: &mut super::eval::Context, predicate: Optio
         // unknown predicate object shapes default to accepting candidate.
         return Ok(true);
     };
-    let Some(result) =
-        eval.dispatch_subr(symbol, vec![Value::string(candidate)])
-    else {
+    let Some(result) = eval.dispatch_subr(symbol, vec![Value::string(candidate)]) else {
         // Emacs locate-file tolerates non-callable predicate values in practice.
         // Keep search behavior instead of surfacing an execution error here.
         return Ok(true);

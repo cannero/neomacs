@@ -190,7 +190,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
         .set_symbol_value("default-directory", Value::string(&base_str));
 
     let result = builtin_directory_files_and_attributes_eval(
-        &eval,
+        &mut eval,
         vec![
             Value::string("fixtures"),
             Value::Nil,
@@ -227,8 +227,11 @@ fn test_file_name_completion_basic() {
     create_file(&dir, "foobaz.txt", "");
 
     // "foo" should complete to "fooba" (longest common prefix).
-    let result =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("foo"), Value::string(&dir_str)]).unwrap();
+    let result = builtin_file_name_completion(
+        &mut ctx,
+        vec![Value::string("foo"), Value::string(&dir_str)],
+    )
+    .unwrap();
     assert_eq!(result.as_str(), Some("fooba"));
 
     let _ = fs::remove_dir_all(&dir);
@@ -240,9 +243,11 @@ fn test_file_name_completion_exact() {
     let (dir, dir_str) = make_test_dir("fnc_exact");
     create_file(&dir, "unique.txt", "");
 
-    let result =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("unique.txt"), Value::string(&dir_str)])
-            .unwrap();
+    let result = builtin_file_name_completion(
+        &mut ctx,
+        vec![Value::string("unique.txt"), Value::string(&dir_str)],
+    )
+    .unwrap();
     // Exact and unique match returns t.
     assert!(result.is_truthy());
     // In Emacs, exact unique match returns t.
@@ -260,8 +265,11 @@ fn test_file_name_completion_no_match() {
     let (dir, dir_str) = make_test_dir("fnc_none");
     create_file(&dir, "hello.txt", "");
 
-    let result =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("xyz"), Value::string(&dir_str)]).unwrap();
+    let result = builtin_file_name_completion(
+        &mut ctx,
+        vec![Value::string("xyz"), Value::string(&dir_str)],
+    )
+    .unwrap();
     assert!(result.is_nil());
 
     let _ = fs::remove_dir_all(&dir);
@@ -275,24 +283,32 @@ fn test_file_name_completion_dot_and_slash_behavior() {
     fs::create_dir(dir.join("subdir")).unwrap();
 
     let dot =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("."), Value::string(&dir_str)]).unwrap();
+        builtin_file_name_completion(&mut ctx, vec![Value::string("."), Value::string(&dir_str)])
+            .unwrap();
     assert_eq!(dot.as_str(), Some(".hidden"));
 
     let dotdot =
-        builtin_file_name_completion(&mut ctx, vec![Value::string(".."), Value::string(&dir_str)]).unwrap();
+        builtin_file_name_completion(&mut ctx, vec![Value::string(".."), Value::string(&dir_str)])
+            .unwrap();
     assert_eq!(dotdot.as_str(), Some("../"));
 
     let slash =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("./"), Value::string(&dir_str)]).unwrap();
+        builtin_file_name_completion(&mut ctx, vec![Value::string("./"), Value::string(&dir_str)])
+            .unwrap();
     assert!(slash.is_nil());
 
-    let subdir_prefix =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("sub"), Value::string(&dir_str)]).unwrap();
+    let subdir_prefix = builtin_file_name_completion(
+        &mut ctx,
+        vec![Value::string("sub"), Value::string(&dir_str)],
+    )
+    .unwrap();
     assert_eq!(subdir_prefix.as_str(), Some("subdir/"));
 
-    let subdir_with_slash =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("subdir/"), Value::string(&dir_str)])
-            .unwrap();
+    let subdir_with_slash = builtin_file_name_completion(
+        &mut ctx,
+        vec![Value::string("subdir/"), Value::string(&dir_str)],
+    )
+    .unwrap();
     assert!(subdir_with_slash.is_nil());
 
     let _ = fs::remove_dir_all(&dir);
@@ -443,7 +459,7 @@ fn test_file_name_all_completions_eval_relative_directory() {
     );
 
     let result = builtin_file_name_all_completions_eval(
-        &eval,
+        &mut eval,
         vec![Value::string("sub"), Value::string("fixtures/")],
     )
     .unwrap();
@@ -553,7 +569,7 @@ fn test_file_attributes_eval_respects_default_directory() {
         Value::string(ensure_trailing_slash(&dir_str)),
     );
 
-    let result = builtin_file_attributes_eval(&eval, vec![Value::string("alpha.txt")]).unwrap();
+    let result = builtin_file_attributes_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 12);
     assert!(items[0].is_nil());

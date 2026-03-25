@@ -1013,7 +1013,7 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     .expect("plan builtin default interactive command");
     let (_, builtin_args) = resolve_call_interactively_target_and_args_in_state(
         &mut ev.obarray,
-        &mut ev.dynamic,
+        &mut Vec::new(),
         &mut ev.buffers,
         &ev.custom,
         ev.specpdl.as_slice(),
@@ -1037,7 +1037,7 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     .expect("plan interactive lambda");
     let (_, lambda_args) = resolve_call_interactively_target_and_args_in_state(
         &mut ev.obarray,
-        &mut ev.dynamic,
+        &mut Vec::new(),
         &mut ev.buffers,
         &ev.custom,
         ev.specpdl.as_slice(),
@@ -1066,7 +1066,7 @@ fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
     .expect("plan prompting lambda");
     let resolved = resolve_call_interactively_target_and_args_in_state(
         &mut ev.obarray,
-        &mut ev.dynamic,
+        &mut Vec::new(),
         &mut ev.buffers,
         &ev.custom,
         ev.specpdl.as_slice(),
@@ -1116,7 +1116,7 @@ i\")
     .expect("plan simple string-code lambda");
     let (_, args) = resolve_call_interactively_target_and_args_in_state(
         &mut ev.obarray,
-        &mut ev.dynamic,
+        &mut Vec::new(),
         &mut ev.buffers,
         &ev.custom,
         ev.specpdl.as_slice(),
@@ -1165,7 +1165,7 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
     .expect("plan shift-selection lambda");
     let (_, args) = resolve_call_interactively_target_and_args_in_state(
         &mut ev.obarray,
-        &mut ev.dynamic,
+        &mut Vec::new(),
         &mut ev.buffers,
         &ev.custom,
         ev.specpdl.as_slice(),
@@ -1198,7 +1198,7 @@ fn call_interactively_state_resolution_handles_optional_coding_without_prefix() 
     .expect("plan optional coding lambda");
     let (_, args) = resolve_call_interactively_target_and_args_in_state(
         &mut ev.obarray,
-        &mut ev.dynamic,
+        &mut Vec::new(),
         &mut ev.buffers,
         &ev.custom,
         ev.specpdl.as_slice(),
@@ -2785,24 +2785,6 @@ fn bootstrap_command_execute_quoted_insert_uses_simple_el() {
         results[0],
         r#"OK (t nil (end-of-file "Error reading from stdin"))"#
     );
-}
-
-#[test]
-fn command_execute_is_not_dispatch_builtin() {
-    assert!(
-        !super::super::builtin_registry::is_dispatch_builtin_name("command-execute"),
-        "command-execute should come from GNU simple.el"
-    );
-}
-
-#[test]
-fn prefix_argument_commands_are_not_dispatch_builtins() {
-    for name in ["universal-argument", "digit-argument", "negative-argument"] {
-        assert!(
-            !super::super::builtin_registry::is_dispatch_builtin_name(name),
-            "{name} should come from GNU simple.el"
-        );
-    }
 }
 
 #[test]

@@ -2514,21 +2514,21 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     let mut eval = super::super::eval::Context::new();
 
     assert!(
-        builtin_char_equal(&eval, vec![Value::Int(97), Value::Int(65)])
+        builtin_char_equal(&mut eval, vec![Value::Int(97), Value::Int(65)])
             .unwrap()
             .is_truthy()
     );
     eval.obarray
         .set_symbol_value("case-fold-search", Value::Nil);
     assert!(
-        builtin_char_equal(&eval, vec![Value::Int(97), Value::Int(65)])
+        builtin_char_equal(&mut eval, vec![Value::Int(97), Value::Int(65)])
             .unwrap()
             .is_nil()
     );
     eval.obarray
         .set_symbol_value("case-fold-search", Value::True);
 
-    let char_type = builtin_char_equal(&eval, vec![Value::Int(1), Value::string("a")])
+    let char_type = builtin_char_equal(&mut eval, vec![Value::Int(1), Value::string("a")])
         .expect_err("char-equal should reject non-character args");
     match char_type {
         Flow::Signal(sig) => {
