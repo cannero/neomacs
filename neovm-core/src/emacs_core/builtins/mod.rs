@@ -901,9 +901,7 @@ pub(crate) fn dispatch_builtin(
 
     // Legacy dispatch — will shrink as builtins migrate to defsubr.
     match name {
-        "macrop" => return Some(super::builtins::symbols::builtin_macrop_eval(eval, args)),
         // Symbol/obarray
-        "obarrayp" => return Some(builtin_obarrayp(args)),
         // Hooks
         "run-hooks" => {
             let hook_names: Vec<String> = args
@@ -941,7 +939,6 @@ pub(crate) fn dispatch_builtin(
         }
         // Buffer operations
         // set-mark and mark are now in navigation module (below)
-        "ntake" => return Some(builtin_ntake(args)),
         // Search / regex operations
         // charset (evaluator-dependent)
         // composite (evaluator-dependent)
@@ -950,23 +947,13 @@ pub(crate) fn dispatch_builtin(
         // Font (evaluator-dependent — frame designator validation)
 
         // File I/O (evaluator-dependent)
-        "default-file-modes" => return Some(super::fileio::builtin_default_file_modes(args)),
-        "set-default-file-modes" => {
-            return Some(super::fileio::builtin_set_default_file_modes(args));
-        }
         // Keymap operations
         // Process operations (evaluator-dependent)
-        "set-process-inherit-coding-system-flag" => {
-            return Some(
-                super::process::builtin_set_process_inherit_coding_system_flag(eval, args),
-            );
-        }
         // Timer operations (evaluator-dependent)
         // Variable watchers
         // Syntax table operations (evaluator-dependent)
         // Register operations (evaluator-dependent)
         // Keyboard macro operations (evaluator-dependent)
-        "cancel-kbd-macro-events" => return Some(builtin_cancel_kbd_macro_events(args)),
         // Bookmark operations (evaluator-dependent)
         // Abbreviation operations (evaluator-dependent)
         // Text property operations (evaluator-dependent — buffer access)
@@ -980,100 +967,6 @@ pub(crate) fn dispatch_builtin(
 
         // Rectangle operations (evaluator-dependent — buffer access)
         // Window/frame operations (evaluator-dependent)
-        "compute-motion" => {
-            return Some(super::builtins::buffers::builtin_compute_motion(eval, args));
-        }
-        "window-configuration-p" => return Some(builtin_window_configuration_p(args)),
-        "window-configuration-frame" => return Some(builtin_window_configuration_frame(args)),
-        "window-configuration-equal-p" => return Some(builtin_window_configuration_equal_p(args)),
-        "frame-parameter" => {
-            tracing::debug!(param = ?args.get(1).map(|v| format!("{}", v)), "frame-parameter called");
-            return Some(super::window_cmds::builtin_frame_parameter(eval, args));
-        }
-        "send-string-to-terminal" => {
-            return Some(super::dispnew::pure::builtin_send_string_to_terminal_eval(
-                eval, args,
-            ));
-        }
-        "internal-show-cursor" => {
-            return Some(super::dispnew::pure::builtin_internal_show_cursor_eval(
-                eval, args,
-            ));
-        }
-        "internal-show-cursor-p" => {
-            return Some(super::dispnew::pure::builtin_internal_show_cursor_p_eval(
-                eval, args,
-            ));
-        }
-        "redraw-frame" => return Some(super::dispnew::pure::builtin_redraw_frame_eval(eval, args)),
-        "display-supports-face-attributes-p" => {
-            return Some(
-                super::display::builtin_display_supports_face_attributes_p_eval(eval, args),
-            );
-        }
-        "terminal-name" => {
-            return Some(super::terminal::pure::builtin_terminal_name_eval(
-                eval, args,
-            ));
-        }
-        "terminal-live-p" => {
-            return Some(super::terminal::pure::builtin_terminal_live_p_eval(
-                eval, args,
-            ));
-        }
-        "terminal-parameter" => {
-            return Some(super::terminal::pure::builtin_terminal_parameter_eval(
-                eval, args,
-            ));
-        }
-        "terminal-parameters" => {
-            return Some(super::terminal::pure::builtin_terminal_parameters_eval(
-                eval, args,
-            ));
-        }
-        "set-terminal-parameter" => {
-            return Some(super::terminal::pure::builtin_set_terminal_parameter_eval(
-                eval, args,
-            ));
-        }
-        "tty-type" => return Some(super::terminal::pure::builtin_tty_type_eval(eval, args)),
-        "tty-top-frame" => {
-            return Some(super::terminal::pure::builtin_tty_top_frame_eval(
-                eval, args,
-            ));
-        }
-        "tty-display-color-p" => {
-            return Some(super::terminal::pure::builtin_tty_display_color_p_eval(
-                eval, args,
-            ));
-        }
-        "tty-display-color-cells" => {
-            return Some(super::terminal::pure::builtin_tty_display_color_cells_eval(
-                eval, args,
-            ));
-        }
-        "tty-no-underline" => {
-            return Some(super::terminal::pure::builtin_tty_no_underline_eval(
-                eval, args,
-            ));
-        }
-        "controlling-tty-p" => {
-            return Some(super::terminal::pure::builtin_controlling_tty_p_eval(
-                eval, args,
-            ));
-        }
-        "suspend-tty" => return Some(super::terminal::pure::builtin_suspend_tty_eval(eval, args)),
-        "resume-tty" => return Some(super::terminal::pure::builtin_resume_tty_eval(eval, args)),
-        "frame-terminal" => {
-            return Some(super::terminal::pure::builtin_frame_terminal_eval(
-                eval, args,
-            ));
-        }
-        "x-display-monitor-attributes-list" => {
-            return Some(
-                super::display::builtin_x_display_monitor_attributes_list_eval(eval, args),
-            );
-        }
 
         // Interactive / command system (evaluator-dependent)
         // Error hierarchy (evaluator-dependent — reads obarray)
@@ -1094,27 +987,8 @@ pub(crate) fn dispatch_builtin(
             tracing::info!(msg = %msg_preview, "message");
             return Some(builtin_message_eval(eval, args));
         }
-        "set-input-meta-mode" => return Some(super::reader::builtin_set_input_meta_mode(args)),
-        "set-output-flow-control" => {
-            return Some(super::reader::builtin_set_output_flow_control(args));
-        }
-        "set-quit-char" => return Some(super::reader::builtin_set_quit_char(args)),
-        "read-char" => {
-            tracing::info!("read-char called (will block for input)");
-            return Some(super::reader::builtin_read_char(eval, args));
-        }
-        "minibuffer-innermost-command-loop-p" => {
-            return Some(
-                super::minibuffer::builtin_minibuffer_innermost_command_loop_p_eval(eval, args),
-            );
-        }
 
         // Misc (evaluator-dependent)
-        "top-level" => return Some(super::minibuffer::builtin_top_level(args)),
-        "recursive-edit" => {
-            tracing::info!("dispatch_builtin: recursive-edit called");
-            return Some(super::minibuffer::builtin_recursive_edit_eval(eval, args));
-        }
 
         // Threading (evaluator-dependent)
 
@@ -1190,32 +1064,14 @@ pub(crate) fn dispatch_builtin(
                 args,
             ));
         }
-        "find-coding-systems-region-internal" => {
-            return Some(
-                super::coding::builtin_find_coding_systems_region_internal_eval(eval, args),
-            );
-        }
 
         // Documentation/help (evaluator-dependent)
-        "documentation-stringp" => return Some(builtin_documentation_stringp(args)),
 
         // Indentation (evaluator-dependent)
         // Case/char (evaluator-dependent)
 
         // Search (evaluator-dependent)
-        "posix-search-forward" => {
-            // Reuse regex search engine for now; this replaces nil-stub behavior.
-            return Some(builtin_re_search_forward(eval, args));
-        }
-        "posix-search-backward" => {
-            // Reuse regex search engine for now; this replaces nil-stub behavior.
-            return Some(builtin_re_search_backward(eval, args));
-        }
         // Lread (evaluator-dependent)
-        "read-event" => {
-            tracing::info!("read-event called (will block for input)");
-            return Some(super::lread::builtin_read_event(eval, args));
-        }
 
         // Editfns (evaluator-dependent)
 
@@ -1369,8 +1225,6 @@ pub(crate) fn dispatch_builtin(
         "set-file-acl" => super::fileio::builtin_set_file_acl(args),
         "set-file-selinux-context" => super::fileio::builtin_set_file_selinux_context(args),
         "visited-file-modtime" => super::fileio::builtin_visited_file_modtime(args),
-        "default-file-modes" => super::fileio::builtin_default_file_modes(args),
-        "set-default-file-modes" => super::fileio::builtin_set_default_file_modes(args),
         "make-temp-name" => super::fileio::builtin_make_temp_name(args),
         "next-read-file-uses-dialog-p" => super::fileio::builtin_next_read_file_uses_dialog_p(args),
         "unhandled-file-name-directory" => {
@@ -1410,13 +1264,9 @@ pub(crate) fn dispatch_builtin(
         "category-set-mnemonics" => super::category::builtin_category_set_mnemonics(args),
 
         // Dispnew (pure)
-        "redraw-frame" => super::dispnew::pure::builtin_redraw_frame(args),
         "redraw-display" => super::dispnew::pure::builtin_redraw_display(args),
         "open-termscript" => super::dispnew::pure::builtin_open_termscript(args),
         "ding" => super::dispnew::pure::builtin_ding(args),
-        "send-string-to-terminal" => super::dispnew::pure::builtin_send_string_to_terminal(args),
-        "internal-show-cursor" => super::dispnew::pure::builtin_internal_show_cursor(args),
-        "internal-show-cursor-p" => super::dispnew::pure::builtin_internal_show_cursor_p(args),
         "frame--z-order-lessp" => super::dispnew::pure::builtin_frame_z_order_lessp(args),
         // Display/terminal (pure)
         "x-export-frames" => super::display::builtin_x_export_frames(args),
@@ -1465,24 +1315,7 @@ pub(crate) fn dispatch_builtin(
         "x-window-property-attributes" => {
             super::display::builtin_x_window_property_attributes(args)
         }
-        "terminal-name" => super::terminal::pure::builtin_terminal_name(args),
         "terminal-list" => super::terminal::pure::builtin_terminal_list(args),
-        "frame-terminal" => super::terminal::pure::builtin_frame_terminal(args),
-        "terminal-live-p" => super::terminal::pure::builtin_terminal_live_p(args),
-        "terminal-parameter" => super::terminal::pure::builtin_terminal_parameter(args),
-        "terminal-parameters" => super::terminal::pure::builtin_terminal_parameters(args),
-        "set-terminal-parameter" => super::terminal::pure::builtin_set_terminal_parameter(args),
-        "tty-type" => super::terminal::pure::builtin_tty_type(args),
-        "tty-top-frame" => super::terminal::pure::builtin_tty_top_frame(args),
-        "tty-display-color-p" => super::terminal::pure::builtin_tty_display_color_p(args),
-        "tty-display-color-cells" => super::terminal::pure::builtin_tty_display_color_cells(args),
-        "tty-no-underline" => super::terminal::pure::builtin_tty_no_underline(args),
-        "controlling-tty-p" => super::terminal::pure::builtin_controlling_tty_p(args),
-        "suspend-tty" => super::terminal::pure::builtin_suspend_tty(args),
-        "resume-tty" => super::terminal::pure::builtin_resume_tty(args),
-        "display-supports-face-attributes-p" => {
-            super::display::builtin_display_supports_face_attributes_p(args)
-        }
         "x-server-version" => super::display::builtin_x_server_version(args),
         "x-server-input-extension-version" => {
             super::display::builtin_x_server_input_extension_version(args)
@@ -1491,9 +1324,6 @@ pub(crate) fn dispatch_builtin(
         "display-color-cells" => super::display::builtin_display_color_cells(args),
         "x-display-mm-height" => super::display::builtin_x_display_mm_height(args),
         "x-display-mm-width" => super::display::builtin_x_display_mm_width(args),
-        "x-display-monitor-attributes-list" => {
-            super::display::builtin_x_display_monitor_attributes_list(args)
-        }
         "x-display-planes" => super::display::builtin_x_display_planes(args),
         "x-display-screens" => super::display::builtin_x_display_screens(args),
         "x-wm-set-size-hint" => super::display::builtin_x_wm_set_size_hint(args),
@@ -1835,7 +1665,6 @@ pub(crate) fn dispatch_builtin(
         "make-terminal-frame" => super::terminal::pure::builtin_make_terminal_frame(args),
         "menu-bar-menu-at-x-y" => builtin_menu_bar_menu_at_x_y(args),
         "menu-or-popup-active-p" => builtin_menu_or_popup_active_p(args),
-        "minibuffer-innermost-command-loop-p" => return None,
         "module-load" => builtin_module_load(args),
         "mouse-pixel-position" => builtin_mouse_pixel_position(args),
         "mouse-position" => builtin_mouse_position(args),
@@ -1846,7 +1675,6 @@ pub(crate) fn dispatch_builtin(
         "native-elisp-load" => builtin_native_elisp_load(args),
         "new-fontset" => return None,
         "next-frame" => builtin_next_frame(args),
-        "ntake" => builtin_ntake(args),
         "obarray-clear" => builtin_obarray_clear(args),
         "obarray-make" => builtin_obarray_make(args),
         "object-intervals" => builtin_object_intervals(args),
@@ -2440,7 +2268,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "make-marker" => super::marker::builtin_make_marker(args),
         "bool-vector-p" => super::chartable::builtin_bool_vector_p(args),
         "make-category-set" => super::category::builtin_make_category_set(args),
-        "macrop" => super::subr_info::builtin_macrop(args),
         "function-equal" => builtin_function_equal(args),
         "module-function-p" => builtin_module_function_p(args),
         "user-ptrp" => builtin_user_ptrp(args),
@@ -2484,7 +2311,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "secure-hash-algorithms" => builtin_secure_hash_algorithms(args),
         "prefix-numeric-value" => builtin_prefix_numeric_value(args),
         "propertize" => builtin_propertize(args),
-        "documentation-stringp" => super::builtins::misc_pure::builtin_documentation_stringp(args),
         "bare-symbol" => super::builtins_extra::builtin_bare_symbol(args),
         "capitalize" => super::casefiddle::builtin_capitalize(args),
         "charsetp" => super::charset::builtin_charsetp(args),
@@ -2528,8 +2354,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "set-file-acl" => super::fileio::builtin_set_file_acl(args),
         "set-file-selinux-context" => super::fileio::builtin_set_file_selinux_context(args),
         "visited-file-modtime" => super::fileio::builtin_visited_file_modtime(args),
-        "default-file-modes" => super::fileio::builtin_default_file_modes(args),
-        "set-default-file-modes" => super::fileio::builtin_set_default_file_modes(args),
         "make-temp-name" => super::fileio::builtin_make_temp_name(args),
         "next-read-file-uses-dialog-p" => super::fileio::builtin_next_read_file_uses_dialog_p(args),
         "unhandled-file-name-directory" => {
@@ -2705,7 +2529,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "make-terminal-frame" => super::terminal::pure::builtin_make_terminal_frame(args),
         "menu-bar-menu-at-x-y" => builtin_menu_bar_menu_at_x_y(args),
         "menu-or-popup-active-p" => builtin_menu_or_popup_active_p(args),
-        "minibuffer-innermost-command-loop-p" => return None,
         "module-load" => builtin_module_load(args),
         "mouse-pixel-position" => builtin_mouse_pixel_position(args),
         "mouse-position" => builtin_mouse_position(args),
@@ -2716,7 +2539,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "native-elisp-load" => builtin_native_elisp_load(args),
         "new-fontset" => return None,
         "next-frame" => builtin_next_frame(args),
-        "ntake" => builtin_ntake(args),
         "obarray-clear" => builtin_obarray_clear(args),
         "obarray-make" => builtin_obarray_make(args),
         "object-intervals" => builtin_object_intervals(args),
@@ -3612,6 +3434,50 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         ctx.defsubr("set-file-times", super::fileio::builtin_set_file_times_eval, 0, None);
         ctx.defsubr("error-message-string", super::errors::builtin_error_message_string, 0, None);
         ctx.defsubr("char-equal", builtin_char_equal, 0, None);
+        ctx.defsubr("macrop", super::builtins::symbols::builtin_macrop_eval, 0, None);
+        ctx.defsubr("set-process-inherit-coding-system-flag", super::process::builtin_set_process_inherit_coding_system_flag, 0, None);
+        ctx.defsubr("compute-motion", super::builtins::buffers::builtin_compute_motion, 0, None);
+        ctx.defsubr("frame-parameter", super::window_cmds::builtin_frame_parameter, 0, None);
+        ctx.defsubr("send-string-to-terminal", super::dispnew::pure::builtin_send_string_to_terminal_eval, 0, None);
+        ctx.defsubr("internal-show-cursor", super::dispnew::pure::builtin_internal_show_cursor_eval, 0, None);
+        ctx.defsubr("internal-show-cursor-p", super::dispnew::pure::builtin_internal_show_cursor_p_eval, 0, None);
+        ctx.defsubr("redraw-frame", super::dispnew::pure::builtin_redraw_frame_eval, 0, None);
+        ctx.defsubr("display-supports-face-attributes-p", super::display::builtin_display_supports_face_attributes_p_eval, 0, None);
+        ctx.defsubr("terminal-name", super::terminal::pure::builtin_terminal_name_eval, 0, None);
+        ctx.defsubr("terminal-live-p", super::terminal::pure::builtin_terminal_live_p_eval, 0, None);
+        ctx.defsubr("terminal-parameter", super::terminal::pure::builtin_terminal_parameter_eval, 0, None);
+        ctx.defsubr("terminal-parameters", super::terminal::pure::builtin_terminal_parameters_eval, 0, None);
+        ctx.defsubr("set-terminal-parameter", super::terminal::pure::builtin_set_terminal_parameter_eval, 0, None);
+        ctx.defsubr("tty-type", super::terminal::pure::builtin_tty_type_eval, 0, None);
+        ctx.defsubr("tty-top-frame", super::terminal::pure::builtin_tty_top_frame_eval, 0, None);
+        ctx.defsubr("tty-display-color-p", super::terminal::pure::builtin_tty_display_color_p_eval, 0, None);
+        ctx.defsubr("tty-display-color-cells", super::terminal::pure::builtin_tty_display_color_cells_eval, 0, None);
+        ctx.defsubr("tty-no-underline", super::terminal::pure::builtin_tty_no_underline_eval, 0, None);
+        ctx.defsubr("controlling-tty-p", super::terminal::pure::builtin_controlling_tty_p_eval, 0, None);
+        ctx.defsubr("suspend-tty", super::terminal::pure::builtin_suspend_tty_eval, 0, None);
+        ctx.defsubr("resume-tty", super::terminal::pure::builtin_resume_tty_eval, 0, None);
+        ctx.defsubr("frame-terminal", super::terminal::pure::builtin_frame_terminal_eval, 0, None);
+        ctx.defsubr("x-display-monitor-attributes-list", super::display::builtin_x_display_monitor_attributes_list_eval, 0, None);
+        ctx.defsubr("read-char", super::reader::builtin_read_char, 0, None);
+        ctx.defsubr("minibuffer-innermost-command-loop-p", super::minibuffer::builtin_minibuffer_innermost_command_loop_p_eval, 0, None);
+        ctx.defsubr("recursive-edit", super::minibuffer::builtin_recursive_edit_eval, 0, None);
+        ctx.defsubr("find-coding-systems-region-internal", super::coding::builtin_find_coding_systems_region_internal_eval, 0, None);
+        ctx.defsubr("posix-search-forward", builtin_re_search_forward, 0, None);
+        ctx.defsubr("posix-search-backward", builtin_re_search_backward, 0, None);
+        ctx.defsubr("read-event", super::lread::builtin_read_event, 0, None);
+        ctx.defsubr("obarrayp", |_ctx, args| builtin_obarrayp(args), 0, None);
+        ctx.defsubr("ntake", |_ctx, args| builtin_ntake(args), 0, None);
+        ctx.defsubr("default-file-modes", |_ctx, args| super::fileio::builtin_default_file_modes(args), 0, None);
+        ctx.defsubr("set-default-file-modes", |_ctx, args| super::fileio::builtin_set_default_file_modes(args), 0, None);
+        ctx.defsubr("cancel-kbd-macro-events", |_ctx, args| builtin_cancel_kbd_macro_events(args), 0, None);
+        ctx.defsubr("window-configuration-p", |_ctx, args| builtin_window_configuration_p(args), 0, None);
+        ctx.defsubr("window-configuration-frame", |_ctx, args| builtin_window_configuration_frame(args), 0, None);
+        ctx.defsubr("window-configuration-equal-p", |_ctx, args| builtin_window_configuration_equal_p(args), 0, None);
+        ctx.defsubr("set-input-meta-mode", |_ctx, args| super::reader::builtin_set_input_meta_mode(args), 0, None);
+        ctx.defsubr("set-output-flow-control", |_ctx, args| super::reader::builtin_set_output_flow_control(args), 0, None);
+        ctx.defsubr("set-quit-char", |_ctx, args| super::reader::builtin_set_quit_char(args), 0, None);
+        ctx.defsubr("top-level", |_ctx, args| super::minibuffer::builtin_top_level(args), 0, None);
+        ctx.defsubr("documentation-stringp", |_ctx, args| builtin_documentation_stringp(args), 0, None);
         ctx.defsubr("internal--define-uninitialized-variable", builtin_internal_define_uninitialized_variable_eval, 0, None);
         ctx.defsubr("compose-region-internal", super::composite::builtin_compose_region_internal_eval, 0, None);
         ctx.defsubr("window-text-pixel-size", super::xdisp::builtin_window_text_pixel_size_eval, 0, None);
