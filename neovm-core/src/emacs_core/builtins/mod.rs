@@ -975,32 +975,16 @@ pub(crate) fn dispatch_builtin(
         }
 
         // File I/O (evaluator-dependent)
-        "access-file" => return Some(super::fileio::builtin_access_file_eval(eval, args)),
-        "expand-file-name" => {
-            return Some(super::fileio::builtin_expand_file_name_eval(eval, args));
-        }
-        "delete-file-internal" => {
-            return Some(super::fileio::builtin_delete_file_internal_eval(eval, args));
-        }
         "delete-directory-internal" => {
             return Some(super::fileio::builtin_delete_directory_internal_eval(
                 eval, args,
             ));
-        }
-        "rename-file" => return Some(super::fileio::builtin_rename_file_eval(eval, args)),
-        "copy-file" => return Some(super::fileio::builtin_copy_file_eval(eval, args)),
-        "add-name-to-file" => {
-            return Some(super::fileio::builtin_add_name_to_file_eval(eval, args));
-        }
-        "make-symbolic-link" => {
-            return Some(super::fileio::builtin_make_symbolic_link_eval(eval, args));
         }
         "make-directory-internal" => {
             return Some(super::fileio::builtin_make_directory_internal_eval(
                 eval, args,
             ));
         }
-        "directory-files" => return Some(super::fileio::builtin_directory_files_eval(eval, args)),
         "directory-files-and-attributes" => {
             return Some(super::dired::builtin_directory_files_and_attributes_eval(
                 eval, args,
@@ -1016,31 +1000,11 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "file-attributes" => return Some(super::dired::builtin_file_attributes_eval(eval, args)),
-        "file-exists-p" => return Some(super::fileio::builtin_file_exists_p_eval(eval, args)),
-        "file-readable-p" => return Some(super::fileio::builtin_file_readable_p_eval(eval, args)),
-        "file-writable-p" => return Some(super::fileio::builtin_file_writable_p_eval(eval, args)),
-        "file-acl" => return Some(super::fileio::builtin_file_acl_eval(eval, args)),
         "file-accessible-directory-p" => {
             return Some(super::fileio::builtin_file_accessible_directory_p_eval(
                 eval, args,
             ));
         }
-        "file-executable-p" => {
-            return Some(super::fileio::builtin_file_executable_p_eval(eval, args));
-        }
-        "file-locked-p" => return Some(super::fileio::builtin_file_locked_p_eval(eval, args)),
-        "file-selinux-context" => {
-            return Some(super::fileio::builtin_file_selinux_context_eval(eval, args));
-        }
-        "file-system-info" => {
-            return Some(super::fileio::builtin_file_system_info_eval(eval, args));
-        }
-        "file-directory-p" => {
-            return Some(super::fileio::builtin_file_directory_p_eval(eval, args));
-        }
-        "file-regular-p" => return Some(super::fileio::builtin_file_regular_p_eval(eval, args)),
-        "file-symlink-p" => return Some(super::fileio::builtin_file_symlink_p_eval(eval, args)),
         "file-name-case-insensitive-p" => {
             return Some(super::fileio::builtin_file_name_case_insensitive_p_eval(
                 eval, args,
@@ -1051,9 +1015,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "file-modes" => return Some(super::fileio::builtin_file_modes_eval(eval, args)),
-        "set-file-modes" => return Some(super::fileio::builtin_set_file_modes_eval(eval, args)),
-        "set-file-times" => return Some(super::fileio::builtin_set_file_times_eval(eval, args)),
         "verify-visited-file-modtime" => {
             return Some(super::fileio::builtin_verify_visited_file_modtime(
                 eval, args,
@@ -1451,9 +1412,6 @@ pub(crate) fn dispatch_builtin(
             ));
         }
         // Error hierarchy (evaluator-dependent — reads obarray)
-        "error-message-string" => {
-            return Some(super::errors::builtin_error_message_string(eval, args));
-        }
 
         // Reader/printer (evaluator-dependent)
         "message" => {
@@ -1628,7 +1586,6 @@ pub(crate) fn dispatch_builtin(
 
         // Indentation (evaluator-dependent)
         // Case/char (evaluator-dependent)
-        "char-equal" => return Some(builtin_char_equal(eval, args)),
         "upcase-initials-region" => {
             return Some(super::casefiddle::builtin_upcase_initials_region(
                 eval, args,
@@ -1796,8 +1753,6 @@ pub(crate) fn dispatch_builtin(
         "invocation-name" => builtin_invocation_name(args),
 
         // File I/O (pure)
-        "access-file" => super::fileio::builtin_access_file(args),
-        "expand-file-name" => super::fileio::builtin_expand_file_name(args),
         "file-name-directory" => super::fileio::builtin_file_name_directory(args),
         "file-name-nondirectory" => super::fileio::builtin_file_name_nondirectory(args),
         "file-name-as-directory" => super::fileio::builtin_file_name_as_directory(args),
@@ -1806,34 +1761,15 @@ pub(crate) fn dispatch_builtin(
         "file-name-absolute-p" => super::fileio::builtin_file_name_absolute_p(args),
         "directory-name-p" => super::fileio::builtin_directory_name_p(args),
         "substitute-in-file-name" => super::fileio::builtin_substitute_in_file_name(args),
-        "file-acl" => super::fileio::builtin_file_acl(args),
-        "file-exists-p" => super::fileio::builtin_file_exists_p(args),
-        "file-readable-p" => super::fileio::builtin_file_readable_p(args),
-        "file-writable-p" => super::fileio::builtin_file_writable_p(args),
         "file-accessible-directory-p" => super::fileio::builtin_file_accessible_directory_p(args),
-        "file-executable-p" => super::fileio::builtin_file_executable_p(args),
-        "file-locked-p" => super::fileio::builtin_file_locked_p(args),
-        "file-selinux-context" => super::fileio::builtin_file_selinux_context(args),
-        "file-system-info" => super::fileio::builtin_file_system_info(args),
-        "file-directory-p" => super::fileio::builtin_file_directory_p(args),
-        "file-regular-p" => super::fileio::builtin_file_regular_p(args),
-        "file-symlink-p" => super::fileio::builtin_file_symlink_p(args),
         "file-name-case-insensitive-p" => super::fileio::builtin_file_name_case_insensitive_p(args),
         "file-newer-than-file-p" => super::fileio::builtin_file_newer_than_file_p(args),
-        "file-modes" => super::fileio::builtin_file_modes(args),
-        "set-file-modes" => super::fileio::builtin_set_file_modes(args),
-        "set-file-times" => super::fileio::builtin_set_file_times(args),
         "set-file-acl" => super::fileio::builtin_set_file_acl(args),
         "set-file-selinux-context" => super::fileio::builtin_set_file_selinux_context(args),
         "visited-file-modtime" => super::fileio::builtin_visited_file_modtime(args),
         "default-file-modes" => super::fileio::builtin_default_file_modes(args),
         "set-default-file-modes" => super::fileio::builtin_set_default_file_modes(args),
-        "delete-file-internal" => super::fileio::builtin_delete_file_internal(args),
         "delete-directory-internal" => super::fileio::builtin_delete_directory_internal(args),
-        "rename-file" => super::fileio::builtin_rename_file(args),
-        "copy-file" => super::fileio::builtin_copy_file(args),
-        "add-name-to-file" => super::fileio::builtin_add_name_to_file(args),
-        "make-symbolic-link" => super::fileio::builtin_make_symbolic_link(args),
         "make-directory-internal" => super::fileio::builtin_make_directory_internal(args),
         "make-temp-name" => super::fileio::builtin_make_temp_name(args),
         "next-read-file-uses-dialog-p" => super::fileio::builtin_next_read_file_uses_dialog_p(args),
@@ -1841,9 +1777,7 @@ pub(crate) fn dispatch_builtin(
             super::fileio::builtin_unhandled_file_name_directory(args)
         }
         "get-truename-buffer" => super::fileio::builtin_get_truename_buffer(args),
-        "directory-files" => super::fileio::builtin_directory_files(args),
         "find-file-name-handler" => super::fileio::builtin_find_file_name_handler(args),
-        "file-attributes" => super::dired::builtin_file_attributes(args),
 
         // Keymap (pure — no evaluator needed)
         "single-key-description" => builtin_single_key_description(args),
@@ -3016,7 +2950,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "invocation-directory" => builtin_invocation_directory(args),
         "invocation-name" => builtin_invocation_name(args),
         // File I/O (pure)
-        "expand-file-name" => super::fileio::builtin_expand_file_name(args),
         "file-name-directory" => super::fileio::builtin_file_name_directory(args),
         "file-name-nondirectory" => super::fileio::builtin_file_name_nondirectory(args),
         "file-name-as-directory" => super::fileio::builtin_file_name_as_directory(args),
@@ -3025,32 +2958,15 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "file-name-absolute-p" => super::fileio::builtin_file_name_absolute_p(args),
         "directory-name-p" => super::fileio::builtin_directory_name_p(args),
         "substitute-in-file-name" => super::fileio::builtin_substitute_in_file_name(args),
-        "file-acl" => super::fileio::builtin_file_acl(args),
-        "file-exists-p" => super::fileio::builtin_file_exists_p(args),
-        "file-readable-p" => super::fileio::builtin_file_readable_p(args),
-        "file-writable-p" => super::fileio::builtin_file_writable_p(args),
         "file-accessible-directory-p" => super::fileio::builtin_file_accessible_directory_p(args),
-        "file-executable-p" => super::fileio::builtin_file_executable_p(args),
-        "file-locked-p" => super::fileio::builtin_file_locked_p(args),
-        "file-selinux-context" => super::fileio::builtin_file_selinux_context(args),
-        "file-system-info" => super::fileio::builtin_file_system_info(args),
-        "file-directory-p" => super::fileio::builtin_file_directory_p(args),
-        "file-regular-p" => super::fileio::builtin_file_regular_p(args),
-        "file-symlink-p" => super::fileio::builtin_file_symlink_p(args),
         "file-name-case-insensitive-p" => super::fileio::builtin_file_name_case_insensitive_p(args),
         "file-newer-than-file-p" => super::fileio::builtin_file_newer_than_file_p(args),
-        "file-modes" => super::fileio::builtin_file_modes(args),
-        "set-file-modes" => super::fileio::builtin_set_file_modes(args),
-        "set-file-times" => super::fileio::builtin_set_file_times(args),
         "set-file-acl" => super::fileio::builtin_set_file_acl(args),
         "set-file-selinux-context" => super::fileio::builtin_set_file_selinux_context(args),
         "visited-file-modtime" => super::fileio::builtin_visited_file_modtime(args),
         "default-file-modes" => super::fileio::builtin_default_file_modes(args),
         "set-default-file-modes" => super::fileio::builtin_set_default_file_modes(args),
-        "delete-file-internal" => super::fileio::builtin_delete_file_internal(args),
         "delete-directory-internal" => super::fileio::builtin_delete_directory_internal(args),
-        "add-name-to-file" => super::fileio::builtin_add_name_to_file(args),
-        "make-symbolic-link" => super::fileio::builtin_make_symbolic_link(args),
         "make-directory-internal" => super::fileio::builtin_make_directory_internal(args),
         "make-temp-name" => super::fileio::builtin_make_temp_name(args),
         "next-read-file-uses-dialog-p" => super::fileio::builtin_next_read_file_uses_dialog_p(args),
@@ -3058,9 +2974,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
             super::fileio::builtin_unhandled_file_name_directory(args)
         }
         "get-truename-buffer" => super::fileio::builtin_get_truename_buffer(args),
-        "directory-files" => super::fileio::builtin_directory_files(args),
         "find-file-name-handler" => super::fileio::builtin_find_file_name_handler(args),
-        "file-attributes" => super::dired::builtin_file_attributes(args),
         // Keymap (pure)
         "single-key-description" => builtin_single_key_description(args),
         "key-description" => builtin_key_description(args),
@@ -4122,4 +4036,29 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         ctx.defsubr("preceding-char", super::editfns::builtin_preceding_char, 0, None);
         ctx.defsubr("font-at", super::font::builtin_font_at_eval, 0, None);
         ctx.defsubr("face-font", super::font::builtin_face_font_eval, 0, None);
+        ctx.defsubr("access-file", super::fileio::builtin_access_file_eval, 0, None);
+        ctx.defsubr("expand-file-name", super::fileio::builtin_expand_file_name_eval, 0, None);
+        ctx.defsubr("delete-file-internal", super::fileio::builtin_delete_file_internal_eval, 0, None);
+        ctx.defsubr("rename-file", super::fileio::builtin_rename_file_eval, 0, None);
+        ctx.defsubr("copy-file", super::fileio::builtin_copy_file_eval, 0, None);
+        ctx.defsubr("add-name-to-file", super::fileio::builtin_add_name_to_file_eval, 0, None);
+        ctx.defsubr("make-symbolic-link", super::fileio::builtin_make_symbolic_link_eval, 0, None);
+        ctx.defsubr("directory-files", super::fileio::builtin_directory_files_eval, 0, None);
+        ctx.defsubr("file-attributes", super::dired::builtin_file_attributes_eval, 0, None);
+        ctx.defsubr("file-exists-p", super::fileio::builtin_file_exists_p_eval, 0, None);
+        ctx.defsubr("file-readable-p", super::fileio::builtin_file_readable_p_eval, 0, None);
+        ctx.defsubr("file-writable-p", super::fileio::builtin_file_writable_p_eval, 0, None);
+        ctx.defsubr("file-acl", super::fileio::builtin_file_acl_eval, 0, None);
+        ctx.defsubr("file-executable-p", super::fileio::builtin_file_executable_p_eval, 0, None);
+        ctx.defsubr("file-locked-p", super::fileio::builtin_file_locked_p_eval, 0, None);
+        ctx.defsubr("file-selinux-context", super::fileio::builtin_file_selinux_context_eval, 0, None);
+        ctx.defsubr("file-system-info", super::fileio::builtin_file_system_info_eval, 0, None);
+        ctx.defsubr("file-directory-p", super::fileio::builtin_file_directory_p_eval, 0, None);
+        ctx.defsubr("file-regular-p", super::fileio::builtin_file_regular_p_eval, 0, None);
+        ctx.defsubr("file-symlink-p", super::fileio::builtin_file_symlink_p_eval, 0, None);
+        ctx.defsubr("file-modes", super::fileio::builtin_file_modes_eval, 0, None);
+        ctx.defsubr("set-file-modes", super::fileio::builtin_set_file_modes_eval, 0, None);
+        ctx.defsubr("set-file-times", super::fileio::builtin_set_file_times_eval, 0, None);
+        ctx.defsubr("error-message-string", super::errors::builtin_error_message_string, 0, None);
+        ctx.defsubr("char-equal", builtin_char_equal, 0, None);
 }

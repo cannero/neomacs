@@ -1010,7 +1010,7 @@ pub(crate) fn builtin_file_attributes_in_state(
 
 /// Context-backed variant of `file-attributes`.
 /// Resolves relative FILENAME against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_attributes_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_attributes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_attributes_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 

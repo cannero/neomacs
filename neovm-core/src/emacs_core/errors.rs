@@ -565,7 +565,7 @@ pub(crate) fn builtin_signal_eval(
 /// ERROR-DATA is `(ERROR-SYMBOL . DATA)` as bound by `condition-case`.
 /// Looks up `error-message` on the symbol's plist and appends the data.
 pub(crate) fn builtin_error_message_string(
-    eval: &super::eval::Context,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() != 1 {
