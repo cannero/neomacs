@@ -2476,80 +2476,6 @@ fn hidden_cl_runtime_entry_points() -> std::collections::BTreeSet<String> {
     .collect()
 }
 
-const SUBR_POST_GV_EAGER_REPLAY_FORMS: &[&str] = &[
-    "event--posn-at-point",
-    "add-hook",
-    "remove-hook",
-    "internal-pop-keymap",
-];
-
-fn replay_selected_source_defuns_with_eager_expansion(
-    eval: &mut super::eval::Evaluator,
-    path: &Path,
-    names: &[&str],
-) -> Result<(), EvalError> {
-    let content = fs::read_to_string(path).map_err(|err| EvalError::Signal {
-        symbol: intern("error"),
-        data: vec![Value::string(format!(
-            "bootstrap eager replay: failed reading {}: {err}",
-            path.display()
-        ))],
-    })?;
-    let forms = parse_source_with_cache(path, &content, eval.lexical_binding())?;
-    let selected = forms.iter().filter(|form| {
-        let Expr::List(items) = form else {
-            return false;
-        };
-        let Some(Expr::Symbol(head_id)) = items.first() else {
-            return false;
-        };
-        if resolve_sym(*head_id) != "defun" {
-            return false;
-        }
-        let Some(Expr::Symbol(name_id)) = items.get(1) else {
-            return false;
-        };
-        names.contains(&resolve_sym(*name_id))
-    });
-
-    let saved_lexical = eval.lexical_binding();
-    let saved_load_file_name = eval.obarray().symbol_value("load-file-name").cloned();
-    if lexical_binding_enabled_for_source(&content) {
-        eval.set_lexical_binding(true);
-    }
-    eval.set_variable(
-        "load-file-name",
-        Value::string(path.to_string_lossy().to_string()),
-    );
-
-    let macroexpand_fn = get_eager_macroexpand_fn(eval).ok_or_else(|| EvalError::Signal {
-        symbol: intern("error"),
-        data: vec![Value::string(format!(
-            "bootstrap eager replay unavailable for {}",
-            path.display()
-        ))],
-    })?;
-
-    for form in selected {
-        let form_value = eval.quote_to_runtime_value(form);
-        eager_expand_eval(eval, form_value, macroexpand_fn)?;
-        eval.gc_safe_point();
-    }
-
-    eval.set_lexical_binding(saved_lexical);
-    match saved_load_file_name {
-        Some(value) => {
-            eval.set_variable("load-file-name", value);
-        }
-        None => {
-            eval.obarray_mut()
-                .set_symbol_value("load-file-name", Value::Nil);
-        }
-    }
-
-    Ok(())
-}
-
 fn collect_runtime_loaddefs_autoload_args(
     expr: &Expr,
     restore_autoload_files: &[&str],
@@ -3135,133 +3061,6 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Evaluator) -> Result<
     Ok(())
 }
 
-pub(crate) const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
-    "emacs-lisp/debug-early",
-    "emacs-lisp/byte-run",
-    "emacs-lisp/backquote",
-    "subr",
-    "keymap",
-    "version",
-    "widget",
-    "custom",
-    "emacs-lisp/map-ynp",
-    "international/mule",
-    "international/mule-conf",
-    "env",
-    "format",
-    "bindings",
-    "window",
-    "files",
-    "emacs-lisp/macroexp",
-    "emacs-lisp/pcase",
-    "!require-gv",
-    "!enable-eager-expansion",
-    "emacs-lisp/macroexp",
-    "emacs-lisp/inline",
-    "cus-face",
-    "faces",
-    "!bootstrap-cl-preloaded-stubs",
-    "!reload-subr-after-gv",
-    "!load-ldefs-boot",
-    "button",
-    "emacs-lisp/cl-preloaded",
-    "emacs-lisp/oclosure",
-    "obarray",
-    "abbrev",
-    "help",
-    "jka-cmpr-hook",
-    "epa-hook",
-    "international/mule-cmds",
-    "case-table",
-    "international/characters",
-    "composite",
-    "language/chinese",
-    "language/cyrillic",
-    "language/indian",
-    "language/sinhala",
-    "language/english",
-    "language/ethiopic",
-    "language/european",
-    "language/czech",
-    "language/slovak",
-    "language/romanian",
-    "language/greek",
-    "language/hebrew",
-    "international/cp51932",
-    "international/eucjp-ms",
-    "language/japanese",
-    "language/korean",
-    "language/lao",
-    "language/tai-viet",
-    "language/thai",
-    "language/tibetan",
-    "language/vietnamese",
-    "language/misc-lang",
-    "language/utf-8-lang",
-    "language/georgian",
-    "language/khmer",
-    "language/burmese",
-    "language/cham",
-    "language/philippine",
-    "language/indonesian",
-    "indent",
-    "emacs-lisp/cl-generic",
-    "simple",
-    "emacs-lisp/seq",
-    "emacs-lisp/nadvice",
-    "minibuffer",
-    "frame",
-    "startup",
-    "term/tty-colors",
-    "font-core",
-    "emacs-lisp/syntax",
-    "font-lock",
-    "jit-lock",
-    "mouse",
-    "select",
-    "emacs-lisp/timer",
-    "emacs-lisp/easymenu",
-    "isearch",
-    "rfn-eshadow",
-    "menu-bar",
-    "tab-bar",
-    "emacs-lisp/lisp",
-    "textmodes/page",
-    "register",
-    "textmodes/paragraphs",
-    "progmodes/prog-mode",
-    "emacs-lisp/rx",
-    "emacs-lisp/lisp-mode",
-    "textmodes/text-mode",
-    "textmodes/fill",
-    "newcomment",
-    "replace",
-    "emacs-lisp/tabulated-list",
-    "buff-menu",
-    "fringe",
-    "emacs-lisp/regexp-opt",
-    "image",
-    "international/fontset",
-    "dnd",
-    "tool-bar",
-    "touch-screen",
-    "x-dnd",
-    "!load-x-win",
-    "progmodes/elisp-mode",
-    "emacs-lisp/float-sup",
-    "vc/vc-hooks",
-    "vc/ediff-hook",
-    "uniquify",
-    "electric",
-    "paren",
-    "emacs-lisp/shorthands",
-    "emacs-lisp/eldoc",
-    "emacs-lisp/cconv",
-    "tooltip",
-    "international/iso-transl",
-    "emacs-lisp/rmc",
-];
-
 fn install_bootstrap_x_window_system_vars(
     eval: &mut super::eval::Evaluator,
 ) -> Result<(), EvalError> {
@@ -3342,7 +3141,7 @@ pub fn create_bootstrap_evaluator_with_features(
         maybe_trace_bootstrap_step(format!(
             "create_bootstrap_evaluator_with_features: seeded-batch-bootstrap-frame={bootstrap_frame_id:?}"
         ));
-        eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+        eval.set_variable("dump-mode", Value::string("pbootstrap"));
         eval.set_variable("purify-flag", Value::Nil);
         // NeoVM counts depth more aggressively than GNU (see eval.rs comment).
         eval.set_variable("max-lisp-eval-depth", Value::Int(2400));
@@ -3407,199 +3206,53 @@ pub fn create_bootstrap_evaluator_with_features(
             }
         }
 
-        // Suppress eager macro expansion during the bootstrap phase
-        // (mirrors real Emacs loadup.el which wraps pcase loading with
-        // `(let ((macroexp--pending-eager-loads '(skip))) ...)`.
-        eval.set_variable(
-            "macroexp--pending-eager-loads",
-            Value::list(vec![Value::symbol("skip")]),
-        );
-
-        let load_path = get_load_path(&eval.obarray());
-        let total_files = BOOTSTRAP_LOAD_SEQUENCE.len();
-
-        for (file_idx, name) in BOOTSTRAP_LOAD_SEQUENCE.iter().enumerate() {
-            maybe_trace_bootstrap_step(format!(
-                "create_bootstrap_evaluator_with_features: loading-step[{}/{}]={name}",
-                file_idx + 1,
-                total_files
-            ));
-            // Handle sentinel that enables eager expansion.
-            if *name == "!enable-eager-expansion" {
-                eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
-                tracing::info!("--- eager macro expansion ENABLED ---");
-                continue;
-            }
-            if *name == "!reload-subr-after-gv" {
-                let path = find_file_in_load_path("subr.el", &load_path)
-                    .unwrap_or_else(|| panic!("bootstrap source file not found: subr.el"));
-                tracing::info!("REPLAYING: subr runtime-macro defs (post-gv eager replay) ...");
-                let start = std::time::Instant::now();
-                match replay_selected_source_defuns_with_eager_expansion(
-                    &mut eval,
-                    &path,
-                    SUBR_POST_GV_EAGER_REPLAY_FORMS,
-                ) {
-                    Ok(_) => {
-                        tracing::info!("  OK: subr eager replay ({:.2?})", start.elapsed());
-                    }
-                    Err(err) => {
-                        panic!("failed replaying subr from {}: {:?}", path.display(), err);
-                    }
-                }
-                continue;
-            }
-            // Handle sentinel for loading ldefs-boot.el (autoload definitions).
-            if *name == "!load-ldefs-boot" {
-                let ldefs_path = lisp_dir.join("ldefs-boot.el");
-                if ldefs_path.exists() {
-                    tracing::info!("LOADING: ldefs-boot.el ...");
-                    let start = std::time::Instant::now();
-                    match load_file(&mut eval, &ldefs_path) {
-                        Ok(_) => {
-                            tracing::info!("  OK: ldefs-boot.el ({:.2?})", start.elapsed());
+        // Load loadup.el — this does everything GNU's loadup.el does:
+        // loads all core .el/.elc files, handles platform conditionals,
+        // manages eager expansion, etc.
+        let loadup_path = lisp_dir.join("loadup.el");
+        tracing::info!("Loading loadup.el from {}", loadup_path.display());
+        match load_file(&mut eval, &loadup_path) {
+            Ok(_) => tracing::info!("loadup.el completed successfully"),
+            Err(e) => {
+                // If kill-emacs was called (setting shutdown_request) during
+                // loadup.el, any subsequent errors (e.g. from post-dump code
+                // like `(eval top-level t)`) are expected and can be ignored.
+                if eval.shutdown_request.is_some() {
+                    tracing::info!(
+                        "loadup.el completed (shutdown requested, ignoring post-dump error: {e:?})"
+                    );
+                } else {
+                    // Check for our special exit signal from kill-emacs
+                    match &e {
+                        EvalError::Signal { symbol, .. }
+                            if resolve_sym(*symbol) == "kill-emacs" =>
+                        {
+                            tracing::info!("loadup.el completed (kill-emacs after dump)");
                         }
-                        Err(e) => {
-                            let msg = format!("{e:?}");
-                            tracing::error!("FAIL: ldefs-boot.el => {msg}");
+                        _ => {
                             return Err(e);
                         }
                     }
-                } else {
-                    tracing::warn!("SKIP: ldefs-boot.el (not found)");
                 }
-                continue;
             }
-            // Pre-define minimal cl-preloaded stubs so cl-macs can load.
-            if *name == "!bootstrap-cl-preloaded-stubs" {
-                let stubs = [
-                    "(defmacro cl--find-class (type) `(get ,type 'cl--class))",
-                    "(defun cl--builtin-type-p (name) nil)",
-                    "(defun cl--struct-name-p (name) (and name (symbolp name) (not (keywordp name))))",
-                    "(defvar cl-struct-cl-structure-object-tags nil)",
-                    "(defvar cl--struct-default-parent nil)",
-                    "(defun cl-struct-define (name docstring parent type named slots children-sym tag print) (when children-sym (if (boundp children-sym) (add-to-list children-sym tag) (set children-sym (list tag)))))",
-                    "(defun cl--define-derived-type (name expander predicate &optional parents) nil)",
-                    "(defmacro cl-function (func) `(function ,func))",
-                ];
-                for stub in &stubs {
-                    match crate::emacs_core::parser::parse_forms(stub) {
-                        Ok(forms) => {
-                            let results = eval.eval_forms(&forms);
-                            for r in &results {
-                                if let Err(e) = r {
-                                    tracing::error!("bootstrap stub failed: {stub} => {e:?}");
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("bootstrap stub parse failed: {stub} => {e:?}");
-                        }
-                    }
-                }
-                tracing::info!("--- cl-preloaded bootstrap stubs defined ---");
-                continue;
-            }
-            // Source bootstrap needs gv before eager expansion so early
-            // `require 'cl-lib` macroexpansion sees the real gv macros.
-            if *name == "!require-gv" {
-                tracing::info!("LOADING: (require 'gv) ...");
-                let start = std::time::Instant::now();
-                match eval.require_value(Value::symbol("gv"), None, None) {
-                    Ok(_) => {
-                        tracing::info!("  OK: (require 'gv) ({:.2?})", start.elapsed());
-                    }
-                    Err(e) => {
-                        let msg = format!("{e:?}");
-                        tracing::warn!("  WARN: (require 'gv) failed: {msg}");
-                    }
-                }
-                continue;
-            }
-            if *name == "!load-x-win" {
-                let gui_term_files: Option<&[&str]> = if eval.feature_present("neomacs") {
-                    Some(&["term/common-win", "term/neo-win"])
-                } else if eval.feature_present("x") {
-                    Some(&["term/common-win", "term/x-win"])
-                } else {
-                    None
-                };
-                if let Some(gui_term_files) = gui_term_files {
-                    for x_file in gui_term_files {
-                        tracing::info!("LOADING: {x_file} ...");
-                        let start = std::time::Instant::now();
-                        match find_file_in_load_path(x_file, &load_path) {
-                            Some(path) => match load_file(&mut eval, &path) {
-                                Ok(_) => {
-                                    tracing::info!("  OK: {x_file} ({:.2?})", start.elapsed())
-                                }
-                                Err(e) => {
-                                    let msg = match &e {
-                                        EvalError::Signal { symbol, data } => {
-                                            let sym = super::intern::resolve_sym(*symbol);
-                                            let data_strs: Vec<String> =
-                                                data.iter().map(|v| format!("{v}")).collect();
-                                            format!("({sym} {})", data_strs.join(" "))
-                                        }
-                                        EvalError::UncaughtThrow { tag, value } => {
-                                            format!("(throw {tag} {value})")
-                                        }
-                                    };
-                                    tracing::error!("FAIL: {x_file} => {msg}");
-                                    return Err(e);
-                                }
-                            },
-                            None => {
-                                tracing::error!("SKIP: {x_file} (not found in load-path)");
-                                return Err(EvalError::Signal {
-                                    symbol: intern("error"),
-                                    data: vec![Value::string(format!(
-                                        "loadup bootstrap: file not found: {x_file}"
-                                    ))],
-                                });
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-            tracing::info!("[{}/{}] LOADING: {name} ...", file_idx + 1, total_files);
-            let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
-            let start = std::time::Instant::now();
-            match find_file_in_load_path(name, &load_path) {
-                Some(path) => match load_file(&mut eval, &path) {
-                    Ok(_) => {
-                        let dh = eval.macro_cache_hits - h0;
-                        let dm = eval.macro_cache_misses - m0;
-                        tracing::info!(
-                            "  OK: {name} ({:.2?}) [cache hit={dh} miss={dm}]",
-                            start.elapsed()
-                        );
-                    }
-                    Err(e) => {
-                        let msg = match &e {
-                            EvalError::Signal { symbol, data } => {
-                                let sym = super::intern::resolve_sym(*symbol);
-                                let data_strs: Vec<String> =
-                                    data.iter().map(|v| format!("{v}")).collect();
-                                format!("({sym} {})", data_strs.join(" "))
-                            }
-                            EvalError::UncaughtThrow { tag, value } => {
-                                format!("(throw {tag} {value})")
-                            }
-                        };
-                        tracing::error!("FAIL: {name} => {msg}");
+        }
+
+        // If loadup.el set a shutdown request (via kill-emacs at the end
+        // of the dump flow), clear it so the caller gets a usable evaluator.
+        eval.shutdown_request = None;
+
+        // For neomacs builds, load term/neo-win after loadup.el completes.
+        // loadup.el handles `(featurep 'x)` which loads term/x-win, but
+        // NeoVM's neomacs feature needs term/neo-win instead/additionally.
+        if bootstrap_features.iter().any(|f| f == "neomacs") && !eval.feature_present("x") {
+            let load_path = get_load_path(&eval.obarray());
+            for neo_file in &["term/common-win", "term/neo-win"] {
+                if let Some(path) = find_file_in_load_path(neo_file, &load_path) {
+                    tracing::info!("LOADING (neomacs): {neo_file} ...");
+                    if let Err(e) = load_file(&mut eval, &path) {
+                        tracing::error!("FAIL (neomacs): {neo_file} => {e:?}");
                         return Err(e);
                     }
-                },
-                None => {
-                    tracing::error!("SKIP: {name} (not found in load-path)");
-                    return Err(EvalError::Signal {
-                        symbol: intern("error"),
-                        data: vec![Value::string(format!(
-                            "loadup bootstrap: file not found: {name}"
-                        ))],
-                    });
                 }
             }
         }

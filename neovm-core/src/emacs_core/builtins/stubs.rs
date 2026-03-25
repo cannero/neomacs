@@ -2190,3 +2190,22 @@ pub(crate) fn builtin_font_otf_alternates(args: Vec<Value>) -> EvalResult {
     expect_args("font-otf-alternates", &args, 3)?;
     Ok(Value::Nil)
 }
+
+// =========================================================================
+// emacs.c / version.c gap-fill stubs for loadup.el
+// =========================================================================
+
+pub(crate) fn builtin_emacs_repository_get_version(args: Vec<Value>) -> EvalResult {
+    expect_args("emacs-repository-get-version", &args, 0)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_emacs_repository_get_branch(args: Vec<Value>) -> EvalResult {
+    expect_args("emacs-repository-get-branch", &args, 0)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_emacs_repository_get_dirty(args: Vec<Value>) -> EvalResult {
+    expect_args("emacs-repository-get-dirty", &args, 0)?;
+    Ok(Value::Nil)
+}

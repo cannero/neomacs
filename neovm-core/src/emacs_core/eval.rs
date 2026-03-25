@@ -2414,6 +2414,10 @@ impl Evaluator {
         }
         obarray.set_symbol_value("print-quoted", Value::True);
         obarray.set_symbol_value("text-quoting-style", Value::Nil);
+        // GNU DEFVAR_LISP variables needed by loadup.el and early .el files.
+        obarray.set_symbol_value("char-code-property-alist", Value::Nil);
+        obarray.set_symbol_value("redisplay--inhibit-bidi", Value::Nil);
+        obarray.set_symbol_value("resize-mini-windows", Value::Nil);
         // GNU DEFVAR_LISP variables from lread.c that must be bound to nil
         // before any Elisp runs (code may test `boundp` or read them directly).
         obarray.set_symbol_value("eval-buffer-list", Value::Nil);

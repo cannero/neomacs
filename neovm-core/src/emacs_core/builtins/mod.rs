@@ -3184,6 +3184,9 @@ pub(crate) fn dispatch_builtin(
         "dump-emacs-portable--sort-predicate-copied" => {
             builtin_dump_emacs_portable_sort_predicate_copied(args)
         }
+        "emacs-repository-get-version" => builtin_emacs_repository_get_version(args),
+        "emacs-repository-get-branch" => builtin_emacs_repository_get_branch(args),
+        "emacs-repository-get-dirty" => builtin_emacs_repository_get_dirty(args),
         "encode-coding-region" => builtin_encode_coding_region(args),
         "find-operation-coding-system" => builtin_find_operation_coding_system(args),
         "handler-bind-1" => return None,
@@ -4090,6 +4093,9 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "dump-emacs-portable--sort-predicate-copied" => {
             builtin_dump_emacs_portable_sort_predicate_copied(args)
         }
+        "emacs-repository-get-version" => builtin_emacs_repository_get_version(args),
+        "emacs-repository-get-branch" => builtin_emacs_repository_get_branch(args),
+        "emacs-repository-get-dirty" => builtin_emacs_repository_get_dirty(args),
         "encode-coding-region" => builtin_encode_coding_region(args),
         "find-operation-coding-system" => builtin_find_operation_coding_system(args),
         "handler-bind-1" => return None,
