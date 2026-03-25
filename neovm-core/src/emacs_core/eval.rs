@@ -4763,11 +4763,11 @@ impl Context {
 
     /// Keep the Lisp-visible `features` variable in sync with the evaluator's
     /// internal feature set.
-    fn sync_features_variable(&mut self) {
+    pub(crate) fn sync_features_variable(&mut self) {
         sync_features_variable_in_state(&mut self.obarray, &self.features);
     }
 
-    fn refresh_features_from_variable(&mut self) {
+    pub(crate) fn refresh_features_from_variable(&mut self) {
         refresh_features_from_variable_in_state(&self.obarray, &mut self.features);
     }
 

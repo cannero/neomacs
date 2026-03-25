@@ -5679,7 +5679,81 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr("byte-code", |_ctx, args| builtin_byte_code(args), 0, None);
+    // byte-code: mirrors GNU Emacs Fbyte_code (src/bytecode.c).
+    // Receives pre-evaluated args (bytestr, vector, maxdepth), decodes
+    // the GNU bytecodes, and executes them via the bytecode VM.
+    ctx.defsubr(
+        "byte-code",
+        |ctx, args| {
+            crate::emacs_core::builtins::expect_args("byte-code", &args, 3)?;
+            let bytestr = args[0];
+            let constants_vec = args[1];
+            let maxdepth = args[2];
+
+            use crate::emacs_core::bytecode::ByteCodeFunction;
+            use crate::emacs_core::bytecode::decode::{
+                decode_gnu_bytecode_with_offset_map, string_value_to_bytes,
+            };
+            use crate::emacs_core::value::LambdaParams;
+
+            let raw_bytes = if let Some(s) = bytestr.as_str() {
+                string_value_to_bytes(s)
+            } else {
+                return Err(super::error::signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("stringp"), bytestr],
+                ));
+            };
+
+            let mut constants: Vec<Value> = match constants_vec {
+                Value::Vector(id) => super::value::with_heap(|h| h.get_vector(id).clone()),
+                _ => {
+                    return Err(super::error::signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("vectorp"), constants_vec],
+                    ));
+                }
+            };
+
+            for i in 0..constants.len() {
+                constants[i] = super::builtins::try_convert_nested_compiled_literal(constants[i]);
+            }
+
+            let (ops, gnu_byte_offset_map) =
+                decode_gnu_bytecode_with_offset_map(&raw_bytes, &mut constants).map_err(|e| {
+                    super::error::signal(
+                        "error",
+                        vec![Value::string(format!("bytecode decode error: {}", e))],
+                    )
+                })?;
+
+            let max_stack = match maxdepth {
+                Value::Int(n) => n as u16,
+                _ => 16,
+            };
+
+            let bc = ByteCodeFunction {
+                ops,
+                constants,
+                max_stack,
+                params: LambdaParams::simple(vec![]),
+                lexical: false,
+                env: None,
+                gnu_byte_offset_map: Some(gnu_byte_offset_map),
+                docstring: None,
+                doc_form: None,
+                interactive: None,
+            };
+
+            ctx.refresh_features_from_variable();
+            let mut vm = super::bytecode::Vm::from_context(ctx);
+            let result = vm.execute(&bc, vec![]);
+            ctx.sync_features_variable();
+            result
+        },
+        0,
+        None,
+    );
     ctx.defsubr(
         "decode-coding-region",
         |_ctx, args| builtin_decode_coding_region(args),

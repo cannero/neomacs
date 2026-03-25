@@ -2024,6 +2024,12 @@ fn load_elc_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Va
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
+        tracing::info!(
+            "{} parsed {} ELC forms from {} bytes",
+            file_name,
+            forms.len(),
+            content.len()
+        );
         for (i, raw_form) in forms.iter().enumerate() {
             let form = eval
                 .reify_byte_code_literals(raw_form)

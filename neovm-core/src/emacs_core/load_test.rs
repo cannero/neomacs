@@ -3080,6 +3080,97 @@ fn compiled_bootstrap_cl_preload_stubs_work_after_faces() {
 }
 
 #[test]
+fn elc_loading_defines_defcustom_variables() {
+    let general_elc = std::path::Path::new(
+        "/home/exec/.config/emacs/.local/straight/build-31.0.50/general/general.elc",
+    );
+    if !general_elc.exists() {
+        eprintln!("skipping: general.elc not found");
+        return;
+    }
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+
+    // Load general.elc
+    let result = super::load_file(&mut eval, general_elc);
+    assert!(
+        result.is_ok(),
+        "general.elc should load without error: {:?}",
+        result.err()
+    );
+
+    // Check that general-default-states is defined (defcustom)
+    let bound = eval
+        .obarray()
+        .symbol_value("general-default-states")
+        .is_some();
+    let special = eval.obarray().is_special("general-default-states");
+    eprintln!("general-default-states: bound={bound}, special={special}");
+
+    // Check other variables from general.elc
+    for var in [
+        "general-implicit-kbd",
+        "general-keybindings",
+        "general-override-mode",
+        "general-override-mode-map",
+        "general-default-prefix",
+        "general-default-keymaps",
+    ] {
+        let b = eval.obarray().symbol_value(var).is_some();
+        let s = eval.obarray().is_special(var);
+        let fbound = eval.obarray().symbol_function(var).is_some();
+        eprintln!("  {var}: bound={b}, special={s}, fbound={fbound}");
+    }
+
+    // Check if custom-declare-variable is fboundp
+    let cdv = eval
+        .obarray()
+        .symbol_function("custom-declare-variable")
+        .is_some();
+    eprintln!("custom-declare-variable fboundp={cdv}");
+
+    // Check that general feature was provided
+    let provided =
+        eval.eval_expr(&crate::emacs_core::parser::parse_forms("(featurep 'general)").unwrap()[0]);
+    eprintln!("(featurep 'general) = {:?}", provided);
+
+    // Test Form 0 in the same evaluator
+    let raw_bytes = std::fs::read(general_elc).unwrap();
+    let content = super::skip_elc_header(&raw_bytes);
+    let forms = crate::emacs_core::parser::parse_forms(&content).unwrap();
+    eprintln!("Parsed {} forms from general.elc source", forms.len());
+
+    let form0 = eval.reify_byte_code_literals(&forms[0]).unwrap();
+    let result = eval.eval_expr(&form0);
+    eprintln!("Form 0 result: {:?}", result);
+
+    let gds_bound = eval
+        .obarray()
+        .symbol_value("general-default-states")
+        .is_some();
+    let gik_bound = eval
+        .obarray()
+        .symbol_value("general-implicit-kbd")
+        .is_some();
+    eprintln!(
+        "After Form 0: general-default-states bound={gds_bound}, general-implicit-kbd bound={gik_bound}"
+    );
+
+    assert!(
+        gds_bound,
+        "general-default-states should be bound after Form 0 bytecode"
+    );
+}
+
+#[test]
 fn source_cl_lib_loads_after_early_gv_without_bootstrap_gv_stubs() {
     let mut eval = partial_bootstrap_eval_until("!bootstrap-cl-preloaded-stubs", false);
     let rendered = eval_rendered(
