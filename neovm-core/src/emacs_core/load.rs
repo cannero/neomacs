@@ -552,9 +552,11 @@ fn unsupported_compiled_suffixed_paths(base: &Path) -> [PathBuf; 1] {
     [PathBuf::from(format!("{base_str}.elc.gz"))]
 }
 
-/// Check if NEOVM_PREFER_ELC environment variable is set.
-fn prefer_elc() -> bool {
-    std::env::var("NEOVM_PREFER_ELC").is_ok()
+/// GNU Emacs always prefers .elc over .el (load-suffixes defaults to
+/// (".elc" ".el")).  NeoVM matches this by default.
+/// Set NEOVM_PREFER_EL=1 to prefer .el source (for debugging).
+fn prefer_el_only() -> bool {
+    std::env::var("NEOVM_PREFER_EL").is_ok()
 }
 
 fn candidate_mtime(path: &Path) -> Option<std::time::SystemTime> {
@@ -563,22 +565,16 @@ fn candidate_mtime(path: &Path) -> Option<std::time::SystemTime> {
 
 fn pick_suffixed(base: &Path, prefer_newer: bool) -> Option<PathBuf> {
     let el = source_suffixed_path(base);
+    let elc = compiled_suffixed_path(base);
+    let skip_elc = prefer_el_only();
 
-    // Only try .elc when explicitly opted in via NEOVM_PREFER_ELC.
-    // NeoVM sets load-suffixes to (".el") by default, so .elc files
-    // from foreign load-path entries (e.g., GNU Emacs mirror) must
-    // not shadow the .el source files. This matches GNU Emacs behavior
-    // where load respects load-suffixes.
-    let try_elc = prefer_elc();
-
-    if prefer_newer && try_elc {
-        let elc = compiled_suffixed_path(base);
+    if prefer_newer && !skip_elc {
         let mut candidates = Vec::new();
         if elc.exists() {
-            candidates.push(elc);
+            candidates.push(elc.clone());
         }
         if el.exists() {
-            candidates.push(el);
+            candidates.push(el.clone());
         }
         return candidates
             .into_iter()
@@ -587,11 +583,9 @@ fn pick_suffixed(base: &Path, prefer_newer: bool) -> Option<PathBuf> {
             .map(|(_, path)| path);
     }
 
-    if try_elc {
-        let elc = compiled_suffixed_path(base);
-        if elc.exists() {
-            return Some(elc);
-        }
+    // GNU default: try .elc first, then .el
+    if !skip_elc && elc.exists() {
+        return Some(elc);
     }
     if el.exists() {
         return Some(el);

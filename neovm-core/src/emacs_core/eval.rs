@@ -2367,10 +2367,12 @@ impl Evaluator {
             "fontset-alias-alist",
             super::builtins::symbols::fontset_alias_alist_startup_value(),
         );
-        // In official Emacs, load-suffixes is (".elc" ".el"), but neomacs
-        // only supports .el by default today. Compiled-first lookup remains a
-        // separate compatibility target until .elc bootstrap/runtime is ready.
-        obarray.set_symbol_value("load-suffixes", Value::list(vec![Value::string(".el")]));
+        // GNU Emacs: load-suffixes defaults to (".elc" ".el").
+        // NeoVM matches this — prefer compiled bytecode, fall back to source.
+        obarray.set_symbol_value(
+            "load-suffixes",
+            Value::list(vec![Value::string(".elc"), Value::string(".el")]),
+        );
         // load-file-rep-suffixes: suffixes for alternate representations of
         // the same file (e.g., compressed ".gz").  Default is just ("").
         obarray.set_symbol_value(
@@ -5548,6 +5550,19 @@ impl Evaluator {
         let Some(function) = self.obarray.symbol_function_id(sym_id).cloned() else {
             return Err(signal("void-function", vec![Value::Symbol(sym_id)]));
         };
+
+        // Handle autoloads for non-canonical symbols the same as canonical
+        // ones: trigger autoload-do-load before calling apply, so the raw
+        // autoload cons never reaches apply_inner's Value::Cons path.
+        if super::autoload::is_autoload_value(&function) {
+            let name = resolve_sym(sym_id);
+            return self.apply_named_autoload_callable(
+                name,
+                function,
+                args,
+                rewrite_builtin_wrong_arity,
+            );
+        }
 
         let function_is_callable = self.function_value_is_callable(&function);
         match self.apply(function, args) {

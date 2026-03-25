@@ -416,10 +416,13 @@ pub(crate) fn builtin_read_char_exclusive_in_runtime(
 /// GNU lread.c: combines `load-suffixes` with `load-file-rep-suffixes`.
 pub(crate) fn builtin_get_load_suffixes(args: Vec<Value>) -> EvalResult {
     expect_max_args("get-load-suffixes", &args, 0)?;
-    // Hardcoded to match NeoVM's load-suffixes = (".el") and
-    // load-file-rep-suffixes = ("").
-    // TODO: dynamically read from variables like GNU does.
-    Ok(Value::list(vec![Value::string(".el"), Value::string("")]))
+    // GNU: combines load-suffixes (".elc" ".el") with
+    // load-file-rep-suffixes (""). Result: (".elc" ".el" "").
+    Ok(Value::list(vec![
+        Value::string(".elc"),
+        Value::string(".el"),
+        Value::string(""),
+    ]))
 }
 
 /// Evaluator-aware variant that reads from obarray.
