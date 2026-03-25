@@ -1625,10 +1625,29 @@ impl Context {
         obarray.set_symbol_value("command-line-functions", Value::Nil);
         obarray.set_symbol_value("command-line-processed", Value::True);
         obarray.set_symbol_value("command-switch-alist", Value::Nil);
-        obarray.set_symbol_value("invocation-name", Value::Nil);
-        obarray.set_symbol_value("invocation-directory", Value::Nil);
+        // GNU emacs.c: set from argv[0]. NeoVM uses current exe path.
+        let exe_path = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.canonicalize().ok());
+        let invocation_name = exe_path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "neomacs".to_string());
+        let invocation_directory = exe_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|d| format!("{}/", d.to_string_lossy()))
+            .unwrap_or_else(|| "./".to_string());
+        obarray.set_symbol_value("invocation-name", Value::string(invocation_name));
+        obarray.set_symbol_value("invocation-directory", Value::string(invocation_directory));
         obarray.set_symbol_value("installation-directory", Value::Nil);
         obarray.set_symbol_value("configure-info-directory", Value::Nil);
+        // GNU keyboard.c: internal--top-level-message for command loop entry
+        obarray.set_symbol_value(
+            "internal--top-level-message",
+            Value::string("Back to top level"),
+        );
         obarray.set_symbol_value("charset-map-path", Value::Nil);
         obarray.set_symbol_value("doc-directory", Value::Nil);
         obarray.set_symbol_value("process-environment", Value::Nil);

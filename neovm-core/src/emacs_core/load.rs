@@ -3135,7 +3135,10 @@ pub fn create_bootstrap_evaluator_with_features(
         maybe_trace_bootstrap_step(format!(
             "create_bootstrap_evaluator_with_features: seeded-batch-bootstrap-frame={bootstrap_frame_id:?}"
         ));
-        eval.set_variable("dump-mode", Value::string("pbootstrap"));
+        // loadup.el line 60: (null dump-mode) triggers load-path setup.
+        // Setting to nil skips the dump section (line 604) entirely —
+        // NeoVM handles pdump in Rust after loadup.el returns.
+        eval.set_variable("dump-mode", Value::Nil);
         eval.set_variable("purify-flag", Value::Nil);
         // NeoVM counts depth more aggressively than GNU (see eval.rs comment).
         eval.set_variable("max-lisp-eval-depth", Value::Int(2400));
