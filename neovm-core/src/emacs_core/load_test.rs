@@ -3146,6 +3146,39 @@ fn eval_after_load_defines_function_on_provide() {
 }
 
 #[test]
+fn uninterned_symbol_in_hook_works() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+
+    // Test: add-hook with uninterned symbol, then run-hook-with-args
+    let setup = crate::emacs_core::parser::parse_forms(
+        "(progn
+           (defvar test-hook nil)
+           (let ((fun (make-symbol \"test-helper\")))
+             (fset fun (lambda (x) (set 'test-hook-result x)))
+             (add-hook 'test-hook fun))
+           (run-hook-with-args 'test-hook 42))",
+    )
+    .unwrap();
+    eval.eval_expr(&setup[0])
+        .expect("hook with uninterned symbol should work");
+
+    let result = eval.obarray().symbol_value("test-hook-result").cloned();
+    eprintln!("test-hook-result: {:?}", result);
+    assert!(
+        result.is_some_and(|v| v == Value::Int(42)),
+        "hook with uninterned symbol should fire"
+    );
+}
+
+#[test]
 fn defun_inside_lambda_works() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
