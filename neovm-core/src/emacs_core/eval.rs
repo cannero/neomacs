@@ -1650,6 +1650,9 @@ impl Context {
         );
         obarray.set_symbol_value("charset-map-path", Value::Nil);
         obarray.set_symbol_value("doc-directory", Value::Nil);
+        // warnings.el defcustom — needed before warnings.el loads
+        obarray.set_symbol_value("warning-minimum-log-level", Value::keyword(":warning"));
+        obarray.set_symbol_value("warning-minimum-level", Value::keyword(":warning"));
         obarray.set_symbol_value("process-environment", Value::Nil);
         obarray.set_symbol_value("initial-environment", Value::Nil);
         obarray.set_symbol_value("path-separator", Value::string(":"));
