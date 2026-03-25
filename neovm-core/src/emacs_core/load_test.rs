@@ -6330,3 +6330,5 @@ fn bootstrap_interpreted_closure_body_shape_matches_gnu_emacs() {
         "OK (((lambda (x) (funcall f (funcall g x)))) (#'(lambda (x) x)))"
     );
 }
+// Add to load_test.rs:
+#[test]

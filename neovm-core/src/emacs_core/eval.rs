@@ -1432,7 +1432,12 @@ impl Drop for Context {
 
 impl Context {
     pub fn new() -> Self {
-        Self::new_inner(true)
+        let mut ctx = Self::new_inner(true);
+        // Register builtins AFTER new_inner returns — the function is too
+        // large (1500+ lines) for reliable codegen in debug mode when
+        // combined with init_builtins (1162 defsubr calls in the same frame).
+        builtins::init_builtins(&mut ctx);
+        ctx
     }
 
     #[cfg(test)]
@@ -3064,9 +3069,7 @@ impl Context {
         set_current_heap(&mut ev.heap);
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
 
-        // Register all builtins via function pointer dispatch (defsubr).
-        builtins::init_builtins(&mut ev);
-
+        // init_builtins is called by Context::new() after new_inner returns.
         ev
     }
 
