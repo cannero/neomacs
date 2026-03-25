@@ -429,14 +429,14 @@ pub(crate) fn builtin_get_load_suffixes(args: Vec<Value>) -> EvalResult {
 /// `(locate-file FILENAME PATH SUFFIXES &optional PREDICATE)`
 ///
 /// Search PATH for FILENAME with each suffix in SUFFIXES.
-pub(crate) fn builtin_locate_file(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_locate_file(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("locate-file", &args, 3)?;
     expect_max_args("locate-file", &args, 4)?;
     let filename = expect_string(&args[0])?;
     let path = parse_path_argument(&args[1])?;
     let suffixes = parse_suffixes_argument(&args[2])?;
     Ok(
-        match locate_file_with_path_and_suffixes(&filename, &path, &suffixes, args.get(3))? {
+        match locate_file_with_path_and_suffixes(eval, &filename, &path, &suffixes, args.get(3))? {
             Some(found) => Value::string(found),
             None => Value::Nil,
         },
@@ -446,7 +446,7 @@ pub(crate) fn builtin_locate_file(args: Vec<Value>) -> EvalResult {
 /// `(locate-file-internal FILENAME PATH SUFFIXES &optional PREDICATE)`
 ///
 /// Internal variant of `locate-file`; currently uses the same lookup behavior.
-pub(crate) fn builtin_locate_file_internal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_locate_file_internal(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("locate-file-internal", &args, 2)?;
     expect_max_args("locate-file-internal", &args, 4)?;
     let filename = expect_string(&args[0])?;
@@ -458,7 +458,7 @@ pub(crate) fn builtin_locate_file_internal(args: Vec<Value>) -> EvalResult {
         Vec::new()
     };
     Ok(
-        match locate_file_with_path_and_suffixes(&filename, &path, &suffixes, args.get(3))? {
+        match locate_file_with_path_and_suffixes(eval, &filename, &path, &suffixes, args.get(3))? {
             Some(found) => Value::string(found),
             None => Value::Nil,
         },
@@ -552,6 +552,7 @@ fn parse_suffixes_argument(value: &Value) -> Result<Vec<String>, Flow> {
 }
 
 fn locate_file_with_path_and_suffixes(
+    eval: &mut super::eval::Context,
     filename: &str,
     path: &[String],
     suffixes: &[String],
@@ -568,7 +569,7 @@ fn locate_file_with_path_and_suffixes(
         let expanded = crate::emacs_core::fileio::expand_file_name(filename, None);
         for suffix in &effective_suffixes {
             let candidate = format!("{expanded}{suffix}");
-            if Path::new(&candidate).exists() && predicate_matches_candidate(predicate, &candidate)?
+            if Path::new(&candidate).exists() && predicate_matches_candidate(eval, predicate, &candidate)?
             {
                 return Ok(Some(candidate));
             }
@@ -580,7 +581,7 @@ fn locate_file_with_path_and_suffixes(
         let base = crate::emacs_core::fileio::expand_file_name(filename, Some(dir));
         for suffix in &effective_suffixes {
             let candidate = format!("{base}{suffix}");
-            if Path::new(&candidate).exists() && predicate_matches_candidate(predicate, &candidate)?
+            if Path::new(&candidate).exists() && predicate_matches_candidate(eval, predicate, &candidate)?
             {
                 return Ok(Some(candidate));
             }
@@ -590,7 +591,7 @@ fn locate_file_with_path_and_suffixes(
     Ok(None)
 }
 
-fn predicate_matches_candidate(predicate: Option<&Value>, candidate: &str) -> Result<bool, Flow> {
+fn predicate_matches_candidate(eval: &mut super::eval::Context, predicate: Option<&Value>, candidate: &str) -> Result<bool, Flow> {
     let Some(predicate) = predicate else {
         return Ok(true);
     };
@@ -599,12 +600,12 @@ fn predicate_matches_candidate(predicate: Option<&Value>, candidate: &str) -> Re
     }
 
     let Some(symbol) = predicate.as_symbol_name() else {
-        // We currently only support symbol predicates in pure dispatch;
+        // We currently only support symbol predicates via dispatch_subr;
         // unknown predicate object shapes default to accepting candidate.
         return Ok(true);
     };
     let Some(result) =
-        super::builtins::dispatch_builtin_pure(symbol, vec![Value::string(candidate)])
+        eval.dispatch_subr(symbol, vec![Value::string(candidate)])
     else {
         // Emacs locate-file tolerates non-callable predicate values in practice.
         // Keep search behavior instead of surfacing an execution error here.

@@ -1056,7 +1056,7 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
 
 /// (widget-apply WIDGET PROPERTY &rest ARGS)
 /// Apply WIDGET's PROPERTY function to WIDGET and ARGS.
-pub(crate) fn builtin_widget_apply(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_widget_apply(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("widget-apply", &args, 2)?;
     let widget = args[0];
     let property = args[1];
@@ -1073,7 +1073,7 @@ pub(crate) fn builtin_widget_apply(args: Vec<Value>) -> EvalResult {
     match function {
         Value::Symbol(id) => {
             let name = resolve_sym(id);
-            if let Some(result) = super::builtins::dispatch_builtin_pure(name, call_args) {
+            if let Some(result) = eval.dispatch_subr(name, call_args) {
                 result
             } else {
                 Err(signal("void-function", vec![Value::symbol(name)]))
@@ -1081,7 +1081,7 @@ pub(crate) fn builtin_widget_apply(args: Vec<Value>) -> EvalResult {
         }
         Value::Subr(id) => {
             let name = resolve_sym(id);
-            if let Some(result) = super::builtins::dispatch_builtin_pure(name, call_args) {
+            if let Some(result) = eval.dispatch_subr(name, call_args) {
                 result
             } else {
                 Err(signal("void-function", vec![Value::symbol(name)]))

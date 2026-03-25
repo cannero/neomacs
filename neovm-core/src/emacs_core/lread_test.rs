@@ -1,6 +1,11 @@
 use super::*;
 use crate::emacs_core::eval::Context;
 
+/// Test helper: create a fresh eval context for locate-file tests.
+fn test_eval_ctx() -> Context {
+    Context::new()
+}
+
 #[test]
 fn eval_buffer_evaluates_current_buffer_forms() {
     let mut ev = Context::new();
@@ -627,6 +632,7 @@ fn get_load_suffixes_rejects_over_arity() {
 
 #[test]
 fn locate_file_finds_first_matching_suffix() {
+    let mut ctx = test_eval_ctx();
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -639,7 +645,7 @@ fn locate_file_finds_first_matching_suffix() {
     fs::write(dir.join("probe.el"), "(setq vm-locate 1)\n").expect("write .el");
     fs::write(dir.join("probe.elc"), "compiled").expect("write .elc");
 
-    let result = builtin_locate_file(vec![
+    let result = builtin_locate_file(&mut ctx, vec![
         Value::string("probe"),
         Value::list(vec![Value::string(dir.to_string_lossy())]),
         Value::list(vec![Value::string(".el"), Value::string(".elc")]),
@@ -656,6 +662,7 @@ fn locate_file_finds_first_matching_suffix() {
 
 #[test]
 fn locate_file_respects_symbol_predicates() {
+    let mut ctx = test_eval_ctx();
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -667,7 +674,7 @@ fn locate_file_respects_symbol_predicates() {
     fs::create_dir_all(&dir).expect("create temp dir");
     fs::write(dir.join("probe.el"), "(setq vm-locate 1)\n").expect("write .el");
 
-    let regular = builtin_locate_file(vec![
+    let regular = builtin_locate_file(&mut ctx, vec![
         Value::string("probe"),
         Value::list(vec![Value::string(dir.to_string_lossy())]),
         Value::list(vec![Value::string(".el")]),
@@ -679,7 +686,7 @@ fn locate_file_respects_symbol_predicates() {
         "regular-file predicate should accept candidate",
     );
 
-    let directory = builtin_locate_file(vec![
+    let directory = builtin_locate_file(&mut ctx, vec![
         Value::string("probe"),
         Value::list(vec![Value::string(dir.to_string_lossy())]),
         Value::list(vec![Value::string(".el")]),
@@ -693,6 +700,7 @@ fn locate_file_respects_symbol_predicates() {
 
 #[test]
 fn locate_file_unknown_predicate_defaults_to_truthy_match() {
+    let mut ctx = test_eval_ctx();
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -704,7 +712,7 @@ fn locate_file_unknown_predicate_defaults_to_truthy_match() {
     fs::create_dir_all(&dir).expect("create temp dir");
     fs::write(dir.join("probe.el"), "(setq vm-locate 1)\n").expect("write .el");
 
-    let result = builtin_locate_file(vec![
+    let result = builtin_locate_file(&mut ctx, vec![
         Value::string("probe"),
         Value::list(vec![Value::string(dir.to_string_lossy())]),
         Value::list(vec![Value::string(".el")]),
@@ -721,7 +729,8 @@ fn locate_file_unknown_predicate_defaults_to_truthy_match() {
 
 #[test]
 fn locate_file_internal_returns_nil_when_missing() {
-    let result = builtin_locate_file_internal(vec![
+    let mut ctx = test_eval_ctx();
+    let result = builtin_locate_file_internal(&mut ctx, vec![
         Value::string("definitely-missing-neovm-file"),
         Value::list(vec![Value::string(".")]),
         Value::list(vec![Value::string(".el")]),
@@ -732,6 +741,7 @@ fn locate_file_internal_returns_nil_when_missing() {
 
 #[test]
 fn locate_file_internal_finds_requested_suffix() {
+    let mut ctx = test_eval_ctx();
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -743,7 +753,7 @@ fn locate_file_internal_finds_requested_suffix() {
     fs::create_dir_all(&dir).expect("create temp dir");
     fs::write(dir.join("probe.elc"), "compiled").expect("write .elc");
 
-    let result = builtin_locate_file_internal(vec![
+    let result = builtin_locate_file_internal(&mut ctx, vec![
         Value::string("probe"),
         Value::list(vec![Value::string(dir.to_string_lossy())]),
         Value::list(vec![Value::string(".elc")]),
@@ -762,6 +772,7 @@ fn locate_file_internal_finds_requested_suffix() {
 
 #[test]
 fn locate_file_internal_treats_tilde_prefixed_names_as_absolute_like_gnu() {
+    let mut ctx = test_eval_ctx();
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -780,7 +791,7 @@ fn locate_file_internal_treats_tilde_prefixed_names_as_absolute_like_gnu() {
             .to_string_lossy()
     );
 
-    let result = builtin_locate_file_internal(vec![
+    let result = builtin_locate_file_internal(&mut ctx, vec![
         Value::string(&tilde_name),
         Value::list(vec![Value::string("./")]),
         Value::Nil,
@@ -799,7 +810,8 @@ fn locate_file_internal_treats_tilde_prefixed_names_as_absolute_like_gnu() {
 
 #[test]
 fn locate_file_rejects_over_arity() {
-    let result = builtin_locate_file(vec![
+    let mut ctx = test_eval_ctx();
+    let result = builtin_locate_file(&mut ctx, vec![
         Value::string("probe"),
         Value::list(vec![Value::string(".")]),
         Value::list(vec![Value::string(".el")]),
@@ -814,7 +826,8 @@ fn locate_file_rejects_over_arity() {
 
 #[test]
 fn locate_file_internal_rejects_over_arity() {
-    let result = builtin_locate_file_internal(vec![
+    let mut ctx = test_eval_ctx();
+    let result = builtin_locate_file_internal(&mut ctx, vec![
         Value::string("probe"),
         Value::list(vec![Value::string(".")]),
         Value::list(vec![Value::string(".el")]),

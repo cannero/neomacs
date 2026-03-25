@@ -1,6 +1,11 @@
 use super::*;
 use crate::emacs_core::{print, string_escape};
 
+/// Test helper: create a minimal eval context for widget-apply tests.
+fn test_eval_ctx() -> crate::emacs_core::eval::Context {
+    crate::emacs_core::eval::Context::new()
+}
+
 // ---- Base64 standard ----
 
 #[test]
@@ -985,7 +990,8 @@ fn widget_put_new_property() {
 #[test]
 fn widget_apply_missing_property_signals_void_function_nil() {
     let widget = Value::list(vec![Value::symbol("button")]);
-    let err = builtin_widget_apply(vec![widget, Value::keyword("action")])
+    let mut ctx = test_eval_ctx();
+    let err = builtin_widget_apply(&mut ctx, vec![widget, Value::keyword("action")])
         .expect_err("widget-apply should signal void-function for missing property");
     match err {
         Flow::Signal(sig) => {
@@ -1003,7 +1009,8 @@ fn widget_apply_calls_symbol_property_with_widget_as_first_arg() {
         Value::keyword("action"),
         Value::symbol("car"),
     ]);
-    let r = builtin_widget_apply(vec![widget, Value::keyword("action")]).unwrap();
+    let mut ctx = test_eval_ctx();
+    let r = builtin_widget_apply(&mut ctx, vec![widget, Value::keyword("action")]).unwrap();
     assert_eq!(r, Value::symbol("button"));
 }
 
@@ -1014,7 +1021,8 @@ fn widget_apply_passes_rest_arguments() {
         Value::keyword("action"),
         Value::symbol("list"),
     ]);
-    let r = builtin_widget_apply(vec![
+    let mut ctx = test_eval_ctx();
+    let r = builtin_widget_apply(&mut ctx, vec![
         widget,
         Value::keyword("action"),
         Value::Int(1),
@@ -1031,7 +1039,8 @@ fn widget_apply_non_callable_property_signals_invalid_function() {
         Value::keyword("action"),
         Value::Int(7),
     ]);
-    let err = builtin_widget_apply(vec![widget, Value::keyword("action")])
+    let mut ctx = test_eval_ctx();
+    let err = builtin_widget_apply(&mut ctx, vec![widget, Value::keyword("action")])
         .expect_err("widget-apply should reject non-callable property values");
     match err {
         Flow::Signal(sig) => {

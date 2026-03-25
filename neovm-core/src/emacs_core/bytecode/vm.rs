@@ -4695,9 +4695,7 @@ impl<'a> Vm<'a> {
             );
         }
         crate::emacs_core::dired::builtin_file_name_completion_in_state(
-            &self.ctx.obarray,
-            self.ctx.dynamic.as_slice(),
-            &self.ctx.buffers,
+            &mut self.ctx,
             args.to_vec(),
         )
     }

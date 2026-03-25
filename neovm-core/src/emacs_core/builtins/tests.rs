@@ -4,6 +4,22 @@ use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_eval
 use crate::emacs_core::value::{LambdaData, LambdaParams};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
+/// Test-only shim: creates an evaluator context and delegates to
+/// `dispatch_builtin`, preserving the old `dispatch_builtin_pure` signature
+/// so that hundreds of existing tests continue to compile unchanged.
+fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<EvalResult> {
+    use crate::emacs_core::eval::Context;
+    thread_local! {
+        static CTX: std::cell::RefCell<Context> = std::cell::RefCell::new(
+            Context::new()
+        );
+    }
+    CTX.with(|cell| {
+        let ctx = &mut *cell.borrow_mut();
+        dispatch_builtin(ctx, name, args)
+    })
+}
+
 fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Context, callback: &str) {
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams {

@@ -565,8 +565,7 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
 /// Complete file name FILE in DIRECTORY.
 /// Returns the longest common completion prefix, or t if FILE is an exact
 /// and unique match, or nil if no completions exist.
-/// This pure-dispatch variant supports symbol predicates.
-pub(crate) fn builtin_file_name_completion(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_name_completion(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("file-name-completion", &args, 2, 3)?;
 
     let file = expect_string("file-name-completion", &args[0])?;
@@ -576,20 +575,18 @@ pub(crate) fn builtin_file_name_completion(args: Vec<Value>) -> EvalResult {
         return Ok(Value::Nil);
     }
     let completions = collect_file_name_completions(&file, &directory)?;
-    let completions = filter_completions_by_symbol_predicate(predicate, &directory, completions)?;
+    let completions = filter_completions_by_symbol_predicate(eval, predicate, &directory, completions)?;
     Ok(resolve_file_name_completion(&file, completions))
 }
 
 pub(crate) fn builtin_file_name_completion_in_state(
-    obarray: &super::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let plan = prepare_file_name_completion_in_state(obarray, dynamic, buffers, &args)?;
+    let plan = prepare_file_name_completion_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, &args)?;
     let predicate = args.get(2);
     let completions =
-        filter_completions_by_symbol_predicate(predicate, &plan.directory, plan.completions)?;
+        filter_completions_by_symbol_predicate(eval, predicate, &plan.directory, plan.completions)?;
     Ok(resolve_file_name_completion(&plan.file, completions))
 }
 
@@ -833,6 +830,7 @@ fn filter_completion_candidates(file: &str, completions: Vec<String>) -> Vec<Str
 }
 
 fn filter_completions_by_symbol_predicate(
+    eval: &mut Context,
     predicate: Option<&Value>,
     directory: &str,
     completions: Vec<String>,
@@ -844,13 +842,13 @@ fn filter_completions_by_symbol_predicate(
         return Ok(completions);
     }
     let Some(symbol) = predicate_callable_name(predicate) else {
-        // Pure dispatch cannot evaluate lambda/object predicates.
+        // Cannot evaluate lambda/object predicates via dispatch_subr.
         return Ok(completions);
     };
 
     let mut filtered = Vec::new();
     for candidate in completions {
-        if symbol_predicate_matches_candidate(symbol, directory, &candidate)? {
+        if symbol_predicate_matches_candidate(eval, symbol, directory, &candidate)? {
             filtered.push(candidate);
         }
     }
@@ -858,12 +856,13 @@ fn filter_completions_by_symbol_predicate(
 }
 
 fn symbol_predicate_matches_candidate(
+    eval: &mut Context,
     symbol: &str,
     directory: &str,
     candidate: &str,
 ) -> Result<bool, Flow> {
     if let Some(result) =
-        super::builtins::dispatch_builtin_pure(symbol, vec![Value::string(candidate)])
+        eval.dispatch_subr(symbol, vec![Value::string(candidate)])
     {
         let result = result?;
         if result.is_truthy() || !is_builtin_path_predicate(symbol) {
@@ -873,24 +872,23 @@ fn symbol_predicate_matches_candidate(
         let absolute = std::path::Path::new(directory).join(candidate);
         let absolute = absolute.to_string_lossy().into_owned();
         if let Some(result) =
-            super::builtins::dispatch_builtin_pure(symbol, vec![Value::string(absolute)])
+            eval.dispatch_subr(symbol, vec![Value::string(absolute)])
         {
             return Ok(result?.is_truthy());
         }
         return Ok(false);
     }
 
-    // Fallback for pure mode: try absolute path to make path predicates useful
-    // without evaluator-backed dynamic binding.
+    // Fallback: try absolute path to make path predicates useful.
     let absolute = std::path::Path::new(directory).join(candidate);
     let absolute = absolute.to_string_lossy().into_owned();
     if let Some(result) =
-        super::builtins::dispatch_builtin_pure(symbol, vec![Value::string(absolute)])
+        eval.dispatch_subr(symbol, vec![Value::string(absolute)])
     {
         return Ok(result?.is_truthy());
     }
 
-    // Preserve current behavior for unknown/non-callable predicates in pure mode.
+    // Preserve current behavior for unknown/non-callable predicates.
     Ok(true)
 }
 
