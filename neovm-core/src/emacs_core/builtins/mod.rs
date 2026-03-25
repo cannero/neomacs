@@ -2423,6 +2423,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("looking-at", builtin_looking_at, 0, None);
     ctx.defsubr("posix-looking-at", builtin_posix_looking_at, 0, None);
     ctx.defsubr("string-match", builtin_string_match_eval, 0, None);
+    ctx.defsubr("string-match-p", builtin_string_match_p_eval, 0, None);
     ctx.defsubr("posix-string-match", builtin_posix_string_match, 0, None);
     ctx.defsubr("match-beginning", builtin_match_beginning, 0, None);
     ctx.defsubr("match-end", builtin_match_end, 0, None);

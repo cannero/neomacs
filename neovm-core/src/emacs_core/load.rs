@@ -2131,6 +2131,7 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
 
 fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
     let path_str = path.to_string_lossy().to_string();
+    tracing::info!("record_load_history: {}", path_str);
     let entry = Value::cons(Value::string(path_str.clone()), Value::Nil);
     let history = eval
         .obarray()
@@ -2141,13 +2142,14 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
 
     // GNU Emacs lread.c:1540-1541: after loading a file, call
     // (do-after-load-evaluation FILENAME) to run eval-after-load hooks.
-    if eval
+    let dale_id = super::intern::intern("do-after-load-evaluation");
+    let is_fboundp = eval
         .obarray()
-        .symbol_function("do-after-load-evaluation")
-        .is_some_and(|f| !f.is_nil())
-    {
+        .symbol_function_id(dale_id)
+        .is_some_and(|f| !f.is_nil());
+    if is_fboundp {
         let abs_path = Value::string(path_str);
-        if let Err(e) = eval.apply(Value::symbol("do-after-load-evaluation"), vec![abs_path]) {
+        if let Err(e) = eval.apply(Value::Symbol(dale_id), vec![abs_path]) {
             tracing::debug!("do-after-load-evaluation error (non-fatal): {:?}", e);
         }
     }
