@@ -346,9 +346,17 @@ pub(crate) fn finish_autoload_do_load_in_state(
         if let Some(func) = obarray.symbol_function(name).cloned() {
             // GNU Emacs: if function is still the same autoload form after
             // loading, signal "Autoloading file failed to define function".
+            // GNU Emacs eval.c: if (!NILP (Fequal (fun, fundef)))
+            // Only error if the function cell is STILL the SAME autoload
+            // form (by identity, not by content, to avoid stale ObjId).
+            // A different autoload (re-registered by eval-after-load
+            // callbacks) is fine — the function was redefined.
             if let Some(orig) = original_autoload {
-                if is_autoload_value(&func) {
-                    // The loaded file didn't define this function.
+                let same_identity = match (func, *orig) {
+                    (Value::Cons(a), Value::Cons(b)) => a == b,
+                    _ => false,
+                };
+                if same_identity {
                     return Err(signal(
                         "error",
                         vec![Value::string(format!(
