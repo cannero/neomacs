@@ -5012,7 +5012,13 @@ impl Context {
             Expr::Vector(items) => {
                 // Emacs vector literals are self-evaluating constants; elements
                 // are not evaluated in the current lexical/dynamic environment.
-                let vals = items.iter().map(quote_to_value).collect();
+                // Use quote_to_runtime_value to resolve #$ (ReaderLoadFileName)
+                // to the actual load-file-name string, matching GNU Emacs where
+                // #$ is substituted at read time.
+                let vals = items
+                    .iter()
+                    .map(|item| self.quote_to_runtime_value(item))
+                    .collect();
                 Ok(Value::vector(vals))
             }
             Expr::Symbol(id) => self.eval_symbol_by_id(*id),
