@@ -901,59 +901,14 @@ pub(crate) fn dispatch_builtin(
 
     // Legacy dispatch — will shrink as builtins migrate to defsubr.
     match name {
-        "apply" => return Some(builtin_apply(eval, args)),
-        "funcall" => return Some(builtin_funcall(eval, args)),
-        "funcall-interactively" => return Some(builtin_funcall_interactively(eval, args)),
-        "funcall-with-delayed-message" => {
-            return Some(builtin_funcall_with_delayed_message(eval, args));
-        }
-        "defalias" => return Some(builtin_defalias(eval, args)),
-        "provide" => return Some(builtin_provide(eval, args)),
-        "require" => return Some(builtin_require(eval, args)),
-        "mapcan" => return Some(builtin_mapcan(eval, args)),
-        "mapcar" => return Some(builtin_mapcar(eval, args)),
-        "mapc" => return Some(builtin_mapc(eval, args)),
-        "mapconcat" => return Some(builtin_mapconcat(eval, args)),
-        "sort" => return Some(builtin_sort(eval, args)),
-        "functionp" => return Some(builtin_functionp_eval(eval, args)),
         "macrop" => return Some(super::builtins::symbols::builtin_macrop_eval(eval, args)),
         // Symbol/obarray
-        "defvaralias" => return Some(builtin_defvaralias_eval(eval, args)),
-        "boundp" => return Some(builtin_boundp(eval, args)),
-        "default-boundp" => return Some(builtin_default_boundp(eval, args)),
-        "default-toplevel-value" => return Some(builtin_default_toplevel_value(eval, args)),
-        "fboundp" => return Some(builtin_fboundp(eval, args)),
         "internal--define-uninitialized-variable" => {
             return Some(builtin_internal_define_uninitialized_variable_eval(
                 eval, args,
             ));
         }
-        "internal-make-var-non-special" => {
-            return Some(builtin_internal_make_var_non_special_eval(eval, args));
-        }
-        "indirect-variable" => return Some(builtin_indirect_variable_eval(eval, args)),
-        "handler-bind-1" => return Some(builtin_handler_bind_1_eval(eval, args)),
-        "symbol-value" => return Some(builtin_symbol_value(eval, args)),
-        "symbol-function" => return Some(builtin_symbol_function(eval, args)),
-        "function-get" => return Some(builtin_function_get(eval, args)),
-        "set" => return Some(builtin_set(eval, args)),
-        "fset" => return Some(builtin_fset(eval, args)),
-        "makunbound" => return Some(builtin_makunbound(eval, args)),
-        "fmakunbound" => return Some(builtin_fmakunbound(eval, args)),
-        "macroexpand" => return Some(builtin_macroexpand_eval(eval, args)),
-        "get" => return Some(builtin_get(eval, args)),
-        "put" => return Some(builtin_put(eval, args)),
-        "setplist" => return Some(builtin_setplist_eval(eval, args)),
-        "symbol-plist" => return Some(builtin_symbol_plist_fn(eval, args)),
-        "indirect-function" => return Some(builtin_indirect_function(eval, args)),
-        "signal" => return Some(super::errors::builtin_signal_eval(eval, args)),
-        "getenv-internal" => {
-            return Some(super::process::builtin_getenv_internal_eval(eval, args));
-        }
         "obarrayp" => return Some(builtin_obarrayp(args)),
-        "special-variable-p" => return Some(builtin_special_variable_p(eval, args)),
-        "intern" => return Some(builtin_intern_fn(eval, args)),
-        "intern-soft" => return Some(builtin_intern_soft(eval, args)),
         // Hooks
         "run-hooks" => {
             let hook_names: Vec<String> = args
@@ -980,23 +935,7 @@ pub(crate) fn dispatch_builtin(
             }
             return Some(result);
         }
-        "run-hook-with-args" => return Some(builtin_run_hook_with_args(eval, args)),
-        "run-hook-with-args-until-success" => {
-            return Some(builtin_run_hook_with_args_until_success(eval, args));
-        }
-        "run-hook-with-args-until-failure" => {
-            return Some(builtin_run_hook_with_args_until_failure(eval, args));
-        }
-        "run-hook-wrapped" => return Some(builtin_run_hook_wrapped(eval, args)),
-        "run-window-configuration-change-hook" => {
-            return Some(builtin_run_window_configuration_change_hook(eval, args));
-        }
-        "run-window-scroll-functions" => {
-            return Some(builtin_run_window_scroll_functions(eval, args));
-        }
-        "featurep" => return Some(builtin_featurep(eval, args)),
         // GC
-        "garbage-collect" => return Some(builtin_garbage_collect_eval(eval, args)),
         // Loading
         "load" => {
             let file_name = args.first().map(|a| format!("{}", a)).unwrap_or_default();
@@ -1005,120 +944,11 @@ pub(crate) fn dispatch_builtin(
             tracing::info!(file = %file_name, ok = result.is_ok(), "load returned");
             return Some(result);
         }
-        "neovm-precompile-file" => return Some(builtin_neovm_precompile_file(eval, args)),
-        "eval" => return Some(builtin_eval(eval, args)),
         // Buffer operations
-        "get-buffer-create" => return Some(builtin_get_buffer_create(eval, args)),
-        "get-buffer" => return Some(builtin_get_buffer(eval, args)),
-        "make-indirect-buffer" => return Some(builtin_make_indirect_buffer(eval, args)),
-        "find-buffer" => return Some(builtin_find_buffer(eval, args)),
-        "buffer-live-p" => return Some(builtin_buffer_live_p(eval, args)),
-        "barf-if-buffer-read-only" => return Some(builtin_barf_if_buffer_read_only(eval, args)),
-        "bury-buffer-internal" => return Some(builtin_bury_buffer_internal(eval, args)),
-        "get-file-buffer" => return Some(builtin_get_file_buffer(eval, args)),
-        "kill-buffer" => return Some(builtin_kill_buffer(eval, args)),
-        "set-buffer" => return Some(builtin_set_buffer(eval, args)),
-        "current-buffer" => return Some(builtin_current_buffer(eval, args)),
-        "buffer-name" => return Some(builtin_buffer_name(eval, args)),
-        "buffer-file-name" => return Some(builtin_buffer_file_name(eval, args)),
-        "buffer-base-buffer" => return Some(builtin_buffer_base_buffer(eval, args)),
-        "buffer-last-name" => return Some(builtin_buffer_last_name(eval, args)),
-        "rename-buffer" => return Some(builtin_rename_buffer(eval, args)),
-        "buffer-string" => return Some(builtin_buffer_string(eval, args)),
-        "buffer-line-statistics" => return Some(builtin_buffer_line_statistics(eval, args)),
-        "buffer-text-pixel-size" => return Some(builtin_buffer_text_pixel_size(eval, args)),
-        "base64-encode-region" => {
-            return Some(super::fns::builtin_base64_encode_region_eval(eval, args));
-        }
-        "base64-decode-region" => {
-            return Some(super::fns::builtin_base64_decode_region_eval(eval, args));
-        }
-        "base64url-encode-region" => {
-            return Some(super::fns::builtin_base64url_encode_region_eval(eval, args));
-        }
-        "md5" => return Some(super::fns::builtin_md5_eval(eval, args)),
-        "secure-hash" => return Some(super::fns::builtin_secure_hash_eval(eval, args)),
-        "buffer-hash" => return Some(super::fns::builtin_buffer_hash_eval(eval, args)),
-        "buffer-substring" => return Some(builtin_buffer_substring(eval, args)),
-        "compare-buffer-substrings" => return Some(builtin_compare_buffer_substrings(eval, args)),
-        "point" => return Some(builtin_point(eval, args)),
-        "point-min" => return Some(builtin_point_min(eval, args)),
-        "point-max" => return Some(builtin_point_max(eval, args)),
-        "goto-char" => return Some(builtin_goto_char(eval, args)),
-        "field-beginning" => return Some(builtin_field_beginning(eval, args)),
-        "field-end" => return Some(builtin_field_end(eval, args)),
-        "field-string" => return Some(builtin_field_string(eval, args)),
-        "field-string-no-properties" => {
-            return Some(builtin_field_string_no_properties(eval, args));
-        }
-        "constrain-to-field" => return Some(builtin_constrain_to_field(eval, args)),
-        "insert" => return Some(builtin_insert(eval, args)),
-        "insert-and-inherit" => return Some(builtin_insert_and_inherit(eval, args)),
-        "insert-before-markers-and-inherit" => {
-            return Some(builtin_insert_before_markers_and_inherit(eval, args));
-        }
-        "insert-buffer-substring" => return Some(builtin_insert_buffer_substring(eval, args)),
-        "insert-char" => return Some(builtin_insert_char(eval, args)),
-        "insert-byte" => return Some(builtin_insert_byte(eval, args)),
-        "replace-region-contents" => return Some(builtin_replace_region_contents_eval(eval, args)),
-        "set-buffer-multibyte" => return Some(builtin_set_buffer_multibyte_eval(eval, args)),
-        "kill-all-local-variables" => return Some(builtin_kill_all_local_variables(eval, args)),
-        "buffer-swap-text" => return Some(builtin_buffer_swap_text(eval, args)),
-        "delete-region" => return Some(builtin_delete_region(eval, args)),
-        "delete-and-extract-region" => return Some(builtin_delete_and_extract_region(eval, args)),
-        "subst-char-in-region" => return Some(builtin_subst_char_in_region(eval, args)),
-        "delete-field" => return Some(builtin_delete_field(eval, args)),
-        "delete-all-overlays" => return Some(builtin_delete_all_overlays(eval, args)),
-        "erase-buffer" => return Some(builtin_erase_buffer(eval, args)),
-        "buffer-enable-undo" => return Some(builtin_buffer_enable_undo(eval, args)),
-        "buffer-size" => return Some(builtin_buffer_size(eval, args)),
-        "narrow-to-region" => return Some(builtin_narrow_to_region(eval, args)),
-        "widen" => return Some(builtin_widen(eval, args)),
-        "internal--labeled-narrow-to-region" => {
-            return Some(builtin_internal_labeled_narrow_to_region_eval(eval, args));
-        }
-        "internal--labeled-widen" => return Some(builtin_internal_labeled_widen_eval(eval, args)),
         // set-mark and mark are now in navigation module (below)
-        "buffer-modified-p" => return Some(builtin_buffer_modified_p(eval, args)),
-        "set-buffer-modified-p" => return Some(builtin_set_buffer_modified_p(eval, args)),
-        "buffer-modified-tick" => return Some(builtin_buffer_modified_tick(eval, args)),
-        "buffer-chars-modified-tick" => {
-            return Some(builtin_buffer_chars_modified_tick(eval, args));
-        }
-        "buffer-list" => return Some(builtin_buffer_list(eval, args)),
-        "other-buffer" => return Some(builtin_other_buffer(eval, args)),
-        "generate-new-buffer-name" => return Some(builtin_generate_new_buffer_name(eval, args)),
-        "char-after" => return Some(builtin_char_after(eval, args)),
-        "char-before" => return Some(builtin_char_before(eval, args)),
-        "byte-to-position" => return Some(builtin_byte_to_position(eval, args)),
-        "position-bytes" => return Some(builtin_position_bytes(eval, args)),
-        "get-byte" => return Some(builtin_get_byte(eval, args)),
-        "buffer-local-value" => return Some(builtin_buffer_local_value(eval, args)),
-        "local-variable-if-set-p" => return Some(builtin_local_variable_if_set_p_eval(eval, args)),
-        "variable-binding-locus" => return Some(builtin_variable_binding_locus_eval(eval, args)),
-        "interactive-form" => return Some(builtin_interactive_form_eval(eval, args)),
-        "command-modes" => return Some(super::interactive::builtin_command_modes_eval(eval, args)),
         "ntake" => return Some(builtin_ntake(args)),
         // Search / regex operations
-        "search-forward" => return Some(builtin_search_forward(eval, args)),
-        "search-backward" => return Some(builtin_search_backward(eval, args)),
-        "re-search-forward" => return Some(builtin_re_search_forward(eval, args)),
-        "re-search-backward" => return Some(builtin_re_search_backward(eval, args)),
-        "looking-at" => return Some(builtin_looking_at(eval, args)),
-        "posix-looking-at" => return Some(builtin_posix_looking_at(eval, args)),
-        "string-match" => return Some(builtin_string_match_eval(eval, args)),
-        "posix-string-match" => return Some(builtin_posix_string_match(eval, args)),
-        "match-beginning" => return Some(builtin_match_beginning(eval, args)),
-        "match-end" => return Some(builtin_match_end(eval, args)),
-        "match-data" => return Some(builtin_match_data_eval(eval, args)),
-        "match-data--translate" => return Some(builtin_match_data_translate_eval(eval, args)),
-        "set-match-data" => return Some(builtin_set_match_data_eval(eval, args)),
-        "replace-match" => return Some(builtin_replace_match(eval, args)),
         // charset (evaluator-dependent)
-        "find-charset-region" => {
-            return Some(super::charset::builtin_find_charset_region_eval(eval, args));
-        }
-        "charset-after" => return Some(super::charset::builtin_charset_after_eval(eval, args)),
         // composite (evaluator-dependent)
         "compose-region-internal" => {
             return Some(super::composite::builtin_compose_region_internal_eval(
@@ -1126,7 +956,6 @@ pub(crate) fn dispatch_builtin(
             ));
         }
         // xdisp (evaluator-dependent)
-        "format-mode-line" => return Some(super::xdisp::builtin_format_mode_line_eval(eval, args)),
         "window-text-pixel-size" => {
             return Some(super::xdisp::builtin_window_text_pixel_size_eval(
                 eval, args,
@@ -1137,22 +966,8 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "window-line-height" => {
-            return Some(super::xdisp::builtin_window_line_height_eval(eval, args));
-        }
-        "posn-at-point" => return Some(super::xdisp::builtin_posn_at_point_eval(eval, args)),
-        "posn-at-x-y" => return Some(super::xdisp::builtin_posn_at_x_y_eval(eval, args)),
-        "coordinates-in-window-p" => return Some(builtin_coordinates_in_window_p(eval, args)),
-        "tool-bar-height" => return Some(super::xdisp::builtin_tool_bar_height_eval(eval, args)),
-        "tab-bar-height" => return Some(super::xdisp::builtin_tab_bar_height_eval(eval, args)),
 
         // Font (evaluator-dependent — frame designator validation)
-        "list-fonts" => return Some(super::font::builtin_list_fonts_eval(eval, args)),
-        "find-font" => return Some(super::font::builtin_find_font_eval(eval, args)),
-        "font-family-list" => return Some(super::font::builtin_font_family_list_eval(eval, args)),
-        "font-info" => return Some(super::font::builtin_font_info_eval(eval, args)),
-        "new-fontset" => return Some(builtin_new_fontset_eval(eval, args)),
-        "set-fontset-font" => return Some(builtin_set_fontset_font_eval(eval, args)),
         "frame--face-hash-table" => {
             return Some(super::xfaces::builtin_frame_face_hash_table_eval(
                 eval, args,
@@ -1164,10 +979,6 @@ pub(crate) fn dispatch_builtin(
         "expand-file-name" => {
             return Some(super::fileio::builtin_expand_file_name_eval(eval, args));
         }
-        "insert-file-contents" => {
-            return Some(super::fileio::builtin_insert_file_contents(eval, args));
-        }
-        "write-region" => return Some(super::fileio::builtin_write_region(eval, args)),
         "delete-file-internal" => {
             return Some(super::fileio::builtin_delete_file_internal_eval(eval, args));
         }
@@ -1199,9 +1010,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::fileio::builtin_find_file_name_handler_eval(
                 eval, args,
             ));
-        }
-        "file-name-completion" => {
-            return Some(super::dired::builtin_file_name_completion_eval(eval, args));
         }
         "file-name-all-completions" => {
             return Some(super::dired::builtin_file_name_all_completions_eval(
@@ -1251,31 +1059,11 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "set-visited-file-modtime" => {
-            return Some(super::fileio::builtin_set_visited_file_modtime(eval, args));
-        }
         "default-file-modes" => return Some(super::fileio::builtin_default_file_modes(args)),
         "set-default-file-modes" => {
             return Some(super::fileio::builtin_set_default_file_modes(args));
         }
         // Keymap operations
-        "make-keymap" => return Some(builtin_make_keymap(eval, args)),
-        "make-sparse-keymap" => return Some(builtin_make_sparse_keymap(eval, args)),
-        "copy-keymap" => return Some(builtin_copy_keymap(eval, args)),
-        "define-key" => return Some(builtin_define_key(eval, args)),
-        "lookup-key" => return Some(builtin_lookup_key(eval, args)),
-        "use-local-map" => return Some(builtin_use_local_map(eval, args)),
-        "use-global-map" => return Some(builtin_use_global_map(eval, args)),
-        "current-local-map" => return Some(builtin_current_local_map(eval, args)),
-        "current-global-map" => return Some(builtin_current_global_map(eval, args)),
-        "current-active-maps" => return Some(builtin_current_active_maps(eval, args)),
-        "current-minor-mode-maps" => return Some(builtin_current_minor_mode_maps(eval, args)),
-        "keymap-parent" => return Some(builtin_keymap_parent(eval, args)),
-        "set-keymap-parent" => return Some(builtin_set_keymap_parent(eval, args)),
-        "keymapp" => return Some(builtin_keymapp(eval, args)),
-        "accessible-keymaps" => return Some(builtin_accessible_keymaps(eval, args)),
-        "map-keymap" => return Some(builtin_map_keymap(eval, args)),
-        "map-keymap-internal" => return Some(builtin_map_keymap_internal(eval, args)),
         // Process operations (evaluator-dependent)
         "internal-default-interrupt-process" => {
             return Some(super::process::builtin_internal_default_interrupt_process(
@@ -1297,66 +1085,16 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "print--preprocess" => return Some(super::process::builtin_print_preprocess(eval, args)),
-        "format-network-address" => {
-            return Some(super::process::builtin_format_network_address(eval, args));
-        }
-        "network-interface-list" => {
-            return Some(super::process::builtin_network_interface_list(eval, args));
-        }
-        "network-interface-info" => {
-            return Some(super::process::builtin_network_interface_info(eval, args));
-        }
         "network-lookup-address-info" => {
             return Some(super::process::builtin_network_lookup_address_info(
                 eval, args,
             ));
-        }
-        "signal-names" => return Some(super::process::builtin_signal_names(eval, args)),
-        "accept-process-output" => {
-            return Some(super::process::builtin_accept_process_output(eval, args));
-        }
-        "list-system-processes" => {
-            return Some(super::process::builtin_list_system_processes(eval, args));
-        }
-        "num-processors" => return Some(super::process::builtin_num_processors(eval, args)),
-        "make-process" => return Some(super::process::builtin_make_process(eval, args)),
-        "make-network-process" => {
-            return Some(super::process::builtin_make_network_process(eval, args));
-        }
-        "make-pipe-process" => return Some(super::process::builtin_make_pipe_process(eval, args)),
-        "gnutls-boot" => return Some(super::process::builtin_gnutls_boot(eval, args)),
-        "make-serial-process" => {
-            return Some(super::process::builtin_make_serial_process(eval, args));
-        }
-        "serial-process-configure" => {
-            return Some(super::process::builtin_serial_process_configure(eval, args));
         }
         "set-network-process-option" => {
             return Some(super::process::builtin_set_network_process_option(
                 eval, args,
             ));
         }
-        "call-process" => return Some(super::process::builtin_call_process(eval, args)),
-        "call-process-region" => {
-            return Some(super::process::builtin_call_process_region(eval, args));
-        }
-        "continue-process" => return Some(super::process::builtin_continue_process(eval, args)),
-        "delete-process" => return Some(super::process::builtin_delete_process(eval, args)),
-        "interrupt-process" => return Some(super::process::builtin_interrupt_process(eval, args)),
-        "kill-process" => return Some(super::process::builtin_kill_process(eval, args)),
-        "quit-process" => return Some(super::process::builtin_quit_process(eval, args)),
-        "signal-process" => return Some(super::process::builtin_signal_process(eval, args)),
-        "stop-process" => return Some(super::process::builtin_stop_process(eval, args)),
-        "get-process" => return Some(super::process::builtin_get_process(eval, args)),
-        "get-buffer-process" => {
-            return Some(super::process::builtin_get_buffer_process(eval, args));
-        }
-        "process-attributes" => {
-            return Some(super::process::builtin_process_attributes(eval, args));
-        }
-        "processp" => return Some(super::process::builtin_processp(eval, args)),
-        "process-id" => return Some(super::process::builtin_process_id(eval, args)),
         "process-query-on-exit-flag" => {
             return Some(super::process::builtin_process_query_on_exit_flag(
                 eval, args,
@@ -1367,29 +1105,10 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "process-command" => return Some(super::process::builtin_process_command(eval, args)),
-        "process-contact" => return Some(super::process::builtin_process_contact(eval, args)),
-        "process-filter" => return Some(super::process::builtin_process_filter(eval, args)),
-        "set-process-filter" => {
-            return Some(super::process::builtin_set_process_filter(eval, args));
-        }
-        "process-sentinel" => return Some(super::process::builtin_process_sentinel(eval, args)),
-        "set-process-sentinel" => {
-            return Some(super::process::builtin_set_process_sentinel(eval, args));
-        }
-        "process-coding-system" => {
-            return Some(super::process::builtin_process_coding_system(eval, args));
-        }
-        "process-datagram-address" => {
-            return Some(super::process::builtin_process_datagram_address(eval, args));
-        }
         "process-inherit-coding-system-flag" => {
             return Some(super::process::builtin_process_inherit_coding_system_flag(
                 eval, args,
             ));
-        }
-        "set-process-buffer" => {
-            return Some(super::process::builtin_set_process_buffer(eval, args));
         }
         "set-process-coding-system" => {
             return Some(super::process::builtin_set_process_coding_system(
@@ -1406,203 +1125,41 @@ pub(crate) fn dispatch_builtin(
                 super::process::builtin_set_process_inherit_coding_system_flag(eval, args),
             );
         }
-        "set-process-thread" => {
-            return Some(super::process::builtin_set_process_thread(eval, args));
-        }
-        "set-process-window-size" => {
-            return Some(super::process::builtin_set_process_window_size(eval, args));
-        }
-        "process-tty-name" => return Some(super::process::builtin_process_tty_name(eval, args)),
-        "process-plist" => return Some(super::process::builtin_process_plist(eval, args)),
-        "set-process-plist" => return Some(super::process::builtin_set_process_plist(eval, args)),
-        "process-mark" => return Some(super::process::builtin_process_mark(eval, args)),
-        "process-type" => return Some(super::process::builtin_process_type(eval, args)),
-        "process-thread" => return Some(super::process::builtin_process_thread(eval, args)),
-        "process-running-child-p" => {
-            return Some(super::process::builtin_process_running_child_p(eval, args));
-        }
-        "process-send-region" => {
-            return Some(super::process::builtin_process_send_region(eval, args));
-        }
-        "process-send-eof" => return Some(super::process::builtin_process_send_eof(eval, args)),
-        "process-send-string" => {
-            return Some(super::process::builtin_process_send_string(eval, args));
-        }
-        "process-status" => return Some(super::process::builtin_process_status(eval, args)),
-        "process-exit-status" => {
-            return Some(super::process::builtin_process_exit_status(eval, args));
-        }
-        "process-list" => return Some(super::process::builtin_process_list(eval, args)),
-        "process-name" => return Some(super::process::builtin_process_name(eval, args)),
-        "process-buffer" => return Some(super::process::builtin_process_buffer(eval, args)),
         // Timer operations (evaluator-dependent)
-        "sleep-for" => return Some(super::timer::builtin_sleep_for(eval, args)),
         // Variable watchers
-        "add-variable-watcher" => {
-            return Some(super::advice::builtin_add_variable_watcher(eval, args));
-        }
-        "remove-variable-watcher" => {
-            return Some(super::advice::builtin_remove_variable_watcher(eval, args));
-        }
-        "get-variable-watchers" => {
-            return Some(super::advice::builtin_get_variable_watchers(eval, args));
-        }
         // Syntax table operations (evaluator-dependent)
-        "modify-syntax-entry" => {
-            return Some(super::syntax::builtin_modify_syntax_entry(eval, args));
-        }
-        "syntax-table" => return Some(super::syntax::builtin_syntax_table(eval, args)),
-        "set-syntax-table" => return Some(super::syntax::builtin_set_syntax_table(eval, args)),
-        "char-syntax" => return Some(super::syntax::builtin_char_syntax(eval, args)),
-        "matching-paren" => {
-            return Some(super::syntax::builtin_matching_paren_eval(eval, args));
-        }
-        "forward-comment" => return Some(super::syntax::builtin_forward_comment(eval, args)),
-        "backward-prefix-chars" => {
-            return Some(super::syntax::builtin_backward_prefix_chars(eval, args));
-        }
-        "forward-word" => return Some(super::syntax::builtin_forward_word(eval, args)),
-        "scan-lists" => return Some(super::syntax::builtin_scan_lists(eval, args)),
-        "scan-sexps" => return Some(super::syntax::builtin_scan_sexps(eval, args)),
-        "parse-partial-sexp" => return Some(super::syntax::builtin_parse_partial_sexp(eval, args)),
-        "skip-syntax-forward" => {
-            return Some(super::syntax::builtin_skip_syntax_forward(eval, args));
-        }
-        "skip-syntax-backward" => {
-            return Some(super::syntax::builtin_skip_syntax_backward(eval, args));
-        }
         // Register operations (evaluator-dependent)
         // Keyboard macro operations (evaluator-dependent)
         "cancel-kbd-macro-events" => return Some(builtin_cancel_kbd_macro_events(args)),
-        "start-kbd-macro" => return Some(super::kmacro::builtin_start_kbd_macro(eval, args)),
-        "end-kbd-macro" => return Some(super::kmacro::builtin_end_kbd_macro(eval, args)),
-        "call-last-kbd-macro" => {
-            return Some(super::kmacro::builtin_call_last_kbd_macro(eval, args));
-        }
-        "execute-kbd-macro" => return Some(super::kmacro::builtin_execute_kbd_macro(eval, args)),
-        "store-kbd-macro-event" => {
-            return Some(super::kmacro::builtin_store_kbd_macro_event(eval, args));
-        }
         // Bookmark operations (evaluator-dependent)
         // Abbreviation operations (evaluator-dependent)
         // Text property operations (evaluator-dependent — buffer access)
-        "put-text-property" => return Some(super::textprop::builtin_put_text_property(eval, args)),
-        "get-text-property" => return Some(super::textprop::builtin_get_text_property(eval, args)),
-        "get-char-property" => return Some(super::textprop::builtin_get_char_property(eval, args)),
-        "get-pos-property" => return Some(builtin_get_pos_property(eval, args)),
-        "add-face-text-property" => {
-            return Some(super::textprop::builtin_add_face_text_property(eval, args));
-        }
-        "add-text-properties" => {
-            return Some(super::textprop::builtin_add_text_properties(eval, args));
-        }
-        "set-text-properties" => {
-            return Some(super::textprop::builtin_set_text_properties(eval, args));
-        }
-        "remove-text-properties" => {
-            return Some(super::textprop::builtin_remove_text_properties(eval, args));
-        }
         "remove-list-of-text-properties" => {
             return Some(super::textprop::builtin_remove_list_of_text_properties(
                 eval, args,
             ));
-        }
-        "text-properties-at" => {
-            return Some(super::textprop::builtin_text_properties_at(eval, args));
         }
         "get-char-property-and-overlay" => {
             return Some(super::textprop::builtin_get_char_property_and_overlay(
                 eval, args,
             ));
         }
-        "get-display-property" => {
-            return Some(super::textprop::builtin_get_display_property(eval, args));
-        }
         "next-single-property-change" => {
             return Some(super::textprop::builtin_next_single_property_change(
                 eval, args,
             ));
-        }
-        "next-single-char-property-change" => {
-            return Some(builtin_next_single_char_property_change(eval, args));
         }
         "previous-single-property-change" => {
             return Some(super::textprop::builtin_previous_single_property_change(
                 eval, args,
             ));
         }
-        "previous-single-char-property-change" => {
-            return Some(builtin_previous_single_char_property_change(eval, args));
-        }
-        "next-property-change" => {
-            return Some(super::textprop::builtin_next_property_change(eval, args));
-        }
-        "next-char-property-change" => return Some(builtin_next_char_property_change(eval, args)),
-        "previous-property-change" => return Some(builtin_previous_property_change(eval, args)),
-        "previous-char-property-change" => {
-            return Some(builtin_previous_char_property_change(eval, args));
-        }
-        "text-property-any" => return Some(super::textprop::builtin_text_property_any(eval, args)),
-        "text-property-not-all" => {
-            return Some(super::textprop::builtin_text_property_not_all(eval, args));
-        }
-        "next-overlay-change" => {
-            return Some(super::textprop::builtin_next_overlay_change(eval, args));
-        }
-        "previous-overlay-change" => {
-            return Some(super::textprop::builtin_previous_overlay_change(eval, args));
-        }
-        "make-overlay" => return Some(super::textprop::builtin_make_overlay(eval, args)),
-        "delete-overlay" => return Some(super::textprop::builtin_delete_overlay(eval, args)),
-        "overlay-put" => return Some(super::textprop::builtin_overlay_put(eval, args)),
-        "overlay-get" => return Some(super::textprop::builtin_overlay_get(eval, args)),
-        "overlays-at" => return Some(super::textprop::builtin_overlays_at(eval, args)),
-        "overlays-in" => return Some(super::textprop::builtin_overlays_in(eval, args)),
-        "move-overlay" => return Some(super::textprop::builtin_move_overlay(eval, args)),
-        "overlay-start" => return Some(super::textprop::builtin_overlay_start(eval, args)),
-        "overlay-end" => return Some(super::textprop::builtin_overlay_end(eval, args)),
-        "overlay-buffer" => return Some(super::textprop::builtin_overlay_buffer(eval, args)),
-        "overlay-properties" => {
-            return Some(super::textprop::builtin_overlay_properties(eval, args));
-        }
-        "overlayp" => return Some(super::textprop::builtin_overlayp(eval, args)),
 
         // Navigation / mark / region (evaluator-dependent — buffer access)
-        "bobp" => return Some(super::navigation::builtin_bobp(eval, args)),
-        "eobp" => return Some(super::navigation::builtin_eobp(eval, args)),
-        "bolp" => return Some(super::navigation::builtin_bolp(eval, args)),
-        "eolp" => return Some(super::navigation::builtin_eolp(eval, args)),
         "line-beginning-position" => {
             return Some(super::navigation::builtin_line_beginning_position(
                 eval, args,
             ));
-        }
-        "pos-bol" => return Some(builtin_pos_bol(eval, args)),
-        "line-end-position" => {
-            return Some(super::navigation::builtin_line_end_position(eval, args));
-        }
-        "pos-eol" => return Some(builtin_pos_eol(eval, args)),
-        "line-number-at-pos" => {
-            return Some(super::navigation::builtin_line_number_at_pos(eval, args));
-        }
-        "forward-line" => return Some(super::navigation::builtin_forward_line(eval, args)),
-        "beginning-of-line" => {
-            return Some(super::navigation::builtin_beginning_of_line(eval, args));
-        }
-        "end-of-line" => return Some(super::navigation::builtin_end_of_line(eval, args)),
-        "forward-char" => return Some(super::navigation::builtin_forward_char(eval, args)),
-        "backward-char" => return Some(super::navigation::builtin_backward_char(eval, args)),
-        "skip-chars-forward" => {
-            return Some(super::navigation::builtin_skip_chars_forward(eval, args));
-        }
-        "skip-chars-backward" => {
-            return Some(super::navigation::builtin_skip_chars_backward(eval, args));
-        }
-        "mark-marker" => return Some(super::marker::builtin_mark_marker(eval, args)),
-        "region-beginning" => return Some(super::navigation::builtin_region_beginning(eval, args)),
-        "region-end" => return Some(super::navigation::builtin_region_end(eval, args)),
-        "transient-mark-mode" => {
-            return Some(super::navigation::builtin_transient_mark_mode(eval, args));
         }
         // Custom system (evaluator-dependent)
         "make-variable-buffer-local" => {
@@ -1610,124 +1167,22 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "make-local-variable" => {
-            return Some(super::custom::builtin_make_local_variable(eval, args));
-        }
-        "local-variable-p" => return Some(super::custom::builtin_local_variable_p(eval, args)),
-        "buffer-local-variables" => {
-            return Some(super::custom::builtin_buffer_local_variables(eval, args));
-        }
-        "kill-local-variable" => {
-            return Some(super::custom::builtin_kill_local_variable(eval, args));
-        }
-        "default-value" => return Some(super::custom::builtin_default_value(eval, args)),
-        "set-default" => return Some(super::custom::builtin_set_default(eval, args)),
-        "set-default-toplevel-value" => {
-            return Some(builtin_set_default_toplevel_value(eval, args));
-        }
 
         // Autoload (evaluator-dependent)
-        "autoload" => return Some(super::autoload::builtin_autoload(eval, args)),
-        "autoload-do-load" => return Some(super::autoload::builtin_autoload_do_load(eval, args)),
-        "symbol-file" => return Some(super::autoload::builtin_symbol_file_eval(eval, args)),
 
         // Kill ring / text editing (evaluator-dependent — buffer access)
-        "downcase-region" => return Some(super::casefiddle::builtin_downcase_region(eval, args)),
-        "upcase-region" => return Some(super::casefiddle::builtin_upcase_region(eval, args)),
-        "capitalize-region" => {
-            return Some(super::casefiddle::builtin_capitalize_region(eval, args));
-        }
-        "downcase-word" => return Some(super::casefiddle::builtin_downcase_word(eval, args)),
-        "upcase-word" => return Some(super::casefiddle::builtin_upcase_word(eval, args)),
-        "capitalize-word" => return Some(super::casefiddle::builtin_capitalize_word(eval, args)),
-        "indent-to" => return Some(super::indent::builtin_indent_to_eval(eval, args)),
 
         // Rectangle operations (evaluator-dependent — buffer access)
         // Window/frame operations (evaluator-dependent)
-        "selected-window" => return Some(super::window_cmds::builtin_selected_window(eval, args)),
-        "old-selected-window" => {
-            return Some(super::window_cmds::builtin_old_selected_window(eval, args));
-        }
         "active-minibuffer-window" => {
             return Some(super::window_cmds::builtin_active_minibuffer_window_eval(
                 eval, args,
             ));
         }
-        "minibuffer-window" => {
-            return Some(super::window_cmds::builtin_minibuffer_window(eval, args));
-        }
         "minibuffer-selected-window" => {
             return Some(super::window_cmds::builtin_minibuffer_selected_window(
                 eval, args,
             ));
-        }
-        "window-parameter" => {
-            return Some(super::window_cmds::builtin_window_parameter(eval, args));
-        }
-        "set-window-parameter" => {
-            return Some(super::window_cmds::builtin_set_window_parameter(eval, args));
-        }
-        "window-parameters" => {
-            return Some(super::window_cmds::builtin_window_parameters(eval, args));
-        }
-        "window-parent" => return Some(super::window_cmds::builtin_window_parent(eval, args)),
-        "window-top-child" => {
-            return Some(super::window_cmds::builtin_window_top_child(eval, args));
-        }
-        "window-left-child" => {
-            return Some(super::window_cmds::builtin_window_left_child(eval, args));
-        }
-        "window-next-sibling" => {
-            return Some(super::window_cmds::builtin_window_next_sibling(eval, args));
-        }
-        "window-prev-sibling" => {
-            return Some(super::window_cmds::builtin_window_prev_sibling(eval, args));
-        }
-        "window-normal-size" => {
-            return Some(super::window_cmds::builtin_window_normal_size(eval, args));
-        }
-        "window-display-table" => {
-            return Some(super::window_cmds::builtin_window_display_table(eval, args));
-        }
-        "window-cursor-type" => {
-            return Some(super::window_cmds::builtin_window_cursor_type(eval, args));
-        }
-        "window-buffer" => return Some(super::window_cmds::builtin_window_buffer(eval, args)),
-        "window-start" => return Some(super::window_cmds::builtin_window_start(eval, args)),
-        "window-end" => return Some(super::window_cmds::builtin_window_end(eval, args)),
-        "window-point" => return Some(super::window_cmds::builtin_window_point(eval, args)),
-        "window-use-time" => return Some(super::window_cmds::builtin_window_use_time(eval, args)),
-        "window-bump-use-time" => {
-            return Some(super::window_cmds::builtin_window_bump_use_time(eval, args));
-        }
-        "window-old-point" => {
-            return Some(super::window_cmds::builtin_window_old_point(eval, args));
-        }
-        "window-old-buffer" => {
-            return Some(super::window_cmds::builtin_window_old_buffer(eval, args));
-        }
-        "window-prev-buffers" => {
-            return Some(super::window_cmds::builtin_window_prev_buffers(eval, args));
-        }
-        "window-next-buffers" => {
-            return Some(super::window_cmds::builtin_window_next_buffers(eval, args));
-        }
-        "window-left-column" => {
-            return Some(super::window_cmds::builtin_window_left_column(eval, args));
-        }
-        "window-top-line" => return Some(super::window_cmds::builtin_window_top_line(eval, args)),
-        "window-pixel-left" => {
-            return Some(super::window_cmds::builtin_window_pixel_left(eval, args));
-        }
-        "window-pixel-top" => {
-            return Some(super::window_cmds::builtin_window_pixel_top(eval, args));
-        }
-        "window-hscroll" => return Some(super::window_cmds::builtin_window_hscroll(eval, args)),
-        "window-vscroll" => return Some(super::window_cmds::builtin_window_vscroll(eval, args)),
-        "window-margins" => return Some(super::window_cmds::builtin_window_margins(eval, args)),
-        "window-fringes" => return Some(super::window_cmds::builtin_window_fringes(eval, args)),
-        "window-scroll-bars" => {
-            return Some(super::window_cmds::builtin_window_scroll_bars(eval, args));
         }
         "window-mode-line-height" => {
             return Some(super::window_cmds::builtin_window_mode_line_height(
@@ -1744,55 +1199,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "window-pixel-height" => {
-            return Some(super::window_cmds::builtin_window_pixel_height(eval, args));
-        }
-        "window-pixel-width" => {
-            return Some(super::window_cmds::builtin_window_pixel_width(eval, args));
-        }
-        "window-body-height" => {
-            return Some(super::window_cmds::builtin_window_body_height(eval, args));
-        }
-        "window-body-width" => {
-            return Some(super::window_cmds::builtin_window_body_width(eval, args));
-        }
-        "window-text-height" => {
-            return Some(super::window_cmds::builtin_window_text_height(eval, args));
-        }
-        "window-text-width" => {
-            return Some(super::window_cmds::builtin_window_text_width(eval, args));
-        }
-        "window-total-height" => {
-            return Some(super::window_cmds::builtin_window_total_height(eval, args));
-        }
-        "window-total-width" => {
-            return Some(super::window_cmds::builtin_window_total_width(eval, args));
-        }
-        "window-list" => return Some(super::window_cmds::builtin_window_list(eval, args)),
-        "window-list-1" => return Some(super::window_cmds::builtin_window_list_1(eval, args)),
-        "get-buffer-window" => {
-            return Some(super::window_cmds::builtin_get_buffer_window(eval, args));
-        }
-        "window-dedicated-p" => {
-            return Some(super::window_cmds::builtin_window_dedicated_p(eval, args));
-        }
-        "window-minibuffer-p" => {
-            return Some(super::window_cmds::builtin_window_minibuffer_p(eval, args));
-        }
-        "window-at" => return Some(super::window_cmds::builtin_window_at(eval, args)),
-        "window-live-p" => return Some(super::window_cmds::builtin_window_live_p(eval, args)),
-        "set-window-start" => {
-            return Some(super::window_cmds::builtin_set_window_start(eval, args));
-        }
-        "set-window-hscroll" => {
-            return Some(super::window_cmds::builtin_set_window_hscroll(eval, args));
-        }
-        "set-window-margins" => {
-            return Some(super::window_cmds::builtin_set_window_margins(eval, args));
-        }
-        "set-window-fringes" => {
-            return Some(super::window_cmds::builtin_set_window_fringes(eval, args));
-        }
         "set-window-display-table" => {
             return Some(super::window_cmds::builtin_set_window_display_table(
                 eval, args,
@@ -1807,12 +1213,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::window_cmds::builtin_set_window_scroll_bars(
                 eval, args,
             ));
-        }
-        "set-window-vscroll" => {
-            return Some(super::window_cmds::builtin_set_window_vscroll(eval, args));
-        }
-        "set-window-point" => {
-            return Some(super::window_cmds::builtin_set_window_point(eval, args));
         }
         "set-window-next-buffers" => {
             return Some(super::window_cmds::builtin_set_window_next_buffers(
@@ -1829,11 +1229,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "split-window-internal" => return Some(builtin_split_window_internal(eval, args)),
-        "delete-window" => return Some(super::window_cmds::builtin_delete_window(eval, args)),
-        "delete-other-windows" => {
-            return Some(super::window_cmds::builtin_delete_other_windows(eval, args));
-        }
         "delete-window-internal" => {
             return Some(super::window_cmds::builtin_delete_window_internal(
                 eval, args,
@@ -1844,11 +1239,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "select-window" => return Some(super::window_cmds::builtin_select_window(eval, args)),
-        "scroll-up" => return Some(super::window_cmds::builtin_scroll_up(eval, args)),
-        "scroll-down" => return Some(super::window_cmds::builtin_scroll_down(eval, args)),
-        "scroll-left" => return Some(super::window_cmds::builtin_scroll_left(eval, args)),
-        "scroll-right" => return Some(super::window_cmds::builtin_scroll_right(eval, args)),
         "window-combination-limit" => {
             return Some(super::window_cmds::builtin_window_combination_limit(
                 eval, args,
@@ -1859,16 +1249,11 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "window-resize-apply" => {
-            return Some(super::window_cmds::builtin_window_resize_apply(eval, args));
-        }
         "window-resize-apply-total" => {
             return Some(super::window_cmds::builtin_window_resize_apply_total(
                 eval, args,
             ));
         }
-        "recenter" => return Some(super::window_cmds::builtin_recenter(eval, args)),
-        "vertical-motion" => return Some(builtin_vertical_motion(eval, args)),
         "compute-motion" => {
             return Some(super::builtins::buffers::builtin_compute_motion(eval, args));
         }
@@ -1877,107 +1262,23 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "next-window" => return Some(super::window_cmds::builtin_next_window(eval, args)),
-        "previous-window" => return Some(super::window_cmds::builtin_previous_window(eval, args)),
-        "set-window-buffer" => {
-            return Some(super::window_cmds::builtin_set_window_buffer(eval, args));
-        }
-        "current-window-configuration" => {
-            return Some(builtin_current_window_configuration(eval, args));
-        }
-        "set-window-configuration" => return Some(builtin_set_window_configuration(eval, args)),
         "window-configuration-p" => return Some(builtin_window_configuration_p(args)),
         "window-configuration-frame" => return Some(builtin_window_configuration_frame(args)),
         "window-configuration-equal-p" => return Some(builtin_window_configuration_equal_p(args)),
-        "old-selected-frame" => return Some(builtin_old_selected_frame_eval(eval, args)),
-        "selected-frame" => return Some(super::window_cmds::builtin_selected_frame(eval, args)),
-        "mouse-pixel-position" => return Some(builtin_mouse_pixel_position_eval(eval, args)),
-        "mouse-position" => return Some(builtin_mouse_position_eval(eval, args)),
-        "next-frame" => return Some(builtin_next_frame_eval(eval, args)),
-        "previous-frame" => return Some(builtin_previous_frame_eval(eval, args)),
-        "select-frame" => return Some(super::window_cmds::builtin_select_frame(eval, args)),
         "select-frame-set-input-focus" => {
             return Some(super::window_cmds::builtin_select_frame_set_input_focus(
                 eval, args,
             ));
         }
-        "last-nonminibuffer-frame" => {
-            return Some(super::window_cmds::builtin_selected_frame(eval, args));
-        }
-        "visible-frame-list" => {
-            return Some(super::window_cmds::builtin_visible_frame_list(eval, args));
-        }
-        "frame-list" => return Some(super::window_cmds::builtin_frame_list(eval, args)),
-        "x-create-frame" => return Some(super::window_cmds::builtin_x_create_frame(eval, args)),
-        "make-frame-visible" => {
-            return Some(super::window_cmds::builtin_make_frame_visible(eval, args));
-        }
-        "make-frame" => return Some(super::window_cmds::builtin_make_frame(eval, args)),
-        "iconify-frame" => return Some(super::window_cmds::builtin_iconify_frame(eval, args)),
-        "delete-frame" => return Some(super::window_cmds::builtin_delete_frame(eval, args)),
-        "frame-char-height" => {
-            return Some(super::window_cmds::builtin_frame_char_height(eval, args));
-        }
-        "frame-char-width" => {
-            return Some(super::window_cmds::builtin_frame_char_width(eval, args));
-        }
-        "frame-native-height" => {
-            return Some(super::window_cmds::builtin_frame_native_height(eval, args));
-        }
-        "frame-native-width" => {
-            return Some(super::window_cmds::builtin_frame_native_width(eval, args));
-        }
-        "frame-text-cols" => return Some(super::window_cmds::builtin_frame_text_cols(eval, args)),
-        "frame-text-height" => {
-            return Some(super::window_cmds::builtin_frame_text_height(eval, args));
-        }
-        "frame-text-lines" => {
-            return Some(super::window_cmds::builtin_frame_text_lines(eval, args));
-        }
-        "frame-text-width" => {
-            return Some(super::window_cmds::builtin_frame_text_width(eval, args));
-        }
-        "frame-total-cols" => {
-            return Some(super::window_cmds::builtin_frame_total_cols(eval, args));
-        }
-        "frame-total-lines" => {
-            return Some(super::window_cmds::builtin_frame_total_lines(eval, args));
-        }
-        "frame-position" => return Some(super::window_cmds::builtin_frame_position(eval, args)),
         "frame-parameter" => {
             tracing::debug!(param = ?args.get(1).map(|v| format!("{}", v)), "frame-parameter called");
             return Some(super::window_cmds::builtin_frame_parameter(eval, args));
-        }
-        "frame-parameters" => {
-            return Some(super::window_cmds::builtin_frame_parameters(eval, args));
         }
         "modify-frame-parameters" => {
             return Some(super::window_cmds::builtin_modify_frame_parameters(
                 eval, args,
             ));
         }
-        "set-frame-height" => {
-            return Some(super::window_cmds::builtin_set_frame_height(eval, args));
-        }
-        "set-frame-width" => return Some(super::window_cmds::builtin_set_frame_width(eval, args)),
-        "set-frame-size" => return Some(super::window_cmds::builtin_set_frame_size(eval, args)),
-        "set-frame-position" => {
-            return Some(super::window_cmds::builtin_set_frame_position(eval, args));
-        }
-        "frame-visible-p" => return Some(super::window_cmds::builtin_frame_visible_p(eval, args)),
-        "frame-live-p" => return Some(super::window_cmds::builtin_frame_live_p(eval, args)),
-        "frame-first-window" => {
-            return Some(super::window_cmds::builtin_frame_first_window(eval, args));
-        }
-        "frame-root-window" => {
-            return Some(super::window_cmds::builtin_frame_root_window(eval, args));
-        }
-        "windowp" => return Some(super::window_cmds::builtin_windowp(eval, args)),
-        "window-valid-p" => return Some(super::window_cmds::builtin_window_valid_p(eval, args)),
-        "window-height" => return Some(super::window_cmds::builtin_window_height(eval, args)),
-        "window-width" => return Some(super::window_cmds::builtin_window_width(eval, args)),
-        "framep" => return Some(super::window_cmds::builtin_framep(eval, args)),
-        "window-frame" => return Some(super::window_cmds::builtin_window_frame(eval, args)),
         "frame-selected-window" => {
             return Some(super::window_cmds::builtin_frame_selected_window(
                 eval, args,
@@ -1993,8 +1294,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "frame-id" => return Some(builtin_frame_id_eval(eval, args)),
-        "frame-root-frame" => return Some(builtin_frame_root_frame_eval(eval, args)),
         "send-string-to-terminal" => {
             return Some(super::dispnew::pure::builtin_send_string_to_terminal_eval(
                 eval, args,
@@ -2011,15 +1310,6 @@ pub(crate) fn dispatch_builtin(
             ));
         }
         "redraw-frame" => return Some(super::dispnew::pure::builtin_redraw_frame_eval(eval, args)),
-        "x-open-connection" => {
-            return Some(super::display::builtin_x_open_connection_eval(eval, args));
-        }
-        "x-get-resource" => return Some(super::display::builtin_x_get_resource_eval(eval, args)),
-        "x-list-fonts" => return Some(super::display::builtin_x_list_fonts_eval(eval, args)),
-        "window-system" => return Some(super::display::builtin_window_system_eval(eval, args)),
-        "current-idle-time" => {
-            return Some(builtin_current_idle_time_eval(eval, args));
-        }
         "display-supports-face-attributes-p" => {
             return Some(
                 super::display::builtin_display_supports_face_attributes_p_eval(eval, args),
@@ -2093,18 +1383,11 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "x-server-version" => {
-            return Some(super::display::builtin_x_server_version_eval(eval, args));
-        }
         "x-server-max-request-size" => {
             return Some(super::display::builtin_x_server_max_request_size_eval(
                 eval, args,
             ));
         }
-        "x-server-input-extension-version" => {
-            return Some(super::display::builtin_x_server_input_extension_version_eval(eval, args));
-        }
-        "x-server-vendor" => return Some(super::display::builtin_x_server_vendor_eval(eval, args)),
         "x-display-grayscale-p" => {
             return Some(super::display::builtin_x_display_grayscale_p_eval(
                 eval, args,
@@ -2115,35 +1398,20 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "display-color-cells" => {
-            return Some(super::display::builtin_display_color_cells_eval(eval, args));
-        }
         "x-display-color-cells" => {
             return Some(super::display::builtin_x_display_color_cells_eval(
                 eval, args,
             ));
-        }
-        "x-display-mm-height" => {
-            return Some(super::display::builtin_x_display_mm_height_eval(eval, args));
-        }
-        "x-display-mm-width" => {
-            return Some(super::display::builtin_x_display_mm_width_eval(eval, args));
         }
         "x-display-monitor-attributes-list" => {
             return Some(
                 super::display::builtin_x_display_monitor_attributes_list_eval(eval, args),
             );
         }
-        "x-display-planes" => {
-            return Some(super::display::builtin_x_display_planes_eval(eval, args));
-        }
         "x-display-save-under" => {
             return Some(super::display::builtin_x_display_save_under_eval(
                 eval, args,
             ));
-        }
-        "x-display-screens" => {
-            return Some(super::display::builtin_x_display_screens_eval(eval, args));
         }
         "x-display-set-last-user-time" => {
             return Some(super::display::builtin_x_display_set_last_user_time_eval(
@@ -2155,32 +1423,12 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "x-close-connection" => {
-            return Some(super::display::builtin_x_close_connection_eval(eval, args));
-        }
 
         // Interactive / command system (evaluator-dependent)
-        "call-interactively" => {
-            return Some(super::interactive::builtin_call_interactively(eval, args));
-        }
-        "commandp" => return Some(super::interactive::builtin_commandp_interactive(eval, args)),
-        "command-remapping" => {
-            return Some(super::interactive::builtin_command_remapping(eval, args));
-        }
-        "self-insert-command" => {
-            return Some(super::interactive::builtin_self_insert_command(eval, args));
-        }
-        "key-binding" => return Some(super::interactive::builtin_key_binding(eval, args)),
         "minor-mode-key-binding" => {
             return Some(super::interactive::builtin_minor_mode_key_binding(
                 eval, args,
             ));
-        }
-        "where-is-internal" => {
-            return Some(super::interactive::builtin_where_is_internal(eval, args));
-        }
-        "this-command-keys" => {
-            return Some(super::interactive::builtin_this_command_keys(eval, args));
         }
         "this-command-keys-vector" => {
             return Some(super::interactive::builtin_this_command_keys_vector(
@@ -2208,8 +1456,6 @@ pub(crate) fn dispatch_builtin(
         }
 
         // Reader/printer (evaluator-dependent)
-        "format" => return Some(builtin_format_eval(eval, args)),
-        "format-message" => return Some(builtin_format_message_eval(eval, args)),
         "message" => {
             let msg_preview: String = args
                 .first()
@@ -2225,35 +1471,6 @@ pub(crate) fn dispatch_builtin(
             tracing::info!(msg = %msg_preview, "message");
             return Some(builtin_message_eval(eval, args));
         }
-        "message-box" => return Some(builtin_message_box_eval(eval, args)),
-        "message-or-box" => return Some(builtin_message_or_box_eval(eval, args)),
-        "current-message" => return Some(builtin_current_message_eval(eval, args)),
-        "read-from-string" => return Some(super::reader::builtin_read_from_string(eval, args)),
-        "read" => return Some(super::reader::builtin_read(eval, args)),
-        "read-from-minibuffer" => {
-            return Some(super::reader::builtin_read_from_minibuffer(eval, args));
-        }
-        "read-string" => return Some(super::reader::builtin_read_string(eval, args)),
-        "completing-read" => return Some(super::reader::builtin_completing_read(eval, args)),
-        "read-buffer" => return Some(super::minibuffer::builtin_read_buffer(eval, args)),
-        "read-command" => return Some(super::minibuffer::builtin_read_command(eval, args)),
-        "read-variable" => return Some(super::minibuffer::builtin_read_variable(eval, args)),
-        "try-completion" => {
-            return Some(super::minibuffer::builtin_try_completion_eval(eval, args));
-        }
-        "all-completions" => {
-            return Some(super::minibuffer::builtin_all_completions_eval(eval, args));
-        }
-        "test-completion" => {
-            return Some(super::minibuffer::builtin_test_completion_eval(eval, args));
-        }
-        "input-pending-p" => return Some(super::reader::builtin_input_pending_p(eval, args)),
-        "discard-input" => return Some(super::reader::builtin_discard_input(eval, args)),
-        "current-input-mode" => return Some(super::reader::builtin_current_input_mode(eval, args)),
-        "set-input-mode" => return Some(super::reader::builtin_set_input_mode(eval, args)),
-        "set-input-interrupt-mode" => {
-            return Some(super::reader::builtin_set_input_interrupt_mode(eval, args));
-        }
         "set-input-meta-mode" => return Some(super::reader::builtin_set_input_meta_mode(args)),
         "set-output-flow-control" => {
             return Some(super::reader::builtin_set_output_flow_control(args));
@@ -2268,12 +1485,6 @@ pub(crate) fn dispatch_builtin(
             tracing::info!("read-char called (will block for input)");
             return Some(super::reader::builtin_read_char(eval, args));
         }
-        "read-key-sequence" => return Some(super::reader::builtin_read_key_sequence(eval, args)),
-        "read-key-sequence-vector" => {
-            return Some(super::reader::builtin_read_key_sequence_vector(eval, args));
-        }
-        "recent-keys" => return Some(builtin_recent_keys(eval, args)),
-        "minibufferp" => return Some(super::minibuffer::builtin_minibufferp_eval(eval, args)),
         "minibuffer-prompt" => {
             return Some(super::minibuffer::builtin_minibuffer_prompt_eval(
                 eval, args,
@@ -2294,21 +1505,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "minibuffer-contents" => {
-            return Some(super::minibuffer::builtin_minibuffer_contents(eval, args));
-        }
-        "minibuffer-contents-no-properties" => {
-            return Some(super::minibuffer::builtin_minibuffer_contents_no_properties(eval, args));
-        }
-        "minibuffer-depth" => {
-            return Some(super::minibuffer::builtin_minibuffer_depth_eval(eval, args));
-        }
-        "princ" => return Some(builtin_princ_eval(eval, args)),
-        "prin1" => return Some(builtin_prin1_eval(eval, args)),
-        "prin1-to-string" => return Some(builtin_prin1_to_string_eval(eval, args)),
-        "print" => return Some(builtin_print_eval(eval, args)),
-        "terpri" => return Some(builtin_terpri_eval(eval, args)),
-        "write-char" => return Some(builtin_write_char_eval(eval, args)),
 
         // Misc (evaluator-dependent)
         "backtrace--frames-from-thread" => {
@@ -2316,24 +1512,10 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "backtrace--locals" => return Some(super::misc::builtin_backtrace_locals(eval, args)),
-        "backtrace-debug" => return Some(super::misc::builtin_backtrace_debug(eval, args)),
-        "backtrace-eval" => return Some(super::misc::builtin_backtrace_eval(eval, args)),
-        "backtrace-frame--internal" => {
-            return Some(super::misc::builtin_backtrace_frame_internal(eval, args));
-        }
-        "recursion-depth" => return Some(super::misc::builtin_recursion_depth(eval, args)),
         "top-level" => return Some(super::minibuffer::builtin_top_level(args)),
-        "kill-emacs" => return Some(builtin_kill_emacs_eval(eval, args)),
         "recursive-edit" => {
             tracing::info!("dispatch_builtin: recursive-edit called");
             return Some(super::minibuffer::builtin_recursive_edit_eval(eval, args));
-        }
-        "exit-recursive-edit" => {
-            return Some(super::minibuffer::builtin_exit_recursive_edit(eval, args));
-        }
-        "abort-recursive-edit" => {
-            return Some(super::minibuffer::builtin_abort_recursive_edit(eval, args));
         }
         "abort-minibuffers" => {
             return Some(super::minibuffer::builtin_abort_minibuffers_eval(
@@ -2342,62 +1524,18 @@ pub(crate) fn dispatch_builtin(
         }
 
         // Threading (evaluator-dependent)
-        "make-thread" => return Some(super::threads::builtin_make_thread(eval, args)),
-        "thread-join" => return Some(super::threads::builtin_thread_join(eval, args)),
-        "thread-yield" => return Some(super::threads::builtin_thread_yield(eval, args)),
-        "thread-name" => return Some(super::threads::builtin_thread_name(eval, args)),
-        "thread-live-p" => return Some(super::threads::builtin_thread_live_p(eval, args)),
-        "threadp" => return Some(super::threads::builtin_threadp(eval, args)),
-        "thread-signal" => return Some(super::threads::builtin_thread_signal(eval, args)),
-        "current-thread" => return Some(super::threads::builtin_current_thread(eval, args)),
-        "all-threads" => return Some(super::threads::builtin_all_threads(eval, args)),
-        "thread-last-error" => return Some(super::threads::builtin_thread_last_error(eval, args)),
-        "make-mutex" => return Some(super::threads::builtin_make_mutex(eval, args)),
-        "mutex-name" => return Some(super::threads::builtin_mutex_name(eval, args)),
-        "mutex-lock" => return Some(super::threads::builtin_mutex_lock(eval, args)),
-        "mutex-unlock" => return Some(super::threads::builtin_mutex_unlock(eval, args)),
-        "mutexp" => return Some(super::threads::builtin_mutexp(eval, args)),
-        "make-condition-variable" => {
-            return Some(super::threads::builtin_make_condition_variable(eval, args));
-        }
-        "condition-variable-p" => {
-            return Some(super::threads::builtin_condition_variable_p(eval, args));
-        }
-        "condition-name" => return Some(super::threads::builtin_condition_name(eval, args)),
-        "condition-mutex" => return Some(super::threads::builtin_condition_mutex(eval, args)),
-        "condition-wait" => return Some(super::threads::builtin_condition_wait(eval, args)),
-        "condition-notify" => return Some(super::threads::builtin_condition_notify(eval, args)),
 
         // Undo system (evaluator-dependent)
-        "undo-boundary" => return Some(super::undo::builtin_undo_boundary_eval(eval, args)),
         // Hash-table / obarray (evaluator-dependent)
-        "maphash" => return Some(super::hashtab::builtin_maphash(eval, args)),
-        "mapatoms" => return Some(super::hashtab::builtin_mapatoms(eval, args)),
-        "unintern" => return Some(super::hashtab::builtin_unintern(eval, args)),
 
         // Marker (evaluator-dependent)
-        "set-marker" => return Some(super::marker::builtin_set_marker(eval, args)),
-        "move-marker" => return Some(super::marker::builtin_move_marker(eval, args)),
-        "marker-position" => return Some(super::marker::builtin_marker_position_eval(eval, args)),
-        "marker-buffer" => return Some(super::marker::builtin_marker_buffer_eval(eval, args)),
-        "copy-marker" => return Some(super::marker::builtin_copy_marker_eval(eval, args)),
         "set-marker-insertion-type" => {
             return Some(super::marker::builtin_set_marker_insertion_type_eval(
                 eval, args,
             ));
         }
-        "point-marker" => return Some(super::marker::builtin_point_marker(eval, args)),
-        "point-min-marker" => return Some(super::marker::builtin_point_min_marker(eval, args)),
-        "point-max-marker" => return Some(super::marker::builtin_point_max_marker(eval, args)),
 
         // Case table (evaluator-dependent)
-        "current-case-table" => {
-            return Some(super::casetab::builtin_current_case_table_eval(eval, args));
-        }
-        "standard-case-table" => {
-            return Some(super::casetab::builtin_standard_case_table_eval(eval, args));
-        }
-        "set-case-table" => return Some(super::casetab::builtin_set_case_table_eval(eval, args)),
         "set-standard-case-table" => {
             return Some(super::casetab::builtin_set_standard_case_table_eval(
                 eval, args,
@@ -2405,33 +1543,18 @@ pub(crate) fn dispatch_builtin(
         }
 
         // Category (evaluator-dependent)
-        "define-category" => {
-            return Some(super::category::builtin_define_category_eval(eval, args));
-        }
-        "category-docstring" => {
-            return Some(super::category::builtin_category_docstring_eval(eval, args));
-        }
         "get-unused-category" => {
             return Some(super::category::builtin_get_unused_category_eval(
                 eval, args,
             ));
         }
-        "modify-category-entry" => {
-            return Some(super::category::builtin_modify_category_entry(eval, args));
-        }
-        "char-category-set" => return Some(super::category::builtin_char_category_set(eval, args)),
-        "category-table" => return Some(super::category::builtin_category_table_eval(eval, args)),
         "standard-category-table" => {
             return Some(super::category::builtin_standard_category_table_eval(
                 eval, args,
             ));
         }
-        "set-category-table" => {
-            return Some(super::category::builtin_set_category_table_eval(eval, args));
-        }
 
         // Char-table (evaluator-dependent — applies function)
-        "map-char-table" => return Some(super::chartable::builtin_map_char_table(eval, args)),
 
         // Coding system (evaluator-dependent — uses coding_systems manager)
         "coding-system-aliases" => {
@@ -2499,24 +1622,11 @@ pub(crate) fn dispatch_builtin(
                 super::coding::builtin_find_coding_systems_region_internal_eval(eval, args),
             );
         }
-        "assoc" => return Some(builtin_assoc_eval(eval, args)),
-        "plist-member" => return Some(builtin_plist_member(eval, args)),
-        "json-parse-buffer" => return Some(super::json::builtin_json_parse_buffer(eval, args)),
-        "json-insert" => return Some(super::json::builtin_json_insert(eval, args)),
 
         // Documentation/help (evaluator-dependent)
-        "documentation" => return Some(super::doc::builtin_documentation(eval, args)),
         "documentation-stringp" => return Some(builtin_documentation_stringp(args)),
-        "documentation-property" => {
-            return Some(super::doc::builtin_documentation_property_eval(eval, args));
-        }
 
         // Indentation (evaluator-dependent)
-        "current-indentation" => {
-            return Some(super::indent::builtin_current_indentation_eval(eval, args));
-        }
-        "current-column" => return Some(super::indent::builtin_current_column_eval(eval, args)),
-        "move-to-column" => return Some(super::indent::builtin_move_to_column_eval(eval, args)),
         // Case/char (evaluator-dependent)
         "char-equal" => return Some(builtin_char_equal(eval, args)),
         "upcase-initials-region" => {
@@ -2535,28 +1645,17 @@ pub(crate) fn dispatch_builtin(
             return Some(builtin_re_search_backward(eval, args));
         }
         // Lread (evaluator-dependent)
-        "eval-buffer" => return Some(super::lread::builtin_eval_buffer(eval, args)),
-        "eval-region" => return Some(super::lread::builtin_eval_region(eval, args)),
         "read-event" => {
             tracing::info!("read-event called (will block for input)");
             return Some(super::lread::builtin_read_event(eval, args));
         }
-        "read-char-exclusive" => {
-            return Some(super::lread::builtin_read_char_exclusive(eval, args));
-        }
 
         // Editfns (evaluator-dependent)
-        "insert-before-markers" => {
-            return Some(super::editfns::builtin_insert_before_markers(eval, args));
-        }
-        "delete-char" => return Some(super::editfns::builtin_delete_char(eval, args)),
         "buffer-substring-no-properties" => {
             return Some(super::editfns::builtin_buffer_substring_no_properties(
                 eval, args,
             ));
         }
-        "following-char" => return Some(super::editfns::builtin_following_char(eval, args)),
-        "preceding-char" => return Some(super::editfns::builtin_preceding_char(eval, args)),
 
         _ => {}
     }
@@ -3002,7 +2101,6 @@ pub(crate) fn dispatch_builtin(
         "color-supported-p" => super::font::builtin_color_supported_p(args),
         "color-distance" => super::font::builtin_color_distance(args),
         "color-values-from-color-spec" => super::font::builtin_color_values_from_color_spec(args),
-        "face-font" => return Some(super::font::builtin_face_font_eval(eval, args)),
         "internal-face-x-get-resource" => super::font::builtin_internal_face_x_get_resource(args),
         "internal-set-font-selection-order" => {
             super::font::builtin_internal_set_font_selection_order(args)
