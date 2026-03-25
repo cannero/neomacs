@@ -2131,13 +2131,26 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
 
 fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
     let path_str = path.to_string_lossy().to_string();
-    let entry = Value::cons(Value::string(path_str), Value::Nil);
+    let entry = Value::cons(Value::string(path_str.clone()), Value::Nil);
     let history = eval
         .obarray()
         .symbol_value("load-history")
         .cloned()
         .unwrap_or(Value::Nil);
     eval.set_variable("load-history", Value::cons(entry, history));
+
+    // GNU Emacs lread.c:1540-1541: after loading a file, call
+    // (do-after-load-evaluation FILENAME) to run eval-after-load hooks.
+    if eval
+        .obarray()
+        .symbol_function("do-after-load-evaluation")
+        .is_some_and(|f| !f.is_nil())
+    {
+        let abs_path = Value::string(path_str);
+        if let Err(e) = eval.apply(Value::symbol("do-after-load-evaluation"), vec![abs_path]) {
+            tracing::debug!("do-after-load-evaluation error (non-fatal): {:?}", e);
+        }
+    }
 }
 
 /// Register bootstrap variables owned by the file-loading subsystem.
