@@ -477,7 +477,7 @@ pub(crate) fn builtin_directory_files_and_attributes_in_state(
 /// Context-backed variant of `directory-files-and-attributes`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
 pub(crate) fn builtin_directory_files_and_attributes_eval(
-    eval: &Context,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_directory_files_and_attributes_in_state(
@@ -661,7 +661,7 @@ pub(crate) fn builtin_file_name_all_completions_in_state(
 /// Context-backed variant of `file-name-all-completions`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
 pub(crate) fn builtin_file_name_all_completions_eval(
-    eval: &Context,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_file_name_all_completions_in_state(

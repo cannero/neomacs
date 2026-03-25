@@ -1751,7 +1751,7 @@ pub(crate) fn builtin_file_accessible_directory_p_in_state(
 }
 
 pub(crate) fn builtin_file_accessible_directory_p_eval(
-    eval: &Context,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_file_accessible_directory_p_in_state(
@@ -2049,7 +2049,7 @@ pub(crate) fn builtin_file_name_case_insensitive_p_in_state(
 }
 
 pub(crate) fn builtin_file_name_case_insensitive_p_eval(
-    eval: &Context,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_file_name_case_insensitive_p_in_state(
@@ -2087,7 +2087,7 @@ pub(crate) fn builtin_file_newer_than_file_p_in_state(
 }
 
 pub(crate) fn builtin_file_newer_than_file_p_eval(
-    eval: &Context,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_file_newer_than_file_p_in_state(
@@ -2512,7 +2512,7 @@ pub(crate) fn builtin_delete_directory_internal_in_state(
 }
 
 pub(crate) fn builtin_delete_directory_internal_eval(
-    eval: &Context,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_directory_internal_in_state(
@@ -2860,7 +2860,7 @@ pub(crate) fn builtin_make_directory_internal_in_state(
 }
 
 pub(crate) fn builtin_make_directory_internal_eval(
-    eval: &Context,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_directory_internal_in_state(
@@ -2894,7 +2894,7 @@ pub(crate) fn builtin_find_file_name_handler_in_state(
 
 /// Context-aware variant of `find-file-name-handler`.
 pub(crate) fn builtin_find_file_name_handler_eval(
-    eval: &Context,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_find_file_name_handler_in_state(

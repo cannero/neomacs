@@ -903,11 +903,6 @@ pub(crate) fn dispatch_builtin(
     match name {
         "macrop" => return Some(super::builtins::symbols::builtin_macrop_eval(eval, args)),
         // Symbol/obarray
-        "internal--define-uninitialized-variable" => {
-            return Some(builtin_internal_define_uninitialized_variable_eval(
-                eval, args,
-            ));
-        }
         "obarrayp" => return Some(builtin_obarrayp(args)),
         // Hooks
         "run-hooks" => {
@@ -950,137 +945,17 @@ pub(crate) fn dispatch_builtin(
         // Search / regex operations
         // charset (evaluator-dependent)
         // composite (evaluator-dependent)
-        "compose-region-internal" => {
-            return Some(super::composite::builtin_compose_region_internal_eval(
-                eval, args,
-            ));
-        }
         // xdisp (evaluator-dependent)
-        "window-text-pixel-size" => {
-            return Some(super::xdisp::builtin_window_text_pixel_size_eval(
-                eval, args,
-            ));
-        }
-        "pos-visible-in-window-p" => {
-            return Some(super::xdisp::builtin_pos_visible_in_window_p_eval(
-                eval, args,
-            ));
-        }
 
         // Font (evaluator-dependent — frame designator validation)
-        "frame--face-hash-table" => {
-            return Some(super::xfaces::builtin_frame_face_hash_table_eval(
-                eval, args,
-            ));
-        }
 
         // File I/O (evaluator-dependent)
-        "delete-directory-internal" => {
-            return Some(super::fileio::builtin_delete_directory_internal_eval(
-                eval, args,
-            ));
-        }
-        "make-directory-internal" => {
-            return Some(super::fileio::builtin_make_directory_internal_eval(
-                eval, args,
-            ));
-        }
-        "directory-files-and-attributes" => {
-            return Some(super::dired::builtin_directory_files_and_attributes_eval(
-                eval, args,
-            ));
-        }
-        "find-file-name-handler" => {
-            return Some(super::fileio::builtin_find_file_name_handler_eval(
-                eval, args,
-            ));
-        }
-        "file-name-all-completions" => {
-            return Some(super::dired::builtin_file_name_all_completions_eval(
-                eval, args,
-            ));
-        }
-        "file-accessible-directory-p" => {
-            return Some(super::fileio::builtin_file_accessible_directory_p_eval(
-                eval, args,
-            ));
-        }
-        "file-name-case-insensitive-p" => {
-            return Some(super::fileio::builtin_file_name_case_insensitive_p_eval(
-                eval, args,
-            ));
-        }
-        "file-newer-than-file-p" => {
-            return Some(super::fileio::builtin_file_newer_than_file_p_eval(
-                eval, args,
-            ));
-        }
-        "verify-visited-file-modtime" => {
-            return Some(super::fileio::builtin_verify_visited_file_modtime(
-                eval, args,
-            ));
-        }
         "default-file-modes" => return Some(super::fileio::builtin_default_file_modes(args)),
         "set-default-file-modes" => {
             return Some(super::fileio::builtin_set_default_file_modes(args));
         }
         // Keymap operations
         // Process operations (evaluator-dependent)
-        "internal-default-interrupt-process" => {
-            return Some(super::process::builtin_internal_default_interrupt_process(
-                eval, args,
-            ));
-        }
-        "internal-default-process-filter" => {
-            return Some(super::process::builtin_internal_default_process_filter(
-                eval, args,
-            ));
-        }
-        "internal-default-process-sentinel" => {
-            return Some(super::process::builtin_internal_default_process_sentinel(
-                eval, args,
-            ));
-        }
-        "internal-default-signal-process" => {
-            return Some(super::process::builtin_internal_default_signal_process(
-                eval, args,
-            ));
-        }
-        "network-lookup-address-info" => {
-            return Some(super::process::builtin_network_lookup_address_info(
-                eval, args,
-            ));
-        }
-        "set-network-process-option" => {
-            return Some(super::process::builtin_set_network_process_option(
-                eval, args,
-            ));
-        }
-        "process-query-on-exit-flag" => {
-            return Some(super::process::builtin_process_query_on_exit_flag(
-                eval, args,
-            ));
-        }
-        "set-process-query-on-exit-flag" => {
-            return Some(super::process::builtin_set_process_query_on_exit_flag(
-                eval, args,
-            ));
-        }
-        "process-inherit-coding-system-flag" => {
-            return Some(super::process::builtin_process_inherit_coding_system_flag(
-                eval, args,
-            ));
-        }
-        "set-process-coding-system" => {
-            return Some(super::process::builtin_set_process_coding_system(
-                eval, args,
-            ));
-        }
-        "set-process-datagram-address" => {
-            return Some(super::process::builtin_set_process_datagram_address(
-                eval, args,
-            ));
-        }
         "set-process-inherit-coding-system-flag" => {
             return Some(
                 super::process::builtin_set_process_inherit_coding_system_flag(eval, args),
@@ -1095,39 +970,9 @@ pub(crate) fn dispatch_builtin(
         // Bookmark operations (evaluator-dependent)
         // Abbreviation operations (evaluator-dependent)
         // Text property operations (evaluator-dependent — buffer access)
-        "remove-list-of-text-properties" => {
-            return Some(super::textprop::builtin_remove_list_of_text_properties(
-                eval, args,
-            ));
-        }
-        "get-char-property-and-overlay" => {
-            return Some(super::textprop::builtin_get_char_property_and_overlay(
-                eval, args,
-            ));
-        }
-        "next-single-property-change" => {
-            return Some(super::textprop::builtin_next_single_property_change(
-                eval, args,
-            ));
-        }
-        "previous-single-property-change" => {
-            return Some(super::textprop::builtin_previous_single_property_change(
-                eval, args,
-            ));
-        }
 
         // Navigation / mark / region (evaluator-dependent — buffer access)
-        "line-beginning-position" => {
-            return Some(super::navigation::builtin_line_beginning_position(
-                eval, args,
-            ));
-        }
         // Custom system (evaluator-dependent)
-        "make-variable-buffer-local" => {
-            return Some(super::custom::builtin_make_variable_buffer_local(
-                eval, args,
-            ));
-        }
 
         // Autoload (evaluator-dependent)
 
@@ -1135,125 +980,15 @@ pub(crate) fn dispatch_builtin(
 
         // Rectangle operations (evaluator-dependent — buffer access)
         // Window/frame operations (evaluator-dependent)
-        "active-minibuffer-window" => {
-            return Some(super::window_cmds::builtin_active_minibuffer_window_eval(
-                eval, args,
-            ));
-        }
-        "minibuffer-selected-window" => {
-            return Some(super::window_cmds::builtin_minibuffer_selected_window(
-                eval, args,
-            ));
-        }
-        "window-mode-line-height" => {
-            return Some(super::window_cmds::builtin_window_mode_line_height(
-                eval, args,
-            ));
-        }
-        "window-header-line-height" => {
-            return Some(super::window_cmds::builtin_window_header_line_height(
-                eval, args,
-            ));
-        }
-        "window-tab-line-height" => {
-            return Some(super::window_cmds::builtin_window_tab_line_height(
-                eval, args,
-            ));
-        }
-        "set-window-display-table" => {
-            return Some(super::window_cmds::builtin_set_window_display_table(
-                eval, args,
-            ));
-        }
-        "set-window-cursor-type" => {
-            return Some(super::window_cmds::builtin_set_window_cursor_type(
-                eval, args,
-            ));
-        }
-        "set-window-scroll-bars" => {
-            return Some(super::window_cmds::builtin_set_window_scroll_bars(
-                eval, args,
-            ));
-        }
-        "set-window-next-buffers" => {
-            return Some(super::window_cmds::builtin_set_window_next_buffers(
-                eval, args,
-            ));
-        }
-        "set-window-prev-buffers" => {
-            return Some(super::window_cmds::builtin_set_window_prev_buffers(
-                eval, args,
-            ));
-        }
-        "set-window-dedicated-p" => {
-            return Some(super::window_cmds::builtin_set_window_dedicated_p(
-                eval, args,
-            ));
-        }
-        "delete-window-internal" => {
-            return Some(super::window_cmds::builtin_delete_window_internal(
-                eval, args,
-            ));
-        }
-        "delete-other-windows-internal" => {
-            return Some(super::window_cmds::builtin_delete_other_windows_internal(
-                eval, args,
-            ));
-        }
-        "window-combination-limit" => {
-            return Some(super::window_cmds::builtin_window_combination_limit(
-                eval, args,
-            ));
-        }
-        "set-window-combination-limit" => {
-            return Some(super::window_cmds::builtin_set_window_combination_limit(
-                eval, args,
-            ));
-        }
-        "window-resize-apply-total" => {
-            return Some(super::window_cmds::builtin_window_resize_apply_total(
-                eval, args,
-            ));
-        }
         "compute-motion" => {
             return Some(super::builtins::buffers::builtin_compute_motion(eval, args));
-        }
-        "other-window-for-scrolling" => {
-            return Some(super::window_cmds::builtin_other_window_for_scrolling(
-                eval, args,
-            ));
         }
         "window-configuration-p" => return Some(builtin_window_configuration_p(args)),
         "window-configuration-frame" => return Some(builtin_window_configuration_frame(args)),
         "window-configuration-equal-p" => return Some(builtin_window_configuration_equal_p(args)),
-        "select-frame-set-input-focus" => {
-            return Some(super::window_cmds::builtin_select_frame_set_input_focus(
-                eval, args,
-            ));
-        }
         "frame-parameter" => {
             tracing::debug!(param = ?args.get(1).map(|v| format!("{}", v)), "frame-parameter called");
             return Some(super::window_cmds::builtin_frame_parameter(eval, args));
-        }
-        "modify-frame-parameters" => {
-            return Some(super::window_cmds::builtin_modify_frame_parameters(
-                eval, args,
-            ));
-        }
-        "frame-selected-window" => {
-            return Some(super::window_cmds::builtin_frame_selected_window(
-                eval, args,
-            ));
-        }
-        "frame-old-selected-window" => {
-            return Some(super::window_cmds::builtin_frame_old_selected_window(
-                eval, args,
-            ));
-        }
-        "set-frame-selected-window" => {
-            return Some(super::window_cmds::builtin_set_frame_selected_window(
-                eval, args,
-            ));
         }
         "send-string-to-terminal" => {
             return Some(super::dispnew::pure::builtin_send_string_to_terminal_eval(
@@ -1334,83 +1069,13 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "x-display-pixel-width" => {
-            return Some(super::display::builtin_x_display_pixel_width_eval(
-                eval, args,
-            ));
-        }
-        "x-display-pixel-height" => {
-            return Some(super::display::builtin_x_display_pixel_height_eval(
-                eval, args,
-            ));
-        }
-        "x-server-max-request-size" => {
-            return Some(super::display::builtin_x_server_max_request_size_eval(
-                eval, args,
-            ));
-        }
-        "x-display-grayscale-p" => {
-            return Some(super::display::builtin_x_display_grayscale_p_eval(
-                eval, args,
-            ));
-        }
-        "x-display-backing-store" => {
-            return Some(super::display::builtin_x_display_backing_store_eval(
-                eval, args,
-            ));
-        }
-        "x-display-color-cells" => {
-            return Some(super::display::builtin_x_display_color_cells_eval(
-                eval, args,
-            ));
-        }
         "x-display-monitor-attributes-list" => {
             return Some(
                 super::display::builtin_x_display_monitor_attributes_list_eval(eval, args),
             );
         }
-        "x-display-save-under" => {
-            return Some(super::display::builtin_x_display_save_under_eval(
-                eval, args,
-            ));
-        }
-        "x-display-set-last-user-time" => {
-            return Some(super::display::builtin_x_display_set_last_user_time_eval(
-                eval, args,
-            ));
-        }
-        "x-display-visual-class" => {
-            return Some(super::display::builtin_x_display_visual_class_eval(
-                eval, args,
-            ));
-        }
 
         // Interactive / command system (evaluator-dependent)
-        "minor-mode-key-binding" => {
-            return Some(super::interactive::builtin_minor_mode_key_binding(
-                eval, args,
-            ));
-        }
-        "this-command-keys-vector" => {
-            return Some(super::interactive::builtin_this_command_keys_vector(
-                eval, args,
-            ));
-        }
-        "this-single-command-keys" => {
-            return Some(super::interactive::builtin_this_single_command_keys(
-                eval, args,
-            ));
-        }
-        "this-single-command-raw-keys" => {
-            return Some(super::interactive::builtin_this_single_command_raw_keys(
-                eval, args,
-            ));
-        }
-        "clear-this-command-keys" => {
-            return Some(super::interactive::builtin_clear_this_command_keys(
-                eval, args,
-            ));
-        }
         // Error hierarchy (evaluator-dependent — reads obarray)
 
         // Reader/printer (evaluator-dependent)
@@ -1434,51 +1099,21 @@ pub(crate) fn dispatch_builtin(
             return Some(super::reader::builtin_set_output_flow_control(args));
         }
         "set-quit-char" => return Some(super::reader::builtin_set_quit_char(args)),
-        "waiting-for-user-input-p" => {
-            return Some(super::reader::builtin_waiting_for_user_input_p_eval(
-                eval, args,
-            ));
-        }
         "read-char" => {
             tracing::info!("read-char called (will block for input)");
             return Some(super::reader::builtin_read_char(eval, args));
-        }
-        "minibuffer-prompt" => {
-            return Some(super::minibuffer::builtin_minibuffer_prompt_eval(
-                eval, args,
-            ));
-        }
-        "minibuffer-prompt-end" => {
-            return Some(super::minibuffer::builtin_minibuffer_prompt_end_eval(
-                eval, args,
-            ));
         }
         "minibuffer-innermost-command-loop-p" => {
             return Some(
                 super::minibuffer::builtin_minibuffer_innermost_command_loop_p_eval(eval, args),
             );
         }
-        "innermost-minibuffer-p" => {
-            return Some(super::minibuffer::builtin_innermost_minibuffer_p_eval(
-                eval, args,
-            ));
-        }
 
         // Misc (evaluator-dependent)
-        "backtrace--frames-from-thread" => {
-            return Some(super::misc::builtin_backtrace_frames_from_thread(
-                eval, args,
-            ));
-        }
         "top-level" => return Some(super::minibuffer::builtin_top_level(args)),
         "recursive-edit" => {
             tracing::info!("dispatch_builtin: recursive-edit called");
             return Some(super::minibuffer::builtin_recursive_edit_eval(eval, args));
-        }
-        "abort-minibuffers" => {
-            return Some(super::minibuffer::builtin_abort_minibuffers_eval(
-                eval, args,
-            ));
         }
 
         // Threading (evaluator-dependent)
@@ -1487,30 +1122,10 @@ pub(crate) fn dispatch_builtin(
         // Hash-table / obarray (evaluator-dependent)
 
         // Marker (evaluator-dependent)
-        "set-marker-insertion-type" => {
-            return Some(super::marker::builtin_set_marker_insertion_type_eval(
-                eval, args,
-            ));
-        }
 
         // Case table (evaluator-dependent)
-        "set-standard-case-table" => {
-            return Some(super::casetab::builtin_set_standard_case_table_eval(
-                eval, args,
-            ));
-        }
 
         // Category (evaluator-dependent)
-        "get-unused-category" => {
-            return Some(super::category::builtin_get_unused_category_eval(
-                eval, args,
-            ));
-        }
-        "standard-category-table" => {
-            return Some(super::category::builtin_standard_category_table_eval(
-                eval, args,
-            ));
-        }
 
         // Char-table (evaluator-dependent — applies function)
 
@@ -1586,11 +1201,6 @@ pub(crate) fn dispatch_builtin(
 
         // Indentation (evaluator-dependent)
         // Case/char (evaluator-dependent)
-        "upcase-initials-region" => {
-            return Some(super::casefiddle::builtin_upcase_initials_region(
-                eval, args,
-            ));
-        }
 
         // Search (evaluator-dependent)
         "posix-search-forward" => {
@@ -1608,11 +1218,6 @@ pub(crate) fn dispatch_builtin(
         }
 
         // Editfns (evaluator-dependent)
-        "buffer-substring-no-properties" => {
-            return Some(super::editfns::builtin_buffer_substring_no_properties(
-                eval, args,
-            ));
-        }
 
         _ => {}
     }
@@ -1761,23 +1366,17 @@ pub(crate) fn dispatch_builtin(
         "file-name-absolute-p" => super::fileio::builtin_file_name_absolute_p(args),
         "directory-name-p" => super::fileio::builtin_directory_name_p(args),
         "substitute-in-file-name" => super::fileio::builtin_substitute_in_file_name(args),
-        "file-accessible-directory-p" => super::fileio::builtin_file_accessible_directory_p(args),
-        "file-name-case-insensitive-p" => super::fileio::builtin_file_name_case_insensitive_p(args),
-        "file-newer-than-file-p" => super::fileio::builtin_file_newer_than_file_p(args),
         "set-file-acl" => super::fileio::builtin_set_file_acl(args),
         "set-file-selinux-context" => super::fileio::builtin_set_file_selinux_context(args),
         "visited-file-modtime" => super::fileio::builtin_visited_file_modtime(args),
         "default-file-modes" => super::fileio::builtin_default_file_modes(args),
         "set-default-file-modes" => super::fileio::builtin_set_default_file_modes(args),
-        "delete-directory-internal" => super::fileio::builtin_delete_directory_internal(args),
-        "make-directory-internal" => super::fileio::builtin_make_directory_internal(args),
         "make-temp-name" => super::fileio::builtin_make_temp_name(args),
         "next-read-file-uses-dialog-p" => super::fileio::builtin_next_read_file_uses_dialog_p(args),
         "unhandled-file-name-directory" => {
             super::fileio::builtin_unhandled_file_name_directory(args)
         }
         "get-truename-buffer" => super::fileio::builtin_get_truename_buffer(args),
-        "find-file-name-handler" => super::fileio::builtin_find_file_name_handler(args),
 
         // Keymap (pure — no evaluator needed)
         "single-key-description" => builtin_single_key_description(args),
@@ -1798,16 +1397,13 @@ pub(crate) fn dispatch_builtin(
         "current-case-table" => super::casetab::builtin_current_case_table(args),
         "standard-case-table" => super::casetab::builtin_standard_case_table(args),
         "set-case-table" => super::casetab::builtin_set_case_table(args),
-        "set-standard-case-table" => super::casetab::builtin_set_standard_case_table(args),
 
         // Category (pure)
         "define-category" => super::category::builtin_define_category(args),
         "category-docstring" => super::category::builtin_category_docstring(args),
-        "get-unused-category" => super::category::builtin_get_unused_category(args),
         "copy-category-table" => super::category::builtin_copy_category_table(args),
         "category-table-p" => super::category::builtin_category_table_p(args),
         "category-table" => super::category::builtin_category_table(args),
-        "standard-category-table" => super::category::builtin_standard_category_table(args),
         "make-category-table" => super::category::builtin_make_category_table(args),
         "set-category-table" => super::category::builtin_set_category_table(args),
         "make-category-set" => super::category::builtin_make_category_set(args),
@@ -1865,8 +1461,6 @@ pub(crate) fn dispatch_builtin(
         "x-translate-coordinates" => super::display::builtin_x_translate_coordinates(args),
         "x-uses-old-gtk-dialog" => super::display::builtin_x_uses_old_gtk_dialog(args),
         "x-close-connection" => super::display::builtin_x_close_connection(args),
-        "x-display-pixel-width" => super::display::builtin_x_display_pixel_width(args),
-        "x-display-pixel-height" => super::display::builtin_x_display_pixel_height(args),
         "x-window-property" => super::display::builtin_x_window_property(args),
         "x-window-property-attributes" => {
             super::display::builtin_x_window_property_attributes(args)
@@ -1890,27 +1484,18 @@ pub(crate) fn dispatch_builtin(
             super::display::builtin_display_supports_face_attributes_p(args)
         }
         "x-server-version" => super::display::builtin_x_server_version(args),
-        "x-server-max-request-size" => super::display::builtin_x_server_max_request_size(args),
         "x-server-input-extension-version" => {
             super::display::builtin_x_server_input_extension_version(args)
         }
         "x-server-vendor" => super::display::builtin_x_server_vendor(args),
-        "x-display-grayscale-p" => super::display::builtin_x_display_grayscale_p(args),
-        "x-display-backing-store" => super::display::builtin_x_display_backing_store(args),
         "display-color-cells" => super::display::builtin_display_color_cells(args),
-        "x-display-color-cells" => super::display::builtin_x_display_color_cells(args),
         "x-display-mm-height" => super::display::builtin_x_display_mm_height(args),
         "x-display-mm-width" => super::display::builtin_x_display_mm_width(args),
         "x-display-monitor-attributes-list" => {
             super::display::builtin_x_display_monitor_attributes_list(args)
         }
         "x-display-planes" => super::display::builtin_x_display_planes(args),
-        "x-display-save-under" => super::display::builtin_x_display_save_under(args),
         "x-display-screens" => super::display::builtin_x_display_screens(args),
-        "x-display-set-last-user-time" => {
-            super::display::builtin_x_display_set_last_user_time(args)
-        }
-        "x-display-visual-class" => super::display::builtin_x_display_visual_class(args),
         "x-wm-set-size-hint" => super::display::builtin_x_wm_set_size_hint(args),
 
         // Image (pure)
@@ -2047,11 +1632,7 @@ pub(crate) fn dispatch_builtin(
         }
 
         // Directory/file attributes (pure)
-        "directory-files-and-attributes" => {
-            super::dired::builtin_directory_files_and_attributes(args)
-        }
         "file-name-completion" => super::dired::builtin_file_name_completion(args),
-        "file-name-all-completions" => super::dired::builtin_file_name_all_completions(args),
         "file-attributes-lessp" => super::dired::builtin_file_attributes_lessp(args),
         "system-users" => super::dired::builtin_system_users(args),
         "system-groups" => super::dired::builtin_system_groups(args),
@@ -2060,8 +1641,6 @@ pub(crate) fn dispatch_builtin(
         "format-mode-line" => super::xdisp::builtin_format_mode_line(args),
         "invisible-p" => super::xdisp::builtin_invisible_p(args),
         "line-pixel-height" => super::xdisp::builtin_line_pixel_height(args),
-        "window-text-pixel-size" => super::xdisp::builtin_window_text_pixel_size(args),
-        "pos-visible-in-window-p" => super::xdisp::builtin_pos_visible_in_window_p(args),
         "move-point-visually" => super::xdisp::builtin_move_point_visually(args),
         "lookup-image-map" => super::xdisp::builtin_lookup_image_map(args),
         "current-bidi-paragraph-direction" => {
@@ -2156,7 +1735,6 @@ pub(crate) fn dispatch_builtin(
         "frame-child-frame-border-width" => builtin_frame_child_frame_border_width(args),
         "frame-focus" => builtin_frame_focus(args),
         "frame-font-cache" => builtin_frame_font_cache(args),
-        "frame--face-hash-table" => builtin_frame_face_hash_table(args),
         "frame-fringe-width" => builtin_frame_fringe_width(args),
         "frame-internal-border-width" => builtin_frame_internal_border_width(args),
         "frame-or-buffer-changed-p" => builtin_frame_or_buffer_changed_p(args),
@@ -2258,7 +1836,6 @@ pub(crate) fn dispatch_builtin(
         "menu-bar-menu-at-x-y" => builtin_menu_bar_menu_at_x_y(args),
         "menu-or-popup-active-p" => builtin_menu_or_popup_active_p(args),
         "minibuffer-innermost-command-loop-p" => return None,
-        "minibuffer-prompt-end" => return None,
         "module-load" => builtin_module_load(args),
         "mouse-pixel-position" => builtin_mouse_pixel_position(args),
         "mouse-position" => builtin_mouse_position(args),
@@ -2320,7 +1897,6 @@ pub(crate) fn dispatch_builtin(
         "set-minibuffer-window" => builtin_set_minibuffer_window(args),
         "set-mouse-pixel-position" => builtin_set_mouse_pixel_position(args),
         "set-mouse-position" => builtin_set_mouse_position(args),
-        "set-window-combination-limit" => builtin_set_window_combination_limit(args),
         "set-window-new-normal" => builtin_set_window_new_normal(args),
         "set-window-new-pixel" => builtin_set_window_new_pixel(args),
         "set-window-new-total" => builtin_set_window_new_total(args),
@@ -2331,8 +1907,6 @@ pub(crate) fn dispatch_builtin(
         "subr-native-lambda-list" => builtin_subr_native_lambda_list(args),
         "subr-type" => builtin_subr_type(args),
         "suspend-emacs" => builtin_suspend_emacs(args),
-        "this-single-command-keys" => builtin_this_single_command_keys(args),
-        "this-single-command-raw-keys" => builtin_this_single_command_raw_keys(args),
         "thread--blocker" => builtin_thread_blocker(args),
         "tool-bar-get-system-style" => builtin_tool_bar_get_system_style(args),
         "tool-bar-pixel-width" => builtin_tool_bar_pixel_width(args),
@@ -2361,7 +1935,6 @@ pub(crate) fn dispatch_builtin(
         "x-menu-bar-open-internal" => builtin_x_menu_bar_open_internal(args),
         "xw-color-defined-p" => builtin_xw_color_defined_p(args),
         "xw-color-values" => builtin_xw_color_values(args),
-        "innermost-minibuffer-p" => return None,
         "interactive-form" => builtin_interactive_form(args),
         "inotify-add-watch" => builtin_inotify_add_watch(args),
         "inotify-allocated-p" => builtin_inotify_allocated_p(args),
@@ -2375,7 +1948,6 @@ pub(crate) fn dispatch_builtin(
         "unlock-buffer" => builtin_unlock_buffer(args),
         "unlock-file" => builtin_unlock_file(args),
         "window-bottom-divider-width" => builtin_window_bottom_divider_width(args),
-        "window-combination-limit" => builtin_window_combination_limit(args),
         "window-left-child" => builtin_window_left_child(args),
         "window-line-height" => builtin_window_line_height(args),
         "window-lines-pixel-dimensions" => builtin_window_lines_pixel_dimensions(args),
@@ -2393,11 +1965,9 @@ pub(crate) fn dispatch_builtin(
         "window-pixel-top" => builtin_window_pixel_top(args),
         "window-prev-sibling" => builtin_window_prev_sibling(args),
         "window-resize-apply" => builtin_window_resize_apply(args),
-        "window-resize-apply-total" => builtin_window_resize_apply_total(args),
         "window-right-divider-width" => builtin_window_right_divider_width(args),
         "window-scroll-bar-height" => builtin_window_scroll_bar_height(args),
         "window-scroll-bar-width" => builtin_window_scroll_bar_width(args),
-        "window-tab-line-height" => builtin_window_tab_line_height(args),
         "window-top-child" => builtin_window_top_child(args),
         "treesit-available-p" => builtin_treesit_available_p(args),
         "treesit-compiled-query-p" => builtin_treesit_compiled_query_p(args),
@@ -2527,11 +2097,9 @@ pub(crate) fn dispatch_builtin(
         "markerp" => super::marker::builtin_markerp(args),
         "marker-buffer" => super::marker::builtin_marker_buffer(args),
         "marker-insertion-type" => super::marker::builtin_marker_insertion_type(args),
-        "set-marker-insertion-type" => super::marker::builtin_set_marker_insertion_type(args),
         "make-marker" => super::marker::builtin_make_marker(args),
 
         // Composite (pure)
-        "compose-region-internal" => super::composite::builtin_compose_region_internal(args),
         "compose-string-internal" => super::composite::builtin_compose_string_internal(args),
         "find-composition-internal" => super::composite::builtin_find_composition_internal(args),
         "composition-get-gstring" => super::composite::builtin_composition_get_gstring(args),
@@ -2869,7 +2437,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "marker-buffer" => super::marker::builtin_marker_buffer(args),
         "marker-insertion-type" => super::marker::builtin_marker_insertion_type(args),
         "marker-position" => super::marker::builtin_marker_position(args),
-        "set-marker-insertion-type" => super::marker::builtin_set_marker_insertion_type(args),
         "make-marker" => super::marker::builtin_make_marker(args),
         "bool-vector-p" => super::chartable::builtin_bool_vector_p(args),
         "make-category-set" => super::category::builtin_make_category_set(args),
@@ -2958,23 +2525,17 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "file-name-absolute-p" => super::fileio::builtin_file_name_absolute_p(args),
         "directory-name-p" => super::fileio::builtin_directory_name_p(args),
         "substitute-in-file-name" => super::fileio::builtin_substitute_in_file_name(args),
-        "file-accessible-directory-p" => super::fileio::builtin_file_accessible_directory_p(args),
-        "file-name-case-insensitive-p" => super::fileio::builtin_file_name_case_insensitive_p(args),
-        "file-newer-than-file-p" => super::fileio::builtin_file_newer_than_file_p(args),
         "set-file-acl" => super::fileio::builtin_set_file_acl(args),
         "set-file-selinux-context" => super::fileio::builtin_set_file_selinux_context(args),
         "visited-file-modtime" => super::fileio::builtin_visited_file_modtime(args),
         "default-file-modes" => super::fileio::builtin_default_file_modes(args),
         "set-default-file-modes" => super::fileio::builtin_set_default_file_modes(args),
-        "delete-directory-internal" => super::fileio::builtin_delete_directory_internal(args),
-        "make-directory-internal" => super::fileio::builtin_make_directory_internal(args),
         "make-temp-name" => super::fileio::builtin_make_temp_name(args),
         "next-read-file-uses-dialog-p" => super::fileio::builtin_next_read_file_uses_dialog_p(args),
         "unhandled-file-name-directory" => {
             super::fileio::builtin_unhandled_file_name_directory(args)
         }
         "get-truename-buffer" => super::fileio::builtin_get_truename_buffer(args),
-        "find-file-name-handler" => super::fileio::builtin_find_file_name_handler(args),
         // Keymap (pure)
         "single-key-description" => builtin_single_key_description(args),
         "key-description" => builtin_key_description(args),
@@ -3041,7 +2602,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "frame-child-frame-border-width" => builtin_frame_child_frame_border_width(args),
         "frame-focus" => builtin_frame_focus(args),
         "frame-font-cache" => builtin_frame_font_cache(args),
-        "frame--face-hash-table" => builtin_frame_face_hash_table(args),
         "frame-fringe-width" => builtin_frame_fringe_width(args),
         "frame-internal-border-width" => builtin_frame_internal_border_width(args),
         "frame-or-buffer-changed-p" => builtin_frame_or_buffer_changed_p(args),
@@ -3083,7 +2643,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "handle-switch-frame" => builtin_handle_switch_frame(args),
         "help--describe-vector" => builtin_help_describe_vector(args),
         "init-image-library" => builtin_init_image_library(args),
-        "internal--define-uninitialized-variable" => return None,
         "internal--labeled-narrow-to-region" => builtin_internal_labeled_narrow_to_region(args),
         "internal--labeled-widen" => builtin_internal_labeled_widen(args),
         "internal--obarray-buckets" => builtin_internal_obarray_buckets(args),
@@ -3147,7 +2706,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "menu-bar-menu-at-x-y" => builtin_menu_bar_menu_at_x_y(args),
         "menu-or-popup-active-p" => builtin_menu_or_popup_active_p(args),
         "minibuffer-innermost-command-loop-p" => return None,
-        "minibuffer-prompt-end" => return None,
         "module-load" => builtin_module_load(args),
         "mouse-pixel-position" => builtin_mouse_pixel_position(args),
         "mouse-position" => builtin_mouse_position(args),
@@ -3209,7 +2767,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "set-minibuffer-window" => builtin_set_minibuffer_window(args),
         "set-mouse-pixel-position" => builtin_set_mouse_pixel_position(args),
         "set-mouse-position" => builtin_set_mouse_position(args),
-        "set-window-combination-limit" => builtin_set_window_combination_limit(args),
         "set-window-new-normal" => builtin_set_window_new_normal(args),
         "set-window-new-pixel" => builtin_set_window_new_pixel(args),
         "set-window-new-total" => builtin_set_window_new_total(args),
@@ -3220,8 +2777,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "subr-native-lambda-list" => builtin_subr_native_lambda_list(args),
         "subr-type" => builtin_subr_type(args),
         "suspend-emacs" => builtin_suspend_emacs(args),
-        "this-single-command-keys" => builtin_this_single_command_keys(args),
-        "this-single-command-raw-keys" => builtin_this_single_command_raw_keys(args),
         "thread--blocker" => builtin_thread_blocker(args),
         "tool-bar-get-system-style" => builtin_tool_bar_get_system_style(args),
         "tool-bar-pixel-width" => builtin_tool_bar_pixel_width(args),
@@ -3251,7 +2806,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "xw-color-defined-p" => builtin_xw_color_defined_p(args),
         "xw-color-values" => builtin_xw_color_values(args),
         "xw-display-color-p" => builtin_xw_display_color_p(args),
-        "innermost-minibuffer-p" => return None,
         "interactive-form" => builtin_interactive_form(args),
         "inotify-add-watch" => builtin_inotify_add_watch(args),
         "inotify-allocated-p" => builtin_inotify_allocated_p(args),
@@ -3265,7 +2819,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "unlock-buffer" => builtin_unlock_buffer(args),
         "unlock-file" => builtin_unlock_file(args),
         "window-bottom-divider-width" => builtin_window_bottom_divider_width(args),
-        "window-combination-limit" => builtin_window_combination_limit(args),
         "window-left-child" => builtin_window_left_child(args),
         "window-line-height" => builtin_window_line_height(args),
         "window-lines-pixel-dimensions" => builtin_window_lines_pixel_dimensions(args),
@@ -3283,11 +2836,9 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "window-pixel-top" => builtin_window_pixel_top(args),
         "window-prev-sibling" => builtin_window_prev_sibling(args),
         "window-resize-apply" => builtin_window_resize_apply(args),
-        "window-resize-apply-total" => builtin_window_resize_apply_total(args),
         "window-right-divider-width" => builtin_window_right_divider_width(args),
         "window-scroll-bar-height" => builtin_window_scroll_bar_height(args),
         "window-scroll-bar-width" => builtin_window_scroll_bar_width(args),
-        "window-tab-line-height" => builtin_window_tab_line_height(args),
         "window-top-child" => builtin_window_top_child(args),
         "treesit-available-p" => builtin_treesit_available_p(args),
         "treesit-compiled-query-p" => builtin_treesit_compiled_query_p(args),
@@ -4061,4 +3612,83 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         ctx.defsubr("set-file-times", super::fileio::builtin_set_file_times_eval, 0, None);
         ctx.defsubr("error-message-string", super::errors::builtin_error_message_string, 0, None);
         ctx.defsubr("char-equal", builtin_char_equal, 0, None);
+        ctx.defsubr("internal--define-uninitialized-variable", builtin_internal_define_uninitialized_variable_eval, 0, None);
+        ctx.defsubr("compose-region-internal", super::composite::builtin_compose_region_internal_eval, 0, None);
+        ctx.defsubr("window-text-pixel-size", super::xdisp::builtin_window_text_pixel_size_eval, 0, None);
+        ctx.defsubr("pos-visible-in-window-p", super::xdisp::builtin_pos_visible_in_window_p_eval, 0, None);
+        ctx.defsubr("frame--face-hash-table", super::xfaces::builtin_frame_face_hash_table_eval, 0, None);
+        ctx.defsubr("delete-directory-internal", super::fileio::builtin_delete_directory_internal_eval, 0, None);
+        ctx.defsubr("make-directory-internal", super::fileio::builtin_make_directory_internal_eval, 0, None);
+        ctx.defsubr("directory-files-and-attributes", super::dired::builtin_directory_files_and_attributes_eval, 0, None);
+        ctx.defsubr("find-file-name-handler", super::fileio::builtin_find_file_name_handler_eval, 0, None);
+        ctx.defsubr("file-name-all-completions", super::dired::builtin_file_name_all_completions_eval, 0, None);
+        ctx.defsubr("file-accessible-directory-p", super::fileio::builtin_file_accessible_directory_p_eval, 0, None);
+        ctx.defsubr("file-name-case-insensitive-p", super::fileio::builtin_file_name_case_insensitive_p_eval, 0, None);
+        ctx.defsubr("file-newer-than-file-p", super::fileio::builtin_file_newer_than_file_p_eval, 0, None);
+        ctx.defsubr("verify-visited-file-modtime", super::fileio::builtin_verify_visited_file_modtime, 0, None);
+        ctx.defsubr("internal-default-interrupt-process", super::process::builtin_internal_default_interrupt_process, 0, None);
+        ctx.defsubr("internal-default-process-filter", super::process::builtin_internal_default_process_filter, 0, None);
+        ctx.defsubr("internal-default-process-sentinel", super::process::builtin_internal_default_process_sentinel, 0, None);
+        ctx.defsubr("internal-default-signal-process", super::process::builtin_internal_default_signal_process, 0, None);
+        ctx.defsubr("network-lookup-address-info", super::process::builtin_network_lookup_address_info, 0, None);
+        ctx.defsubr("set-network-process-option", super::process::builtin_set_network_process_option, 0, None);
+        ctx.defsubr("process-query-on-exit-flag", super::process::builtin_process_query_on_exit_flag, 0, None);
+        ctx.defsubr("set-process-query-on-exit-flag", super::process::builtin_set_process_query_on_exit_flag, 0, None);
+        ctx.defsubr("process-inherit-coding-system-flag", super::process::builtin_process_inherit_coding_system_flag, 0, None);
+        ctx.defsubr("set-process-coding-system", super::process::builtin_set_process_coding_system, 0, None);
+        ctx.defsubr("set-process-datagram-address", super::process::builtin_set_process_datagram_address, 0, None);
+        ctx.defsubr("remove-list-of-text-properties", super::textprop::builtin_remove_list_of_text_properties, 0, None);
+        ctx.defsubr("get-char-property-and-overlay", super::textprop::builtin_get_char_property_and_overlay, 0, None);
+        ctx.defsubr("next-single-property-change", super::textprop::builtin_next_single_property_change, 0, None);
+        ctx.defsubr("previous-single-property-change", super::textprop::builtin_previous_single_property_change, 0, None);
+        ctx.defsubr("line-beginning-position", super::navigation::builtin_line_beginning_position, 0, None);
+        ctx.defsubr("make-variable-buffer-local", super::custom::builtin_make_variable_buffer_local, 0, None);
+        ctx.defsubr("active-minibuffer-window", super::window_cmds::builtin_active_minibuffer_window_eval, 0, None);
+        ctx.defsubr("minibuffer-selected-window", super::window_cmds::builtin_minibuffer_selected_window, 0, None);
+        ctx.defsubr("window-mode-line-height", super::window_cmds::builtin_window_mode_line_height, 0, None);
+        ctx.defsubr("window-header-line-height", super::window_cmds::builtin_window_header_line_height, 0, None);
+        ctx.defsubr("window-tab-line-height", super::window_cmds::builtin_window_tab_line_height, 0, None);
+        ctx.defsubr("set-window-display-table", super::window_cmds::builtin_set_window_display_table, 0, None);
+        ctx.defsubr("set-window-cursor-type", super::window_cmds::builtin_set_window_cursor_type, 0, None);
+        ctx.defsubr("set-window-scroll-bars", super::window_cmds::builtin_set_window_scroll_bars, 0, None);
+        ctx.defsubr("set-window-next-buffers", super::window_cmds::builtin_set_window_next_buffers, 0, None);
+        ctx.defsubr("set-window-prev-buffers", super::window_cmds::builtin_set_window_prev_buffers, 0, None);
+        ctx.defsubr("set-window-dedicated-p", super::window_cmds::builtin_set_window_dedicated_p, 0, None);
+        ctx.defsubr("delete-window-internal", super::window_cmds::builtin_delete_window_internal, 0, None);
+        ctx.defsubr("delete-other-windows-internal", super::window_cmds::builtin_delete_other_windows_internal, 0, None);
+        ctx.defsubr("window-combination-limit", super::window_cmds::builtin_window_combination_limit, 0, None);
+        ctx.defsubr("set-window-combination-limit", super::window_cmds::builtin_set_window_combination_limit, 0, None);
+        ctx.defsubr("window-resize-apply-total", super::window_cmds::builtin_window_resize_apply_total, 0, None);
+        ctx.defsubr("other-window-for-scrolling", super::window_cmds::builtin_other_window_for_scrolling, 0, None);
+        ctx.defsubr("select-frame-set-input-focus", super::window_cmds::builtin_select_frame_set_input_focus, 0, None);
+        ctx.defsubr("modify-frame-parameters", super::window_cmds::builtin_modify_frame_parameters, 0, None);
+        ctx.defsubr("frame-selected-window", super::window_cmds::builtin_frame_selected_window, 0, None);
+        ctx.defsubr("frame-old-selected-window", super::window_cmds::builtin_frame_old_selected_window, 0, None);
+        ctx.defsubr("set-frame-selected-window", super::window_cmds::builtin_set_frame_selected_window, 0, None);
+        ctx.defsubr("x-display-pixel-width", super::display::builtin_x_display_pixel_width_eval, 0, None);
+        ctx.defsubr("x-display-pixel-height", super::display::builtin_x_display_pixel_height_eval, 0, None);
+        ctx.defsubr("x-server-max-request-size", super::display::builtin_x_server_max_request_size_eval, 0, None);
+        ctx.defsubr("x-display-grayscale-p", super::display::builtin_x_display_grayscale_p_eval, 0, None);
+        ctx.defsubr("x-display-backing-store", super::display::builtin_x_display_backing_store_eval, 0, None);
+        ctx.defsubr("x-display-color-cells", super::display::builtin_x_display_color_cells_eval, 0, None);
+        ctx.defsubr("x-display-save-under", super::display::builtin_x_display_save_under_eval, 0, None);
+        ctx.defsubr("x-display-set-last-user-time", super::display::builtin_x_display_set_last_user_time_eval, 0, None);
+        ctx.defsubr("x-display-visual-class", super::display::builtin_x_display_visual_class_eval, 0, None);
+        ctx.defsubr("minor-mode-key-binding", super::interactive::builtin_minor_mode_key_binding, 0, None);
+        ctx.defsubr("this-command-keys-vector", super::interactive::builtin_this_command_keys_vector, 0, None);
+        ctx.defsubr("this-single-command-keys", super::interactive::builtin_this_single_command_keys, 0, None);
+        ctx.defsubr("this-single-command-raw-keys", super::interactive::builtin_this_single_command_raw_keys, 0, None);
+        ctx.defsubr("clear-this-command-keys", super::interactive::builtin_clear_this_command_keys, 0, None);
+        ctx.defsubr("waiting-for-user-input-p", super::reader::builtin_waiting_for_user_input_p_eval, 0, None);
+        ctx.defsubr("minibuffer-prompt", super::minibuffer::builtin_minibuffer_prompt_eval, 0, None);
+        ctx.defsubr("minibuffer-prompt-end", super::minibuffer::builtin_minibuffer_prompt_end_eval, 0, None);
+        ctx.defsubr("innermost-minibuffer-p", super::minibuffer::builtin_innermost_minibuffer_p_eval, 0, None);
+        ctx.defsubr("backtrace--frames-from-thread", super::misc::builtin_backtrace_frames_from_thread, 0, None);
+        ctx.defsubr("abort-minibuffers", super::minibuffer::builtin_abort_minibuffers_eval, 0, None);
+        ctx.defsubr("set-marker-insertion-type", super::marker::builtin_set_marker_insertion_type_eval, 0, None);
+        ctx.defsubr("set-standard-case-table", super::casetab::builtin_set_standard_case_table_eval, 0, None);
+        ctx.defsubr("get-unused-category", super::category::builtin_get_unused_category_eval, 0, None);
+        ctx.defsubr("standard-category-table", super::category::builtin_standard_category_table_eval, 0, None);
+        ctx.defsubr("upcase-initials-region", super::casefiddle::builtin_upcase_initials_region, 0, None);
+        ctx.defsubr("buffer-substring-no-properties", super::editfns::builtin_buffer_substring_no_properties, 0, None);
 }
