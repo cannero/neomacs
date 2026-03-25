@@ -2148,9 +2148,9 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
         .symbol_function_id(dale_id)
         .is_some_and(|f| !f.is_nil());
     if is_fboundp {
-        let abs_path = Value::string(path_str);
+        let abs_path = Value::string(path_str.clone());
         if let Err(e) = eval.apply(Value::Symbol(dale_id), vec![abs_path]) {
-            tracing::debug!("do-after-load-evaluation error (non-fatal): {:?}", e);
+            tracing::warn!("do-after-load-evaluation error for {}: {:?}", path_str, e);
         }
     }
 }

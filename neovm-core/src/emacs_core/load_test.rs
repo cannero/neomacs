@@ -3080,6 +3080,85 @@ fn compiled_bootstrap_cl_preload_stubs_work_after_faces() {
 }
 
 #[test]
+fn eval_after_load_defines_function_on_provide() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+
+    // 1. Register eval-after-load with condition-case-unless-debug wrapper (like use-package)
+    let setup = crate::emacs_core::parser::parse_forms(
+        "(eval-after-load 'test-pkg
+           (lambda ()
+             (condition-case-unless-debug err
+               (progn (defun test-pkg-fn () 42) t)
+               (error (message \"config error: %S\" err)))))",
+    )
+    .unwrap();
+    eval.eval_expr(&setup[0])
+        .expect("eval-after-load should succeed");
+
+    // 2. test-pkg-fn should NOT be defined yet
+    let before = eval
+        .obarray()
+        .symbol_function("test-pkg-fn")
+        .is_some_and(|f| !f.is_nil());
+    eprintln!("test-pkg-fn before provide: {before}");
+    assert!(!before, "should NOT be defined before provide");
+
+    // 3. Provide the feature
+    let provide = crate::emacs_core::parser::parse_forms("(provide 'test-pkg)").unwrap();
+    eval.eval_expr(&provide[0]).expect("provide should succeed");
+
+    // 4. test-pkg-fn should NOW be defined
+    let after = eval
+        .obarray()
+        .symbol_function("test-pkg-fn")
+        .is_some_and(|f| !f.is_nil());
+    eprintln!("test-pkg-fn after provide: {after}");
+    assert!(
+        after,
+        "should be defined after provide fires eval-after-load hook"
+    );
+}
+
+#[test]
+fn defun_inside_lambda_works() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+
+    // Test: defun inside a lambda should define globally
+    let forms = crate::emacs_core::parser::parse_forms(
+        "(let ((fn (lambda () (defun test-fn-from-lambda () 42)))) (funcall fn))",
+    )
+    .unwrap();
+    eval.eval_expr(&forms[0])
+        .expect("funcall lambda with defun");
+
+    let defined = eval
+        .obarray()
+        .symbol_function("test-fn-from-lambda")
+        .is_some_and(|f| !f.is_nil());
+    eprintln!("test-fn-from-lambda defined={}", defined);
+    assert!(
+        defined,
+        "defun inside lambda should define function globally"
+    );
+}
+
+#[test]
 fn elc_loading_defines_defcustom_variables() {
     let general_elc = std::path::Path::new(
         "/home/exec/.config/emacs/.local/straight/build-31.0.50/general/general.elc",
