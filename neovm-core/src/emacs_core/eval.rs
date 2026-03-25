@@ -546,7 +546,22 @@ pub trait DisplayHost {
 // transferred between threads), this is safe.
 unsafe impl Send for Context {}
 
+/// A registered builtin function (equivalent to GNU Emacs's Lisp_Subr).
+///
+/// Each SubrObject stores a function pointer that takes `&mut Context` plus
+/// evaluated arguments, matching GNU Emacs's `defsubr` registration model.
+pub struct SubrObject {
+    pub function: fn(&mut Context, Vec<Value>) -> EvalResult,
+    pub min_args: u16,
+    /// None means MANY (&rest).
+    pub max_args: Option<u16>,
+    pub name: SymId,
+}
+
 pub struct Context {
+    /// Builtin function registry — indexed by SymId, stores function pointers.
+    /// Replaces the giant match-by-name dispatch tables.
+    pub(crate) subr_registry: HashMap<SymId, SubrObject>,
     /// String interner for symbol/keyword/subr names (SymId handles).
     pub(crate) interner: Box<StringInterner>,
     /// GC-managed heap for cycle-forming Lisp objects (cons, vector, hash-table).
@@ -2885,6 +2900,7 @@ impl Context {
         }
 
         let mut ev = Self {
+            subr_registry: HashMap::new(),
             interner,
             heap,
             obarray,
@@ -2997,6 +3013,7 @@ impl Context {
         watchers: VariableWatcherList,
     ) -> Self {
         let mut ev = Self {
+            subr_registry: HashMap::new(),
             interner,
             heap,
             obarray,
@@ -8060,6 +8077,61 @@ pub(crate) fn makunbound_runtime_binding_in_state(
 }
 
 impl Context {
+    // -----------------------------------------------------------------------
+    // defsubr — builtin function registration (matches GNU Emacs's defsubr)
+    // -----------------------------------------------------------------------
+
+    /// Register a builtin function by name, storing a function pointer in the
+    /// registry. At call time, the function pointer is invoked directly — no
+    /// string-matching dispatch needed.
+    pub fn defsubr(
+        &mut self,
+        name: &str,
+        func: fn(&mut Context, Vec<Value>) -> EvalResult,
+        min_args: u16,
+        max_args: Option<u16>,
+    ) {
+        let sym_id = intern(name);
+        self.subr_registry.insert(
+            sym_id,
+            SubrObject {
+                function: func,
+                min_args,
+                max_args,
+                name: sym_id,
+            },
+        );
+    }
+
+    /// Look up a builtin in the subr registry and call it directly via
+    /// function pointer. Returns None if the name is not registered.
+    pub fn dispatch_subr(&mut self, name: &str, args: Vec<Value>) -> Option<EvalResult> {
+        let sym_id = intern(name);
+        let subr = self.subr_registry.get(&sym_id)?;
+        let nargs = args.len();
+        if (nargs as u16) < subr.min_args {
+            return Some(Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol(name), Value::Int(nargs as i64)],
+            )));
+        }
+        if let Some(max) = subr.max_args {
+            if nargs as u16 > max {
+                return Some(Err(signal(
+                    "wrong-number-of-arguments",
+                    vec![Value::symbol(name), Value::Int(nargs as i64)],
+                )));
+            }
+        }
+        // SAFETY: we need to call a fn(&mut Context, Vec<Value>) where the
+        // function pointer is stored inside self.subr_registry (which is part
+        // of self). We copy the function pointer out first to avoid borrowing
+        // self immutably (for the lookup) and mutably (for the call) at the
+        // same time.
+        let func = subr.function;
+        Some(func(self, args))
+    }
+
     // -----------------------------------------------------------------------
     // Methods previously on VmSharedState, now on Context directly
     // -----------------------------------------------------------------------

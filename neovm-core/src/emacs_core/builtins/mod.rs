@@ -891,7 +891,15 @@ pub(crate) fn dispatch_builtin(
     name: &str,
     args: Vec<Value>,
 ) -> Option<EvalResult> {
-    // Functions that need the evaluator (higher-order / obarray access)
+    // Fast path: check the function pointer registry first (O(1) hash lookup).
+    // Builtins registered via defsubr() are dispatched here without any
+    // string-matching. The match block below is the legacy fallback for
+    // builtins not yet migrated to defsubr.
+    if let Some(result) = eval.dispatch_subr(name, args.clone()) {
+        return Some(result);
+    }
+
+    // Legacy dispatch — will shrink as builtins migrate to defsubr.
     match name {
         "apply" => return Some(builtin_apply(eval, args)),
         "funcall" => return Some(builtin_funcall(eval, args)),
