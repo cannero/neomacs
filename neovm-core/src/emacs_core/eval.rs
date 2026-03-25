@@ -46,13 +46,21 @@ const EVAL_STACK_SEGMENT: usize = 32 * 1024 * 1024;
 const NAMED_CALL_CACHE_CAPACITY: usize = 8;
 
 /// A single entry on the specpdl (special binding stack).
-/// Matches GNU Emacs's `union specbinding` (SPECPDL_LET case).
+/// Matches GNU Emacs's `union specbinding` SPECPDL_LET / SPECPDL_LET_LOCAL.
 #[derive(Clone, Debug)]
 pub(crate) enum SpecBinding {
-    /// Dynamic variable let-binding: saves old obarray value, restores on unbind.
+    /// Plain dynamic let-binding: saves old obarray (global/default) value.
     Let {
         sym_id: SymId,
         old_value: Option<Value>,
+    },
+    /// Buffer-local let-binding: saves old buffer-local value and which buffer.
+    /// On unbind, restores the value in that specific buffer (if still live).
+    /// Matches GNU's SPECPDL_LET_LOCAL.
+    LetLocal {
+        sym_id: SymId,
+        old_value: Value,
+        buffer_id: crate::buffer::BufferId,
     },
 }
 
@@ -575,6 +583,7 @@ impl<'a> VmSharedState<'a> {
                     old_value: Some(val),
                     ..
                 } => roots.push(*val),
+                SpecBinding::LetLocal { old_value, .. } => roots.push(*old_value),
                 _ => {}
             }
         }
@@ -1842,15 +1851,14 @@ fn begin_macro_expansion_scope_in_state(
     }
     // Collect symbols from the specpdl (replaces dynamic frame iteration).
     for entry in specpdl.iter().rev() {
-        match entry {
-            SpecBinding::Let { sym_id, .. } => {
-                let name = resolve_sym(*sym_id);
-                if name == "t" || name == "nil" {
-                    continue;
-                }
-                dynvars = Value::cons(Value::Symbol(*sym_id), dynvars);
-            }
+        let sym_id = match entry {
+            SpecBinding::Let { sym_id, .. } | SpecBinding::LetLocal { sym_id, .. } => sym_id,
+        };
+        let name = resolve_sym(*sym_id);
+        if name == "t" || name == "nil" {
+            continue;
         }
+        dynvars = Value::cons(Value::Symbol(*sym_id), dynvars);
     }
 
     obarray.set_symbol_value("lexical-binding", Value::bool(!lexenv.is_nil()));
@@ -3554,6 +3562,7 @@ impl Evaluator {
                     old_value: Some(val),
                     ..
                 } => roots.push(*val),
+                SpecBinding::LetLocal { old_value, .. } => roots.push(*old_value),
                 _ => {}
             }
         }
@@ -8155,17 +8164,43 @@ impl Evaluator {
     // -----------------------------------------------------------------------
 
     /// Save the current value of a special variable and set a new value.
-    /// Matches GNU Emacs's specbind() in eval.c — follows SYMBOL_VARALIAS
-    /// to the final target before saving/setting.
+    /// Matches GNU Emacs's specbind() in eval.c:
+    /// - Follows SYMBOL_VARALIAS to the final target
+    /// - For buffer-local variables, saves/restores the buffer-local value
+    ///   (SPECPDL_LET_LOCAL), not the global default
     pub(crate) fn specbind(&mut self, sym_id: SymId, value: Value) {
         let resolved =
             builtins::resolve_variable_alias_id_in_obarray(&self.obarray, sym_id).unwrap_or(sym_id);
+        let name = resolve_sym(resolved);
+
+        // Check if this is a buffer-local variable with a local binding
+        // in the current buffer (GNU: SYMBOL_LOCALIZED path)
+        if self.custom.is_auto_buffer_local(name) {
+            if let Some(buf_id) = self.buffers.current_buffer_id() {
+                if let Some(buf) = self.buffers.get(buf_id) {
+                    if let Some(binding) = buf.get_buffer_local_binding(name) {
+                        let old_val = binding.as_value().unwrap_or(Value::Nil);
+                        self.specpdl.push(SpecBinding::LetLocal {
+                            sym_id: resolved,
+                            old_value: old_val,
+                            buffer_id: buf_id,
+                        });
+                        if self.watchers.has_watchers(name) {
+                            let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
+                        }
+                        let _ = self.buffers.set_buffer_local_property(buf_id, name, value);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Plain value path (GNU: SYMBOL_PLAINVAL)
         let old_value = self.obarray.symbol_value_id(resolved).copied();
         self.specpdl.push(SpecBinding::Let {
             sym_id: resolved,
             old_value,
         });
-        let name = resolve_sym(resolved);
         if self.watchers.has_watchers(name) {
             let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
         }
@@ -8188,6 +8223,23 @@ impl Evaluator {
                     match old_value {
                         Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
                         None => self.obarray.makunbound_id(sym_id),
+                    }
+                }
+                SpecBinding::LetLocal {
+                    sym_id,
+                    old_value,
+                    buffer_id,
+                } => {
+                    let name = resolve_sym(sym_id);
+                    if self.watchers.has_watchers(name) {
+                        let _ = self.run_variable_watchers(name, &old_value, &Value::Nil, "unlet");
+                    }
+                    // Restore only if the buffer is still live
+                    // (GNU: check Flocal_variable_p before restoring)
+                    if self.buffers.get(buffer_id).is_some() {
+                        let _ = self
+                            .buffers
+                            .set_buffer_local_property(buffer_id, name, old_value);
                     }
                 }
             }
@@ -8216,6 +8268,9 @@ pub(crate) fn specbind_in_state(
 
 /// Restore all specpdl bindings back to `count` (standalone version).
 /// Used by bytecode VM and other split-state paths.
+/// Note: LetLocal bindings require a buffer manager; the standalone version
+/// only handles Let bindings. LetLocal in the VM is not expected since
+/// the VM's VarBind opcode doesn't produce buffer-local bindings.
 pub(crate) fn unbind_to_in_state(
     obarray: &mut Obarray,
     specpdl: &mut Vec<SpecBinding>,
@@ -8228,6 +8283,17 @@ pub(crate) fn unbind_to_in_state(
                 Some(val) => obarray.set_symbol_value_id(sym_id, val),
                 None => obarray.makunbound_id(sym_id),
             },
+            SpecBinding::LetLocal {
+                sym_id, old_value, ..
+            } => {
+                // Standalone path doesn't have buffer manager access.
+                // Fall back to setting the obarray default value.
+                tracing::warn!(
+                    "unbind_to_in_state: LetLocal for {} without buffer manager",
+                    resolve_sym(sym_id)
+                );
+                obarray.set_symbol_value_id(sym_id, old_value);
+            }
         }
     }
 }
