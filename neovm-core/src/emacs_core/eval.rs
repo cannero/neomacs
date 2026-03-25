@@ -1540,12 +1540,8 @@ impl Context {
         }
 
         let mut obarray = Obarray::new();
-        // Mirror GNU Emacs startup: primitive names exist in the initial
-        // obarray, so `(intern-soft "floatp")` etc are non-nil during
-        // bootstrap macroexpansion (e.g. cl-preloaded).
-        for &name in super::builtin_registry::dispatch_builtin_names() {
-            obarray.intern(name);
-        }
+        // Builtin names are interned by defsubr() during init_builtins(),
+        // which runs after Context construction.
         let default_directory = std::env::current_dir()
             .ok()
             .and_then(|p| p.to_str().map(|s| s.to_string()))
@@ -2551,15 +2547,7 @@ impl Context {
         // Bootstrap primitive function cells that GNU `simple.el` references
         // before its own Elisp defs overwrite them. Without these placeholders,
         // loaded GNU bytecode can capture `nil` for forward/runtime calls into
-        // NeoVM's Rust primitives.
-        // Register ALL dispatch builtins with Subr function cells so that
-        // (symbol-function 'name), (funcall #'name ...), and (fboundp 'name)
-        // all work. GNU Emacs does this via defsubr() in C for every DEFUN.
-        for name in super::builtin_registry::dispatch_builtin_names() {
-            if obarray.symbol_function(name).is_none() {
-                obarray.set_symbol_function(name, Value::Subr(intern(name)));
-            }
-        }
+        // Builtin function cells are set by defsubr() during init_builtins().
         for name in ["mark-marker", "region-beginning", "region-end"] {
             obarray.set_symbol_function(name, Value::Subr(intern(name)));
         }
@@ -7376,7 +7364,7 @@ impl Context {
             NamedCallTarget::ContextCallable
         } else if super::subr_info::is_special_form(name) {
             NamedCallTarget::SpecialForm
-        } else if super::builtin_registry::is_dispatch_builtin_name(name)
+        } else if self.subr_registry.contains_key(&intern(name))
             || builtins::is_pure_builtin_name(name)
         {
             NamedCallTarget::Builtin
@@ -7618,7 +7606,7 @@ impl Context {
     ) -> EvalResult {
         // Startup wrappers often expose autoload-shaped function cells for names
         // backed by builtins. Keep the autoload shape while preserving callability.
-        if super::builtin_registry::is_dispatch_builtin_name(name) {
+        if self.subr_registry.contains_key(&intern(name)) {
             if let Some(result) = builtins::dispatch_builtin(self, name, args.clone()) {
                 return if rewrite_builtin_wrong_arity {
                     result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
@@ -8105,6 +8093,11 @@ impl Context {
                 name: sym_id,
             },
         );
+        // Like GNU Emacs's defsubr: set the symbol's function cell in the
+        // obarray so that fboundp, symbol-function, etc. find the builtin
+        // without needing a separate name registry.
+        self.obarray.intern(name);
+        self.obarray.set_symbol_function(name, Value::Subr(sym_id));
     }
 
     /// Look up a builtin in the subr registry and call it directly via

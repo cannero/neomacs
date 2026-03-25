@@ -4025,7 +4025,7 @@ impl<'a> Vm<'a> {
                 // Try obarray function cell
                 if let Some(func) = self.ctx.obarray.symbol_function(name).cloned() {
                     if func.is_nil() {
-                        if builtins::builtin_registry::is_dispatch_builtin_name(name)
+                        if self.ctx.subr_registry.contains_key(&intern(name))
                             || builtins::is_pure_builtin_name(name)
                         {
                             return self.dispatch_vm_builtin(name, args);

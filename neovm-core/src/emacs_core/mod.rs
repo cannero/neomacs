@@ -16,7 +16,6 @@ pub mod autoload;
 pub mod bookmark;
 pub mod buffer;
 pub mod buffer_vars;
-pub(crate) mod builtin_registry;
 pub mod builtins;
 pub mod builtins_extra;
 pub mod bytecode;

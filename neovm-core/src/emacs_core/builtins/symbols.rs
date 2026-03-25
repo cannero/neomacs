@@ -598,7 +598,7 @@ pub(crate) fn builtin_fboundp_in_obarray(obarray: &Obarray, args: &[Value]) -> E
     let result = super::subr_info::is_special_form(name)
         || macro_bound
         || super::subr_info::is_evaluator_callable_name(name)
-        || super::builtin_registry::is_dispatch_builtin_name(name)
+        || obarray.symbol_function(name).is_some()
         || name.parse::<PureBuiltinId>().is_ok();
     Ok(Value::bool(result))
 }
@@ -726,7 +726,6 @@ pub(crate) fn builtin_function_get(
         }
         // Check fboundp
         if eval.obarray.symbol_function_id(sym_id).is_none()
-            && !super::super::builtin_registry::is_dispatch_builtin_name(resolve_sym(sym_id))
         {
             break;
         }
@@ -811,7 +810,8 @@ fn dispatch_symbol_func_arity_override_in_obarray(
     name: &str,
     function: &Value,
 ) -> Option<Value> {
-    if !super::builtin_registry::is_dispatch_builtin_name(name) {
+    // Only applies to builtin functions (those with Subr function cells).
+    if !matches!(obarray.symbol_function(name), Some(Value::Subr(_))) {
         return None;
     }
 
@@ -2293,7 +2293,6 @@ pub(crate) fn symbol_function_cell_in_obarray(obarray: &Obarray, symbol: SymId) 
 
     if super::subr_info::is_special_form(current_name)
         || super::subr_info::is_evaluator_callable_name(current_name)
-        || super::builtin_registry::is_dispatch_builtin_name(current_name)
         || current_name.parse::<PureBuiltinId>().is_ok()
     {
         return Some(Value::Subr(symbol));

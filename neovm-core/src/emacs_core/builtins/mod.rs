@@ -374,7 +374,6 @@ pub(super) fn string_byte_to_char_index(s: &str, byte_idx: usize) -> Option<usiz
 
 // Re-export sibling modules so submodules can use `super::eval`, `super::marker`, etc.
 pub(super) use super::autoload;
-pub(super) use super::builtin_registry;
 pub(super) use super::builtins_extra;
 pub(super) use super::ccl;
 pub(super) use super::charset;
