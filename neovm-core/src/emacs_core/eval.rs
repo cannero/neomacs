@@ -3087,6 +3087,10 @@ impl Context {
         set_current_interner(&mut ev.interner);
         set_current_heap(&mut ev.heap);
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
+
+        // Register all builtins via function pointer dispatch (defsubr).
+        builtins::init_builtins(&mut ev);
+
         ev
     }
 
