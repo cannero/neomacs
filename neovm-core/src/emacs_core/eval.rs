@@ -1901,6 +1901,9 @@ impl Context {
         obarray.set_symbol_value("global-mode-string", Value::Nil);
         // File loading C variables (lread.c)
         obarray.set_symbol_value("load-in-progress", Value::Nil);
+        // Byte compiler variables (bytecomp.el defcustom, but referenced
+        // at runtime by legacy packages like evil-escape via ad-add-advice)
+        obarray.set_symbol_value("byte-compile-warnings", Value::True);
         // Other missing C variables cus-start.el checks
         obarray.set_symbol_value("history-length", Value::Int(100));
         obarray.set_symbol_value("minibuffer-follows-selected-frame", Value::True);
