@@ -1386,7 +1386,7 @@ fn waiting_for_user_input_p_returns_nil() {
 fn waiting_for_user_input_p_eval_tracks_runtime_flag() {
     let mut eval = Context::new();
     eval.set_waiting_for_user_input(true);
-    let result = builtin_waiting_for_user_input_p_eval(&mut eval, vec![]).unwrap();
+    let result = builtin_waiting_for_user_input_p_ctx(&mut eval, vec![]).unwrap();
     assert!(matches!(result, Value::True));
 }
 

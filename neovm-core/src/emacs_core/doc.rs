@@ -56,7 +56,7 @@ pub(crate) fn builtin_documentation(
     let raw = args.get(1).is_some_and(Value::is_truthy);
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
-    let plan = builtin_documentation_plan_in_obarray(unsafe { &*obarray }, args)?;
+    let plan = documentation_plan(unsafe { &*obarray }, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| eval.eval_value(&value))?,
         raw,
@@ -86,7 +86,7 @@ fn finish_documentation_result(value: Value, raw: bool) -> EvalResult {
     }
 }
 
-fn builtin_documentation_plan_in_obarray(
+fn documentation_plan(
     obarray: &super::symbol::Obarray,
     args: Vec<Value>,
 ) -> Result<DocumentationPlan, Flow> {
@@ -136,7 +136,7 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
 ) -> EvalResult {
     let raw = args.get(1).is_some_and(Value::is_truthy);
     let args_roots = args.clone();
-    let plan = builtin_documentation_plan_in_obarray(&shared.obarray, args)?;
+    let plan = documentation_plan(&shared.obarray, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| {
             let mut extra_roots = args_roots.clone();
@@ -10527,14 +10527,14 @@ pub(crate) fn builtin_documentation_property_eval(
     let raw = args.get(2).is_some_and(Value::is_truthy);
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
-    let plan = builtin_documentation_property_plan_in_obarray(unsafe { &*obarray }, args)?;
+    let plan = documentation_property_plan(unsafe { &*obarray }, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| eval.eval_value(&value))?,
         raw,
     )
 }
 
-fn builtin_documentation_property_plan_in_obarray(
+fn documentation_property_plan(
     obarray: &super::symbol::Obarray,
     args: Vec<Value>,
 ) -> Result<DocumentationPlan, Flow> {
@@ -10590,7 +10590,7 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
 ) -> EvalResult {
     let raw = args.get(2).is_some_and(Value::is_truthy);
     let args_roots = args.clone();
-    let plan = builtin_documentation_property_plan_in_obarray(&shared.obarray, args)?;
+    let plan = documentation_property_plan(&shared.obarray, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| {
             let mut extra_roots = args_roots.clone();

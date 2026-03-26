@@ -913,7 +913,7 @@ fn display_queries_default_to_selected_frame_window_system_surface() {
         Value::Int(16_777_216)
     );
     assert_eq!(
-        crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_eval(
+        crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_ctx(
             &eval,
             vec![Value::Nil],
         )
@@ -921,7 +921,7 @@ fn display_queries_default_to_selected_frame_window_system_surface() {
         Value::True
     );
     assert_eq!(
-        crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_eval(&eval, vec![frame],)
+        crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_ctx(&eval, vec![frame],)
             .unwrap(),
         Value::True
     );

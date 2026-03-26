@@ -1125,7 +1125,7 @@ pub(crate) fn builtin_expand_file_name(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `expand-file-name` that falls back to dynamic
 /// `default-directory` when DEFAULT-DIRECTORY is omitted or nil.
-pub(crate) fn builtin_expand_file_name_in_state(
+pub(crate) fn builtin_expand_file_name_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1159,7 +1159,7 @@ pub(crate) fn builtin_expand_file_name_in_state(
 }
 
 pub(crate) fn builtin_expand_file_name_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_expand_file_name_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_expand_file_name_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (make-temp-file PREFIX &optional DIR-FLAG SUFFIX TEXT) -> string
@@ -1334,7 +1334,7 @@ pub(crate) fn builtin_file_truename(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-truename` that resolves relative
 /// filenames against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_truename_in_state(
+pub(crate) fn builtin_file_truename_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1363,7 +1363,7 @@ pub(crate) fn builtin_file_truename_in_state(
 }
 
 pub(crate) fn builtin_file_truename_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_truename_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_truename_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-name-directory FILENAME) -> string or nil
@@ -1612,7 +1612,7 @@ pub(crate) fn builtin_access_file(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `access-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_access_file_in_state(
+pub(crate) fn builtin_access_file_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1629,7 +1629,7 @@ pub(crate) fn builtin_access_file_in_state(
 }
 
 pub(crate) fn builtin_access_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_access_file_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_access_file_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-exists-p FILENAME) -> t or nil
@@ -1641,7 +1641,7 @@ pub(crate) fn builtin_file_exists_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-exists-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_exists_p_in_state(
+pub(crate) fn builtin_file_exists_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1654,7 +1654,7 @@ pub(crate) fn builtin_file_exists_p_in_state(
 }
 
 pub(crate) fn builtin_file_exists_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_exists_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_exists_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-readable-p FILENAME) -> t or nil
@@ -1666,7 +1666,7 @@ pub(crate) fn builtin_file_readable_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-readable-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_readable_p_in_state(
+pub(crate) fn builtin_file_readable_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1679,7 +1679,7 @@ pub(crate) fn builtin_file_readable_p_in_state(
 }
 
 pub(crate) fn builtin_file_readable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_readable_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_readable_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-writable-p FILENAME) -> t or nil
@@ -1691,7 +1691,7 @@ pub(crate) fn builtin_file_writable_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-writable-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_writable_p_in_state(
+pub(crate) fn builtin_file_writable_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1704,7 +1704,7 @@ pub(crate) fn builtin_file_writable_p_in_state(
 }
 
 pub(crate) fn builtin_file_writable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_writable_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_writable_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-accessible-directory-p FILENAME) -> t or nil
@@ -1716,7 +1716,7 @@ pub(crate) fn builtin_file_accessible_directory_p(args: Vec<Value>) -> EvalResul
 
 /// Context-aware variant of `file-accessible-directory-p` that resolves
 /// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_accessible_directory_p_in_state(
+pub(crate) fn builtin_file_accessible_directory_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1732,7 +1732,7 @@ pub(crate) fn builtin_file_accessible_directory_p_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_file_accessible_directory_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_accessible_directory_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-executable-p FILENAME) -> t or nil
@@ -1744,7 +1744,7 @@ pub(crate) fn builtin_file_executable_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-executable-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_executable_p_in_state(
+pub(crate) fn builtin_file_executable_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1757,7 +1757,7 @@ pub(crate) fn builtin_file_executable_p_in_state(
 }
 
 pub(crate) fn builtin_file_executable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_executable_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_executable_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-acl FILENAME) -> ACL string or nil
@@ -1766,7 +1766,7 @@ pub(crate) fn builtin_file_acl(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_file_acl_in_state(
+pub(crate) fn builtin_file_acl_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1780,7 +1780,7 @@ pub(crate) fn builtin_file_acl_in_state(
 
 /// Context-aware variant of `file-acl`.
 pub(crate) fn builtin_file_acl_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_acl_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_acl_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-acl FILENAME ACL) -> nil
@@ -1800,7 +1800,7 @@ pub(crate) fn builtin_file_locked_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-locked-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_locked_p_in_state(
+pub(crate) fn builtin_file_locked_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1813,7 +1813,7 @@ pub(crate) fn builtin_file_locked_p_in_state(
 }
 
 pub(crate) fn builtin_file_locked_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_locked_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_locked_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-selinux-context FILENAME) -> (user role type range)
@@ -1828,7 +1828,7 @@ pub(crate) fn builtin_file_selinux_context(args: Vec<Value>) -> EvalResult {
     ]))
 }
 
-pub(crate) fn builtin_file_selinux_context_in_state(
+pub(crate) fn builtin_file_selinux_context_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1850,7 +1850,7 @@ pub(crate) fn builtin_file_selinux_context_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_file_selinux_context_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_selinux_context_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-selinux-context FILENAME CONTEXT) -> nil
@@ -1875,7 +1875,7 @@ pub(crate) fn builtin_file_system_info(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-system-info` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_system_info_in_state(
+pub(crate) fn builtin_file_system_info_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1893,7 +1893,7 @@ pub(crate) fn builtin_file_system_info_in_state(
 }
 
 pub(crate) fn builtin_file_system_info_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_system_info_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_system_info_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-directory-p FILENAME) -> t or nil
@@ -1905,7 +1905,7 @@ pub(crate) fn builtin_file_directory_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-directory-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_directory_p_in_state(
+pub(crate) fn builtin_file_directory_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1918,7 +1918,7 @@ pub(crate) fn builtin_file_directory_p_in_state(
 }
 
 pub(crate) fn builtin_file_directory_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_directory_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_directory_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-regular-p FILENAME) -> t or nil
@@ -1930,7 +1930,7 @@ pub(crate) fn builtin_file_regular_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-regular-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_regular_p_in_state(
+pub(crate) fn builtin_file_regular_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1943,7 +1943,7 @@ pub(crate) fn builtin_file_regular_p_in_state(
 }
 
 pub(crate) fn builtin_file_regular_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_regular_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_regular_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-symlink-p FILENAME) -> t or nil
@@ -1955,7 +1955,7 @@ pub(crate) fn builtin_file_symlink_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-symlink-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_symlink_p_in_state(
+pub(crate) fn builtin_file_symlink_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1968,7 +1968,7 @@ pub(crate) fn builtin_file_symlink_p_in_state(
 }
 
 pub(crate) fn builtin_file_symlink_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_symlink_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_symlink_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-name-case-insensitive-p FILENAME) -> t or nil
@@ -1981,7 +1981,7 @@ pub(crate) fn builtin_file_name_case_insensitive_p(args: Vec<Value>) -> EvalResu
 
 /// Context-aware variant of `file-name-case-insensitive-p` that resolves
 /// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_name_case_insensitive_p_in_state(
+pub(crate) fn builtin_file_name_case_insensitive_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -1997,7 +1997,7 @@ pub(crate) fn builtin_file_name_case_insensitive_p_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_file_name_case_insensitive_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_name_case_insensitive_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-newer-than-file-p FILE1 FILE2) -> t or nil
@@ -2012,7 +2012,7 @@ pub(crate) fn builtin_file_newer_than_file_p(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `file-newer-than-file-p` that resolves
 /// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_newer_than_file_p_in_state(
+pub(crate) fn builtin_file_newer_than_file_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2030,7 +2030,7 @@ pub(crate) fn builtin_file_newer_than_file_p_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_file_newer_than_file_p_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_newer_than_file_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-modes FILENAME &optional FLAG) -> integer or nil
@@ -2049,7 +2049,7 @@ pub(crate) fn builtin_file_modes(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_file_modes_in_state(
+pub(crate) fn builtin_file_modes_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2073,7 +2073,7 @@ pub(crate) fn builtin_file_modes_in_state(
 /// Context-aware variant of `file-modes` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_file_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_modes_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_file_modes_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-modes FILENAME MODE &optional FLAG) -> nil
@@ -2110,7 +2110,7 @@ pub(crate) fn builtin_set_file_modes(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_set_file_modes_in_state(
+pub(crate) fn builtin_set_file_modes_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2152,7 +2152,7 @@ pub(crate) fn builtin_set_file_modes_in_state(
 /// Context-aware variant of `set-file-modes` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_set_file_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_set_file_modes_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_set_file_modes_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-times FILENAME &optional TIMESTAMP FLAG) -> t
@@ -2180,7 +2180,7 @@ pub(crate) fn builtin_set_file_times(args: Vec<Value>) -> EvalResult {
     Ok(Value::True)
 }
 
-pub(crate) fn builtin_set_file_times_in_state(
+pub(crate) fn builtin_set_file_times_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2211,7 +2211,7 @@ pub(crate) fn builtin_set_file_times_in_state(
 /// Context-aware variant of `set-file-times` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_set_file_times_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_set_file_times_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_set_file_times_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 fn validate_optional_buffer_arg_in_state(
@@ -2269,15 +2269,15 @@ pub(crate) fn builtin_verify_visited_file_modtime(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_verify_visited_file_modtime_in_state(&eval.buffers, args)
+    builtin_verify_visited_file_modtime_impl(&eval.buffers, args)
 }
 
 /// (set-visited-file-modtime &optional TIME-LIST) -> nil
 pub(crate) fn builtin_set_visited_file_modtime(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_set_visited_file_modtime_in_state(&eval.buffers, args)
+    builtin_set_visited_file_modtime_impl(&eval.buffers, args)
 }
 
-pub(crate) fn builtin_verify_visited_file_modtime_in_state(
+pub(crate) fn builtin_verify_visited_file_modtime_impl(
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -2286,7 +2286,7 @@ pub(crate) fn builtin_verify_visited_file_modtime_in_state(
     Ok(Value::True)
 }
 
-pub(crate) fn builtin_set_visited_file_modtime_in_state(
+pub(crate) fn builtin_set_visited_file_modtime_impl(
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -2373,7 +2373,7 @@ pub(crate) fn builtin_delete_file_internal(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `delete-file-internal` that resolves relative
 /// paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_delete_file_internal_in_state(
+pub(crate) fn builtin_delete_file_internal_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2390,7 +2390,7 @@ pub(crate) fn builtin_delete_file_internal_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_delete_file_internal_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_delete_file_internal_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (delete-directory DIRECTORY &optional RECURSIVE TRASH) -> nil
@@ -2427,7 +2427,7 @@ pub(crate) fn builtin_delete_directory_internal(args: Vec<Value>) -> EvalResult 
 
 /// Context-aware variant of `delete-directory-internal` that resolves
 /// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_delete_directory_internal_in_state(
+pub(crate) fn builtin_delete_directory_internal_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2445,7 +2445,7 @@ pub(crate) fn builtin_delete_directory_internal_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_delete_directory_internal_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_delete_directory_internal_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// Context-aware variant of `delete-directory` that resolves relative paths
@@ -2514,7 +2514,7 @@ pub(crate) fn builtin_make_symbolic_link(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `make-symbolic-link` that resolves relative
 /// target/link paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_make_symbolic_link_in_state(
+pub(crate) fn builtin_make_symbolic_link_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2560,7 +2560,7 @@ pub(crate) fn builtin_make_symbolic_link_in_state(
 }
 
 pub(crate) fn builtin_make_symbolic_link_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_make_symbolic_link_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_make_symbolic_link_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (rename-file FROM TO) -> nil
@@ -2596,7 +2596,7 @@ pub(crate) fn builtin_rename_file(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `rename-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_rename_file_in_state(
+pub(crate) fn builtin_rename_file_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2633,7 +2633,7 @@ pub(crate) fn builtin_rename_file_in_state(
 }
 
 pub(crate) fn builtin_rename_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_rename_file_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_rename_file_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (copy-file FROM TO) -> nil
@@ -2665,7 +2665,7 @@ pub(crate) fn builtin_copy_file(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `copy-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_copy_file_in_state(
+pub(crate) fn builtin_copy_file_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2698,7 +2698,7 @@ pub(crate) fn builtin_copy_file_in_state(
 }
 
 pub(crate) fn builtin_copy_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_copy_file_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_copy_file_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (add-name-to-file OLDNAME NEWNAME &optional OK-IF-ALREADY-EXISTS) -> nil
@@ -2727,7 +2727,7 @@ pub(crate) fn builtin_add_name_to_file(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `add-name-to-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_add_name_to_file_in_state(
+pub(crate) fn builtin_add_name_to_file_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2758,7 +2758,7 @@ pub(crate) fn builtin_add_name_to_file_in_state(
 }
 
 pub(crate) fn builtin_add_name_to_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_add_name_to_file_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_add_name_to_file_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (make-directory-internal DIR) -> nil
@@ -2771,7 +2771,7 @@ pub(crate) fn builtin_make_directory_internal(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `make-directory-internal` that resolves relative
 /// paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_make_directory_internal_in_state(
+pub(crate) fn builtin_make_directory_internal_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2788,7 +2788,7 @@ pub(crate) fn builtin_make_directory_internal_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_make_directory_internal_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_make_directory_internal_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (find-file-name-handler FILENAME OPERATION) -> handler or nil
@@ -2799,7 +2799,7 @@ pub(crate) fn builtin_find_file_name_handler(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_find_file_name_handler_in_state(
+pub(crate) fn builtin_find_file_name_handler_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2817,7 +2817,7 @@ pub(crate) fn builtin_find_file_name_handler_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_find_file_name_handler_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_find_file_name_handler_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (directory-files DIR &optional FULL MATCH NOSORT COUNT) -> list of strings
@@ -2865,7 +2865,7 @@ pub(crate) fn builtin_directory_files(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `directory-files` that resolves relative DIR
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_directory_files_in_state(
+pub(crate) fn builtin_directory_files_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -2914,7 +2914,7 @@ pub(crate) fn builtin_directory_files_in_state(
 }
 
 pub(crate) fn builtin_directory_files_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_directory_files_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_directory_files_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 // ===========================================================================
@@ -3055,7 +3055,7 @@ fn write_region_content_in_state(
     Ok(buf.buffer_substring(byte_start, byte_end))
 }
 
-pub(crate) fn builtin_insert_file_contents_in_state(
+pub(crate) fn builtin_insert_file_contents_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut crate::buffer::BufferManager,
@@ -3164,10 +3164,10 @@ pub(crate) fn builtin_insert_file_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_file_contents_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_insert_file_contents_impl(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
-pub(crate) fn builtin_write_region_in_state(
+pub(crate) fn builtin_write_region_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut crate::buffer::BufferManager,
@@ -3231,7 +3231,7 @@ pub(crate) fn builtin_write_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_write_region_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_write_region_impl(&eval.obarray, &[], &mut eval.buffers, args)
 }
 
 /// (find-file-noselect FILENAME &optional NOWARN RAWFILE) -> buffer

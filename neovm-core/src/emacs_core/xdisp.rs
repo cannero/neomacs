@@ -102,7 +102,7 @@ pub(crate) fn builtin_format_mode_line(args: Vec<Value>) -> EvalResult {
 /// Handles string formats with %-construct expansion and list-based format
 /// specs by recursively processing elements (symbols, strings, :eval, :propertize,
 /// and conditional cons cells).
-pub(crate) fn builtin_format_mode_line_in_state(
+pub(crate) fn format_mode_line_from_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     frames: &crate::window::FrameManager,
@@ -154,7 +154,7 @@ pub(crate) fn builtin_format_mode_line_in_state(
     }
 }
 
-pub(crate) fn builtin_format_mode_line_eval(
+pub(crate) fn builtin_format_mode_line_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1938,20 +1938,12 @@ pub(crate) fn builtin_window_text_pixel_size(args: Vec<Value>) -> EvalResult {
 ///
 /// Batch mode returns `(0 . 0)` and validates optional WINDOW / FROM / TO
 /// designators against evaluator state.
-pub(crate) fn builtin_window_text_pixel_size_eval(
+pub(crate) fn builtin_window_text_pixel_size_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_window_text_pixel_size_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_window_text_pixel_size_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args_range("window-text-pixel-size", &args, 0, 7)?;
-    validate_optional_window_designator_in_state(&*frames, args.first(), "window-live-p")?;
+    validate_optional_window_designator_in_state(&eval.frames, args.first(), "window-live-p")?;
     if let Some(from) = args.get(1) {
         if !from.is_nil() {
             expect_integer_or_marker(from)?;
@@ -1992,14 +1984,14 @@ pub(crate) fn builtin_pos_visible_in_window_p(args: Vec<Value>) -> EvalResult {
 ///
 /// Mirror GNU Emacs: return t if POS is visible in WINDOW, nil otherwise.
 /// Checks if position is between window-start and an estimated window-end.
-pub(crate) fn builtin_pos_visible_in_window_p_eval(
+pub(crate) fn builtin_pos_visible_in_window_p_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_pos_visible_in_window_p_in_state(&mut eval.frames, &mut eval.buffers, args)
+    pos_visible_in_window_p_impl(&mut eval.frames, &mut eval.buffers, args)
 }
 
-pub(crate) fn builtin_pos_visible_in_window_p_in_state(
+fn pos_visible_in_window_p_impl(
     frames: &mut crate::window::FrameManager,
     buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
@@ -2050,14 +2042,14 @@ pub(crate) fn builtin_pos_visible_in_window_p_in_state(
 /// GNU Emacs returns `(HEIGHT VPOS YPOS OFFBOT)` for a live GUI window.  We
 /// approximate this from the current frame/window geometry so commands in
 /// `simple.el` can reason about visual line movement without batch fallbacks.
-pub(crate) fn builtin_window_line_height_eval(
+pub(crate) fn builtin_window_line_height(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_window_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+    window_line_height_impl(&mut eval.frames, &mut eval.buffers, args)
 }
 
-pub(crate) fn builtin_window_line_height_in_state(
+fn window_line_height_impl(
     frames: &mut crate::window::FrameManager,
     buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
@@ -2277,22 +2269,14 @@ pub(crate) fn builtin_tool_bar_height(args: Vec<Value>) -> EvalResult {
 /// `(tool-bar-height &optional FRAME PIXELWISE)` evaluator-backed variant.
 ///
 /// Accepts nil or a live frame designator for FRAME.
-pub(crate) fn builtin_tool_bar_height_eval(
+pub(crate) fn builtin_tool_bar_height_ctx(
     eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_tool_bar_height_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_tool_bar_height_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args_range("tool-bar-height", &args, 0, 2)?;
     if let Some(frame) = args.first().filter(|frame| !frame.is_nil()) {
         let _ =
-            super::window_cmds::resolve_frame_id_in_state(frames, buffers, Some(frame), "framep")?;
+            super::window_cmds::resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, Some(frame), "framep")?;
     }
     Ok(Value::Int(0))
 }
@@ -2309,26 +2293,18 @@ pub(crate) fn builtin_tab_bar_height(args: Vec<Value>) -> EvalResult {
 /// `(tab-bar-height &optional FRAME PIXELWISE)` evaluator-backed variant.
 ///
 /// Accepts nil or a live frame designator for FRAME.
-pub(crate) fn builtin_tab_bar_height_eval(
+pub(crate) fn builtin_tab_bar_height_ctx(
     eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_tab_bar_height_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_tab_bar_height_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args_range("tab-bar-height", &args, 0, 2)?;
     let fid = match args.first().filter(|frame| !frame.is_nil()) {
         Some(frame) => {
-            super::window_cmds::resolve_frame_id_in_state(frames, buffers, Some(frame), "framep")?
+            super::window_cmds::resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, Some(frame), "framep")?
         }
-        None => super::window_cmds::ensure_selected_frame_id_in_state(frames, buffers),
+        None => super::window_cmds::ensure_selected_frame_id_in_state(&mut eval.frames, &mut eval.buffers),
     };
-    let frame = frames
+    let frame = eval.frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let lines = frame
@@ -2880,22 +2856,14 @@ fn resolve_posn_at_xy_window(
 }
 
 /// `(posn-at-point &optional POS WINDOW)` evaluator-backed variant.
-pub(crate) fn builtin_posn_at_point_eval(
+pub(crate) fn builtin_posn_at_point(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_posn_at_point_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_posn_at_point_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args_range("posn-at-point", &args, 0, 2)?;
-    validate_optional_window_designator_in_state(&*frames, args.get(1), "window-live-p")?;
+    validate_optional_window_designator_in_state(&eval.frames, args.get(1), "window-live-p")?;
     let Some((window_id, metrics)) =
-        resolve_exact_visible_metrics(frames, buffers, args.get(1), args.first())?
+        resolve_exact_visible_metrics(&mut eval.frames, &mut eval.buffers, args.get(1), args.first())?
     else {
         return Ok(Value::Nil);
     };
@@ -2903,14 +2871,14 @@ pub(crate) fn builtin_posn_at_point_in_state(
 }
 
 /// `(posn-at-x-y X Y &optional FRAME-OR-WINDOW WHOLE)` evaluator-backed variant.
-pub(crate) fn builtin_posn_at_x_y_eval(
+pub(crate) fn builtin_posn_at_x_y(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_posn_at_x_y_in_state(&mut eval.frames, &mut eval.buffers, args)
+    posn_at_x_y_impl(&mut eval.frames, &mut eval.buffers, args)
 }
 
-pub(crate) fn builtin_posn_at_x_y_in_state(
+fn posn_at_x_y_impl(
     frames: &mut crate::window::FrameManager,
     buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,

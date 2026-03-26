@@ -611,7 +611,7 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
         .expect("enter minibuffer");
 
     assert_eq!(
-        builtin_minibuffer_prompt_eval(&mut eval, vec![]).unwrap(),
+        builtin_minibuffer_prompt_ctx(&mut eval, vec![]).unwrap(),
         Value::string("Prompt: ")
     );
     assert_eq!(
@@ -623,19 +623,19 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
         Value::string("value")
     );
     assert_eq!(
-        builtin_minibuffer_depth_eval(&mut eval, vec![]).unwrap(),
+        builtin_minibuffer_depth_ctx(&mut eval, vec![]).unwrap(),
         Value::Int(1)
     );
     assert_eq!(
-        builtin_minibufferp_eval(&mut eval, vec![]).unwrap(),
+        builtin_minibufferp_ctx(&mut eval, vec![]).unwrap(),
         Value::True
     );
     assert_eq!(
-        builtin_minibufferp_eval(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
+        builtin_minibufferp_ctx(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
         Value::True
     );
     assert!(matches!(
-        builtin_abort_minibuffers_eval(&mut eval, vec![]),
+        builtin_abort_minibuffers_ctx(&mut eval, vec![]),
         Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") && value == Value::True
     ));
 }

@@ -320,10 +320,10 @@ pub(crate) fn builtin_called_interactively_p(eval: &mut Context, args: Vec<Value
 /// `(commandp FUNCTION &optional FOR-CALL-INTERACTIVELY)`
 /// Return non-nil if FUNCTION is a command (i.e., can be called interactively).
 pub(crate) fn builtin_commandp_interactive(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_commandp_in_state(&eval.obarray, &eval.interactive, &args)
+    builtin_commandp_impl(&eval.obarray, &eval.interactive, &args)
 }
 
-pub(crate) fn builtin_commandp_in_state(
+pub(crate) fn builtin_commandp_impl(
     obarray: &Obarray,
     interactive: &InteractiveRegistry,
     args: &[Value],
@@ -427,7 +427,7 @@ fn command_modes_from_quoted_lambda(value: &Value) -> Result<Option<Value>, Flow
     Ok(None)
 }
 
-pub(crate) fn builtin_command_modes_in_state(obarray: &Obarray, args: &[Value]) -> EvalResult {
+pub(crate) fn builtin_command_modes_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("command-modes", args, 1)?;
     let command = args[0];
     let mut function = command;
@@ -502,7 +502,7 @@ pub(crate) fn builtin_command_modes_in_state(obarray: &Obarray, args: &[Value]) 
 }
 
 pub(crate) fn builtin_command_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_command_modes_in_state(&eval.obarray, &args)
+    builtin_command_modes_impl(&eval.obarray, &args)
 }
 
 /// `(command-remapping COMMAND &optional POSITION KEYMAP)` -- return remapped
@@ -510,10 +510,10 @@ pub(crate) fn builtin_command_modes_eval(eval: &mut Context, args: Vec<Value>) -
 ///
 /// Respects local/global keymaps when KEYMAP is omitted or nil.
 pub(crate) fn builtin_command_remapping(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_command_remapping_in_state(eval, args)
+    builtin_command_remapping_impl(eval, args)
 }
 
-pub(crate) fn builtin_command_remapping_in_state(
+pub(crate) fn builtin_command_remapping_impl(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1701,7 +1701,7 @@ fn interactive_read_expression_arg_in_vm_runtime(
         vm_gc_roots,
         &[Value::string(prompt)],
     )?;
-    super::reader::builtin_read_in_state(shared, vec![input])
+    super::reader::builtin_read(shared, vec![input])
 }
 
 fn interactive_eval_expression_arg_in_vm_runtime(
@@ -2613,10 +2613,10 @@ pub(crate) fn builtin_keyboard_quit(_eval: &mut Context, args: Vec<Value>) -> Ev
 /// `(key-binding KEY &optional ACCEPT-DEFAULTS NO-REMAP POSITION)`
 /// Return the binding for KEY in the current keymaps.
 pub(crate) fn builtin_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_key_binding_in_state(eval, args)
+    builtin_key_binding_impl(eval, args)
 }
 
-pub(crate) fn builtin_key_binding_in_state(
+pub(crate) fn builtin_key_binding_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -2747,10 +2747,10 @@ fn interactive_validate_integer_position_arg_in_buffers(
 
 /// `(local-key-binding KEY &optional ACCEPT-DEFAULTS)`
 pub(crate) fn builtin_local_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_local_key_binding_in_state(eval, args)
+    builtin_local_key_binding_impl(eval, args)
 }
 
-pub(crate) fn builtin_local_key_binding_in_state(
+pub(crate) fn builtin_local_key_binding_impl(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -3053,10 +3053,10 @@ fn lookup_minor_mode_binding_in_alist_in_state(
 /// `(minor-mode-key-binding KEY &optional ACCEPT-DEFAULTS)`
 /// Look up KEY in active minor mode keymaps.
 pub(crate) fn builtin_minor_mode_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_minor_mode_key_binding_in_state(eval, args)
+    builtin_minor_mode_key_binding_impl(eval, args)
 }
 
-pub(crate) fn builtin_minor_mode_key_binding_in_state(
+pub(crate) fn builtin_minor_mode_key_binding_impl(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -3170,10 +3170,10 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) ->
 
 /// `(this-command-keys)` -> string of keys that invoked current command.
 pub(crate) fn builtin_this_command_keys(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_this_command_keys_in_state(eval.read_command_keys(), &eval.interactive, args)
+    builtin_this_command_keys_impl(eval.read_command_keys(), &eval.interactive, args)
 }
 
-pub(crate) fn builtin_this_command_keys_in_state(
+pub(crate) fn builtin_this_command_keys_impl(
     read_command_keys: &[Value],
     interactive: &InteractiveRegistry,
     args: Vec<Value>,
@@ -3192,10 +3192,10 @@ pub(crate) fn builtin_this_command_keys_in_state(
 
 /// `(this-command-keys-vector)` -> vector of keys that invoked current command.
 pub(crate) fn builtin_this_command_keys_vector(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_this_command_keys_vector_in_state(eval.read_command_keys(), &eval.interactive, args)
+    builtin_this_command_keys_vector_impl(eval.read_command_keys(), &eval.interactive, args)
 }
 
-pub(crate) fn builtin_this_command_keys_vector_in_state(
+pub(crate) fn builtin_this_command_keys_vector_impl(
     read_command_keys: &[Value],
     interactive: &InteractiveRegistry,
     args: Vec<Value>,
@@ -3242,7 +3242,7 @@ fn single_command_key_vector(eval: &Context) -> Value {
     single_command_key_vector_in_state(eval.read_command_keys(), &eval.interactive)
 }
 
-pub(crate) fn builtin_this_single_command_keys_in_state(
+pub(crate) fn builtin_this_single_command_keys_impl(
     interactive: &InteractiveRegistry,
     read_command_keys: &[Value],
     args: Vec<Value>,
@@ -3254,7 +3254,7 @@ pub(crate) fn builtin_this_single_command_keys_in_state(
     ))
 }
 
-pub(crate) fn builtin_this_single_command_raw_keys_in_state(
+pub(crate) fn builtin_this_single_command_raw_keys_impl(
     interactive: &InteractiveRegistry,
     read_command_keys: &[Value],
     args: Vec<Value>,
@@ -3268,7 +3268,7 @@ pub(crate) fn builtin_this_single_command_raw_keys_in_state(
 
 /// `(this-single-command-keys)` -> vector of keys that invoked current command.
 pub(crate) fn builtin_this_single_command_keys(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_this_single_command_keys_in_state(&eval.interactive, eval.read_command_keys(), args)
+    builtin_this_single_command_keys_impl(&eval.interactive, eval.read_command_keys(), args)
 }
 
 /// `(this-single-command-raw-keys)` -> vector of raw keys for current command.
@@ -3276,7 +3276,7 @@ pub(crate) fn builtin_this_single_command_raw_keys(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_this_single_command_raw_keys_in_state(&eval.interactive, eval.read_command_keys(), args)
+    builtin_this_single_command_raw_keys_impl(&eval.interactive, eval.read_command_keys(), args)
 }
 
 /// `(clear-this-command-keys &optional KEEP-RECORD)` -> nil.
@@ -3675,7 +3675,7 @@ fn where_is_internal_explicit_keymaps(eval: &Context, value: &Value) -> Result<V
 }
 
 fn where_is_internal_active_keymaps(eval: &mut Context) -> Vec<Value> {
-    match super::builtins::keymaps::builtin_current_active_maps_in_state(
+    match super::builtins::keymaps::builtin_current_active_maps_impl(
         eval,
         &[],
     ) {

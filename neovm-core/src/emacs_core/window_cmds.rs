@@ -1030,7 +1030,7 @@ pub(crate) fn builtin_minibuffer_selected_window(
 }
 
 /// `(active-minibuffer-window)` -> nil in batch.
-pub(crate) fn builtin_active_minibuffer_window_eval(
+pub(crate) fn builtin_active_minibuffer_window(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1038,21 +1038,12 @@ pub(crate) fn builtin_active_minibuffer_window_eval(
     if let Some(wid) = eval.active_minibuffer_window {
         return Ok(window_value(wid));
     }
-    builtin_active_minibuffer_window_in_state(&eval.minibuffers, &eval.frames, vec![])
-}
-
-pub(crate) fn builtin_active_minibuffer_window_in_state(
-    minibuffers: &MinibufferManager,
-    frames: &FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("active-minibuffer-window", &args, 0)?;
-    let Some(state) = minibuffers.current() else {
+    let Some(state) = eval.minibuffers.current() else {
         return Ok(Value::Nil);
     };
 
-    for frame_id in frames.frame_list() {
-        let Some(frame) = frames.get(frame_id) else {
+    for frame_id in eval.frames.frame_list() {
+        let Some(frame) = eval.frames.get(frame_id) else {
             continue;
         };
         if let Some(minibuffer_wid) = frame.minibuffer_window
@@ -4618,7 +4609,7 @@ pub(crate) fn builtin_make_frame(eval: &mut super::eval::Context, args: Vec<Valu
     if backend == MakeFrameBackend::Gui {
         eval.sync_pending_resize_events();
     }
-    builtin_make_frame_in_state(
+    make_frame_with_state(
         &mut eval.frames,
         &mut eval.buffers,
         &mut eval.display_host,
@@ -4686,7 +4677,7 @@ fn resolve_make_frame_backend_request(
     }
 }
 
-pub(crate) fn builtin_make_frame_in_state(
+pub(crate) fn make_frame_with_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
     display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
@@ -4694,7 +4685,7 @@ pub(crate) fn builtin_make_frame_in_state(
 ) -> EvalResult {
     let backend = resolve_make_frame_backend_request(args.first(), display_host.is_some());
     tracing::debug!(
-        "builtin_make_frame_in_state: backend={backend:?} display_host_available={} args={:?}",
+        "make_frame_with_state: backend={backend:?} display_host_available={} args={:?}",
         display_host.is_some(),
         args
     );
@@ -4706,12 +4697,12 @@ pub(crate) fn builtin_make_frame_in_state(
             ));
         }
         let gui_args = vec![args.first().copied().unwrap_or(Value::Nil)];
-        return builtin_x_create_frame_in_state(frames, buffers, display_host, gui_args);
+        return x_create_frame_impl(frames, buffers, display_host, gui_args);
     }
-    builtin_make_frame_plain_in_state(frames, buffers, args)
+    make_frame_plain(frames, buffers, args)
 }
 
-fn builtin_make_frame_plain_in_state(
+fn make_frame_plain(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
     args: Vec<Value>,
@@ -4759,7 +4750,7 @@ fn builtin_make_frame_plain_in_state(
         .unwrap_or(BufferId(0));
     let fid = frames.create_frame(&name, width, height, buf_id);
     tracing::debug!(
-        "builtin_make_frame_plain_in_state: created plain frame {:?} size={}x{} name={}",
+        "make_frame_plain: created plain frame {:?} size={}x{} name={}",
         fid,
         width,
         height,
@@ -4895,7 +4886,7 @@ pub(crate) fn builtin_x_create_frame(
     // already have queued resize events before Lisp reaches x-create-frame,
     // so apply them first instead of reusing stale bootstrap dimensions.
     eval.sync_pending_resize_events();
-    builtin_x_create_frame_in_state(
+    x_create_frame_impl(
         &mut eval.frames,
         &mut eval.buffers,
         &mut eval.display_host,
@@ -4903,7 +4894,7 @@ pub(crate) fn builtin_x_create_frame(
     )
 }
 
-pub(crate) fn builtin_x_create_frame_in_state(
+pub(crate) fn x_create_frame_impl(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
     display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
@@ -4913,7 +4904,7 @@ pub(crate) fn builtin_x_create_frame_in_state(
 
     let parsed = parse_gui_frame_params(args.first());
     tracing::debug!(
-        "builtin_x_create_frame_in_state: display_host_available={} params={:?}",
+        "x_create_frame_impl: display_host_available={} params={:?}",
         display_host.is_some(),
         args.first()
     );

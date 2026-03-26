@@ -646,7 +646,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("mapconcat", builtin_mapconcat, 0, None);
     ctx.defsubr("sort", builtin_sort, 0, None);
     ctx.defsubr("functionp", builtin_functionp_eval, 0, None);
-    ctx.defsubr("defvaralias", builtin_defvaralias_eval, 0, None);
+    ctx.defsubr("defvaralias", builtin_defvaralias, 0, None);
     ctx.defsubr("boundp", builtin_boundp, 0, None);
     ctx.defsubr("default-boundp", builtin_default_boundp, 0, None);
     ctx.defsubr(
@@ -961,25 +961,25 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "format-mode-line",
-        super::xdisp::builtin_format_mode_line_eval,
+        super::xdisp::builtin_format_mode_line_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "window-line-height",
-        super::xdisp::builtin_window_line_height_eval,
+        super::xdisp::builtin_window_line_height,
         0,
         None,
     );
     ctx.defsubr(
         "posn-at-point",
-        super::xdisp::builtin_posn_at_point_eval,
+        super::xdisp::builtin_posn_at_point,
         0,
         None,
     );
     ctx.defsubr(
         "posn-at-x-y",
-        super::xdisp::builtin_posn_at_x_y_eval,
+        super::xdisp::builtin_posn_at_x_y,
         0,
         None,
     );
@@ -991,13 +991,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "tool-bar-height",
-        super::xdisp::builtin_tool_bar_height_eval,
+        super::xdisp::builtin_tool_bar_height_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "tab-bar-height",
-        super::xdisp::builtin_tab_bar_height_eval,
+        super::xdisp::builtin_tab_bar_height_ctx,
         0,
         None,
     );
@@ -2627,25 +2627,25 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("recent-keys", builtin_recent_keys, 0, None);
     ctx.defsubr(
         "minibufferp",
-        super::minibuffer::builtin_minibufferp_eval,
+        super::minibuffer::builtin_minibufferp_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "minibuffer-contents",
-        super::minibuffer::builtin_minibuffer_contents,
+        super::minibuffer::builtin_minibuffer_contents_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "minibuffer-contents-no-properties",
-        super::minibuffer::builtin_minibuffer_contents_no_properties,
+        super::minibuffer::builtin_minibuffer_contents_no_properties_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "minibuffer-depth",
-        super::minibuffer::builtin_minibuffer_depth_eval,
+        super::minibuffer::builtin_minibuffer_depth_ctx,
         0,
         None,
     );
@@ -3226,7 +3226,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("read-char", super::reader::builtin_read_char, 0, None);
     ctx.defsubr(
         "minibuffer-innermost-command-loop-p",
-        super::minibuffer::builtin_minibuffer_innermost_command_loop_p_eval,
+        super::minibuffer::builtin_minibuffer_innermost_command_loop_p_ctx,
         0,
         None,
     );
@@ -5903,7 +5903,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "internal--define-uninitialized-variable",
-        builtin_internal_define_uninitialized_variable_eval,
+        symbols::builtin_internal_define_uninitialized_variable,
         0,
         None,
     );
@@ -5915,13 +5915,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "window-text-pixel-size",
-        super::xdisp::builtin_window_text_pixel_size_eval,
+        super::xdisp::builtin_window_text_pixel_size_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "pos-visible-in-window-p",
-        super::xdisp::builtin_pos_visible_in_window_p_eval,
+        super::xdisp::builtin_pos_visible_in_window_p_ctx,
         0,
         None,
     );
@@ -6089,7 +6089,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "active-minibuffer-window",
-        super::window_cmds::builtin_active_minibuffer_window_eval,
+        super::window_cmds::builtin_active_minibuffer_window,
         0,
         None,
     );
@@ -6305,25 +6305,25 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "waiting-for-user-input-p",
-        super::reader::builtin_waiting_for_user_input_p_eval,
+        super::reader::builtin_waiting_for_user_input_p_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "minibuffer-prompt",
-        super::minibuffer::builtin_minibuffer_prompt_eval,
+        super::minibuffer::builtin_minibuffer_prompt_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "minibuffer-prompt-end",
-        super::minibuffer::builtin_minibuffer_prompt_end_eval,
+        super::minibuffer::builtin_minibuffer_prompt_end_ctx,
         0,
         None,
     );
     ctx.defsubr(
         "innermost-minibuffer-p",
-        super::minibuffer::builtin_innermost_minibuffer_p_eval,
+        super::minibuffer::builtin_innermost_minibuffer_p_ctx,
         0,
         None,
     );
@@ -6335,7 +6335,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "abort-minibuffers",
-        super::minibuffer::builtin_abort_minibuffers_eval,
+        super::minibuffer::builtin_abort_minibuffers_ctx,
         0,
         None,
     );

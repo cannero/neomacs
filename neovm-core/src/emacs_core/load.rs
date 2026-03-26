@@ -442,7 +442,7 @@ fn generated_define_obsolete_variable_alias(
         });
     }
     let values = eval_generated_form_args(eval, args)?;
-    let result = super::builtins::builtin_defvaralias_eval(
+    let result = super::builtins::builtin_defvaralias(
         eval,
         vec![
             values[0],
@@ -510,7 +510,7 @@ fn try_eval_generated_loaddefs_form(
         "defvaralias" => {
             let values = eval_generated_form_args(eval, tail)?;
             Ok(Some(
-                super::builtins::builtin_defvaralias_eval(eval, values).map_err(map_flow)?,
+                super::builtins::builtin_defvaralias(eval, values).map_err(map_flow)?,
             ))
         }
         "defvar-local" => Ok(Some(

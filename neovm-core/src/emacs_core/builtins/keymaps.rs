@@ -135,10 +135,10 @@ pub(super) fn builtin_accessible_keymaps(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_accessible_keymaps_in_obarray(eval.obarray(), &args)
+    builtin_accessible_keymaps_impl(eval.obarray(), &args)
 }
 
-pub(crate) fn builtin_accessible_keymaps_in_obarray(
+pub(crate) fn builtin_accessible_keymaps_impl(
     obarray: &Obarray,
     args: &[Value],
 ) -> EvalResult {
@@ -243,10 +243,10 @@ pub(super) fn builtin_make_sparse_keymap(
 
 /// `(copy-keymap KEYMAP)` -> keymap copy.
 pub(super) fn builtin_copy_keymap(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_copy_keymap_in_obarray(eval.obarray(), &args)
+    builtin_copy_keymap_impl(eval.obarray(), &args)
 }
 
-pub(crate) fn builtin_copy_keymap_in_obarray(obarray: &Obarray, args: &[Value]) -> EvalResult {
+pub(crate) fn builtin_copy_keymap_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("copy-keymap", &args, 1)?;
     let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
     Ok(list_keymap_copy(&keymap))
@@ -272,10 +272,10 @@ pub(super) fn builtin_define_key(eval: &mut super::eval::Context, args: Vec<Valu
 
 /// (lookup-key KEYMAP KEY) -> binding or nil
 pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_lookup_key_in_obarray(eval.obarray(), &args)
+    builtin_lookup_key_impl(eval.obarray(), &args)
 }
 
-pub(crate) fn builtin_lookup_key_in_obarray(obarray: &Obarray, args: &[Value]) -> EvalResult {
+pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_min_args("lookup-key", &args, 2)?;
     expect_max_args("lookup-key", &args, 3)?;
     // Optional 3rd arg ACCEPT-DEFAULTS is accepted but ignored.
@@ -401,10 +401,10 @@ pub(super) fn builtin_use_global_map(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_use_global_map_in_obarray(&mut eval.obarray, &args)
+    builtin_use_global_map_impl(&mut eval.obarray, &args)
 }
 
-pub(crate) fn builtin_use_global_map_in_obarray(
+pub(crate) fn builtin_use_global_map_impl(
     obarray: &mut Obarray,
     args: &[Value],
 ) -> EvalResult {
@@ -419,10 +419,10 @@ pub(super) fn builtin_current_local_map(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_local_map_in_state(eval.buffers.current_local_map(), &args)
+    builtin_current_local_map_impl(eval.buffers.current_local_map(), &args)
 }
 
-pub(crate) fn builtin_current_local_map_in_state(
+pub(crate) fn builtin_current_local_map_impl(
     current_local_map: Value,
     args: &[Value],
 ) -> EvalResult {
@@ -447,10 +447,10 @@ pub(super) fn builtin_current_active_maps(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_active_maps_in_state(eval, &args)
+    builtin_current_active_maps_impl(eval, &args)
 }
 
-pub(crate) fn builtin_current_active_maps_in_state(
+pub(crate) fn builtin_current_active_maps_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: &[Value],
 ) -> EvalResult {
@@ -477,10 +477,10 @@ pub(super) fn builtin_current_minor_mode_maps(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_minor_mode_maps_in_state(eval, &args)
+    builtin_current_minor_mode_maps_impl(eval, &args)
 }
 
-pub(crate) fn builtin_current_minor_mode_maps_in_state(
+pub(crate) fn builtin_current_minor_mode_maps_impl(
     ctx: &crate::emacs_core::eval::Context,
     args: &[Value],
 ) -> EvalResult {
@@ -759,10 +759,10 @@ pub(super) fn builtin_keymap_parent(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_keymap_parent_in_obarray(eval.obarray(), &args)
+    builtin_keymap_parent_impl(eval.obarray(), &args)
 }
 
-pub(crate) fn builtin_keymap_parent_in_obarray(obarray: &Obarray, args: &[Value]) -> EvalResult {
+pub(crate) fn builtin_keymap_parent_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("keymap-parent", &args, 1)?;
     let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
     Ok(list_keymap_parent(&keymap))
@@ -773,10 +773,10 @@ pub(super) fn builtin_set_keymap_parent(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_keymap_parent_in_obarray(eval.obarray(), &args)
+    builtin_set_keymap_parent_impl(eval.obarray(), &args)
 }
 
-pub(crate) fn builtin_set_keymap_parent_in_obarray(
+pub(crate) fn builtin_set_keymap_parent_impl(
     obarray: &Obarray,
     args: &[Value],
 ) -> EvalResult {
@@ -797,10 +797,10 @@ pub(super) fn is_lisp_keymap_object(value: &Value) -> bool {
 
 /// (keymapp OBJ) -> t or nil
 pub(super) fn builtin_keymapp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_keymapp_in_obarray(eval.obarray(), &args)
+    builtin_keymapp_impl(eval.obarray(), &args)
 }
 
-pub(crate) fn builtin_keymapp_in_obarray(obarray: &Obarray, args: &[Value]) -> EvalResult {
+pub(crate) fn builtin_keymapp_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("keymapp", &args, 1)?;
     if is_list_keymap(&args[0]) {
         return Ok(Value::True);
@@ -1021,10 +1021,10 @@ pub(crate) fn builtin_key_description(args: Vec<Value>) -> EvalResult {
 
 /// `(recent-keys &optional INCLUDE-CMDS)` -> vector of recent input events.
 pub(crate) fn builtin_recent_keys(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_recent_keys_in_state(eval, args)
+    builtin_recent_keys_impl(eval, args)
 }
 
-pub(crate) fn builtin_recent_keys_in_state(
+pub(crate) fn builtin_recent_keys_impl(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

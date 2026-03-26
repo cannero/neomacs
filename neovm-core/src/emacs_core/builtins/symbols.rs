@@ -342,20 +342,12 @@ pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
 }
 
 pub(crate) fn builtin_boundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_boundp_in_state(eval.obarray(), &[], &eval.buffers, args)
-}
-
-pub(crate) fn builtin_boundp_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+    let obarray = eval.obarray();
     expect_args("boundp", &args, 1)?;
     let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
     // specbind writes directly to obarray, so no dynamic stack lookup needed.
     let resolved_name = resolve_sym(resolved);
-    if let Some(buf) = buffers.current_buffer() {
+    if let Some(buf) = eval.buffers.current_buffer() {
         if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
             return Ok(Value::bool(binding.as_value().is_some()));
         }
@@ -412,30 +404,19 @@ pub(crate) fn builtin_default_toplevel_value(
     }
 }
 
-pub(crate) fn builtin_internal_define_uninitialized_variable_eval(
+pub(crate) fn builtin_internal_define_uninitialized_variable(
     eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_internal_define_uninitialized_variable_in_obarray(eval.obarray_mut(), args.clone())?;
-    let documentation = args.get(1).copied().unwrap_or(Value::Nil);
-    if !documentation.is_nil() {
-        preflight_symbol_plist_put(eval, &args[0], "variable-documentation")?;
-    }
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_internal_define_uninitialized_variable_in_obarray(
-    obarray: &mut Obarray,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("internal--define-uninitialized-variable", &args, 1, 2)?;
     let symbol = expect_symbol_id(&args[0])?;
     let documentation = args.get(1).copied().unwrap_or(Value::Nil);
 
-    obarray.make_special_id(symbol);
+    eval.obarray_mut().make_special_id(symbol);
 
     if !documentation.is_nil() {
-        obarray.put_property_id(symbol, intern("variable-documentation"), documentation);
+        eval.obarray_mut().put_property_id(symbol, intern("variable-documentation"), documentation);
+        preflight_symbol_plist_put(eval, &args[0], "variable-documentation")?;
     }
 
     Ok(Value::Nil)
@@ -445,7 +426,7 @@ pub(crate) fn builtin_set_default_toplevel_value(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_default_toplevel_value_in_obarray(eval, args.clone())?;
+    set_default_toplevel_value_impl(eval, args.clone())?;
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id(eval, symbol)?;
     let resolved_name = resolve_sym(resolved);
@@ -457,7 +438,7 @@ pub(crate) fn builtin_set_default_toplevel_value(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_set_default_toplevel_value_in_obarray(
+pub(crate) fn set_default_toplevel_value_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -472,11 +453,11 @@ pub(crate) fn builtin_set_default_toplevel_value_in_obarray(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_defvaralias_eval(
+pub(crate) fn builtin_defvaralias(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let state_change = builtin_defvaralias_in_state(eval, args.clone())?;
+    let state_change = defvaralias_impl(eval, args.clone())?;
     eval.run_variable_watchers(
         &state_change.previous_target,
         &state_change.base_variable,
@@ -506,7 +487,7 @@ pub(crate) struct DefvaraliasStateChange {
     pub(crate) result: Value,
 }
 
-pub(crate) fn builtin_defvaralias_in_state(
+pub(crate) fn defvaralias_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> Result<DefvaraliasStateChange, Flow> {
@@ -585,15 +566,7 @@ pub(crate) fn builtin_symbol_value(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_symbol_value_in_state(eval.obarray(), &[], &eval.buffers, args)
-}
-
-pub(crate) fn builtin_symbol_value_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+    let obarray = eval.obarray();
     expect_args("symbol-value", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
@@ -601,7 +574,7 @@ pub(crate) fn builtin_symbol_value_in_state(
     let resolved_is_canonical = is_canonical_symbol_id(resolved);
     // specbind writes directly to obarray, so no dynamic stack lookup needed.
     // Buffer-local bindings are keyed by canonical symbol names only.
-    if resolved_is_canonical && let Some(buf) = buffers.current_buffer() {
+    if resolved_is_canonical && let Some(buf) = eval.buffers.current_buffer() {
         if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
             return binding
                 .as_value()
@@ -900,9 +873,9 @@ pub(crate) fn builtin_defvar_1_eval(
     let was_bound = builtin_default_boundp(eval, vec![args[0]])?.is_truthy();
 
     if documentation.is_nil() {
-        builtin_internal_define_uninitialized_variable_eval(eval, vec![args[0]])?;
+        builtin_internal_define_uninitialized_variable(eval, vec![args[0]])?;
     } else {
-        builtin_internal_define_uninitialized_variable_eval(eval, vec![args[0], documentation])?;
+        builtin_internal_define_uninitialized_variable(eval, vec![args[0], documentation])?;
     }
 
     if !was_bound {
@@ -921,9 +894,9 @@ pub(crate) fn builtin_defconst_1_eval(
     let documentation = args.get(2).copied().unwrap_or(Value::Nil);
 
     if documentation.is_nil() {
-        builtin_internal_define_uninitialized_variable_eval(eval, vec![args[0]])?;
+        builtin_internal_define_uninitialized_variable(eval, vec![args[0]])?;
     } else {
-        builtin_internal_define_uninitialized_variable_eval(eval, vec![args[0], documentation])?;
+        builtin_internal_define_uninitialized_variable(eval, vec![args[0], documentation])?;
     }
 
     let resolved = resolve_variable_alias_id(eval, symbol)?;
@@ -2375,13 +2348,13 @@ pub(crate) fn builtin_intern_soft(eval: &mut super::eval::Context, args: Vec<Val
         if is_global_obarray_proxy(eval, obarray) {
             let mut global_args = args;
             global_args.truncate(1);
-            return builtin_intern_soft_in_obarray(eval.obarray(), global_args);
+            return intern_soft_impl(eval.obarray(), global_args);
         }
     }
-    builtin_intern_soft_in_obarray(eval.obarray(), args)
+    intern_soft_impl(eval.obarray(), args)
 }
 
-pub(crate) fn builtin_intern_soft_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
+pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_min_args("intern-soft", &args, 1)?;
     expect_max_args("intern-soft", &args, 2)?;
     if let Some(obarray) = args.get(1) {
@@ -3770,26 +3743,7 @@ pub(crate) fn builtin_xw_display_color_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_xw_display_color_p_eval(
-    eval: &super::super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("xw-display-color-p", &args, 0, 1)?;
-    if super::super::display::display_window_system_symbol_in_state(
-        &eval.frames,
-        &eval.obarray,
-        &[],
-        args.first(),
-    )?
-    .is_some_and(super::super::display::gui_window_system_active_value)
-    {
-        Ok(Value::True)
-    } else {
-        Ok(Value::Nil)
-    }
-}
-
-pub(crate) fn builtin_xw_display_color_p_in_state(
+pub(crate) fn builtin_xw_display_color_p_ctx(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

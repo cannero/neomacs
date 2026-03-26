@@ -739,7 +739,7 @@ pub(crate) fn builtin_plist_member(
         .get(2)
         .and_then(|value| if value.is_nil() { None } else { Some(*value) });
     if predicate.is_none() {
-        return builtin_plist_member_in_state(args);
+        return plist_member_eq(args);
     }
 
     expect_range_args("plist-member", &args, 2, 3)?;
@@ -801,7 +801,7 @@ pub(crate) fn builtin_plist_member(
     result
 }
 
-pub(crate) fn builtin_plist_member_in_state(args: Vec<Value>) -> EvalResult {
+pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
     expect_range_args("plist-member", &args, 2, 3)?;
     let plist = args[0];
     let prop = args[1];

@@ -253,14 +253,7 @@ fn stdin_end_of_file_error() -> Flow {
 /// Returns `(OBJECT . END-POSITION)` where END-POSITION is the character index
 /// after the parsed object.
 pub(crate) fn builtin_read_from_string(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_read_from_string_in_state(eval, args)
-}
-
-pub(crate) fn builtin_read_from_string_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     read_from_string_impl(&ctx.obarray, args)
@@ -567,11 +560,7 @@ fn skip_ws_comments(input: &str, mut pos: usize) -> usize {
 /// - If STREAM is a string, read from that string (equivalent to car of read-from-string).
 /// - If STREAM is nil, would read from stdin (returns nil in non-interactive mode).
 /// - If STREAM is a buffer, read from buffer at point.
-pub(crate) fn builtin_read(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_read_in_state(eval, args)
-}
-
-pub(crate) fn builtin_read_in_state(
+pub(crate) fn builtin_read(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1543,14 +1532,7 @@ impl KeyboardInputRuntime for super::eval::Context {
 /// Return non-nil when `unread-command-events` has at least one pending event.
 /// `CHECK-TIMERS` is currently accepted for arity compatibility and ignored.
 pub(crate) fn builtin_input_pending_p(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_input_pending_p_in_state(eval, args)
-}
-
-pub(crate) fn builtin_input_pending_p_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("input-pending-p", &args, 1)?;
@@ -1567,13 +1549,6 @@ pub(crate) fn builtin_input_pending_p_in_state(
 ///
 /// Discard pending unread command events for the current scope.
 pub(crate) fn builtin_discard_input(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_discard_input_in_state(eval, args)
-}
-
-pub(crate) fn builtin_discard_input_in_state(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1595,14 +1570,7 @@ pub(crate) fn builtin_discard_input_in_state(
 
 /// `(current-input-mode)` -> `(INTERRUPT FLOW META QUIT)`
 pub(crate) fn builtin_current_input_mode(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_current_input_mode_in_state(eval, args)
-}
-
-pub(crate) fn builtin_current_input_mode_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-input-mode", &args, 0)?;
@@ -1628,16 +1596,6 @@ pub(crate) fn builtin_set_input_mode(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_set_input_mode_in_state(
-    ctx: &mut crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_min_args("set-input-mode", &args, 3)?;
-    expect_max_args("set-input-mode", &args, 4)?;
-    ctx.input_mode_interrupt = args[0].is_truthy();
-    Ok(Value::Nil)
-}
-
 // ---------------------------------------------------------------------------
 // 13. input mode helper setters
 // ---------------------------------------------------------------------------
@@ -1649,15 +1607,6 @@ pub(crate) fn builtin_set_input_interrupt_mode(
 ) -> EvalResult {
     expect_args("set-input-interrupt-mode", &args, 1)?;
     eval.set_input_mode_interrupt(args[0].is_truthy());
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_set_input_interrupt_mode_in_state(
-    ctx: &mut crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("set-input-interrupt-mode", &args, 1)?;
-    ctx.input_mode_interrupt = args[0].is_truthy();
     Ok(Value::Nil)
 }
 
@@ -1796,19 +1745,12 @@ pub(crate) fn builtin_waiting_for_user_input_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_waiting_for_user_input_p_eval(
+pub(crate) fn builtin_waiting_for_user_input_p_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_waiting_for_user_input_p_in_state(eval.waiting_for_user_input(), args)
-}
-
-pub(crate) fn builtin_waiting_for_user_input_p_in_state(
-    waiting_for_user_input: bool,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("waiting-for-user-input-p", &args, 0)?;
-    Ok(Value::bool(waiting_for_user_input))
+    Ok(Value::bool(eval.waiting_for_user_input()))
 }
 
 // ---------------------------------------------------------------------------

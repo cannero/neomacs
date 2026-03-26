@@ -1001,44 +1001,29 @@ pub(crate) fn builtin_minibuffer_prompt(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_minibuffer_prompt_eval(
+pub(crate) fn builtin_minibuffer_prompt_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_minibuffer_prompt_in_state(&eval.minibuffers, args)
-}
-
-pub(crate) fn builtin_minibuffer_prompt_in_state(
-    minibuffers: &MinibufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("minibuffer-prompt", &args, 0)?;
-    Ok(minibuffers
+    Ok(eval.minibuffers
         .current()
         .map(|state| Value::string(&state.prompt))
         .unwrap_or(Value::Nil))
 }
 
-pub(crate) fn builtin_minibuffer_prompt_end_eval(
+pub(crate) fn builtin_minibuffer_prompt_end_ctx(
     eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_minibuffer_prompt_end_in_state(&eval.minibuffers, &eval.buffers, args)
-}
-
-pub(crate) fn builtin_minibuffer_prompt_end_in_state(
-    minibuffers: &MinibufferManager,
-    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer-prompt-end", &args, 0)?;
 
-    let Some(buffer) = buffers.current_buffer() else {
+    let Some(buffer) = eval.buffers.current_buffer() else {
         return Ok(Value::Int(1));
     };
     let point_min = buffer.point_min_char() as i64 + 1;
 
-    let Some(state) = minibuffers.current() else {
+    let Some(state) = eval.minibuffers.current() else {
         return Ok(Value::Int(point_min));
     };
     if state.buffer_id != buffer.id {
@@ -1053,20 +1038,12 @@ pub(crate) fn builtin_minibuffer_prompt_end_in_state(
 /// `(minibuffer-contents)` — returns the current minibuffer contents.
 ///
 /// In non-interactive batch mode, Emacs exposes current buffer contents.
-pub(crate) fn builtin_minibuffer_contents(
+pub(crate) fn builtin_minibuffer_contents_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_minibuffer_contents_in_state(&eval.minibuffers, &eval.buffers, args)
-}
-
-pub(crate) fn builtin_minibuffer_contents_in_state(
-    minibuffers: &MinibufferManager,
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("minibuffer-contents", &args, 0)?;
-    let text = minibuffer_contents_string(minibuffers, buffers);
+    let text = minibuffer_contents_string(&eval.minibuffers, &eval.buffers);
     Ok(Value::string(text))
 }
 
@@ -1075,20 +1052,12 @@ pub(crate) fn builtin_minibuffer_contents_in_state(
 ///
 /// NeoVM stores plain strings for this path, so this is equivalent to
 /// `minibuffer-contents` in batch mode.
-pub(crate) fn builtin_minibuffer_contents_no_properties(
+pub(crate) fn builtin_minibuffer_contents_no_properties_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_minibuffer_contents_no_properties_in_state(&eval.minibuffers, &eval.buffers, args)
-}
-
-pub(crate) fn builtin_minibuffer_contents_no_properties_in_state(
-    minibuffers: &MinibufferManager,
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("minibuffer-contents-no-properties", &args, 0)?;
-    let text = minibuffer_contents_string(minibuffers, buffers);
+    let text = minibuffer_contents_string(&eval.minibuffers, &eval.buffers);
     Ok(Value::string(text))
 }
 
@@ -1100,19 +1069,12 @@ pub(crate) fn builtin_minibuffer_depth(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int(0))
 }
 
-pub(crate) fn builtin_minibuffer_depth_eval(
+pub(crate) fn builtin_minibuffer_depth_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_minibuffer_depth_in_state(&eval.minibuffers, args)
-}
-
-pub(crate) fn builtin_minibuffer_depth_in_state(
-    minibuffers: &MinibufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("minibuffer-depth", &args, 0)?;
-    Ok(Value::Int(minibuffers.depth() as i64))
+    Ok(Value::Int(eval.minibuffers.depth() as i64))
 }
 
 /// `(minibufferp &optional BUFFER)` — returns t if BUFFER is a minibuffer.
@@ -1124,54 +1086,33 @@ pub(crate) fn builtin_minibufferp(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_minibufferp_eval(
+pub(crate) fn builtin_minibufferp_ctx(
     eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_minibufferp_in_state(&eval.minibuffers, &eval.buffers, args)
-}
-
-pub(crate) fn builtin_minibufferp_in_state(
-    minibuffers: &MinibufferManager,
-    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     validate_minibufferp_args(&args)?;
     let live_only = args.get(1).is_some_and(Value::is_truthy);
-    let Some(buffer_id) = resolve_minibuffer_buffer_arg(buffers, args.first())? else {
+    let Some(buffer_id) = resolve_minibuffer_buffer_arg(&eval.buffers, args.first())? else {
         return Ok(Value::Nil);
     };
-    let is_live = minibuffers.has_buffer(buffer_id);
+    let is_live = eval.minibuffers.has_buffer(buffer_id);
     let is_minibuffer = is_live
-        || buffers
+        || eval.buffers
             .get(buffer_id)
             .is_some_and(|buffer| is_minibuffer_buffer_name(&buffer.name));
     Ok(Value::bool(if live_only { is_live } else { is_minibuffer }))
 }
 
-pub(crate) fn builtin_minibuffer_innermost_command_loop_p_eval(
+pub(crate) fn builtin_minibuffer_innermost_command_loop_p_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_minibuffer_innermost_command_loop_p_in_state(
-        &eval.minibuffers,
-        &eval.buffers,
-        eval.command_loop.recursive_depth,
-        args,
-    )
-}
-
-pub(crate) fn builtin_minibuffer_innermost_command_loop_p_in_state(
-    minibuffers: &MinibufferManager,
-    buffers: &BufferManager,
-    recursive_depth: usize,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("minibuffer-innermost-command-loop-p", &args, 0, 1)?;
-    let Some(buffer_id) = resolve_minibuffer_buffer_arg(buffers, args.first())? else {
+    let Some(buffer_id) = resolve_minibuffer_buffer_arg(&eval.buffers, args.first())? else {
         return Ok(Value::Nil);
     };
-    let command_loop_depth = minibuffers
+    let recursive_depth = eval.command_loop.recursive_depth;
+    let command_loop_depth = eval.minibuffers
         .state_stack
         .iter()
         .find(|state| state.buffer_id == buffer_id)
@@ -1181,24 +1122,16 @@ pub(crate) fn builtin_minibuffer_innermost_command_loop_p_in_state(
     ))
 }
 
-pub(crate) fn builtin_innermost_minibuffer_p_eval(
+pub(crate) fn builtin_innermost_minibuffer_p_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_innermost_minibuffer_p_in_state(&eval.minibuffers, &eval.buffers, args)
-}
-
-pub(crate) fn builtin_innermost_minibuffer_p_in_state(
-    minibuffers: &MinibufferManager,
-    buffers: &BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("innermost-minibuffer-p", &args, 0, 1)?;
-    let Some(buffer_id) = resolve_minibuffer_buffer_arg(buffers, args.first())? else {
+    let Some(buffer_id) = resolve_minibuffer_buffer_arg(&eval.buffers, args.first())? else {
         return Ok(Value::Nil);
     };
     Ok(Value::bool(
-        minibuffers
+        eval.minibuffers
             .current()
             .is_some_and(|state| state.buffer_id == buffer_id),
     ))
@@ -1304,22 +1237,14 @@ pub(crate) fn builtin_abort_minibuffers(args: Vec<Value>) -> EvalResult {
     Err(signal("error", vec![Value::string("Not in a minibuffer")]))
 }
 
-pub(crate) fn builtin_abort_minibuffers_eval(
+pub(crate) fn builtin_abort_minibuffers_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_abort_minibuffers_in_state(&eval.minibuffers, &eval.buffers, args)
-}
-
-pub(crate) fn builtin_abort_minibuffers_in_state(
-    minibuffers: &MinibufferManager,
-    buffers: &BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("abort-minibuffers", &args, 0)?;
-    let in_active_minibuffer = buffers
+    let in_active_minibuffer = eval.buffers
         .current_buffer_id()
-        .is_some_and(|buffer_id| minibuffers.has_buffer(buffer_id));
+        .is_some_and(|buffer_id| eval.minibuffers.has_buffer(buffer_id));
     if !in_active_minibuffer {
         return Err(signal("error", vec![Value::string("Not in a minibuffer")]));
     }

@@ -75,7 +75,7 @@ fn test_format_mode_line_eval_optional_designators() {
     let frame_id = eval.frames.create_frame("xdisp-format", 80, 24, buffer_id);
     let window_id = eval.frames.get(frame_id).expect("frame").selected_window.0 as i64;
 
-    let ok = builtin_format_mode_line_eval(
+    let ok = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::string("%b"),
@@ -93,7 +93,7 @@ fn test_format_mode_line_eval_optional_designators() {
         .unwrap_or("");
     assert_eq!(ok, Value::string(buf_name));
 
-    let err = builtin_format_mode_line_eval(
+    let err = builtin_format_mode_line_ctx(
         &mut eval,
         vec![Value::string("%b"), Value::Nil, Value::string("x")],
     )
@@ -103,7 +103,7 @@ fn test_format_mode_line_eval_optional_designators() {
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
 
-    let err = builtin_format_mode_line_eval(
+    let err = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::string("%b"),
@@ -156,7 +156,7 @@ fn test_format_mode_line_eval_uses_explicit_buffer_instead_of_current_buffer() {
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*other*");
 
-    let ok = builtin_format_mode_line_eval(
+    let ok = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::string("%b"),
@@ -192,7 +192,7 @@ fn test_format_mode_line_eval_uses_window_buffer_instead_of_current_buffer() {
         selected.0 as i64
     };
 
-    let ok = builtin_format_mode_line_eval(
+    let ok = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::string("%b"),
@@ -216,7 +216,7 @@ fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer(
         .set_buffer_local_property(other_id, "mode-name", Value::string("Neo"))
         .expect("mode-name local should set");
 
-    let rendered = builtin_format_mode_line_in_state(
+    let rendered = format_mode_line_from_state(
         &eval.obarray,
         &[],
         &eval.frames,
@@ -250,7 +250,7 @@ fn test_format_mode_line_eval_keeps_shared_buffer_context_around_eval_forms() {
         .set_buffer_local_property(other_id, "mode-name", Value::string("Neo"))
         .expect("mode-name local should set");
 
-    let rendered = builtin_format_mode_line_eval(
+    let rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::list(vec![
@@ -311,7 +311,7 @@ fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
     let mut eval = super::super::eval::Context::new();
     eval.obarray.set_symbol_value("mode-line-flag", Value::True);
 
-    let then_rendered = builtin_format_mode_line_eval(
+    let then_rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![Value::list(vec![
             Value::symbol("mode-line-flag"),
@@ -325,7 +325,7 @@ fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
     .expect("format-mode-line should use then branch");
 
     eval.obarray.set_symbol_value("mode-line-flag", Value::Nil);
-    let else_rendered = builtin_format_mode_line_eval(
+    let else_rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![Value::list(vec![
             Value::symbol("mode-line-flag"),
@@ -350,7 +350,7 @@ fn test_format_mode_line_string_valued_symbols_render_literally() {
         .set_buffer_local_property(other_id, "mode-name", Value::string("%b"))
         .expect("mode-name local should set");
 
-    let rendered = builtin_format_mode_line_in_state(
+    let rendered = format_mode_line_from_state(
         &eval.obarray,
         &[],
         &eval.frames,
@@ -374,7 +374,7 @@ fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
     let mut eval = super::super::eval::Context::new();
     let other_id = eval.buffers.create_buffer("xy");
 
-    let rendered = builtin_format_mode_line_in_state(
+    let rendered = format_mode_line_from_state(
         &eval.obarray,
         &[],
         &eval.frames,
@@ -402,7 +402,7 @@ fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics()
     let mut eval = super::super::eval::Context::new();
     let other_id = eval.buffers.create_buffer("xy");
 
-    let rendered = builtin_format_mode_line_in_state(
+    let rendered = format_mode_line_from_state(
         &eval.obarray,
         &[],
         &eval.frames,
@@ -439,10 +439,10 @@ fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
         .put_property("trusted-mode-line", "risky-local-variable", Value::True);
 
     let suppressed =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::symbol("unsafe-mode-line")])
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::symbol("unsafe-mode-line")])
             .expect("unsafe mode-line variable should be suppressed");
     let allowed =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::symbol("trusted-mode-line")])
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::symbol("trusted-mode-line")])
             .expect("trusted mode-line variable should evaluate");
 
     assert_eq!(suppressed, Value::string(""));
@@ -452,7 +452,7 @@ fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
 #[test]
 fn test_format_mode_line_propertize_preserves_text_properties() {
     let mut eval = super::super::eval::Context::new();
-    let rendered = builtin_format_mode_line_eval(
+    let rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![Value::list(vec![
             Value::symbol(":propertize"),
@@ -505,7 +505,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
     );
 
     let rendered =
-        builtin_format_mode_line_eval(&mut eval, vec![format]).expect("format-mode-line props");
+        builtin_format_mode_line_ctx(&mut eval, vec![format]).expect("format-mode-line props");
 
     assert_eq!(rendered.as_str(), Some("fmt-prop-buffer!"));
     let Value::Str(id) = rendered else {
@@ -544,7 +544,7 @@ fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
     }
 
     let status =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%*|%+|%&")]).expect("status");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%*|%+|%&")]).expect("status");
     assert_eq!(status, Value::string("%|*|*"));
 
     {
@@ -555,14 +555,14 @@ fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
     }
 
     let narrowed =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%n")]).expect("narrow");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%n")]).expect("narrow");
     assert_eq!(narrowed, Value::string(" Narrow"));
 }
 
 #[test]
 fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_face() {
     let mut eval = super::super::eval::Context::new();
-    let rendered = builtin_format_mode_line_eval(
+    let rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::list(vec![
@@ -600,7 +600,7 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
 #[test]
 fn test_format_mode_line_integer_face_argument_discards_text_properties() {
     let mut eval = super::super::eval::Context::new();
-    let rendered = builtin_format_mode_line_eval(
+    let rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::list(vec![
@@ -629,7 +629,7 @@ fn test_format_mode_line_integer_face_argument_discards_text_properties() {
 #[test]
 fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
     let mut eval = super::super::eval::Context::new();
-    let rendered = builtin_format_mode_line_eval(
+    let rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![Value::list(vec![
             Value::Int(5),
@@ -661,12 +661,12 @@ fn test_format_mode_line_recursive_depth_specs_match_gnu() {
 
     eval.command_loop.recursive_depth = 3;
     let shallow =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%[|%]")]).expect("depth 3");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%[|%]")]).expect("depth 3");
     assert_eq!(shallow, Value::string("[[[|]]]"));
 
     eval.command_loop.recursive_depth = 6;
     let deep =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%[|%]")]).expect("depth 6");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%[|%]")]).expect("depth 6");
     assert_eq!(deep, Value::string("[[[... | ...]]]"));
 }
 
@@ -681,7 +681,7 @@ fn test_format_mode_line_size_and_process_specs_match_gnu() {
     }
 
     let no_process =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%i|%I|%s")]).expect("specs");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%i|%I|%s")]).expect("specs");
     assert_eq!(no_process, Value::string("1536|1.5k|no process"));
 
     eval.processes.create_process(
@@ -691,7 +691,7 @@ fn test_format_mode_line_size_and_process_specs_match_gnu() {
         vec![],
     );
     let with_process =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%i|%I|%s")]).expect("specs");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%i|%I|%s")]).expect("specs");
     assert_eq!(with_process, Value::string("1536|1.5k|run"));
 }
 
@@ -707,7 +707,7 @@ fn test_format_mode_line_column_c_and_big_c_specs_match_gnu() {
     }
 
     let rendered =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%c|%C")]).expect("col specs");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%c|%C")]).expect("col specs");
     // %c = 0-indexed column (3), %C = 1-indexed column (4)
     assert_eq!(rendered, Value::string("3|4"));
 }
@@ -722,14 +722,14 @@ fn test_format_mode_line_major_mode_name_spec_matches_gnu() {
         .expect("set mode-name");
 
     let rendered =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%m")]).expect("mode spec");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%m")]).expect("mode spec");
     assert_eq!(rendered, Value::string("Emacs-Lisp"));
 
     // Default mode-name is "Fundamental"
     let other_id = eval.buffers.create_buffer("default-mode");
     eval.buffers.set_current(other_id);
     let default =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%m")]).expect("default mode");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%m")]).expect("default mode");
     assert_eq!(default, Value::string("Fundamental"));
 }
 
@@ -743,14 +743,14 @@ fn test_format_mode_line_remote_at_spec_matches_gnu() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/home/user"));
     let local =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%@")]).expect("local @");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%@")]).expect("local @");
     assert_eq!(local, Value::string("-"));
 
     // Remote (Tramp-style) directory → "@"
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/ssh:host:/home/user"));
     let remote =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%@")]).expect("remote @");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%@")]).expect("remote @");
     assert_eq!(remote, Value::string("@"));
 }
 
@@ -769,7 +769,7 @@ fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
         )
         .expect("set coding");
     let z =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%z|%Z")]).expect("coding z");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%z|%Z")]).expect("coding z");
     assert_eq!(z, Value::string("U|U:"));
 
     // undecided-dos → mnemonic '-', EOL '\'
@@ -781,7 +781,7 @@ fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
         )
         .expect("set coding dos");
     let dos =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%z|%Z")]).expect("coding dos");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%z|%Z")]).expect("coding dos");
     assert_eq!(dos, Value::string("-|-\\"));
 }
 
@@ -793,7 +793,7 @@ fn test_format_mode_line_position_o_and_q_specs() {
 
     // Empty buffer → "All" for %o, "All   " (with trailing spaces) for %q (GNU compat)
     let empty =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%o|%q")]).expect("empty");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%o|%q")]).expect("empty");
     assert_eq!(empty, Value::string("All|All   "));
 
     // With content and no window set, fallback covers full buffer → "All"
@@ -802,7 +802,7 @@ fn test_format_mode_line_position_o_and_q_specs() {
         buffer.insert(&"x".repeat(100));
     }
     let all_visible =
-        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%o|%p")]).expect("all");
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%o|%p")]).expect("all");
     assert_eq!(all_visible, Value::string("All|All"));
 
     // Set up frame/window to test partial visibility.
@@ -822,7 +822,7 @@ fn test_format_mode_line_position_o_and_q_specs() {
         }
     }
 
-    let mid = builtin_format_mode_line_eval(
+    let mid = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::string("%o|%p|%P"),
@@ -849,7 +849,7 @@ fn test_format_mode_line_position_o_and_q_specs() {
             other => panic!("expected leaf window, got {:?}", other),
         }
     }
-    let at_top = builtin_format_mode_line_eval(
+    let at_top = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::string("%o|%p"),
@@ -899,7 +899,7 @@ fn test_format_mode_line_percent_specs_use_window_buffer_and_completed_window_en
     }
     eval.buffers.set_current(other_id);
 
-    let rendered = builtin_format_mode_line_eval(
+    let rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![
             Value::string("%o|%p|%P"),
@@ -1000,14 +1000,14 @@ fn test_window_text_pixel_size_eval_window_validation() {
     let selected_window = eval.frames.get(frame_id).expect("frame").selected_window.0 as i64;
 
     let ok =
-        builtin_window_text_pixel_size_eval(&mut eval, vec![Value::Int(selected_window)]).unwrap();
+        builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::Int(selected_window)]).unwrap();
     match ok {
         Value::Cons(_) => {}
         other => panic!("expected cons return, got {other:?}"),
     }
 
     let err =
-        builtin_window_text_pixel_size_eval(&mut eval, vec![Value::Int(999_999)]).unwrap_err();
+        builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::Int(999_999)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected wrong-type-argument, got {:?}", other),
@@ -1056,7 +1056,7 @@ fn test_pos_visible_in_window_p() {
 #[test]
 fn test_pos_visible_in_window_p_eval_window_validation() {
     let mut eval = super::super::eval::Context::new();
-    let err = builtin_pos_visible_in_window_p_eval(&mut eval, vec![Value::Nil, Value::string("x")])
+    let err = builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::Nil, Value::string("x")])
         .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
@@ -1064,7 +1064,7 @@ fn test_pos_visible_in_window_p_eval_window_validation() {
     }
 
     let err =
-        builtin_pos_visible_in_window_p_eval(&mut eval, vec![Value::symbol("left"), Value::Int(1)])
+        builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::symbol("left"), Value::Int(1)])
             .unwrap_err();
     match err {
         Flow::Signal(sig) => {
@@ -1074,7 +1074,7 @@ fn test_pos_visible_in_window_p_eval_window_validation() {
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
 
-    let ok = builtin_pos_visible_in_window_p_eval(&mut eval, vec![Value::Int(1)]).unwrap();
+    let ok = builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::Int(1)]).unwrap();
     assert!(ok.is_nil());
 }
 
@@ -1107,7 +1107,7 @@ fn test_pos_visible_in_window_p_eval_returns_partial_geometry_for_live_window() 
         }
     }
 
-    let result = builtin_pos_visible_in_window_p_eval(
+    let result = builtin_pos_visible_in_window_p_ctx(
         &mut eval,
         vec![Value::Int(5), Value::Window(selected_window.0), Value::True],
     )
@@ -1146,12 +1146,12 @@ fn test_window_line_height_eval_returns_live_gui_row_metrics() {
         }
     }
 
-    let current = builtin_window_line_height_eval(
+    let current = builtin_window_line_height(
         &mut eval,
         vec![Value::Nil, Value::Window(selected_window.0)],
     )
     .unwrap();
-    let last = builtin_window_line_height_eval(
+    let last = builtin_window_line_height(
         &mut eval,
         vec![Value::Int(-1), Value::Window(selected_window.0)],
     )
@@ -1210,7 +1210,7 @@ fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
         }]);
     }
 
-    let result = builtin_posn_at_point_in_state(
+    let result = builtin_posn_at_point_impl(
         &mut eval.frames,
         &mut eval.buffers,
         vec![Value::Int(5), Value::Window(selected_window.0)],
@@ -1258,7 +1258,7 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
         }]);
     }
 
-    let text_relative = builtin_posn_at_x_y_in_state(
+    let text_relative = builtin_posn_at_x_y_impl(
         &mut eval.frames,
         &mut eval.buffers,
         vec![
@@ -1274,7 +1274,7 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
         "(#<window 1> 5 (24 . 18) 0 nil 5 (3 . 1) nil (0 . 0) (21 . 30))"
     );
 
-    let whole_window = builtin_posn_at_x_y_in_state(
+    let whole_window = builtin_posn_at_x_y_impl(
         &mut eval.frames,
         &mut eval.buffers,
         vec![
@@ -1344,19 +1344,19 @@ fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
         }]);
     }
 
-    let before = builtin_posn_at_point_in_state(
+    let before = builtin_posn_at_point_impl(
         &mut eval.frames,
         &mut eval.buffers,
         vec![Value::Int(5), Value::Window(selected_window.0)],
     )
     .unwrap();
-    let after = builtin_posn_at_point_in_state(
+    let after = builtin_posn_at_point_impl(
         &mut eval.frames,
         &mut eval.buffers,
         vec![Value::Int(20), Value::Window(selected_window.0)],
     )
     .unwrap();
-    let hidden_gap = builtin_posn_at_point_in_state(
+    let hidden_gap = builtin_posn_at_point_impl(
         &mut eval.frames,
         &mut eval.buffers,
         vec![Value::Int(12), Value::Window(selected_window.0)],
@@ -1439,7 +1439,7 @@ fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row(
         }]);
     }
 
-    let missing = builtin_posn_at_point_in_state(
+    let missing = builtin_posn_at_point_impl(
         &mut eval.frames,
         &mut eval.buffers,
         vec![Value::Int(2), Value::Window(selected_window.0)],
@@ -1647,10 +1647,10 @@ fn test_tool_bar_height_eval_frame_validation() {
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
 
     let result =
-        builtin_tool_bar_height_eval(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
+        builtin_tool_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
     assert_eq!(result, Value::Int(0));
 
-    let err = builtin_tool_bar_height_eval(&mut eval, vec![Value::string("x")]).unwrap_err();
+    let err = builtin_tool_bar_height_ctx(&mut eval, vec![Value::string("x")]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected wrong-type-argument, got {:?}", other),
@@ -1673,10 +1673,10 @@ fn test_tab_bar_height_eval_frame_validation() {
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
 
     let result =
-        builtin_tab_bar_height_eval(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
+        builtin_tab_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
     assert_eq!(result, Value::Int(0));
 
-    let err = builtin_tab_bar_height_eval(&mut eval, vec![Value::string("x")]).unwrap_err();
+    let err = builtin_tab_bar_height_ctx(&mut eval, vec![Value::string("x")]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected wrong-type-argument, got {:?}", other),
@@ -1704,11 +1704,11 @@ fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
     .unwrap();
 
     let lines =
-        builtin_tab_bar_height_eval(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
+        builtin_tab_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
     assert_eq!(lines, Value::Int(1));
 
     let pixels =
-        builtin_tab_bar_height_eval(&mut eval, vec![Value::Int(frame_id.0 as i64), Value::True])
+        builtin_tab_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64), Value::True])
             .unwrap();
     assert_eq!(pixels, Value::Int(20));
 

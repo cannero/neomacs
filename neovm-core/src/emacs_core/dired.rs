@@ -554,22 +554,7 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
 /// Complete file name FILE in DIRECTORY.
 /// Returns the longest common completion prefix, or t if FILE is an exact
 /// and unique match, or nil if no completions exist.
-pub(crate) fn builtin_file_name_completion(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    expect_range_args("file-name-completion", &args, 2, 3)?;
-
-    let file = expect_string("file-name-completion", &args[0])?;
-    let directory = expect_string("file-name-completion", &args[1])?;
-    let predicate = args.get(2);
-    if file.contains('/') {
-        return Ok(Value::Nil);
-    }
-    let completions = collect_file_name_completions(&file, &directory)?;
-    let completions =
-        filter_completions_by_symbol_predicate(eval, predicate, &directory, completions)?;
-    Ok(resolve_file_name_completion(&file, completions))
-}
-
-pub(crate) fn builtin_file_name_completion_in_state(
+pub(crate) fn builtin_file_name_completion(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {

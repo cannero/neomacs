@@ -79,7 +79,7 @@ fn active_minibuffer_window_tracks_live_minibuffer_state() {
 
     let minibuffer_window = super::builtin_minibuffer_window(&mut ev, vec![]).unwrap();
     let active_minibuffer_window =
-        super::builtin_active_minibuffer_window_eval(&mut ev, vec![]).unwrap();
+        super::builtin_active_minibuffer_window(&mut ev, vec![]).unwrap();
     assert_eq!(active_minibuffer_window, minibuffer_window);
     assert!(!active_minibuffer_window.is_nil());
 }

@@ -183,7 +183,7 @@ fn builtin_get_variable_watchers_tracks_runtime_registry() {
 #[test]
 fn variable_watcher_builtins_follow_runtime_alias_resolution() {
     let mut eval = super::super::eval::Context::new();
-    super::super::builtins::builtin_defvaralias_eval(
+    super::super::builtins::builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-watch-alias"),

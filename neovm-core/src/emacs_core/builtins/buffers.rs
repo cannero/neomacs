@@ -603,51 +603,6 @@ pub(crate) fn builtin_buffer_substring(
     Ok(result)
 }
 
-pub(crate) fn builtin_buffer_substring_in_manager(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    let buffers = &eval.buffers;
-    expect_args("buffer-substring", &args, 2)?;
-    let start = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
-    let current_id = buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = buffers
-        .get(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.point_min_char() as i64 + 1;
-    let point_max = buf.point_max_char() as i64 + 1;
-    if start < point_min || start > point_max || end < point_min || end > point_max {
-        return Err(signal(
-            "args-out-of-range",
-            vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
-        ));
-    }
-    let start = start as usize;
-    let end = end as usize;
-    let s = if start > 0 { start - 1 } else { 0 };
-    let e = if end > 0 { end - 1 } else { 0 };
-    let byte_start = buf.text.char_to_byte(s);
-    let byte_end = buf.text.char_to_byte(e);
-    let (byte_lo, byte_hi) = if byte_start <= byte_end {
-        (byte_start, byte_end)
-    } else {
-        (byte_end, byte_start)
-    };
-    let result = Value::string(buf.buffer_substring(byte_lo, byte_hi));
-    if !buf.text_props.is_empty()
-        && let Value::Str(new_id) = &result
-    {
-        let sliced = buf.text_props.slice(byte_lo, byte_hi);
-        if !sliced.is_empty() {
-            set_string_text_properties_table(*new_id, sliced);
-        }
-    }
-    Ok(result)
-}
-
 pub(crate) fn builtin_buffer_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1736,7 +1691,7 @@ pub(crate) fn builtin_constrain_to_field(
         args.get(4).filter(|value| !value.is_nil())
     {
         let old_capture =
-            crate::emacs_core::builtins::misc_eval::builtin_get_pos_property_in_state(
+            crate::emacs_core::builtins::misc_eval::builtin_get_pos_property_impl(
                 &eval.obarray,
                 &[],
                 &mut eval.buffers,
@@ -1887,7 +1842,7 @@ fn field_property_at_position_in_state(
     buffers: &BufferManager,
     pos: i64,
 ) -> Result<Value, Flow> {
-    crate::emacs_core::builtins::misc_eval::builtin_get_pos_property_in_state(
+    crate::emacs_core::builtins::misc_eval::builtin_get_pos_property_impl(
         obarray,
         dynamic,
         buffers,
@@ -2034,7 +1989,7 @@ pub(crate) fn builtin_field_string(
     expect_max_args("field-string", &args, 1)?;
     let (beg, end) =
         find_field_bounds_in_state(&eval.obarray, &[], &eval.buffers, args.first(), false, None, None)?;
-    builtin_buffer_substring_in_manager(eval, vec![Value::Int(beg), Value::Int(end)])
+    builtin_buffer_substring(eval, vec![Value::Int(beg), Value::Int(end)])
 }
 
 pub(crate) fn builtin_field_string_no_properties(

@@ -5,10 +5,10 @@ pub(crate) fn builtin_get_pos_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_pos_property_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_get_pos_property_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
-pub(crate) fn builtin_get_pos_property_in_state(
+pub(crate) fn builtin_get_pos_property_impl(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
@@ -525,10 +525,10 @@ pub(crate) fn builtin_neovm_precompile_file(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_neovm_precompile_file_in_state(args)
+    builtin_neovm_precompile_file_impl(args)
 }
 
-pub(crate) fn builtin_neovm_precompile_file_in_state(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_neovm_precompile_file_impl(args: Vec<Value>) -> EvalResult {
     expect_args("neovm-precompile-file", &args, 1)?;
     let file = expect_string(&args[0])?;
     let path = std::path::Path::new(&file);
@@ -692,10 +692,10 @@ pub(crate) fn builtin_barf_if_buffer_read_only(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_barf_if_buffer_read_only_in_state(eval, args)
+    builtin_barf_if_buffer_read_only_impl(eval, args)
 }
 
-pub(crate) fn builtin_barf_if_buffer_read_only_in_state(
+pub(crate) fn builtin_barf_if_buffer_read_only_impl(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -736,10 +736,10 @@ pub(crate) fn builtin_bury_buffer_internal(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_bury_buffer_internal_in_state(&eval.buffers, args)
+    builtin_bury_buffer_internal_impl(&eval.buffers, args)
 }
 
-pub(crate) fn builtin_bury_buffer_internal_in_state(
+pub(crate) fn builtin_bury_buffer_internal_impl(
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1168,7 +1168,7 @@ pub(crate) fn builtin_princ_eval(eval: &mut super::eval::Context, args: Vec<Valu
     expect_min_args("princ", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
-        return builtin_princ_in_state(eval, args);
+        return builtin_princ_impl(eval, args);
     }
 
     let text = print_value_princ_in_state(eval, &args[0]);
@@ -1181,7 +1181,7 @@ pub(crate) fn builtin_princ_eval(eval: &mut super::eval::Context, args: Vec<Valu
     Ok(args[0])
 }
 
-pub(crate) fn builtin_princ_in_state(
+pub(crate) fn builtin_princ_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1195,7 +1195,7 @@ pub(crate) fn builtin_prin1_eval(eval: &mut super::eval::Context, args: Vec<Valu
     expect_min_args("prin1", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
-        return builtin_prin1_in_state(eval, args);
+        return builtin_prin1_impl(eval, args);
     }
 
     let text = super::error::print_value_in_state(
@@ -1211,7 +1211,7 @@ pub(crate) fn builtin_prin1_eval(eval: &mut super::eval::Context, args: Vec<Valu
     Ok(args[0])
 }
 
-pub(crate) fn builtin_prin1_in_state(
+pub(crate) fn builtin_prin1_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1231,10 +1231,10 @@ pub(crate) fn builtin_prin1_to_string_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_prin1_to_string_in_state(eval, args)
+    builtin_prin1_to_string_impl(eval, args)
 }
 
-pub(crate) fn builtin_prin1_to_string_in_state(
+pub(crate) fn builtin_prin1_to_string_impl(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1259,7 +1259,7 @@ pub(crate) fn builtin_print_eval(eval: &mut super::eval::Context, args: Vec<Valu
     expect_min_args("print", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
-        return builtin_print_in_state(eval, args);
+        return builtin_print_impl(eval, args);
     }
 
     let mut text = String::new();
@@ -1278,7 +1278,7 @@ pub(crate) fn builtin_print_eval(eval: &mut super::eval::Context, args: Vec<Valu
     Ok(args[0])
 }
 
-pub(crate) fn builtin_print_in_state(
+pub(crate) fn builtin_print_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1292,13 +1292,13 @@ pub(crate) fn builtin_print_in_state(
 }
 
 pub(crate) fn builtin_terpri_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = builtin_terpri_in_state(eval, args.clone())? {
+    if let Some(result) = builtin_terpri_impl(eval, args.clone())? {
         return Ok(result);
     }
     finish_terpri_in_eval(eval, &args)
 }
 
-pub(crate) fn builtin_terpri_in_state(
+pub(crate) fn builtin_terpri_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> Result<Option<Value>, Flow> {
@@ -1338,7 +1338,7 @@ pub(crate) fn builtin_write_char_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    if let Some(result) = builtin_write_char_in_state(eval, args.clone())? {
+    if let Some(result) = builtin_write_char_impl(eval, args.clone())? {
         return Ok(result);
     }
     finish_write_char_in_eval(eval, &args)
@@ -1395,7 +1395,7 @@ pub(crate) fn finish_write_char_in_eval(
     Ok(Value::Int(char_code))
 }
 
-pub(crate) fn builtin_write_char_in_state(
+pub(crate) fn builtin_write_char_impl(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> Result<Option<Value>, Flow> {

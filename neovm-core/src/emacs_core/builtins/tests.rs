@@ -9016,7 +9016,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
 fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let aliased = builtin_defvaralias_eval(
+    let aliased = builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-new"),
@@ -9061,7 +9061,7 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
         .expect("symbol-value should read aliased target");
     assert_eq!(old_value, Value::Int(7));
 
-    builtin_defvaralias_eval(
+    builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-new"),
@@ -9177,7 +9177,7 @@ fn defvaralias_triggers_variable_watchers_and_clears_alias_entry() {
     )
     .expect("add-variable-watcher should register callback");
 
-    builtin_defvaralias_eval(
+    builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-watch-new"),
@@ -9224,7 +9224,7 @@ fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
     )
     .expect("setplist should install malformed raw plist");
 
-    let err = builtin_defvaralias_eval(
+    let err = builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-watch-bad"),
@@ -9250,7 +9250,7 @@ fn defvaralias_repoint_notifies_previous_alias_target_watchers() {
     let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-defvaralias-repoint-watch");
 
-    builtin_defvaralias_eval(
+    builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-repoint-alias"),
@@ -9268,7 +9268,7 @@ fn defvaralias_repoint_notifies_previous_alias_target_watchers() {
     )
     .expect("add-variable-watcher should resolve alias to old target");
 
-    builtin_defvaralias_eval(
+    builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-repoint-alias"),
@@ -9292,7 +9292,7 @@ fn defvaralias_repoint_notifies_previous_alias_target_watchers() {
 fn defvaralias_rejects_invalid_inputs_and_cycles() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let constant_err = builtin_defvaralias_eval(
+    let constant_err = builtin_defvaralias(
         &mut eval,
         vec![Value::symbol("nil"), Value::symbol("vm-defvaralias-x")],
     )
@@ -9308,7 +9308,7 @@ fn defvaralias_rejects_invalid_inputs_and_cycles() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let type_err = builtin_defvaralias_eval(
+    let type_err = builtin_defvaralias(
         &mut eval,
         vec![Value::symbol("vm-defvaralias-bad"), Value::Int(1)],
     )
@@ -9321,7 +9321,7 @@ fn defvaralias_rejects_invalid_inputs_and_cycles() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    builtin_defvaralias_eval(
+    builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-a"),
@@ -9329,7 +9329,7 @@ fn defvaralias_rejects_invalid_inputs_and_cycles() {
         ],
     )
     .expect("first alias edge should succeed");
-    let cycle_err = builtin_defvaralias_eval(
+    let cycle_err = builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-b"),
@@ -9941,7 +9941,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
 #[test]
 fn variable_alias_to_constant_reports_alias_in_setting_constant_errors() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_defvaralias_eval(
+    builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-alias-constant"),
@@ -9997,7 +9997,7 @@ fn set_allows_keyword_self_assignment_like_gnu_emacs() {
         .expect("set should allow keyword self-assignment");
     assert_eq!(direct, keyword);
 
-    builtin_defvaralias_eval(
+    builtin_defvaralias(
         &mut eval,
         vec![Value::symbol("vm-set-keyword-alias"), keyword, Value::Nil],
     )
@@ -10020,7 +10020,7 @@ fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
     )
     .expect("setplist should seed malformed symbol plist value");
 
-    let err = builtin_defvaralias_eval(
+    let err = builtin_defvaralias(
         &mut eval,
         vec![
             Value::symbol("vm-defvaralias-bad-plist"),
