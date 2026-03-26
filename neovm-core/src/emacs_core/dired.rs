@@ -490,7 +490,10 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
         _ => None,
     };
     let nosort = args.get(3).is_some_and(|v| v.is_truthy());
-    let id_format_string = args.get(4).is_some_and(|v| v.is_truthy());
+    // GNU Emacs: return string names unless ID-FORMAT is nil or 'integer.
+    let id_format_string = args
+        .get(4)
+        .is_some_and(|v| v.is_truthy() && v.as_symbol_name().map_or(true, |s| s != "integer"));
     let count = parse_wholenump_count(args.get(5))?;
     if count == Some(0) {
         return Ok(Value::Nil);
@@ -955,7 +958,10 @@ pub(crate) fn builtin_file_attributes(args: Vec<Value>) -> EvalResult {
     expect_range_args("file-attributes", &args, 1, 2)?;
 
     let filename = expect_string("file-attributes", &args[0])?;
-    let id_format_string = args.get(1).is_some_and(|v| v.is_truthy());
+    // GNU Emacs: return string names unless ID-FORMAT is nil or 'integer.
+    let id_format_string = args
+        .get(1)
+        .is_some_and(|v| v.is_truthy() && v.as_symbol_name().map_or(true, |s| s != "integer"));
 
     match build_file_attributes(&filename, id_format_string) {
         Some(attrs) => Ok(attrs),
@@ -977,7 +983,10 @@ pub(crate) fn builtin_file_attributes_in_state(
         buffers,
         &expect_string("file-attributes", &args[0])?,
     );
-    let id_format_string = args.get(1).is_some_and(|v| v.is_truthy());
+    // GNU Emacs: return string names unless ID-FORMAT is nil or 'integer.
+    let id_format_string = args
+        .get(1)
+        .is_some_and(|v| v.is_truthy() && v.as_symbol_name().map_or(true, |s| s != "integer"));
 
     match build_file_attributes(&filename, id_format_string) {
         Some(attrs) => Ok(attrs),

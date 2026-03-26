@@ -4953,7 +4953,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "internal-make-lisp-face",
-        |_ctx, args| super::font::builtin_internal_make_lisp_face(args),
+        super::font::builtin_internal_make_lisp_face_eval,
         0,
         None,
     );
