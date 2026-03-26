@@ -1901,6 +1901,8 @@ impl Context {
         obarray.set_symbol_value("global-mode-string", Value::Nil);
         // File loading C variables (lread.c)
         obarray.set_symbol_value("load-in-progress", Value::Nil);
+        // Process/daemon C variables (process.c)
+        obarray.set_symbol_value("internal--daemon-sockname", Value::Nil);
         // Byte compiler variables (bytecomp.el defcustom, but referenced
         // at runtime by legacy packages like evil-escape via ad-add-advice)
         obarray.set_symbol_value("byte-compile-warnings", Value::True);
