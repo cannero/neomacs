@@ -1685,7 +1685,7 @@ pub(crate) fn builtin_coordinates_in_window_p(
     };
 
     let window_arg = args[1];
-    let width = match super::window_cmds::builtin_window_total_width_in_state(
+    let width = match super::window_cmds::window_total_width_impl(
         frames,
         buffers,
         vec![window_arg],
@@ -1693,7 +1693,7 @@ pub(crate) fn builtin_coordinates_in_window_p(
         Value::Int(n) => n as f64,
         _ => 0.0,
     };
-    let height = match super::window_cmds::builtin_window_total_height_in_state(
+    let height = match super::window_cmds::window_total_height_impl(
         frames,
         buffers,
         vec![window_arg],

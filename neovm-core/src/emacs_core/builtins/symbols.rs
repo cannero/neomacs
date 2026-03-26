@@ -2519,7 +2519,7 @@ pub(crate) fn builtin_next_frame_eval(
             )?;
         }
     }
-    super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())
+    super::window_cmds::builtin_selected_frame(eval, Vec::new())
 }
 
 pub(crate) fn builtin_previous_frame(args: Vec<Value>) -> EvalResult {
@@ -2542,7 +2542,7 @@ pub(crate) fn builtin_previous_frame_eval(
             )?;
         }
     }
-    super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())
+    super::window_cmds::builtin_selected_frame(eval, Vec::new())
 }
 
 pub(crate) fn builtin_raise_frame(args: Vec<Value>) -> EvalResult {
@@ -2870,7 +2870,7 @@ pub(crate) fn builtin_old_selected_frame_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("old-selected-frame", &args, 0)?;
-    super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())
+    super::window_cmds::builtin_selected_frame(eval, Vec::new())
 }
 
 pub(crate) fn builtin_make_frame_invisible(args: Vec<Value>) -> EvalResult {
@@ -2915,7 +2915,7 @@ pub(crate) fn builtin_mouse_pixel_position_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("mouse-pixel-position", &args, 0)?;
-    let frame = super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())?;
+    let frame = super::window_cmds::builtin_selected_frame(eval, Vec::new())?;
     Ok(Value::list(vec![frame, Value::Nil]))
 }
 
@@ -2929,7 +2929,7 @@ pub(crate) fn builtin_mouse_position_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("mouse-position", &args, 0)?;
-    let frame = super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())?;
+    let frame = super::window_cmds::builtin_selected_frame(eval, Vec::new())?;
     Ok(Value::list(vec![frame, Value::Nil]))
 }
 

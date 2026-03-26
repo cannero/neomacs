@@ -441,12 +441,12 @@ pub(crate) fn builtin_current_window_configuration_in_state(
     let frame = if let Some(frame) = args.first() {
         expect_optional_live_frame_designator_in_state(frame, frames)?;
         if frame.is_nil() {
-            super::window_cmds::builtin_selected_frame_in_state(frames, buffers, vec![])?
+            super::window_cmds::selected_frame_impl(frames, buffers, vec![])?
         } else {
             *frame
         }
     } else {
-        super::window_cmds::builtin_selected_frame_in_state(frames, buffers, vec![])?
+        super::window_cmds::selected_frame_impl(frames, buffers, vec![])?
     };
 
     let Value::Frame(frame_raw_id) = frame else {

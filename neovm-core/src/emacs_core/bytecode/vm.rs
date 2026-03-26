@@ -4776,21 +4776,21 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_set_frame_height_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::window_cmds::builtin_set_frame_height_in_state(
+        crate::emacs_core::window_cmds::builtin_set_frame_height(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_set_frame_width_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::window_cmds::builtin_set_frame_width_in_state(
+        crate::emacs_core::window_cmds::builtin_set_frame_width(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_set_frame_size_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::window_cmds::builtin_set_frame_size_in_state(
+        crate::emacs_core::window_cmds::builtin_set_frame_size(
             &mut *self.ctx,
             args.to_vec(),
         )

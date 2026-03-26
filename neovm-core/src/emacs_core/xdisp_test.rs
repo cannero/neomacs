@@ -1691,9 +1691,8 @@ fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
         let frame = eval.frames.get_mut(frame_id).expect("selected frame");
         frame.char_height = 20.0;
     }
-    super::super::window_cmds::builtin_modify_frame_parameters_in_state(
-        &mut eval.frames,
-        &mut eval.buffers,
+    super::super::window_cmds::builtin_modify_frame_parameters(
+        &mut eval,
         vec![
             Value::Int(frame_id.0 as i64),
             Value::list(vec![Value::cons(
