@@ -233,25 +233,6 @@ pub(crate) fn print_value_in_state(
     )
 }
 
-/// Low-level print with decomposed state references -- for callers that
-/// only have individual borrows (e.g. inside `printer_runtime_state` blocks).
-pub(crate) fn print_value_in_state_raw(
-    obarray: &super::symbol::Obarray,
-    buffers: &crate::buffer::BufferManager,
-    frames: &crate::window::FrameManager,
-    threads: &super::threads::ThreadManager,
-    value: &Value,
-) -> String {
-    format_value_in_state(
-        obarray,
-        buffers,
-        frames,
-        threads,
-        value,
-        print_options_from_state(obarray),
-    )
-}
-
 fn format_value_in_state(
     obarray: &super::symbol::Obarray,
     buffers: &crate::buffer::BufferManager,

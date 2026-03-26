@@ -695,23 +695,14 @@ pub(crate) fn builtin_ngettext(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_format_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     // With specbind, dynamic let-bindings are written directly to the obarray,
     // so print_options_from_state correctly resolves print-* variables.
-    builtin_format_in_state(
-        &eval.obarray,
-        &eval.buffers,
-        &eval.frames,
-        &eval.threads,
-        args,
-    )
+    builtin_format_in_state(eval, args)
 }
 
 fn format_percent_s_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &crate::buffer::BufferManager,
-    frames: &crate::window::FrameManager,
-    threads: &crate::emacs_core::threads::ThreadManager,
+    ctx: &crate::emacs_core::eval::Context,
     value: &Value,
 ) -> String {
-    super::misc_eval::print_value_princ_in_state(obarray, buffers, frames, threads, value)
+    super::misc_eval::print_value_princ_in_state(ctx, value)
 }
 
 fn format_not_enough_args_error() -> Flow {
@@ -1103,41 +1094,29 @@ pub(super) fn builtin_format_wrapper_strict_eval(
 ) -> EvalResult {
     // With specbind, dynamic let-bindings are written directly to the obarray,
     // so builtin_format_wrapper_strict_in_state correctly resolves print-* variables.
-    builtin_format_wrapper_strict_in_state(
-        &eval.obarray,
-        &eval.buffers,
-        &eval.frames,
-        &eval.threads,
-        args,
-    )
+    builtin_format_wrapper_strict_in_state(eval, args)
 }
 
 pub(crate) fn builtin_format_wrapper_strict_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &crate::buffer::BufferManager,
-    frames: &crate::window::FrameManager,
-    threads: &crate::emacs_core::threads::ThreadManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
         expect_min_args("format", &args, 1)?;
         let s = do_format(
             &args,
-            &|v| format_percent_s_in_state(obarray, buffers, frames, threads, v),
-            &|v| super::error::print_value_in_state_raw(obarray, buffers, frames, threads, v),
+            &|v| format_percent_s_in_state(ctx, v),
+            &|v| super::error::print_value_in_state(ctx, v),
         )?;
         Ok(Value::string(s))
     })
 }
 
 pub(crate) fn builtin_format_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &crate::buffer::BufferManager,
-    frames: &crate::window::FrameManager,
-    threads: &crate::emacs_core::threads::ThreadManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_format_wrapper_strict_in_state(obarray, buffers, frames, threads, args)
+    builtin_format_wrapper_strict_in_state(ctx, args)
 }
 
 /// Apply `text-quoting-style` translation to a string.
@@ -1175,24 +1154,15 @@ pub(crate) fn builtin_format_message_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_format_message_in_state(
-        &eval.obarray,
-        &eval.buffers,
-        &eval.frames,
-        &eval.threads,
-        args,
-    )
+    builtin_format_message_in_state(eval, args)
 }
 
 pub(crate) fn builtin_format_message_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &crate::buffer::BufferManager,
-    frames: &crate::window::FrameManager,
-    threads: &crate::emacs_core::threads::ThreadManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("format-message", &args, 1)?;
-    let formatted = builtin_format_in_state(obarray, buffers, frames, threads, args)?;
+    let formatted = builtin_format_in_state(ctx, args)?;
     match formatted {
         Value::Str(id) => {
             let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());

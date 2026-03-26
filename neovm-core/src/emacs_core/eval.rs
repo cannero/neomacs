@@ -1199,7 +1199,7 @@ fn begin_macro_expansion_scope_in_state(
     }
 
     obarray.set_symbol_value("lexical-binding", Value::bool(!lexenv.is_nil()));
-    set_runtime_binding_in_state_raw(
+    set_runtime_binding(
         obarray,
         buffers,
         custom,
@@ -1223,7 +1223,7 @@ fn finish_macro_expansion_scope_in_state(
     temp_roots: &mut Vec<Value>,
     state: ActiveMacroExpansionScopeState,
 ) {
-    set_runtime_binding_in_state_raw(
+    set_runtime_binding(
         obarray,
         buffers,
         custom,
@@ -4843,27 +4843,6 @@ impl Context {
         &mut self.current_message
     }
 
-    pub(crate) fn message_runtime_state(
-        &mut self,
-    ) -> (
-        &Obarray,
-        &[OrderedRuntimeBindingMap],
-        &BufferManager,
-        &FrameManager,
-        &ThreadManager,
-        &mut Option<String>,
-    ) {
-        let Self {
-            obarray,
-            buffers,
-            frames,
-            threads,
-            current_message,
-            ..
-        } = self;
-        (obarray, &[], buffers, frames, threads, current_message)
-    }
-
     /// Public read access to the face table.
     pub fn face_table(&self) -> &FaceTable {
         &self.face_table
@@ -7937,7 +7916,7 @@ impl Context {
     /// - For plain variables: SPECPDL_LET
     pub(crate) fn specbind(&mut self, sym_id: SymId, value: Value) {
         let resolved =
-            builtins::resolve_variable_alias_id_in_obarray_raw(&self.obarray, sym_id).unwrap_or(sym_id);
+            builtins::resolve_variable_alias_id_in_obarray(&self.obarray, sym_id).unwrap_or(sym_id);
         let name = resolve_sym(resolved);
 
         // Check if this is a buffer-local variable (GNU: SYMBOL_LOCALIZED path)
@@ -8061,7 +8040,7 @@ pub(crate) fn specbind_in_state(
     value: Value,
 ) {
     let resolved =
-        super::builtins::resolve_variable_alias_id_in_obarray_raw(obarray, sym_id).unwrap_or(sym_id);
+        super::builtins::resolve_variable_alias_id_in_obarray(obarray, sym_id).unwrap_or(sym_id);
     let old_value = obarray.symbol_value_id(resolved).copied();
     specpdl.push(SpecBinding::Let {
         sym_id: resolved,
@@ -8111,7 +8090,7 @@ pub(crate) fn set_runtime_binding_in_state(
     sym_id: SymId,
     value: Value,
 ) -> Option<crate::buffer::BufferId> {
-    set_runtime_binding_in_state_raw(
+    set_runtime_binding(
         &mut ctx.obarray,
         &mut ctx.buffers,
         &ctx.custom,
@@ -8121,7 +8100,7 @@ pub(crate) fn set_runtime_binding_in_state(
     )
 }
 
-pub(crate) fn set_runtime_binding_in_state_raw(
+pub(crate) fn set_runtime_binding(
     obarray: &mut Obarray,
     buffers: &mut BufferManager,
     custom: &CustomManager,
@@ -8332,23 +8311,6 @@ impl Context {
         &mut self.kmacro
     }
 
-    pub(crate) fn printer_runtime_state(
-        &mut self,
-    ) -> (
-        &mut Obarray,
-        &mut BufferManager,
-        &mut FrameManager,
-        &mut ThreadManager,
-        &mut Option<String>,
-    ) {
-        (
-            &mut self.obarray,
-            &mut self.buffers,
-            &mut self.frames,
-            &mut self.threads,
-            &mut self.current_message,
-        )
-    }
 
     pub(crate) fn gui_frame_creation_state(
         &mut self,
@@ -8390,7 +8352,7 @@ impl Context {
             }
         }
 
-        set_runtime_binding_in_state_raw(
+        set_runtime_binding(
             &mut self.obarray,
             &mut self.buffers,
             &self.custom,
@@ -8409,7 +8371,7 @@ impl Context {
         sym_id: SymId,
         value: Value,
     ) -> Option<crate::buffer::BufferId> {
-        set_runtime_binding_in_state_raw(
+        set_runtime_binding(
             &mut self.obarray,
             &mut self.buffers,
             &self.custom,

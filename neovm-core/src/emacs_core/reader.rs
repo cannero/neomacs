@@ -263,10 +263,10 @@ pub(crate) fn builtin_read_from_string_in_state(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_read_from_string_in_state_raw(&ctx.obarray, args)
+    read_from_string_impl(&ctx.obarray, args)
 }
 
-pub(crate) fn builtin_read_from_string_in_state_raw(
+pub(crate) fn read_from_string_impl(
     obarray: &crate::emacs_core::symbol::Obarray,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -588,7 +588,7 @@ pub(crate) fn builtin_read_in_state(
     match &args[0] {
         Value::Str(_) => {
             // Read from string
-            let result = builtin_read_from_string_in_state_raw(&ctx.obarray, args)?;
+            let result = read_from_string_impl(&ctx.obarray, args)?;
             // Return just the car (the parsed object)
             match &result {
                 Value::Cons(cell) => {
@@ -889,7 +889,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
             if !read_arg.is_nil() && !result_string.is_empty() {
                 // READ is non-nil: parse the result string as a Lisp expression
                 // (like calling (read STRING)) and return the parsed object.
-                let read_result = builtin_read_from_string_in_state_raw(
+                let read_result = read_from_string_impl(
                     obarray,
                     vec![Value::string(&result_string)],
                 )?;
@@ -1151,7 +1151,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
     mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
 ) -> EvalResult {
     let minibuffer_args = completing_read_minibuffer_args(obarray, args);
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
+    let _ = crate::emacs_core::eval::set_runtime_binding(
         obarray,
         buffers,
         custom,
@@ -1159,7 +1159,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         intern("minibuffer-completion-table"),
         args[1],
     );
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
+    let _ = crate::emacs_core::eval::set_runtime_binding(
         obarray,
         buffers,
         custom,
@@ -1170,7 +1170,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
 
     let result = read_from_minibuffer(&minibuffer_args);
 
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
+    let _ = crate::emacs_core::eval::set_runtime_binding(
         obarray,
         buffers,
         custom,
@@ -1178,7 +1178,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         intern("minibuffer-completion-table"),
         Value::Nil,
     );
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
+    let _ = crate::emacs_core::eval::set_runtime_binding(
         obarray,
         buffers,
         custom,
@@ -1349,7 +1349,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     match edit_result {
         Ok(_) | Err(Flow::Throw { .. }) => {
             if !read_arg.is_nil() && !result_string.is_empty() {
-                let read_result = builtin_read_from_string_in_state_raw(
+                let read_result = read_from_string_impl(
                     &shared.obarray,
                     vec![Value::string(&result_string)],
                 )?;
@@ -1377,7 +1377,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
 ) -> EvalResult {
     builtin_completing_read_in_runtime(shared, args)?;
     let minibuffer_args = completing_read_minibuffer_args(&shared.obarray, args);
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
+    let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
         &mut shared.buffers,
         &shared.custom,
@@ -1385,7 +1385,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         intern("minibuffer-completion-table"),
         args[1],
     );
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
+    let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
         &mut shared.buffers,
         &shared.custom,
@@ -1394,7 +1394,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         args.get(2).copied().unwrap_or(Value::Nil),
     );
     let result = finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, &minibuffer_args);
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
+    let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
         &mut shared.buffers,
         &shared.custom,
@@ -1402,7 +1402,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         intern("minibuffer-completion-table"),
         Value::Nil,
     );
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
+    let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
         &mut shared.buffers,
         &shared.custom,
@@ -1578,7 +1578,7 @@ pub(crate) fn builtin_discard_input_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("discard-input", &args, 0)?;
-    super::eval::set_runtime_binding_in_state_raw(
+    super::eval::set_runtime_binding(
         &mut ctx.obarray,
         &mut ctx.buffers,
         &ctx.custom,

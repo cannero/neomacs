@@ -313,18 +313,9 @@ pub(crate) fn builtin_delete_region_in_state(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_delete_region_in_state_raw(&ctx.obarray, &[], &mut ctx.buffers, args)
-}
-
-pub(crate) fn builtin_delete_region_in_state_raw(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("delete-region", &args, 2)?;
     let Some((start_byte, end_byte)) =
-        current_buffer_accessible_char_region_in_buffers(buffers, &args[0], &args[1])?
+        current_buffer_accessible_char_region_in_buffers(&ctx.buffers, &args[0], &args[1])?
     else {
         return Ok(Value::Nil);
     };
@@ -332,17 +323,17 @@ pub(crate) fn builtin_delete_region_in_state_raw(
         return Ok(Value::Nil);
     }
 
-    let Some(current_id) = buffers.current_buffer_id() else {
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
         return Ok(Value::Nil);
     };
-    let read_only = buffers
+    let read_only = ctx.buffers
         .get(current_id)
-        .is_some_and(|buf| buffer_read_only_active_in_state(obarray, dynamic, buf));
+        .is_some_and(|buf| buffer_read_only_active_in_state(&ctx.obarray, &[], buf));
     if read_only {
         return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
     }
 
-    let _ = buffers.delete_buffer_region(current_id, start_byte, end_byte);
+    let _ = ctx.buffers.delete_buffer_region(current_id, start_byte, end_byte);
     Ok(Value::Nil)
 }
 
@@ -383,10 +374,10 @@ pub(crate) fn builtin_erase_buffer_in_state(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_erase_buffer_in_state_raw(&ctx.obarray, &[], &mut ctx.buffers, args)
+    erase_buffer_impl(&ctx.obarray, &[], &mut ctx.buffers, args)
 }
 
-pub(crate) fn builtin_erase_buffer_in_state_raw(
+pub(crate) fn erase_buffer_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
@@ -457,20 +448,13 @@ pub(crate) fn builtin_buffer_substring_no_properties_in_state(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_substring_no_properties_in_state_raw(&ctx.buffers, args)
-}
-
-pub(crate) fn builtin_buffer_substring_no_properties_in_state_raw(
-    buffers: &BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("buffer-substring-no-properties", &args, 2)?;
     let Some((start_byte, end_byte)) =
-        current_buffer_accessible_char_region_in_buffers(buffers, &args[0], &args[1])?
+        current_buffer_accessible_char_region_in_buffers(&ctx.buffers, &args[0], &args[1])?
     else {
         return Ok(Value::string(""));
     };
-    let Some(buf) = buffers.current_buffer() else {
+    let Some(buf) = ctx.buffers.current_buffer() else {
         return Ok(Value::string(""));
     };
     Ok(Value::string(buf.buffer_substring(start_byte, end_byte)))

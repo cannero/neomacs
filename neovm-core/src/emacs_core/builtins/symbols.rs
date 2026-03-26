@@ -123,15 +123,6 @@ pub(crate) fn is_canonical_symbol_id(id: SymId) -> bool {
 }
 
 pub(crate) fn resolve_variable_alias_id_in_obarray(
-    ctx: &crate::emacs_core::eval::Context,
-    symbol: SymId,
-) -> Result<SymId, Flow> {
-    resolve_variable_alias_id_in_obarray_raw(&ctx.obarray, symbol)
-}
-
-/// Low-level resolution against a bare Obarray reference — for callers that
-/// only have `&Obarray` (e.g. custom.rs infra, `resolve_variable_alias_name_in_obarray_raw`).
-pub(crate) fn resolve_variable_alias_id_in_obarray_raw(
     obarray: &Obarray,
     symbol: SymId,
 ) -> Result<SymId, Flow> {
@@ -173,28 +164,21 @@ pub(crate) fn resolve_variable_alias_id(
     eval: &super::eval::Context,
     symbol: SymId,
 ) -> Result<SymId, Flow> {
-    resolve_variable_alias_id_in_obarray(eval, symbol)
+    resolve_variable_alias_id_in_obarray(&eval.obarray, symbol)
 }
 
 pub(crate) fn resolve_variable_alias_name(
     eval: &super::eval::Context,
     name: &str,
 ) -> Result<String, Flow> {
-    resolve_variable_alias_name_in_obarray(eval, name)
+    resolve_variable_alias_name_in_obarray(&eval.obarray, name)
 }
 
 pub(crate) fn resolve_variable_alias_name_in_obarray(
-    ctx: &crate::emacs_core::eval::Context,
-    name: &str,
-) -> Result<String, Flow> {
-    Ok(resolve_sym(resolve_variable_alias_id_in_obarray(ctx, intern(name))?).to_string())
-}
-
-pub(crate) fn resolve_variable_alias_name_in_obarray_raw(
     obarray: &Obarray,
     name: &str,
 ) -> Result<String, Flow> {
-    Ok(resolve_sym(resolve_variable_alias_id_in_obarray_raw(obarray, intern(name))?).to_string())
+    Ok(resolve_sym(resolve_variable_alias_id_in_obarray(obarray, intern(name))?).to_string())
 }
 
 fn would_create_variable_alias_cycle(eval: &super::eval::Context, new: &str, old: &str) -> bool {
@@ -368,7 +352,7 @@ pub(crate) fn builtin_boundp_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("boundp", &args, 1)?;
-    let resolved = resolve_variable_alias_id_in_obarray_raw(obarray, expect_symbol_id(&args[0])?)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
     // specbind writes directly to obarray, so no dynamic stack lookup needed.
     let resolved_name = resolve_sym(resolved);
     if let Some(buf) = buffers.current_buffer() {
@@ -398,7 +382,7 @@ pub(crate) fn builtin_special_variable_p_in_obarray(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("special-variable-p", &args, 1)?;
-    let resolved = resolve_variable_alias_id_in_obarray_raw(obarray, expect_symbol_id(&args[0])?)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
     Ok(Value::bool(
         obarray.is_special_id(resolved) || obarray.is_constant_id(resolved),
     ))
@@ -413,7 +397,7 @@ pub(crate) fn builtin_default_boundp(
 
 pub(crate) fn builtin_default_boundp_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("default-boundp", &args, 1)?;
-    let resolved = resolve_variable_alias_id_in_obarray_raw(obarray, expect_symbol_id(&args[0])?)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
     Ok(Value::bool(
         obarray.boundp_id(resolved) || obarray.is_constant_id(resolved),
     ))
@@ -432,7 +416,7 @@ pub(crate) fn builtin_default_toplevel_value_in_obarray(
 ) -> EvalResult {
     expect_args("default-toplevel-value", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let resolved = resolve_variable_alias_id_in_obarray_raw(obarray, symbol)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
     match obarray.symbol_value_id(resolved).cloned() {
         Some(value) => Ok(value),
@@ -494,7 +478,7 @@ pub(crate) fn builtin_set_default_toplevel_value_in_obarray(
 ) -> EvalResult {
     expect_args("set-default-toplevel-value", &args, 2)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let resolved = resolve_variable_alias_id_in_obarray_raw(&ctx.obarray, symbol)?;
+    let resolved = resolve_variable_alias_id_in_obarray(&ctx.obarray, symbol)?;
     if ctx.obarray.is_constant_id(resolved) {
         return Err(signal("setting-constant", vec![args[0]]));
     }
@@ -556,7 +540,7 @@ pub(crate) fn builtin_defvaralias_in_state(
     if would_create_variable_alias_cycle_in_obarray(&ctx.obarray, new_symbol, old_symbol) {
         return Err(signal("cyclic-variable-indirection", vec![args[1]]));
     }
-    let previous_target = resolve_variable_alias_name_in_obarray_raw(&ctx.obarray, &new_name)?;
+    let previous_target = resolve_variable_alias_name_in_obarray(&ctx.obarray, &new_name)?;
     {
         let sym = ctx.obarray.ensure_symbol_id(new_symbol);
         sym.special = true;
@@ -592,7 +576,7 @@ pub(crate) fn builtin_indirect_variable_in_obarray(
     let Some(symbol) = symbol_id(&args[0]) else {
         return Ok(args[0]);
     };
-    let resolved = resolve_variable_alias_id_in_obarray_raw(obarray, symbol)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     Ok(value_from_symbol_id(resolved))
 }
 
@@ -637,7 +621,7 @@ pub(crate) fn builtin_symbol_value_in_state(
 ) -> EvalResult {
     expect_args("symbol-value", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let resolved = resolve_variable_alias_id_in_obarray_raw(obarray, symbol)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
     let resolved_is_canonical = is_canonical_symbol_id(resolved);
     // specbind writes directly to obarray, so no dynamic stack lookup needed.
@@ -1021,10 +1005,10 @@ pub(crate) fn builtin_put(eval: &mut super::eval::Context, args: Vec<Value>) -> 
 }
 
 pub(crate) fn builtin_put_in_obarray(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_put_in_obarray_raw(&mut ctx.obarray, args)
+    put_in_obarray(&mut ctx.obarray, args)
 }
 
-pub(crate) fn builtin_put_in_obarray_raw(obarray: &mut Obarray, args: Vec<Value>) -> EvalResult {
+pub(crate) fn put_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("put", &args, 3)?;
     let sym = expect_symbol_id(&args[0])?;
     let prop = expect_symbol_id(&args[1])?;
@@ -1074,11 +1058,11 @@ pub(crate) fn builtin_register_code_conversion_map_in_obarray(
     }
     let map_id = super::ccl::builtin_register_code_conversion_map(args.clone())?;
 
-    let _ = builtin_put_in_obarray_raw(
+    let _ = put_in_obarray(
         obarray,
         vec![args[0], Value::symbol("code-conversion-map"), args[1]],
     )?;
-    let _ = builtin_put_in_obarray_raw(
+    let _ = put_in_obarray(
         obarray,
         vec![args[0], Value::symbol("code-conversion-map-id"), map_id],
     )?;
@@ -1184,7 +1168,7 @@ pub(crate) fn builtin_register_ccl_program_in_obarray(
         return Ok(program_id);
     }
 
-    let publish = builtin_put_in_obarray_raw(
+    let publish = put_in_obarray(
         obarray,
         vec![args[0], Value::symbol("ccl-program-idx"), program_id],
     );
@@ -3891,7 +3875,7 @@ pub(crate) fn builtin_variable_binding_locus_in_state(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = resolve_variable_alias_name_in_obarray_raw(&ctx.obarray, name)?;
+    let resolved = resolve_variable_alias_name_in_obarray(&ctx.obarray, name)?;
     if resolved == "nil" || resolved == "t" || resolved.starts_with(':') {
         return Ok(Value::Nil);
     }
@@ -4243,7 +4227,7 @@ pub(crate) fn builtin_local_variable_if_set_p_in_state(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = resolve_variable_alias_name_in_obarray_raw(&ctx.obarray, name)?;
+    let resolved = resolve_variable_alias_name_in_obarray(&ctx.obarray, name)?;
     if resolved == "nil" || resolved == "t" || resolved.starts_with(':') {
         return Ok(Value::Nil);
     }

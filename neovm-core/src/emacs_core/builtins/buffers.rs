@@ -427,7 +427,7 @@ pub(crate) fn builtin_kill_buffer_in_state(
 
     let was_current = buffers.current_buffer().map(|buf| buf.id) == Some(id);
     let replacement = if was_current {
-        match builtin_other_buffer_in_manager_raw(buffers, vec![Value::Buffer(id)])? {
+        match other_buffer_impl(buffers, vec![Value::Buffer(id)])? {
             Value::Buffer(next) if next != id => Some(next),
             _ => None,
         }
@@ -698,13 +698,7 @@ pub(crate) fn builtin_buffer_substring_in_manager(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_substring_in_manager_raw(&ctx.buffers, args)
-}
-
-pub(crate) fn builtin_buffer_substring_in_manager_raw(
-    buffers: &BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+    let buffers = &ctx.buffers;
     expect_args("buffer-substring", &args, 2)?;
     let start = expect_int(&args[0])?;
     let end = expect_int(&args[1])?;
@@ -2262,7 +2256,7 @@ pub(crate) fn builtin_field_string_in_state(
     expect_max_args("field-string", &args, 1)?;
     let (beg, end) =
         find_field_bounds_in_state(&ctx.obarray, &[], &ctx.buffers, args.first(), false, None, None)?;
-    builtin_buffer_substring_in_manager_raw(&ctx.buffers, vec![Value::Int(beg), Value::Int(end)])
+    builtin_buffer_substring_in_manager(ctx, vec![Value::Int(beg), Value::Int(end)])
 }
 
 /// `(field-string-no-properties &optional POS)` -> field text at POS.
@@ -2280,8 +2274,8 @@ pub(crate) fn builtin_field_string_no_properties_in_state(
     expect_max_args("field-string-no-properties", &args, 1)?;
     let (beg, end) =
         find_field_bounds_in_state(&ctx.obarray, &[], &ctx.buffers, args.first(), false, None, None)?;
-    super::editfns::builtin_buffer_substring_no_properties_in_state_raw(
-        &ctx.buffers,
+    super::editfns::builtin_buffer_substring_no_properties_in_state(
+        ctx,
         vec![Value::Int(beg), Value::Int(end)],
     )
 }
@@ -2301,10 +2295,8 @@ pub(crate) fn builtin_delete_field_in_state(
     expect_max_args("delete-field", &args, 1)?;
     let (beg, end) =
         find_field_bounds_in_state(&ctx.obarray, &[], &mut ctx.buffers, args.first(), false, None, None)?;
-    super::editfns::builtin_delete_region_in_state_raw(
-        &ctx.obarray,
-        &[],
-        &mut ctx.buffers,
+    super::editfns::builtin_delete_region_in_state(
+        ctx,
         vec![Value::Int(beg), Value::Int(end)],
     )
 }
@@ -3172,10 +3164,10 @@ pub(crate) fn builtin_other_buffer_in_manager(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_other_buffer_in_manager_raw(&mut ctx.buffers, args)
+    other_buffer_impl(&mut ctx.buffers, args)
 }
 
-pub(crate) fn builtin_other_buffer_in_manager_raw(
+pub(crate) fn other_buffer_impl(
     buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -3515,7 +3507,7 @@ pub(crate) fn builtin_buffer_local_value_in_state(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_name_in_obarray_raw(
+    let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_name_in_obarray(
         obarray, name,
     )?;
     let id = expect_buffer_id(&args[1])?;

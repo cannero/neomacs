@@ -80,41 +80,24 @@ pub(crate) fn builtin_message_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let result = {
-        let (obarray, dynamic, buffers, frames, threads, current_message) =
-            eval.message_runtime_state();
-        builtin_message_in_state(
-            obarray,
-            dynamic,
-            buffers,
-            frames,
-            threads,
-            current_message,
-            args,
-        )?
-    };
+    let result = builtin_message_in_state(eval, args)?;
     eval.redisplay();
     Ok(result)
 }
 
 pub(crate) fn builtin_message_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    _dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    frames: &crate::window::FrameManager,
-    threads: &crate::emacs_core::threads::ThreadManager,
-    current_message: &mut Option<String>,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message", &args, 1)?;
     // GNU Emacs: nil or empty string clears the echo area and returns as-is.
     if args[0].is_nil() {
-        *current_message = None;
+        ctx.set_current_message(None);
         return Ok(Value::Nil);
     }
     if let Value::Str(id) = &args[0] {
         if with_heap(|h| h.get_string(*id).is_empty()) {
-            *current_message = None;
+            ctx.set_current_message(None);
             return Ok(args[0]);
         }
     }
@@ -122,16 +105,13 @@ pub(crate) fn builtin_message_in_state(
     // even for a single string argument.  This converts %% -> % and
     // applies text-quoting (curly quotes).
     let msg = match super::strings::builtin_format_message_in_state(
-        obarray,
-        buffers,
-        frames,
-        threads,
+        ctx,
         args.clone(),
     )? {
         Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
         _ => String::new(),
     };
-    *current_message = Some(msg.clone());
+    ctx.set_current_message(Some(msg.clone()));
     eprintln!("{}", msg);
     Ok(Value::string(msg))
 }
@@ -140,20 +120,11 @@ pub(crate) fn builtin_message_box_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_message_box_in_state(
-        &eval.obarray,
-        &eval.buffers,
-        &eval.frames,
-        &eval.threads,
-        args,
-    )
+    builtin_message_box_in_state(eval, args)
 }
 
 pub(crate) fn builtin_message_box_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &crate::buffer::BufferManager,
-    frames: &crate::window::FrameManager,
-    threads: &crate::emacs_core::threads::ThreadManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message-box", &args, 1)?;
@@ -162,10 +133,7 @@ pub(crate) fn builtin_message_box_in_state(
     }
     // GNU Emacs: always calls format-message, even for single-arg.
     let msg = match super::strings::builtin_format_message_in_state(
-        obarray,
-        buffers,
-        frames,
-        threads,
+        ctx,
         args.clone(),
     )? {
         Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
@@ -179,20 +147,11 @@ pub(crate) fn builtin_message_or_box_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_message_or_box_in_state(
-        &eval.obarray,
-        &eval.buffers,
-        &eval.frames,
-        &eval.threads,
-        args,
-    )
+    builtin_message_or_box_in_state(eval, args)
 }
 
 pub(crate) fn builtin_message_or_box_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &crate::buffer::BufferManager,
-    frames: &crate::window::FrameManager,
-    threads: &crate::emacs_core::threads::ThreadManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message-or-box", &args, 1)?;
@@ -201,10 +160,7 @@ pub(crate) fn builtin_message_or_box_in_state(
     }
     // GNU Emacs: always calls format-message, even for single-arg.
     let msg = match super::strings::builtin_format_message_in_state(
-        obarray,
-        buffers,
-        frames,
-        threads,
+        ctx,
         args.clone(),
     )? {
         Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
@@ -224,16 +180,15 @@ pub(crate) fn builtin_current_message_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let current_message = eval.current_message_text().map(str::to_owned);
-    builtin_current_message_in_state(&current_message, args)
+    builtin_current_message_in_state(eval, args)
 }
 
 pub(crate) fn builtin_current_message_in_state(
-    current_message: &Option<String>,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-message", &args, 0)?;
-    Ok(match current_message.as_deref() {
+    Ok(match ctx.current_message_text() {
         Some(message) => Value::string(message),
         None => Value::Nil,
     })

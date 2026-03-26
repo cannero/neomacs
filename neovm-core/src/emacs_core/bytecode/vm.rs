@@ -2026,7 +2026,7 @@ impl<'a> Vm<'a> {
 
         let name_id = intern(name);
         let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-            &*self.ctx,
+            &self.ctx.obarray,
             name_id,
         )?;
         let resolved_name = resolve_sym(resolved);
@@ -2101,7 +2101,7 @@ impl<'a> Vm<'a> {
     fn assign_var(&mut self, name: &str, value: Value) -> Result<(), Flow> {
         let name_id = intern(name);
         let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-            &*self.ctx,
+            &self.ctx.obarray,
             name_id,
         )?;
         let is_special =
@@ -2360,7 +2360,7 @@ impl<'a> Vm<'a> {
         builtins::expect_args("set", args, 2)?;
         let symbol = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
         let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-            &*self.ctx,
+            &self.ctx.obarray,
             symbol,
         )?;
         let value = args[1];
@@ -2409,7 +2409,7 @@ impl<'a> Vm<'a> {
                 ));
             }
         };
-        let resolved = resolve_variable_alias_id_in_obarray(&*self.ctx, symbol)?;
+        let resolved = resolve_variable_alias_id_in_obarray(&self.ctx.obarray, symbol)?;
         let resolved_name = resolve_sym(resolved);
         if self.ctx.obarray.is_constant_id(resolved) {
             return Err(signal("setting-constant", vec![args[0]]));
@@ -2442,7 +2442,7 @@ impl<'a> Vm<'a> {
         )?;
         let symbol = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
         let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-            &*self.ctx,
+            &self.ctx.obarray,
             symbol,
         )?;
         let resolved_name = resolve_sym(resolved);
@@ -2509,7 +2509,7 @@ impl<'a> Vm<'a> {
         builtins::expect_args("makunbound", args, 1)?;
         let symbol = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
         let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-            &*self.ctx,
+            &self.ctx.obarray,
             symbol,
         )?;
         if self.ctx.obarray.is_constant_id(resolved) {
@@ -3090,7 +3090,7 @@ impl<'a> Vm<'a> {
             (
                 args[0],
                 crate::emacs_core::builtins::keymaps::expect_keymap_in_obarray(
-                    &*self.ctx,
+                    &self.ctx.obarray,
                     &args[1],
                 )?,
             )
@@ -3099,7 +3099,7 @@ impl<'a> Vm<'a> {
             (
                 args[0],
                 crate::emacs_core::builtins::keymaps::expect_keymap_in_obarray(
-                    &*self.ctx,
+                    &self.ctx.obarray,
                     &args[1],
                 )?,
             )
@@ -4405,9 +4405,8 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_current_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (_, _, _, _, current_message) = self.ctx.printer_runtime_state();
         crate::emacs_core::builtins::builtin_current_message_in_state(
-            &*current_message,
+            &*self.ctx,
             args.to_vec(),
         )
     }
@@ -4441,58 +4440,36 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_format_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (obarray, buffers, frames, threads, _) = self.ctx.printer_runtime_state();
         crate::emacs_core::builtins::builtin_format_in_state(
-            &*obarray,
-            &*buffers,
-            &*frames,
-            &*threads,
+            &*self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_format_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (obarray, buffers, frames, threads, _) = self.ctx.printer_runtime_state();
         crate::emacs_core::builtins::builtin_format_message_in_state(
-            &*obarray,
-            &*buffers,
-            &*frames,
-            &*threads,
+            &*self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (obarray, buffers, frames, threads, current_message) = self.ctx.printer_runtime_state();
         crate::emacs_core::builtins::builtin_message_in_state(
-            &*obarray,
-            &[],
-            &*buffers,
-            &*frames,
-            &*threads,
-            current_message,
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_box_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (obarray, buffers, frames, threads, _) = self.ctx.printer_runtime_state();
         crate::emacs_core::builtins::builtin_message_box_in_state(
-            &*obarray,
-            &*buffers,
-            &*frames,
-            &*threads,
+            &*self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_or_box_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (obarray, buffers, frames, threads, _) = self.ctx.printer_runtime_state();
         crate::emacs_core::builtins::builtin_message_or_box_in_state(
-            &*obarray,
-            &*buffers,
-            &*frames,
-            &*threads,
+            &*self.ctx,
             args.to_vec(),
         )
     }
@@ -4631,22 +4608,15 @@ impl<'a> Vm<'a> {
             &*self.ctx,
             args.get(1),
         );
-        let text = {
-            let (obarray, buffers, frames, threads, _) = self.ctx.printer_runtime_state();
-            if crate::emacs_core::builtins::print_target_is_direct(target) {
-                return crate::emacs_core::builtins::builtin_princ_in_state(
-                    &*obarray,
-                    &[],
-                    buffers,
-                    &*frames,
-                    &*threads,
-                    args.to_vec(),
-                );
-            }
-            crate::emacs_core::builtins::print_value_princ_in_state(
-                &*obarray, &*buffers, &*frames, &*threads, &args[0],
-            )
-        };
+        if crate::emacs_core::builtins::print_target_is_direct(target) {
+            return crate::emacs_core::builtins::builtin_princ_in_state(
+                &mut *self.ctx,
+                args.to_vec(),
+            );
+        }
+        let text = crate::emacs_core::builtins::print_value_princ_in_state(
+            &*self.ctx, &args[0],
+        );
         crate::emacs_core::builtins::dispatch_print_callback_chars(&text, |ch| {
             self.call_function_with_roots(target, &[ch]).map(|_| ())
         })?;
@@ -4659,13 +4629,8 @@ impl<'a> Vm<'a> {
             args.get(1),
         );
         if crate::emacs_core::builtins::print_target_is_direct(target) {
-            let (obarray, buffers, frames, threads, _) = self.ctx.printer_runtime_state();
             return crate::emacs_core::builtins::builtin_prin1_in_state(
-                &*obarray,
-                &[],
-                buffers,
-                &*frames,
-                &*threads,
+                &mut *self.ctx,
                 args.to_vec(),
             );
         }
@@ -4679,12 +4644,8 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_prin1_to_string_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (obarray, buffers, frames, threads, _) = self.ctx.printer_runtime_state();
         crate::emacs_core::builtins::builtin_prin1_to_string_in_state(
-            &*obarray,
-            &*buffers,
-            &*frames,
-            &*threads,
+            &*self.ctx,
             args.to_vec(),
         )
     }
@@ -4695,13 +4656,8 @@ impl<'a> Vm<'a> {
             args.get(1),
         );
         if crate::emacs_core::builtins::print_target_is_direct(target) {
-            let (obarray, buffers, frames, threads, _) = self.ctx.printer_runtime_state();
             return crate::emacs_core::builtins::builtin_print_in_state(
-                &*obarray,
-                &[],
-                buffers,
-                &*frames,
-                &*threads,
+                &mut *self.ctx,
                 args.to_vec(),
             );
         }
@@ -4721,16 +4677,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_terpri_shared(&mut self, args: &[Value]) -> EvalResult {
-        {
-            let (obarray, buffers, _, _, _) = self.ctx.printer_runtime_state();
-            if let Some(result) = crate::emacs_core::builtins::builtin_terpri_in_state(
-                &*obarray,
-                &[],
-                buffers,
-                args.to_vec(),
-            )? {
-                return Ok(result);
-            }
+        if let Some(result) = crate::emacs_core::builtins::builtin_terpri_in_state(
+            &mut *self.ctx,
+            args.to_vec(),
+        )? {
+            return Ok(result);
         }
         let target = crate::emacs_core::builtins::resolve_print_target_in_state(&*self.ctx, args.first());
         self.call_function_with_roots(target, &[Value::Int('\n' as i64)])?;
@@ -4738,16 +4689,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_write_char_shared(&mut self, args: &[Value]) -> EvalResult {
-        {
-            let (obarray, buffers, _, _, _) = self.ctx.printer_runtime_state();
-            if let Some(result) = crate::emacs_core::builtins::builtin_write_char_in_state(
-                &*obarray,
-                &[],
-                buffers,
-                args.to_vec(),
-            )? {
-                return Ok(result);
-            }
+        if let Some(result) = crate::emacs_core::builtins::builtin_write_char_in_state(
+            &mut *self.ctx,
+            args.to_vec(),
+        )? {
+            return Ok(result);
         }
         let target = crate::emacs_core::builtins::resolve_print_target_in_state(&*self.ctx, args.get(1));
         let char_code = match crate::emacs_core::builtins::builtin_write_char(args.to_vec())? {

@@ -294,7 +294,7 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
             ));
         }
     };
-    let resolved = resolve_sym(super::builtins::resolve_variable_alias_id_in_obarray_raw(
+    let resolved = resolve_sym(super::builtins::resolve_variable_alias_id_in_obarray(
         obarray,
         intern(&name),
     )?)
@@ -365,7 +365,7 @@ pub(crate) fn builtin_make_local_variable_in_state(
         }
     };
     let symbol = intern(&name);
-    let resolved = super::builtins::resolve_variable_alias_id_in_obarray_raw(&ctx.obarray, symbol)?;
+    let resolved = super::builtins::resolve_variable_alias_id_in_obarray(&ctx.obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
     if ctx.obarray.is_constant_id(resolved) {
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
@@ -409,7 +409,7 @@ pub(crate) fn builtin_local_variable_p_in_state(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray_raw(&ctx.obarray, name)?;
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(&ctx.obarray, name)?;
 
     let buf = if args.len() > 1 {
         match &args[1] {
@@ -527,7 +527,7 @@ pub(crate) fn builtin_kill_local_variable_in_state(
         }
     };
 
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray_raw(&ctx.obarray, &name)?;
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(&ctx.obarray, &name)?;
     let mut removed = false;
     let buffer_id = ctx.buffers.current_buffer_id();
     if let Some(buffer_id) = buffer_id {
@@ -570,7 +570,7 @@ pub(crate) fn builtin_default_value_in_state(
             ));
         }
     };
-    let resolved = super::builtins::resolve_variable_alias_id_in_obarray_raw(obarray, symbol)?;
+    let resolved = super::builtins::resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
     // specbind writes directly to obarray, so no dynamic stack lookup needed.
     match obarray.symbol_value_id(resolved) {

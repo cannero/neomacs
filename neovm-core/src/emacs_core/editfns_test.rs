@@ -162,7 +162,7 @@ fn erase_buffer_widens_before_deleting_current_contents() {
         buf.goto_char(4);
     }
 
-    let result = builtin_erase_buffer_in_state_raw(&obarray, &dynamic, &mut buffers, vec![]);
+    let result = erase_buffer_impl(&obarray, &dynamic, &mut buffers, vec![]);
     assert!(matches!(result, Ok(Value::Nil)));
 
     let buf = buffers.get(current).expect("buffer after erase");
