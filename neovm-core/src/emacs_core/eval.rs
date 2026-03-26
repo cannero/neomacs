@@ -6810,25 +6810,53 @@ impl Context {
         filename: Option<Value>,
         noerror: Option<Value>,
     ) -> EvalResult {
+        let feature_name = match &feature {
+            Value::Symbol(sid) => Some(resolve_sym(*sid).to_string()),
+            _ => None,
+        };
+        let filename_str = filename.as_ref().and_then(|v| match v {
+            Value::Str(oid) => Some(self.heap.get_string(*oid).to_string()),
+            _ => None,
+        });
         match plan_require_in_state(
             &self.obarray,
             &mut self.features,
             &self.require_stack,
             feature,
-            filename,
-            noerror,
-        )? {
-            RequirePlan::Return(value) => Ok(value),
-            RequirePlan::Load { sym_id, name, path } => {
-                self.require_stack.push(sym_id);
-                let result = (|| -> EvalResult {
-                    self.load_file_internal(&path)?;
-                    self.refresh_features_from_variable();
-                    finish_require_in_state(&self.features, sym_id, &name)
-                })();
-                let _ = self.require_stack.pop();
-                result
+            filename.clone(),
+            noerror.clone(),
+        ) {
+            Err(e) => {
+                tracing::error!(
+                    feature = ?feature_name,
+                    filename = ?filename_str,
+                    "require plan failed: {:?}", e
+                );
+                return Err(e);
             }
+            Ok(plan) => match plan {
+                RequirePlan::Return(value) => Ok(value),
+                RequirePlan::Load { sym_id, name, path } => {
+                    self.require_stack.push(sym_id);
+                    let result = (|| -> EvalResult {
+                        self.load_file_internal(&path)?;
+                        self.refresh_features_from_variable();
+                        finish_require_in_state(&self.features, sym_id, &name)
+                    })();
+                    let _ = self.require_stack.pop();
+                    if let Err(ref e) = result {
+                        let noerror_val = noerror.as_ref().map(|v| !v.is_nil()).unwrap_or(false);
+                        let path_str = path.display().to_string();
+                        tracing::error!(
+                            feature_name = ?feature_name,
+                            path = %path_str,
+                            noerror = noerror_val,
+                            "require failed: {:?}", e
+                        );
+                    }
+                    result
+                }
+            },
         }
     }
 

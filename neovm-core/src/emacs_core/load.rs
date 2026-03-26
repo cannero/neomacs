@@ -1957,11 +1957,25 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
         // This mirrors how GNU Emacs .elc files include the `require` calls
         // from the source file — macro expansion loads the packages, and the
         // compiled output depends on them being available at runtime.
+        // Compute the file's own likely feature name(s) from its basename.
+        // A file "foo-bar.el" typically provides feature `foo-bar`.
+        // We must not add the file's own provides as dependencies — that
+        // would create a circular require during V2 cache replay.
+        let file_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
         let expansion_deps: Vec<String> = if !features_before.is_empty() {
             eval.refresh_features_from_variable();
             eval.features
                 .iter()
                 .filter(|f| !features_before.contains(f))
+                .filter(|f| {
+                    let name = super::intern::resolve_sym(**f);
+                    // Skip features that match the file's own name — these
+                    // are self-provides, not external dependencies.
+                    name != file_stem
+                })
                 .map(|f| super::intern::resolve_sym(*f).to_string())
                 .collect()
         } else {
