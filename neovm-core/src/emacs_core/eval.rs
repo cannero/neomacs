@@ -7392,9 +7392,7 @@ impl Context {
             NamedCallTarget::ContextCallable
         } else if super::subr_info::is_special_form(name) {
             NamedCallTarget::SpecialForm
-        } else if self.subr_registry.contains_key(&intern(name))
-            || builtins::is_pure_builtin_name(name)
-        {
+        } else if self.subr_registry.contains_key(&intern(name)) {
             NamedCallTarget::Builtin
         } else {
             NamedCallTarget::Void

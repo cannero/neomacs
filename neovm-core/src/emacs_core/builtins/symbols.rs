@@ -598,8 +598,7 @@ pub(crate) fn builtin_fboundp_in_obarray(obarray: &Obarray, args: &[Value]) -> E
     let result = super::subr_info::is_special_form(name)
         || macro_bound
         || super::subr_info::is_evaluator_callable_name(name)
-        || obarray.symbol_function(name).is_some()
-        || name.parse::<PureBuiltinId>().is_ok();
+        || obarray.symbol_function(name).is_some();
     Ok(Value::bool(result))
 }
 
@@ -2286,7 +2285,6 @@ pub(crate) fn symbol_function_cell_in_obarray(obarray: &Obarray, symbol: SymId) 
 
     if super::subr_info::is_special_form(current_name)
         || super::subr_info::is_evaluator_callable_name(current_name)
-        || current_name.parse::<PureBuiltinId>().is_ok()
     {
         return Some(Value::Subr(symbol));
     }
