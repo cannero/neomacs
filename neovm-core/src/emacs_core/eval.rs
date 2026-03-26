@@ -6751,19 +6751,11 @@ impl Context {
         //   tem = Fassq(feature, Vafter_load_alist);
         //   if (CONSP(tem))  Fmapc(Qfuncall, XCDR(tem));
         //
-        // The eval-after-load delayed-func in subr.el checks load-file-name
-        // to decide whether to defer the callback to after-load-functions.
-        // Since NeoVM's provide runs the hooks directly (like GNU's Fprovide),
-        // we temporarily bind load-file-name to nil so the delayed-func
-        // calls the callback immediately instead of deferring.
-        let saved_lfn = self.obarray().symbol_value("load-file-name").cloned();
-        self.set_variable("load-file-name", Value::Nil);
-        let hook_result = self.run_after_load_hooks_for_feature(feature);
-        // Restore load-file-name
-        if let Some(lfn) = saved_lfn {
-            self.set_variable("load-file-name", lfn);
-        }
-        hook_result?;
+        // GNU Emacs Fprovide: (mapc #'funcall (cdr (assq feature after-load-alist)))
+        // Does NOT clear load-file-name — the delayed-func from eval-after-load
+        // defers to after-load-functions when load-file-name is set, and
+        // do-after-load-evaluation fires those hooks after the file finishes loading.
+        self.run_after_load_hooks_for_feature(feature)?;
         Ok(feature)
     }
 

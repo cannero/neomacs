@@ -1631,8 +1631,18 @@ pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, 
     }
     eval.loads_in_progress.push(canonical);
 
+    // GNU Emacs lread.c: specbind(Qload_in_progress, Qt)
+    // Set load-in-progress to t during file loading, restore afterward.
+    let old_load_in_progress = eval
+        .obarray()
+        .symbol_value("load-in-progress")
+        .cloned()
+        .unwrap_or(Value::Nil);
+    eval.set_variable("load-in-progress", Value::True);
+
     let result = stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || load_file_body(eval, path));
 
+    eval.set_variable("load-in-progress", old_load_in_progress);
     eval.loads_in_progress.pop();
     result
 }
