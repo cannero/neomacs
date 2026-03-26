@@ -2474,7 +2474,7 @@ impl<'a> Vm<'a> {
             }
         }
         if let Some(docstring) = docstring {
-            crate::emacs_core::builtins::symbols::builtin_put_in_obarray(
+            crate::emacs_core::builtins::symbols::builtin_put(
                 &mut *self.ctx,
                 vec![result, Value::symbol("function-documentation"), docstring],
             )?;
@@ -2494,7 +2494,7 @@ impl<'a> Vm<'a> {
             "defvaralias",
         )?;
         self.ctx.watchers.clear_watchers(&state_change.alias_name);
-        crate::emacs_core::builtins::symbols::builtin_put_in_obarray(
+        crate::emacs_core::builtins::symbols::builtin_put(
             &mut *self.ctx,
             vec![
                 args[0],
@@ -2898,8 +2898,8 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn builtin_fboundp_fast(&self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::symbols::builtin_fboundp_in_obarray(&*self.ctx, args)
+    fn builtin_fboundp_fast(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::symbols::builtin_fboundp(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_current_indentation_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -2924,56 +2924,56 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_buffer_string_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_string_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_buffer_string(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_buffer_substring_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_buffer_substring_in_manager(
-            &*self.ctx,
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_field_beginning_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_field_beginning_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_field_beginning(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_field_end_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_field_end_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_field_end(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_field_string_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_field_string_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_field_string(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_field_string_no_properties_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_field_string_no_properties_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_field_string_no_properties(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_constrain_to_field_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_constrain_to_field_in_state(
+        crate::emacs_core::builtins::builtin_constrain_to_field(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_point_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_point_in_manager(&*self.ctx, args.to_vec())
+        crate::emacs_core::builtins::builtin_point(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_accept_process_output_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -2989,29 +2989,29 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_buffer_list_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_list_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_buffer_list(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_other_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_other_buffer_in_manager(
+        crate::emacs_core::builtins::builtin_other_buffer(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_generate_new_buffer_name_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_generate_new_buffer_name_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_generate_new_buffer_name(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_get_file_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_get_file_buffer_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_get_file_buffer(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
@@ -3062,9 +3062,8 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_kill_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_kill_buffer_in_state(
-            &mut self.ctx.buffers,
-            &mut self.ctx.frames,
+        crate::emacs_core::builtins::builtin_kill_buffer(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
@@ -3203,14 +3202,14 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_set_buffer_multibyte_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_set_buffer_multibyte_in_manager(
+        crate::emacs_core::builtins::builtin_set_buffer_multibyte_eval(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_insert_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_insert_in_state(
+        crate::emacs_core::builtins::builtin_insert(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3224,125 +3223,125 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_insert_and_inherit_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_insert_and_inherit_in_state(
+        crate::emacs_core::builtins::builtin_insert_and_inherit(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_insert_before_markers_and_inherit_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_insert_before_markers_and_inherit_in_state(
+        crate::emacs_core::builtins::builtin_insert_before_markers_and_inherit(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_point_min_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_point_min_in_manager(&*self.ctx, args.to_vec())
+        crate::emacs_core::builtins::builtin_point_min(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_point_max_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_point_max_in_manager(&*self.ctx, args.to_vec())
+        crate::emacs_core::builtins::builtin_point_max(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_goto_char_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_goto_char_in_manager(
+        crate::emacs_core::builtins::builtin_goto_char(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_char_after_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_char_after_in_manager(&*self.ctx, args.to_vec())
+        crate::emacs_core::builtins::builtin_char_after(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_char_before_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_char_before_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_char_before(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_buffer_size_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_size_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_buffer_size(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_byte_to_position_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_byte_to_position_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_byte_to_position(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_position_bytes_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_position_bytes_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_position_bytes(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_get_byte_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_get_byte_in_manager(&*self.ctx, args.to_vec())
+        crate::emacs_core::builtins::builtin_get_byte(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_narrow_to_region_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_narrow_to_region_in_manager(
+        crate::emacs_core::builtins::builtin_narrow_to_region(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_widen_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_widen_in_manager(&mut *self.ctx, args.to_vec())
+        crate::emacs_core::builtins::builtin_widen(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_buffer_modified_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_modified_p_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_buffer_modified_p(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_set_buffer_modified_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_set_buffer_modified_p_in_manager(
+        crate::emacs_core::builtins::builtin_set_buffer_modified_p(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_buffer_modified_tick_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_modified_tick_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_buffer_modified_tick(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_buffer_chars_modified_tick_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_chars_modified_tick_in_manager(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_buffer_chars_modified_tick(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_insert_char_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_insert_char_in_state(
+        crate::emacs_core::builtins::builtin_insert_char(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_insert_byte_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_insert_byte_in_state(
+        crate::emacs_core::builtins::builtin_insert_byte(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_subst_char_in_region_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_subst_char_in_region_in_state(
+        crate::emacs_core::builtins::builtin_subst_char_in_region(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3386,14 +3385,14 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_insert_buffer_substring_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_insert_buffer_substring_in_state(
+        crate::emacs_core::builtins::builtin_insert_buffer_substring(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_replace_region_contents_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_replace_region_contents_in_state(
+        crate::emacs_core::builtins::builtin_replace_region_contents_eval(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3443,7 +3442,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_delete_field_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_delete_field_in_state(
+        crate::emacs_core::builtins::builtin_delete_field(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3471,44 +3470,43 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_buffer_enable_undo_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_enable_undo_in_manager(
+        crate::emacs_core::builtins::builtin_buffer_enable_undo(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_buffer_disable_undo_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_disable_undo_in_manager(
+        crate::emacs_core::builtins::builtin_buffer_disable_undo(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_kill_all_local_variables_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_kill_all_local_variables_in_state(
+        crate::emacs_core::builtins::builtin_kill_all_local_variables(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_buffer_local_value_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_buffer_local_value_in_state(
-            &self.ctx.obarray,
-            &self.ctx.buffers,
+        crate::emacs_core::builtins::builtin_buffer_local_value(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_local_variable_if_set_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::symbols::builtin_local_variable_if_set_p_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::symbols::builtin_local_variable_if_set_p(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_variable_binding_locus_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::symbols::builtin_variable_binding_locus_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::symbols::builtin_variable_binding_locus(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }

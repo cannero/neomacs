@@ -8518,7 +8518,7 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
     builtin_fset(&mut eval, vec![vm_nil, Value::Nil])
         .expect("fset should bind explicit nil function cell");
 
-    let t_arity = builtin_func_arity_eval(&mut eval, vec![Value::True])
+    let t_arity = builtin_func_arity(&mut eval, vec![Value::True])
         .expect("func-arity should resolve t designator");
     match &t_arity {
         Value::Cons(cell) => {
@@ -8529,7 +8529,7 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
         other => panic!("expected cons arity pair, got {other:?}"),
     }
 
-    let keyword_arity = builtin_func_arity_eval(&mut eval, vec![keyword])
+    let keyword_arity = builtin_func_arity(&mut eval, vec![keyword])
         .expect("func-arity should resolve keyword designator");
     match &keyword_arity {
         Value::Cons(cell) => {
@@ -8540,7 +8540,7 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
         other => panic!("expected cons arity pair, got {other:?}"),
     }
 
-    let nil_cell_err = builtin_func_arity_eval(&mut eval, vec![vm_nil])
+    let nil_cell_err = builtin_func_arity(&mut eval, vec![vm_nil])
         .expect_err("func-arity should signal void-function for nil function cell");
     match nil_cell_err {
         Flow::Signal(sig) => {
@@ -9038,7 +9038,7 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
     assert_eq!(doc, Value::string("vm-doc"));
 
     let direct =
-        builtin_indirect_variable_eval(&mut eval, vec![Value::symbol("vm-defvaralias-new")])
+        builtin_indirect_variable(&mut eval, vec![Value::symbol("vm-defvaralias-new")])
             .expect("indirect-variable should resolve aliases");
     assert_eq!(direct, Value::symbol("vm-defvaralias-old"));
 
@@ -9218,7 +9218,7 @@ fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
     )
     .expect("add-variable-watcher should register callback");
 
-    builtin_setplist_eval(
+    builtin_setplist(
         &mut eval,
         vec![Value::symbol("vm-defvaralias-watch-bad"), Value::Int(1)],
     )
@@ -9357,7 +9357,7 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         Value::Int(2),
     ]);
     let stored =
-        builtin_setplist_eval(&mut eval, vec![Value::symbol("vm-setplist"), initial_plist])
+        builtin_setplist(&mut eval, vec![Value::symbol("vm-setplist"), initial_plist])
             .expect("setplist should store plist values");
     assert_eq!(stored, initial_plist);
 
@@ -9402,7 +9402,7 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         ])
     );
 
-    builtin_setplist_eval(&mut eval, vec![Value::symbol("vm-setplist"), Value::Int(1)])
+    builtin_setplist(&mut eval, vec![Value::symbol("vm-setplist"), Value::Int(1)])
         .expect("setplist should accept non-list plist values");
     let non_list = builtin_symbol_plist_fn(&mut eval, vec![Value::symbol("vm-setplist")])
         .expect("symbol-plist should return raw non-list values");
@@ -9603,7 +9603,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
     .expect("initial register-ccl-program should dispatch")
     .expect("initial register-ccl-program should succeed");
 
-    let _ = builtin_setplist_eval(
+    let _ = builtin_setplist(
         &mut eval,
         vec![Value::symbol("vm-ccl-plist-gate"), Value::Nil],
     )
@@ -9700,7 +9700,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let _ = builtin_setplist_eval(
+    let _ = builtin_setplist(
         &mut eval,
         vec![Value::symbol("vm-ccl-plist-gate"), Value::Int(1)],
     )
@@ -9739,7 +9739,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
     .expect("initial register-code-conversion-map should succeed");
     assert_eq!(first_id, Value::Int(0));
 
-    let _ = builtin_setplist_eval(
+    let _ = builtin_setplist(
         &mut eval,
         vec![Value::symbol("vm-map-plist-edge"), Value::Nil],
     )
@@ -9779,7 +9779,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
     .expect("get should read republished id");
     assert_eq!(republished_id, first_id);
 
-    let _ = builtin_setplist_eval(
+    let _ = builtin_setplist(
         &mut eval,
         vec![Value::symbol("vm-map-plist-edge"), Value::Int(1)],
     )
@@ -9842,7 +9842,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
     .as_int()
     .expect("baseline program id should be integer");
 
-    builtin_setplist_eval(
+    builtin_setplist(
         &mut eval,
         vec![Value::symbol("vm-ccl-program-id-bad"), Value::Int(1)],
     )
@@ -9900,7 +9900,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
     .as_int()
     .expect("baseline map id should be integer");
 
-    builtin_setplist_eval(
+    builtin_setplist(
         &mut eval,
         vec![Value::symbol("vm-ccl-map-id-bad"), Value::Int(1)],
     )
@@ -10014,7 +10014,7 @@ fn set_allows_keyword_self_assignment_like_gnu_emacs() {
 #[test]
 fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_setplist_eval(
+    builtin_setplist(
         &mut eval,
         vec![Value::symbol("vm-defvaralias-bad-plist"), Value::Int(1)],
     )
@@ -10038,7 +10038,7 @@ fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
     }
 
     let unresolved =
-        builtin_indirect_variable_eval(&mut eval, vec![Value::symbol("vm-defvaralias-bad-plist")])
+        builtin_indirect_variable(&mut eval, vec![Value::symbol("vm-defvaralias-bad-plist")])
             .expect("failed defvaralias should still install alias edges");
     assert_eq!(unresolved, Value::symbol("vm-defvaralias-target"));
 }

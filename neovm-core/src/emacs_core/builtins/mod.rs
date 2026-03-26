@@ -658,11 +658,11 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("fboundp", builtin_fboundp, 0, None);
     ctx.defsubr(
         "internal-make-var-non-special",
-        builtin_internal_make_var_non_special_eval,
+        builtin_internal_make_var_non_special,
         0,
         None,
     );
-    ctx.defsubr("indirect-variable", builtin_indirect_variable_eval, 0, None);
+    ctx.defsubr("indirect-variable", builtin_indirect_variable, 0, None);
     ctx.defsubr("handler-bind-1", builtin_handler_bind_1_eval, 0, None);
     ctx.defsubr("symbol-value", builtin_symbol_value, 0, None);
     ctx.defsubr("symbol-function", builtin_symbol_function, 0, None);
@@ -674,7 +674,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("macroexpand", builtin_macroexpand_eval, 0, None);
     ctx.defsubr("get", builtin_get, 0, None);
     ctx.defsubr("put", builtin_put, 0, None);
-    ctx.defsubr("setplist", builtin_setplist_eval, 0, None);
+    ctx.defsubr("setplist", builtin_setplist, 0, None);
     ctx.defsubr("symbol-plist", builtin_symbol_plist_fn, 0, None);
     ctx.defsubr("indirect-function", builtin_indirect_function, 0, None);
     ctx.defsubr("signal", super::errors::builtin_signal_eval, 0, None);
@@ -910,13 +910,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("buffer-local-value", builtin_buffer_local_value, 0, None);
     ctx.defsubr(
         "local-variable-if-set-p",
-        builtin_local_variable_if_set_p_eval,
+        builtin_local_variable_if_set_p,
         0,
         None,
     );
     ctx.defsubr(
         "variable-binding-locus",
-        builtin_variable_binding_locus_eval,
+        builtin_variable_binding_locus,
         0,
         None,
     );
@@ -6914,7 +6914,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr("func-arity", builtin_func_arity_eval, 0, None);
+    ctx.defsubr("func-arity", builtin_func_arity, 0, None);
 
     // -- Character encoding --
     ctx.defsubr(
@@ -7519,23 +7519,23 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
 
     // -- CCL (eval-dependent) --
-    ctx.defsubr("ccl-program-p", builtin_ccl_program_p_eval, 0, None);
-    ctx.defsubr("ccl-execute", builtin_ccl_execute_eval, 0, None);
+    ctx.defsubr("ccl-program-p", builtin_ccl_program_p, 0, None);
+    ctx.defsubr("ccl-execute", builtin_ccl_execute, 0, None);
     ctx.defsubr(
         "ccl-execute-on-string",
-        builtin_ccl_execute_on_string_eval,
+        builtin_ccl_execute_on_string,
         0,
         None,
     );
     ctx.defsubr(
         "register-ccl-program",
-        builtin_register_ccl_program_eval,
+        builtin_register_ccl_program,
         0,
         None,
     );
     ctx.defsubr(
         "register-code-conversion-map",
-        builtin_register_code_conversion_map_eval,
+        builtin_register_code_conversion_map,
         0,
         None,
     );

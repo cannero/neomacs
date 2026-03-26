@@ -106,12 +106,12 @@ fn builtin_documentation_plan_in_obarray(
             return documentation_plan_from_property_value(lisp_directory.as_deref(), prop);
         }
 
-        let mut func_val = super::builtins::symbols::builtin_symbol_function_in_obarray(
+        let mut func_val = super::builtins::symbols::symbol_function_impl(
             obarray,
             vec![Value::symbol(name.clone())],
         )?;
         if let Some(alias_name) = func_val.as_symbol_name() {
-            let indirect = super::builtins::symbols::builtin_indirect_function_in_obarray(
+            let indirect = super::builtins::symbols::indirect_function_impl(
                 obarray,
                 vec![Value::symbol(alias_name)],
             )?;

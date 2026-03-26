@@ -377,7 +377,7 @@ pub(crate) fn builtin_defalias(eval: &mut super::eval::Context, args: Vec<Value>
         }
     }
     if let Some(docstring) = docstring {
-        super::symbols::builtin_put_in_obarray(
+        super::symbols::builtin_put(
             eval,
             vec![result, Value::symbol("function-documentation"), docstring],
         )?;

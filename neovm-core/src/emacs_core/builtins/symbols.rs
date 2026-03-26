@@ -374,14 +374,8 @@ pub(crate) fn builtin_special_variable_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_special_variable_p_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_special_variable_p_in_obarray(
-    obarray: &Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("special-variable-p", &args, 1)?;
+    let obarray = eval.obarray();
     let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
     Ok(Value::bool(
         obarray.is_special_id(resolved) || obarray.is_constant_id(resolved),
@@ -392,11 +386,8 @@ pub(crate) fn builtin_default_boundp(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_default_boundp_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_default_boundp_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("default-boundp", &args, 1)?;
+    let obarray = eval.obarray();
     let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
     Ok(Value::bool(
         obarray.boundp_id(resolved) || obarray.is_constant_id(resolved),
@@ -407,14 +398,8 @@ pub(crate) fn builtin_default_toplevel_value(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_default_toplevel_value_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_default_toplevel_value_in_obarray(
-    obarray: &Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("default-toplevel-value", &args, 1)?;
+    let obarray = eval.obarray();
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
@@ -502,7 +487,7 @@ pub(crate) fn builtin_defvaralias_eval(
     // GNU Emacs updates `variable-documentation` through plist machinery after
     // installing alias state, so malformed raw plists still raise
     // `(wrong-type-argument plistp ...)` with the alias edge retained.
-    builtin_put_in_obarray(
+    builtin_put(
         eval,
         vec![
             args[0],
@@ -561,18 +546,12 @@ pub(crate) fn builtin_defvaralias_in_state(
     })
 }
 
-pub(crate) fn builtin_indirect_variable_eval(
+pub(crate) fn builtin_indirect_variable(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_indirect_variable_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_indirect_variable_in_obarray(
-    obarray: &Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("indirect-variable", &args, 1)?;
+    let obarray = eval.obarray();
     let Some(symbol) = symbol_id(&args[0]) else {
         return Ok(args[0]);
     };
@@ -580,14 +559,14 @@ pub(crate) fn builtin_indirect_variable_in_obarray(
     Ok(value_from_symbol_id(resolved))
 }
 
-pub(crate) fn builtin_fboundp_in_obarray(ctx: &crate::emacs_core::eval::Context, args: &[Value]) -> EvalResult {
-    expect_args("fboundp", args, 1)?;
+pub(crate) fn builtin_fboundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    expect_args("fboundp", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
     let name = resolve_sym(symbol);
-    if ctx.obarray.is_function_unbound_id(symbol) {
+    if eval.obarray.is_function_unbound_id(symbol) {
         return Ok(Value::Nil);
     }
-    if let Some(function) = ctx.obarray.symbol_function_id(symbol) {
+    if let Some(function) = eval.obarray.symbol_function_id(symbol) {
         let result = !function.is_nil();
         return Ok(Value::bool(result));
     }
@@ -598,12 +577,8 @@ pub(crate) fn builtin_fboundp_in_obarray(ctx: &crate::emacs_core::eval::Context,
     let result = super::subr_info::is_special_form(name)
         || macro_bound
         || super::subr_info::is_evaluator_callable_name(name)
-        || ctx.obarray.symbol_function(name).is_some();
+        || eval.obarray.symbol_function(name).is_some();
     Ok(Value::bool(result))
-}
-
-pub(crate) fn builtin_fboundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_fboundp_in_obarray(eval, &args)
 }
 
 pub(crate) fn builtin_symbol_value(
@@ -653,10 +628,11 @@ pub(crate) fn builtin_symbol_function(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_symbol_function_in_obarray(eval.obarray(), args)
+    symbol_function_impl(eval.obarray(), args)
 }
 
-pub(crate) fn builtin_symbol_function_in_obarray(
+/// Obarray-only implementation shared by `builtin_symbol_function` and doc.rs.
+pub(crate) fn symbol_function_impl(
     obarray: &Obarray,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -728,7 +704,7 @@ pub(crate) fn builtin_function_get(
             break;
         }
         let fundef =
-            builtin_symbol_function_in_obarray(eval.obarray(), vec![f]).unwrap_or(Value::Nil);
+            symbol_function_impl(eval.obarray(), vec![f]).unwrap_or(Value::Nil);
         if fundef.is_nil() {
             break;
         }
@@ -762,14 +738,11 @@ pub(crate) fn builtin_function_get(
     Ok(val)
 }
 
-pub(crate) fn builtin_func_arity_eval(
+pub(crate) fn builtin_func_arity(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_func_arity_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_func_arity_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
+    let obarray = eval.obarray();
     expect_args("func-arity", &args, 1)?;
 
     if let Some(name) = args[0].as_symbol_name() {
@@ -847,11 +820,8 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Context, args: Vec<Value>) -> 
 }
 
 pub(crate) fn builtin_fset(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_fset_in_obarray(eval.obarray_mut(), args)
-}
-
-pub(crate) fn builtin_fset_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("fset", &args, 2)?;
+    let obarray = eval.obarray_mut();
     let symbol = expect_symbol_id(&args[0])?;
     if symbol == intern("nil") && !args[1].is_nil() {
         return Err(signal("setting-constant", vec![Value::symbol("nil")]));
@@ -967,14 +937,8 @@ pub(crate) fn builtin_defconst_1_eval(
 }
 
 pub(crate) fn builtin_fmakunbound(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_fmakunbound_in_obarray(eval.obarray_mut(), args)
-}
-
-pub(crate) fn builtin_fmakunbound_in_obarray(
-    obarray: &mut Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("fmakunbound", &args, 1)?;
+    let obarray = eval.obarray_mut();
     let symbol = expect_symbol_id(&args[0])?;
     if symbol == intern("nil") || symbol == intern("t") {
         return Err(signal("setting-constant", vec![args[0]]));
@@ -1000,11 +964,7 @@ pub(crate) fn builtin_get(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         .unwrap_or(Value::Nil))
 }
 
-pub(crate) fn builtin_put(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_put_in_obarray(eval, args)
-}
-
-pub(crate) fn builtin_put_in_obarray(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_put(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     put_in_obarray(&mut ctx.obarray, args)
 }
 
@@ -1026,11 +986,8 @@ pub(crate) fn builtin_symbol_plist_fn(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_symbol_plist_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_symbol_plist_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("symbol-plist", &args, 1)?;
+    let obarray = eval.obarray();
     let symbol = expect_symbol_id(&args[0])?;
     if let Some(raw) = symbol_raw_plist_value_in_obarray(obarray, symbol) {
         return Ok(raw);
@@ -1038,17 +995,11 @@ pub(crate) fn builtin_symbol_plist_in_obarray(obarray: &Obarray, args: Vec<Value
     Ok(visible_symbol_plist_snapshot_in_obarray(obarray, symbol))
 }
 
-pub(super) fn builtin_register_code_conversion_map_eval(
+pub(super) fn builtin_register_code_conversion_map(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_register_code_conversion_map_in_obarray(eval.obarray_mut(), args)
-}
-
-pub(crate) fn builtin_register_code_conversion_map_in_obarray(
-    obarray: &mut Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
+    let obarray = eval.obarray_mut();
     if args.len() == 2 {
         preflight_symbol_plist_put_in_obarray(
             obarray,
@@ -1092,14 +1043,11 @@ fn symbol_has_valid_ccl_program_idx(
     symbol_has_valid_ccl_program_idx_in_obarray(eval.obarray(), symbol)
 }
 
-pub(super) fn builtin_ccl_program_p_eval(
+pub(super) fn builtin_ccl_program_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_ccl_program_p_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_ccl_program_p_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
+    let obarray = eval.obarray();
     if args.len() == 1 && args[0].is_symbol() {
         return Ok(Value::bool(symbol_has_valid_ccl_program_idx_in_obarray(
             obarray, &args[0],
@@ -1108,14 +1056,11 @@ pub(crate) fn builtin_ccl_program_p_in_obarray(obarray: &Obarray, args: Vec<Valu
     super::ccl::builtin_ccl_program_p(args)
 }
 
-pub(super) fn builtin_ccl_execute_eval(
+pub(super) fn builtin_ccl_execute(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_ccl_execute_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_ccl_execute_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
+    let obarray = eval.obarray();
     if args.first().is_some_and(Value::is_symbol)
         && !symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?
     {
@@ -1126,17 +1071,11 @@ pub(crate) fn builtin_ccl_execute_in_obarray(obarray: &Obarray, args: Vec<Value>
     super::ccl::builtin_ccl_execute(args)
 }
 
-pub(super) fn builtin_ccl_execute_on_string_eval(
+pub(super) fn builtin_ccl_execute_on_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_ccl_execute_on_string_in_obarray(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_ccl_execute_on_string_in_obarray(
-    obarray: &Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
+    let obarray = eval.obarray();
     if args.first().is_some_and(Value::is_symbol)
         && !symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?
     {
@@ -1147,17 +1086,11 @@ pub(crate) fn builtin_ccl_execute_on_string_in_obarray(
     super::ccl::builtin_ccl_execute_on_string(args)
 }
 
-pub(super) fn builtin_register_ccl_program_eval(
+pub(super) fn builtin_register_ccl_program(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_register_ccl_program_in_obarray(eval.obarray_mut(), args)
-}
-
-pub(crate) fn builtin_register_ccl_program_in_obarray(
-    obarray: &mut Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
+    let obarray = eval.obarray_mut();
     let was_registered = args
         .first()
         .and_then(Value::as_symbol_name)
@@ -1205,15 +1138,12 @@ fn preflight_symbol_plist_put_in_obarray(
     Ok(())
 }
 
-pub(crate) fn builtin_setplist_eval(
+pub(crate) fn builtin_setplist(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_setplist_in_obarray(eval.obarray_mut(), args)
-}
-
-pub(crate) fn builtin_setplist_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("setplist", &args, 2)?;
+    let obarray = eval.obarray_mut();
     let symbol = expect_symbol_id(&args[0])?;
     let plist = args[1];
     set_symbol_raw_plist_in_obarray(obarray, symbol, plist);
@@ -2233,10 +2163,11 @@ pub(crate) fn builtin_indirect_function(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_indirect_function_in_obarray(eval.obarray(), args)
+    indirect_function_impl(eval.obarray(), args)
 }
 
-pub(crate) fn builtin_indirect_function_in_obarray(
+/// Obarray-only implementation shared by `builtin_indirect_function` and doc.rs.
+pub(crate) fn indirect_function_impl(
     obarray: &Obarray,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -2577,26 +2508,18 @@ pub(crate) fn builtin_next_frame_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_next_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_next_frame_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("next-frame", &args, 0, 2)?;
     if let Some(frame) = args.first() {
         if !frame.is_nil() {
             let _ = super::window_cmds::resolve_frame_id_in_state(
-                frames,
-                buffers,
+                &mut eval.frames,
+                &mut eval.buffers,
                 Some(frame),
                 "frame-live-p",
             )?;
         }
     }
-    super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())
+    super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())
 }
 
 pub(crate) fn builtin_previous_frame(args: Vec<Value>) -> EvalResult {
@@ -2608,26 +2531,18 @@ pub(crate) fn builtin_previous_frame_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_previous_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_previous_frame_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("previous-frame", &args, 0, 2)?;
     if let Some(frame) = args.first() {
         if !frame.is_nil() {
             let _ = super::window_cmds::resolve_frame_id_in_state(
-                frames,
-                buffers,
+                &mut eval.frames,
+                &mut eval.buffers,
                 Some(frame),
                 "frame-live-p",
             )?;
         }
     }
-    super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())
+    super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())
 }
 
 pub(crate) fn builtin_raise_frame(args: Vec<Value>) -> EvalResult {
@@ -2680,13 +2595,7 @@ pub(crate) fn builtin_vertical_motion(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_vertical_motion_in_buffers(&mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_vertical_motion_in_buffers(
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+    let buffers = &mut eval.buffers;
     expect_range_args("vertical-motion", &args, 1, 3)?;
     // First arg can be LINES (integer) or (COLS . LINES) cons pair.
     // When (COLS . LINES), move LINES then position at column COLS.
@@ -2813,13 +2722,7 @@ pub(crate) fn builtin_rename_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_rename_buffer_in_manager(&mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_rename_buffer_in_manager(
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+    let buffers = &mut eval.buffers;
     expect_range_args("rename-buffer", &args, 1, 2)?;
     let name = expect_strict_string(&args[0])?;
 
@@ -2966,16 +2869,8 @@ pub(crate) fn builtin_old_selected_frame_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_old_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_old_selected_frame_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("old-selected-frame", &args, 0)?;
-    super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())
+    super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())
 }
 
 pub(crate) fn builtin_make_frame_invisible(args: Vec<Value>) -> EvalResult {
@@ -3019,16 +2914,8 @@ pub(crate) fn builtin_mouse_pixel_position_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_mouse_pixel_position_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_mouse_pixel_position_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("mouse-pixel-position", &args, 0)?;
-    let frame = super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())?;
+    let frame = super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())?;
     Ok(Value::list(vec![frame, Value::Nil]))
 }
 
@@ -3041,16 +2928,8 @@ pub(crate) fn builtin_mouse_position_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_mouse_position_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_mouse_position_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("mouse-position", &args, 0)?;
-    let frame = super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())?;
+    let frame = super::window_cmds::builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, Vec::new())?;
     Ok(Value::list(vec![frame, Value::Nil]))
 }
 
@@ -3133,19 +3012,19 @@ pub(crate) fn builtin_new_fontset(args: Vec<Value>) -> EvalResult {
     Ok(Value::string(registered))
 }
 
-pub(crate) fn builtin_new_fontset_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+pub(crate) fn builtin_new_fontset_eval(
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("new-fontset", &args, 2)?;
+    let obarray = eval.obarray();
     let name = expect_strict_string(&args[0])?;
     let char_script_table =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "char-script-table");
+        dynamic_or_global_symbol_value_in_state(obarray, &[], "char-script-table");
     let charset_script_alist =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "charset-script-alist");
+        dynamic_or_global_symbol_value_in_state(obarray, &[], "charset-script-alist");
     let font_encoding_alist =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "font-encoding-alist");
+        dynamic_or_global_symbol_value_in_state(obarray, &[], "font-encoding-alist");
     let registered = fontset::new_fontset(
         &name,
         &args[1],
@@ -3154,13 +3033,6 @@ pub(crate) fn builtin_new_fontset_in_state(
         font_encoding_alist.as_ref(),
     )?;
     Ok(Value::string(registered))
-}
-
-pub(crate) fn builtin_new_fontset_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_new_fontset_in_state(eval.obarray(), &[], args)
 }
 
 pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
@@ -3442,18 +3314,18 @@ pub(crate) fn builtin_set_fontset_font(args: Vec<Value>) -> EvalResult {
     fontset::set_fontset_font(&args[0], &args[1], &args[2], args.get(4), None, None, None)
 }
 
-pub(crate) fn builtin_set_fontset_font_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+pub(crate) fn builtin_set_fontset_font_eval(
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("set-fontset-font", &args, 3, 5)?;
+    let obarray = eval.obarray();
     let char_script_table =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "char-script-table");
+        dynamic_or_global_symbol_value_in_state(obarray, &[], "char-script-table");
     let charset_script_alist =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "charset-script-alist");
+        dynamic_or_global_symbol_value_in_state(obarray, &[], "charset-script-alist");
     let font_encoding_alist =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "font-encoding-alist");
+        dynamic_or_global_symbol_value_in_state(obarray, &[], "font-encoding-alist");
     fontset::set_fontset_font(
         &args[0],
         &args[1],
@@ -3463,13 +3335,6 @@ pub(crate) fn builtin_set_fontset_font_in_state(
         charset_script_alist.as_ref(),
         font_encoding_alist.as_ref(),
     )
-}
-
-pub(crate) fn builtin_set_fontset_font_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_set_fontset_font_in_state(eval.obarray(), &[], args)
 }
 
 pub(crate) fn builtin_set_frame_window_state_change(args: Vec<Value>) -> EvalResult {
@@ -3778,11 +3643,6 @@ pub(crate) fn builtin_value_lt(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_variable_binding_locus(args: Vec<Value>) -> EvalResult {
-    expect_args("variable-binding-locus", &args, 1)?;
-    Ok(Value::Nil)
-}
-
 pub(crate) fn compare_value_lt(
     lhs: &Value,
     rhs: &Value,
@@ -3857,15 +3717,8 @@ fn symbol_name_for_value_lt(value: &Value) -> Option<&str> {
     }
 }
 
-pub(crate) fn builtin_variable_binding_locus_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_variable_binding_locus_in_state(eval, args)
-}
-
-pub(crate) fn builtin_variable_binding_locus_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+pub(crate) fn builtin_variable_binding_locus(
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("variable-binding-locus", &args, 1)?;
@@ -4198,26 +4051,8 @@ pub(crate) fn builtin_interactive_form_eval(
     }
 }
 
-pub(crate) fn builtin_local_variable_if_set_p(args: Vec<Value>) -> EvalResult {
-    expect_range_args("local-variable-if-set-p", &args, 1, 2)?;
-    if args[0].as_symbol_name().is_none() {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        ));
-    }
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_local_variable_if_set_p_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_local_variable_if_set_p_in_state(eval, args)
-}
-
-pub(crate) fn builtin_local_variable_if_set_p_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+pub(crate) fn builtin_local_variable_if_set_p(
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("local-variable-if-set-p", &args, 1, 2)?;
@@ -4435,21 +4270,15 @@ pub(crate) fn builtin_internal_handle_focus_in(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-pub(crate) fn builtin_internal_make_var_non_special_in_obarray(
-    obarray: &mut crate::emacs_core::symbol::Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("internal-make-var-non-special", &args, 1)?;
-    let symbol = expect_symbol_id(&args[0])?;
-    obarray.make_non_special_id(symbol);
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_internal_make_var_non_special_eval(
+pub(crate) fn builtin_internal_make_var_non_special(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_internal_make_var_non_special_in_obarray(eval.obarray_mut(), args)
+    expect_args("internal-make-var-non-special", &args, 1)?;
+    let obarray = eval.obarray_mut();
+    let symbol = expect_symbol_id(&args[0])?;
+    obarray.make_non_special_id(symbol);
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_internal_set_lisp_face_attribute_from_resource(
