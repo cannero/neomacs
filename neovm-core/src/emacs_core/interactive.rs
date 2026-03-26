@@ -510,20 +510,11 @@ pub(crate) fn builtin_command_modes_eval(eval: &mut Context, args: Vec<Value>) -
 ///
 /// Respects local/global keymaps when KEYMAP is omitted or nil.
 pub(crate) fn builtin_command_remapping(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_command_remapping_in_state(
-        &eval.obarray,
-        &[],
-        &eval.buffers,
-        eval.buffers.current_local_map(),
-        args,
-    )
+    builtin_command_remapping_in_state(eval, args)
 }
 
 pub(crate) fn builtin_command_remapping_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    current_local_map: Value,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("command-remapping", &args, 1)?;
@@ -540,7 +531,7 @@ pub(crate) fn builtin_command_remapping_in_state(
         return Ok(Value::Nil);
     };
     if let Some(position) = args.get(1) {
-        interactive_validate_integer_position_arg_in_buffers(buffers, position)?;
+        interactive_validate_integer_position_arg_in_buffers(&ctx.buffers, position)?;
     }
     if let Some(keymap_arg) = args.get(2) {
         match keymap_arg {
@@ -555,9 +546,9 @@ pub(crate) fn builtin_command_remapping_in_state(
             }
             Value::Nil => {
                 return Ok(command_remapping_lookup_in_active_keymaps_in_state(
-                    obarray,
-                    dynamic,
-                    current_local_map,
+                    &ctx.obarray,
+                    &[],
+                    ctx.buffers.current_local_map(),
                     &command_name,
                 )
                 .unwrap_or(Value::Nil));
@@ -569,9 +560,9 @@ pub(crate) fn builtin_command_remapping_in_state(
         }
     }
     Ok(command_remapping_lookup_in_active_keymaps_in_state(
-        obarray,
-        dynamic,
-        current_local_map,
+        &ctx.obarray,
+        &[],
+        ctx.buffers.current_local_map(),
         &command_name,
     )
     .unwrap_or(Value::Nil))
@@ -1710,7 +1701,7 @@ fn interactive_read_expression_arg_in_vm_runtime(
         vm_gc_roots,
         &[Value::string(prompt)],
     )?;
-    super::reader::builtin_read_in_state(&shared.obarray, &mut shared.buffers, vec![input])
+    super::reader::builtin_read_in_state(shared, vec![input])
 }
 
 fn interactive_eval_expression_arg_in_vm_runtime(
@@ -2622,20 +2613,11 @@ pub(crate) fn builtin_keyboard_quit(_eval: &mut Context, args: Vec<Value>) -> Ev
 /// `(key-binding KEY &optional ACCEPT-DEFAULTS NO-REMAP POSITION)`
 /// Return the binding for KEY in the current keymaps.
 pub(crate) fn builtin_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_key_binding_in_state(
-        &mut eval.obarray,
-        &[],
-        &eval.buffers,
-        eval.buffers.current_local_map(),
-        args,
-    )
+    builtin_key_binding_in_state(eval, args)
 }
 
 pub(crate) fn builtin_key_binding_in_state(
-    obarray: &mut Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    current_local_map: Value,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("key-binding", &args, 1)?;
@@ -2643,7 +2625,7 @@ pub(crate) fn builtin_key_binding_in_state(
     let string_designator = args[0].is_string();
     let no_remap = args.get(2).is_some_and(|v| v.is_truthy());
     if let Some(position) = args.get(3) {
-        interactive_validate_integer_position_arg_in_buffers(buffers, position)?;
+        interactive_validate_integer_position_arg_in_buffers(&ctx.buffers, position)?;
     }
 
     let events = match super::kbd::key_events_from_designator(&args[0]) {
@@ -2662,10 +2644,10 @@ pub(crate) fn builtin_key_binding_in_state(
         if !string_designator {
             return Ok(Value::Nil);
         }
-        let global = crate::emacs_core::builtins::keymaps::ensure_global_keymap_in_obarray(obarray);
+        let global = crate::emacs_core::builtins::keymaps::ensure_global_keymap_in_obarray(&mut ctx.obarray);
         let mut maps = Vec::new();
-        if !current_local_map.is_nil() {
-            maps.push(current_local_map);
+        if !ctx.buffers.current_local_map().is_nil() {
+            maps.push(ctx.buffers.current_local_map());
         }
         maps.push(global);
         return Ok(Value::list(maps));
@@ -2673,27 +2655,28 @@ pub(crate) fn builtin_key_binding_in_state(
 
     let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
 
-    let lookup_binding = |emacs_events: &[Value]| -> Option<Value> {
+    let local_map = ctx.buffers.current_local_map();
+    let mut lookup_binding = |obarray: &mut Obarray, emacs_events: &[Value]| -> Option<Value> {
         if let Some(value) =
-            key_binding_lookup_in_minor_mode_maps_in_state(obarray, dynamic, emacs_events)
+            key_binding_lookup_in_minor_mode_maps_in_state(obarray, &[], emacs_events)
         {
             return Some(key_binding_apply_remap_in_state(
                 obarray,
-                dynamic,
-                current_local_map,
+                &[],
+                local_map,
                 value,
                 no_remap,
             ));
         }
 
-        if !current_local_map.is_nil() {
+        if !local_map.is_nil() {
             if let Some(value) =
-                key_binding_lookup_in_keymap_in_obarray(obarray, &current_local_map, emacs_events)
+                key_binding_lookup_in_keymap_in_obarray(obarray, &local_map, emacs_events)
             {
                 return Some(key_binding_apply_remap_in_state(
                     obarray,
-                    dynamic,
-                    current_local_map,
+                    &[],
+                    local_map,
                     value,
                     no_remap,
                 ));
@@ -2707,8 +2690,8 @@ pub(crate) fn builtin_key_binding_in_state(
             {
                 return Some(key_binding_apply_remap_in_state(
                     obarray,
-                    dynamic,
-                    current_local_map,
+                    &[],
+                    local_map,
                     value,
                     no_remap,
                 ));
@@ -2718,13 +2701,13 @@ pub(crate) fn builtin_key_binding_in_state(
         None
     };
 
-    if let Some(value) = lookup_binding(&emacs_events) {
+    if let Some(value) = lookup_binding(&mut ctx.obarray, &emacs_events) {
         return Ok(value);
     }
 
-    if let Some(expanded_events) = expand_meta_prefix_char_events_in_obarray(obarray, &emacs_events)
+    if let Some(expanded_events) = expand_meta_prefix_char_events_in_obarray(&mut ctx.obarray, &emacs_events)
     {
-        if let Some(value) = lookup_binding(&expanded_events) {
+        if let Some(value) = lookup_binding(&mut ctx.obarray, &expanded_events) {
             return Ok(value);
         }
     }
@@ -2764,17 +2747,17 @@ fn interactive_validate_integer_position_arg_in_buffers(
 
 /// `(local-key-binding KEY &optional ACCEPT-DEFAULTS)`
 pub(crate) fn builtin_local_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_local_key_binding_in_state(eval.buffers.current_local_map(), args)
+    builtin_local_key_binding_in_state(eval, args)
 }
 
 pub(crate) fn builtin_local_key_binding_in_state(
-    current_local_map: Value,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("local-key-binding", &args, 1)?;
     expect_max_args("local-key-binding", &args, 2)?;
 
-    if current_local_map.is_nil() {
+    if ctx.buffers.current_local_map().is_nil() {
         return Ok(Value::Nil);
     }
 
@@ -2792,7 +2775,7 @@ pub(crate) fn builtin_local_key_binding_in_state(
     };
     let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
     Ok(lookup_keymap_with_partial(
-        &current_local_map,
+        &ctx.buffers.current_local_map(),
         &emacs_events,
     ))
 }
@@ -3070,12 +3053,11 @@ fn lookup_minor_mode_binding_in_alist_in_state(
 /// `(minor-mode-key-binding KEY &optional ACCEPT-DEFAULTS)`
 /// Look up KEY in active minor mode keymaps.
 pub(crate) fn builtin_minor_mode_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_minor_mode_key_binding_in_state(&eval.obarray, &[], args)
+    builtin_minor_mode_key_binding_in_state(eval, args)
 }
 
 pub(crate) fn builtin_minor_mode_key_binding_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("minor-mode-key-binding", &args, 1)?;
@@ -3088,18 +3070,18 @@ pub(crate) fn builtin_minor_mode_key_binding_in_state(
     };
 
     if let Some(emulation_raw) =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "emulation-mode-map-alists")
+        dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "emulation-mode-map-alists")
     {
         if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
             for emulation_entry in emulation_entries {
                 let alist_value = match emulation_entry.as_symbol_name() {
-                    Some(name) => dynamic_or_global_symbol_value_in_state(obarray, dynamic, name)
+                    Some(name) => dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], name)
                         .unwrap_or(Value::Nil),
                     None => emulation_entry,
                 };
                 if let Some((mode_name, binding)) = lookup_minor_mode_binding_in_alist_in_state(
-                    obarray,
-                    dynamic,
+                    &ctx.obarray,
+                    &[],
                     &events,
                     &alist_value,
                 )? {
@@ -3114,12 +3096,12 @@ pub(crate) fn builtin_minor_mode_key_binding_in_state(
 
     for alist_name in ["minor-mode-overriding-map-alist", "minor-mode-map-alist"] {
         let Some(alist_value) =
-            dynamic_or_global_symbol_value_in_state(obarray, dynamic, alist_name)
+            dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], alist_name)
         else {
             continue;
         };
         if let Some((mode_name, binding)) =
-            lookup_minor_mode_binding_in_alist_in_state(obarray, dynamic, &events, &alist_value)?
+            lookup_minor_mode_binding_in_alist_in_state(&ctx.obarray, &[], &events, &alist_value)?
         {
             return Ok(Value::list(vec![Value::cons(
                 Value::symbol(mode_name),
@@ -3694,9 +3676,7 @@ fn where_is_internal_explicit_keymaps(eval: &Context, value: &Value) -> Result<V
 
 fn where_is_internal_active_keymaps(eval: &mut Context) -> Vec<Value> {
     match super::builtins::keymaps::builtin_current_active_maps_in_state(
-        &mut eval.obarray,
-        &[],
-        eval.buffers.current_local_map(),
+        eval,
         &[],
     ) {
         Ok(value) => list_to_vec(&value).unwrap_or_default(),

@@ -938,16 +938,14 @@ pub(crate) fn builtin_display_color_cells_eval(
 }
 
 pub(crate) fn builtin_display_color_cells_in_state(
-    frames: &crate::window::FrameManager,
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("display-color-cells", &args, 1)?;
     if let Some(display) = args.first() {
-        expect_display_designator_in_state(frames, display)?;
+        expect_display_designator_in_state(&ctx.frames, display)?;
     }
-    if display_window_system_symbol_in_state(frames, obarray, dynamic, args.first())?
+    if display_window_system_symbol_in_state(&ctx.frames, &ctx.obarray, &[], args.first())?
         .is_some_and(gui_window_system_active_value)
     {
         Ok(Value::Int(16777216))
@@ -1931,10 +1929,10 @@ pub(crate) fn builtin_x_server_vendor_eval(
 }
 
 pub(crate) fn builtin_x_server_vendor_in_state(
-    frames: &crate::window::FrameManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    x_optional_display_query_error_in_state(frames, "x-server-vendor", args)
+    x_optional_display_query_error_in_state(&ctx.frames, "x-server-vendor", args)
 }
 
 /// (x-display-set-last-user-time DISPLAY USER-TIME) -> error in batch/no-X context.

@@ -94,27 +94,27 @@ pub(crate) fn builtin_next_char_property_change_in_buffers(
 }
 
 pub(crate) fn builtin_pos_bol(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_pos_bol_in_buffers(&eval.buffers, args)
+    builtin_pos_bol_in_buffers(eval, args)
 }
 
 pub(crate) fn builtin_pos_eol(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_pos_eol_in_buffers(&eval.buffers, args)
+    builtin_pos_eol_in_buffers(eval, args)
 }
 
 pub(crate) fn builtin_pos_bol_in_buffers(
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("pos-bol", &args, 1)?;
-    super::navigation::builtin_line_beginning_position_in_manager(buffers, args)
+    super::navigation::builtin_line_beginning_position_in_manager(ctx, args)
 }
 
 pub(crate) fn builtin_pos_eol_in_buffers(
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("pos-eol", &args, 1)?;
-    super::navigation::builtin_line_end_position_in_manager(buffers, args)
+    super::navigation::builtin_line_end_position_in_manager(ctx, args)
 }
 
 pub(crate) fn builtin_previous_property_change(
@@ -706,13 +706,11 @@ pub(crate) fn builtin_barf_if_buffer_read_only(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_barf_if_buffer_read_only_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_barf_if_buffer_read_only_in_state(eval, args)
 }
 
 pub(crate) fn builtin_barf_if_buffer_read_only_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("barf-if-buffer-read-only", &args, 1)?;
@@ -721,12 +719,12 @@ pub(crate) fn builtin_barf_if_buffer_read_only_in_state(
         Some(value) => Some(expect_fixnum(value)?),
     };
 
-    let Some(buf) = buffers.current_buffer() else {
+    let Some(buf) = ctx.buffers.current_buffer() else {
         return Ok(Value::Nil);
     };
     let point_min = buf.point_min_char() as i64 + 1;
     let read_only =
-        crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf);
+        crate::emacs_core::editfns::buffer_read_only_active_in_state(&ctx.obarray, &[], buf);
     if !read_only {
         return Ok(Value::Nil);
     }

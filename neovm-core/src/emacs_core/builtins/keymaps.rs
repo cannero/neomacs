@@ -451,18 +451,11 @@ pub(super) fn builtin_current_active_maps(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_active_maps_in_state(
-        &mut eval.obarray,
-        &[],
-        eval.buffers.current_local_map(),
-        &args,
-    )
+    builtin_current_active_maps_in_state(eval, &args)
 }
 
 pub(crate) fn builtin_current_active_maps_in_state(
-    obarray: &mut Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    current_local_map: Value,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     expect_max_args("current-active-maps", &args, 2)?;
@@ -470,16 +463,16 @@ pub(crate) fn builtin_current_active_maps_in_state(
     let mut maps = Vec::new();
 
     // Collect minor mode keymaps (highest precedence).
-    let minor_maps = collect_minor_mode_maps_in_state(obarray, dynamic);
+    let minor_maps = collect_minor_mode_maps_in_state(&mut ctx.obarray, &[]);
     maps.extend(minor_maps);
 
     // Local map.
-    if !current_local_map.is_nil() {
-        maps.push(current_local_map);
+    if !ctx.buffers.current_local_map().is_nil() {
+        maps.push(ctx.buffers.current_local_map());
     }
 
     // Global map (lowest precedence).
-    maps.push(ensure_global_keymap_in_obarray(obarray));
+    maps.push(ensure_global_keymap_in_obarray(&mut ctx.obarray));
     Ok(Value::list(maps))
 }
 
@@ -488,16 +481,15 @@ pub(super) fn builtin_current_minor_mode_maps(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_minor_mode_maps_in_state(eval.obarray(), &[], &args)
+    builtin_current_minor_mode_maps_in_state(eval, &args)
 }
 
 pub(crate) fn builtin_current_minor_mode_maps_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    ctx: &crate::emacs_core::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     expect_args("current-minor-mode-maps", &args, 0)?;
-    let maps = collect_minor_mode_maps_in_state(obarray, dynamic);
+    let maps = collect_minor_mode_maps_in_state(&ctx.obarray, &[]);
     if maps.is_empty() {
         Ok(Value::Nil)
     } else {
@@ -1033,13 +1025,13 @@ pub(crate) fn builtin_key_description(args: Vec<Value>) -> EvalResult {
 
 /// `(recent-keys &optional INCLUDE-CMDS)` -> vector of recent input events.
 pub(crate) fn builtin_recent_keys(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_recent_keys_in_state(eval.recent_input_events(), args)
+    builtin_recent_keys_in_state(eval, args)
 }
 
 pub(crate) fn builtin_recent_keys_in_state(
-    recent_input_events: &[Value],
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("recent-keys", &args, 1)?;
-    Ok(Value::vector(recent_input_events.to_vec()))
+    Ok(Value::vector(ctx.recent_input_events.as_slice().to_vec()))
 }

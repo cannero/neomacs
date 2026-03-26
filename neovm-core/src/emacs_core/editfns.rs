@@ -233,41 +233,37 @@ pub(crate) fn builtin_insert_before_markers(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_before_markers_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_insert_before_markers_in_state(eval, args)
 }
 
 pub(crate) fn builtin_insert_before_markers_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let text = collect_insert_text("insert-before-markers", &args)?;
-    ensure_current_buffer_writable_in_state(obarray, dynamic, buffers)?;
-    if let Some(id) = buffers.current_buffer_id() {
-        let _ = buffers.insert_into_buffer_before_markers(id, &text);
+    ensure_current_buffer_writable_in_state(&ctx.obarray, &[], &ctx.buffers)?;
+    if let Some(id) = ctx.buffers.current_buffer_id() {
+        let _ = ctx.buffers.insert_into_buffer_before_markers(id, &text);
     }
     Ok(Value::Nil)
 }
 
 /// `(delete-char N &optional KILLFLAG)` — delete N characters forward.
 pub(crate) fn builtin_delete_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_delete_char_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_delete_char_in_state(eval, args)
 }
 
 pub(crate) fn builtin_delete_char_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("delete-char", &args, 1)?;
     expect_max_args("delete-char", &args, 2)?;
     let n = expect_integer("delete-char", &args[0])?;
-    ensure_current_buffer_writable_in_state(obarray, dynamic, buffers)?;
-    if let Some(current_id) = buffers.current_buffer_id() {
+    ensure_current_buffer_writable_in_state(&ctx.obarray, &[], &ctx.buffers)?;
+    if let Some(current_id) = ctx.buffers.current_buffer_id() {
         let Some((start, end)) = ({
-            let Some(buf) = buffers.get(current_id) else {
+            let Some(buf) = ctx.buffers.get(current_id) else {
                 return Ok(Value::Nil);
             };
             let pt = buf.pt;
@@ -307,13 +303,20 @@ pub(crate) fn builtin_delete_char_in_state(
         }) else {
             return Ok(Value::Nil);
         };
-        let _ = buffers.delete_buffer_region(current_id, start, end);
+        let _ = ctx.buffers.delete_buffer_region(current_id, start, end);
     }
     Ok(Value::Nil)
 }
 
 /// `(delete-region START END)` — delete text in the accessible current buffer.
 pub(crate) fn builtin_delete_region_in_state(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_delete_region_in_state_raw(&ctx.obarray, &[], &mut ctx.buffers, args)
+}
+
+pub(crate) fn builtin_delete_region_in_state_raw(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
@@ -345,14 +348,12 @@ pub(crate) fn builtin_delete_region_in_state(
 
 /// `(delete-and-extract-region START END)` — delete text and return it.
 pub(crate) fn builtin_delete_and_extract_region_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("delete-and-extract-region", &args, 2)?;
     let Some((start_byte, end_byte)) =
-        current_buffer_accessible_char_region_in_buffers(buffers, &args[0], &args[1])?
+        current_buffer_accessible_char_region_in_buffers(&ctx.buffers, &args[0], &args[1])?
     else {
         return Ok(Value::string(""));
     };
@@ -360,25 +361,32 @@ pub(crate) fn builtin_delete_and_extract_region_in_state(
         return Ok(Value::string(""));
     }
 
-    let Some(current_id) = buffers.current_buffer_id() else {
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
         return Ok(Value::string(""));
     };
     let deleted = {
-        let Some(buf) = buffers.get(current_id) else {
+        let Some(buf) = ctx.buffers.get(current_id) else {
             return Ok(Value::string(""));
         };
-        if buffer_read_only_active_in_state(obarray, dynamic, buf) {
+        if buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
             return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
         }
         Value::string(buf.buffer_substring(start_byte, end_byte))
     };
 
-    let _ = buffers.delete_buffer_region(current_id, start_byte, end_byte);
+    let _ = ctx.buffers.delete_buffer_region(current_id, start_byte, end_byte);
     Ok(deleted)
 }
 
 /// `(erase-buffer)` — delete all text and remove any narrowing restriction.
 pub(crate) fn builtin_erase_buffer_in_state(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_erase_buffer_in_state_raw(&ctx.obarray, &[], &mut ctx.buffers, args)
+}
+
+pub(crate) fn builtin_erase_buffer_in_state_raw(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
@@ -442,10 +450,17 @@ pub(crate) fn builtin_buffer_substring_no_properties(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_substring_no_properties_in_state(&eval.buffers, args)
+    builtin_buffer_substring_no_properties_in_state(eval, args)
 }
 
 pub(crate) fn builtin_buffer_substring_no_properties_in_state(
+    ctx: &crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_buffer_substring_no_properties_in_state_raw(&ctx.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_substring_no_properties_in_state_raw(
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -466,15 +481,15 @@ pub(crate) fn builtin_following_char(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_following_char_in_state(&eval.buffers, args)
+    builtin_following_char_in_state(eval, args)
 }
 
 pub(crate) fn builtin_following_char_in_state(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("following-char", &args, 0)?;
-    match buffers.current_buffer() {
+    match ctx.buffers.current_buffer() {
         Some(buf) => match (buf.pt < buf.zv).then(|| buf.char_after(buf.pt)).flatten() {
             Some(ch) => Ok(Value::Int(ch as i64)),
             None => Ok(Value::Int(0)),
@@ -488,15 +503,15 @@ pub(crate) fn builtin_preceding_char(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_preceding_char_in_state(&eval.buffers, args)
+    builtin_preceding_char_in_state(eval, args)
 }
 
 pub(crate) fn builtin_preceding_char_in_state(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("preceding-char", &args, 0)?;
-    match buffers.current_buffer() {
+    match ctx.buffers.current_buffer() {
         Some(buf) => match (buf.pt > buf.begv)
             .then(|| buf.char_before(buf.pt))
             .flatten()

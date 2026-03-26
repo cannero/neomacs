@@ -318,9 +318,9 @@ pub(crate) fn builtin_make_local_variable(
     args: Vec<Value>,
 ) -> EvalResult {
     let obarray = &eval.obarray;
-    let dynamic = &[];
+    let dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap] = &[];
     let buffers = &mut eval.buffers;
-    builtin_make_local_variable_in_state(obarray, dynamic, buffers, args)
+    builtin_make_local_variable_in_state(eval, args)
 }
 
 fn runtime_binding_for_make_local_variable(
@@ -349,9 +349,7 @@ fn runtime_binding_for_make_local_variable(
 }
 
 pub(crate) fn builtin_make_local_variable_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut crate::buffer::BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("make-local-variable", &args, 1)?;
@@ -367,23 +365,23 @@ pub(crate) fn builtin_make_local_variable_in_state(
         }
     };
     let symbol = intern(&name);
-    let resolved = super::builtins::resolve_variable_alias_id_in_obarray_raw(obarray, symbol)?;
+    let resolved = super::builtins::resolve_variable_alias_id_in_obarray_raw(&ctx.obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
-    if obarray.is_constant_id(resolved) {
+    if ctx.obarray.is_constant_id(resolved) {
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
     }
 
-    if let Some(current_id) = buffers.current_buffer_id() {
-        if buffers
+    if let Some(current_id) = ctx.buffers.current_buffer_id() {
+        if ctx.buffers
             .get(current_id)
             .is_some_and(|buf| !buf.has_buffer_local(resolved_name))
         {
-            match runtime_binding_for_make_local_variable(obarray, dynamic, symbol, resolved) {
+            match runtime_binding_for_make_local_variable(&ctx.obarray, &[], symbol, resolved) {
                 RuntimeBindingValue::Bound(value) => {
-                    let _ = buffers.set_buffer_local_property(current_id, resolved_name, value);
+                    let _ = ctx.buffers.set_buffer_local_property(current_id, resolved_name, value);
                 }
                 RuntimeBindingValue::Void => {
-                    let _ = buffers.set_buffer_local_void_property(current_id, resolved_name);
+                    let _ = ctx.buffers.set_buffer_local_void_property(current_id, resolved_name);
                 }
             }
         }
@@ -396,12 +394,11 @@ pub(crate) fn builtin_local_variable_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_local_variable_p_in_state(eval.obarray(), &eval.buffers, args)
+    builtin_local_variable_p_in_state(eval, args)
 }
 
 pub(crate) fn builtin_local_variable_p_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("local-variable-p", &args, 1)?;
@@ -412,12 +409,12 @@ pub(crate) fn builtin_local_variable_p_in_state(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray_raw(obarray, name)?;
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray_raw(&ctx.obarray, name)?;
 
     let buf = if args.len() > 1 {
         match &args[1] {
-            Value::Nil => buffers.current_buffer(),
-            Value::Buffer(id) => buffers.get(*id),
+            Value::Nil => ctx.buffers.current_buffer(),
+            Value::Buffer(id) => ctx.buffers.get(*id),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -426,7 +423,7 @@ pub(crate) fn builtin_local_variable_p_in_state(
             }
         }
     } else {
-        buffers.current_buffer()
+        ctx.buffers.current_buffer()
     };
 
     match buf {
@@ -440,17 +437,17 @@ pub(crate) fn builtin_buffer_local_variables(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_local_variables_in_state(&eval.buffers, args)
+    builtin_buffer_local_variables_in_state(eval, args)
 }
 
 pub(crate) fn builtin_buffer_local_variables_in_state(
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("buffer-local-variables", &args, 1)?;
 
     let id = match args.first() {
-        None | Some(Value::Nil) => buffers
+        None | Some(Value::Nil) => ctx.buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
@@ -463,7 +460,7 @@ pub(crate) fn builtin_buffer_local_variables_in_state(
         }
     };
 
-    let buf = buffers
+    let buf = ctx.buffers
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such live buffer")]))?;
 
@@ -491,7 +488,7 @@ pub(crate) fn builtin_kill_local_variable(
 ) -> EvalResult {
     let obarray = &eval.obarray;
     let buffers = &mut eval.buffers;
-    let outcome = builtin_kill_local_variable_in_state(obarray, buffers, args)?;
+    let outcome = builtin_kill_local_variable_in_state(eval, args)?;
     if outcome.removed {
         if let Some(buffer_id) = outcome.buffer_id {
             eval.run_variable_watchers_with_where(
@@ -514,8 +511,7 @@ pub(crate) struct KillLocalVariableOutcome {
 }
 
 pub(crate) fn builtin_kill_local_variable_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &mut crate::buffer::BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> Result<KillLocalVariableOutcome, Flow> {
     expect_args("kill-local-variable", &args, 1)?;
@@ -531,11 +527,11 @@ pub(crate) fn builtin_kill_local_variable_in_state(
         }
     };
 
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray_raw(obarray, &name)?;
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray_raw(&ctx.obarray, &name)?;
     let mut removed = false;
-    let buffer_id = buffers.current_buffer_id();
+    let buffer_id = ctx.buffers.current_buffer_id();
     if let Some(buffer_id) = buffer_id {
-        removed = buffers
+        removed = ctx.buffers
             .remove_buffer_local_property(buffer_id, &resolved)
             .flatten()
             .is_some();

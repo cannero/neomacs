@@ -88,18 +88,18 @@ pub(crate) fn builtin_undo_boundary_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_undo_boundary_in_state(&mut eval.buffers, args)
+    builtin_undo_boundary_in_state(eval, args)
 }
 
 pub(crate) fn builtin_undo_boundary_in_state(
-    buffers: &mut crate::buffer::BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("undo-boundary", &args, 0)?;
-    let Some(current_id) = buffers.current_buffer_id() else {
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
         return Err(signal("error", vec![Value::string("No current buffer")]));
     };
-    let _ = buffers.add_undo_boundary(current_id);
+    let _ = ctx.buffers.add_undo_boundary(current_id);
     Ok(Value::Nil)
 }
 

@@ -239,17 +239,15 @@ fn delete_horizontal_space_at_point(
 // ---------------------------------------------------------------------------
 
 pub(crate) fn builtin_current_indentation_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-indentation", &args, 0)?;
-    let Some(buf) = buffers.current_buffer() else {
+    let Some(buf) = &ctx.buffers.current_buffer() else {
         return Ok(Value::Int(0));
     };
 
-    let tabw = tab_width_in_state(obarray, dynamic, Some(buf));
+    let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
     let text = buf.text.to_string();
     let (bol, eol) = line_bounds(&text, buf.begv, buf.zv, buf.pt);
     let line = &text[bol..eol];
@@ -266,17 +264,15 @@ pub(crate) fn builtin_current_indentation_in_state(
 }
 
 pub(crate) fn builtin_current_column_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-column", &args, 0)?;
-    let Some(buf) = buffers.current_buffer() else {
+    let Some(buf) = &ctx.buffers.current_buffer() else {
         return Ok(Value::Int(0));
     };
 
-    let tabw = tab_width_in_state(obarray, dynamic, Some(buf));
+    let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
     let text = buf.text.to_string();
     let pt = buf.pt.clamp(buf.begv, buf.zv);
     let (bol, _) = line_bounds(&text, buf.begv, buf.zv, pt);
@@ -286,23 +282,21 @@ pub(crate) fn builtin_current_column_in_state(
 }
 
 pub(crate) fn builtin_move_to_column_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("move-to-column", &args, 1)?;
     expect_max_args("move-to-column", &args, 2)?;
     let target = expect_wholenump(&args[0])?;
     let force = args.get(1).is_some_and(|v| v.is_truthy());
-    let Some(current_id) = buffers.current_buffer_id() else {
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
         return Ok(Value::Int(0));
     };
-    let Some(buf) = buffers.get(current_id) else {
+    let Some(buf) = ctx.buffers.get(current_id) else {
         return Ok(Value::Int(0));
     };
-    let tabw = tab_width_in_state(obarray, dynamic, Some(buf));
-    let read_only = buffer_read_only_active_in_state(obarray, dynamic, buf);
+    let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
+    let read_only = buffer_read_only_active_in_state(&ctx.obarray, &[], buf);
     let text = buf.text.to_string();
     let pt = buf.pt.clamp(buf.begv, buf.zv);
     let (bol, eol) = line_bounds(&text, buf.begv, buf.zv, pt);
@@ -310,7 +304,7 @@ pub(crate) fn builtin_move_to_column_in_state(
     let buffer_name = buf.name.clone();
 
     if target == 0 {
-        let _ = buffers.goto_buffer_byte(current_id, bol);
+        let _ = ctx.buffers.goto_buffer_byte(current_id, bol);
         return Ok(Value::Int(0));
     }
 
@@ -351,20 +345,20 @@ pub(crate) fn builtin_move_to_column_in_state(
                 vec![Value::string(buffer_name.clone())],
             ));
         }
-        let _ = buffers.goto_buffer_byte(current_id, tab_byte);
+        let _ = ctx.buffers.goto_buffer_byte(current_id, tab_byte);
         let pad = padding_to_column(col_before_tab, target, tabw);
-        let _ = buffers.insert_into_buffer(current_id, &pad);
+        let _ = ctx.buffers.insert_into_buffer(current_id, &pad);
         return Ok(Value::Int(target as i64));
     }
 
-    let _ = buffers.goto_buffer_byte(current_id, dest_byte);
+    let _ = ctx.buffers.goto_buffer_byte(current_id, dest_byte);
 
     if force && reached < target {
         if read_only {
             return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
         }
         let pad = padding_to_column(reached, target, tabw);
-        let _ = buffers.insert_into_buffer(current_id, &pad);
+        let _ = ctx.buffers.insert_into_buffer(current_id, &pad);
         reached = target;
     }
 
@@ -372,9 +366,7 @@ pub(crate) fn builtin_move_to_column_in_state(
 }
 
 pub(crate) fn builtin_indent_to_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("indent-to", &args, 1)?;
@@ -386,10 +378,10 @@ pub(crate) fn builtin_indent_to_in_state(
         0
     };
 
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -398,7 +390,7 @@ pub(crate) fn builtin_indent_to_in_state(
     let text_before = buf.buffer_substring(pmin, pt);
     let line_start = text_before.rfind('\n').map(|pos| pos + 1).unwrap_or(0);
     let line_prefix = &text_before[line_start..];
-    let tab_width = tab_width_in_state(obarray, dynamic, Some(buf));
+    let tab_width = tab_width_in_state(&ctx.obarray, &[], Some(buf));
 
     let mut fromcol = 0usize;
     for ch in line_prefix.chars() {
@@ -410,14 +402,14 @@ pub(crate) fn builtin_indent_to_in_state(
         return Ok(Value::Int(mincol as i64));
     }
 
-    if buffer_read_only_active_in_state(obarray, dynamic, buf) {
+    if buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
         return Err(signal(
             "buffer-read-only",
             vec![Value::string(buf.name.clone())],
         ));
     }
 
-    let use_tabs = indent_tabs_mode_in_state(obarray, dynamic, Some(buf));
+    let use_tabs = indent_tabs_mode_in_state(&ctx.obarray, &[], Some(buf));
 
     let mut indent = String::new();
     let mut col = fromcol;
@@ -440,7 +432,7 @@ pub(crate) fn builtin_indent_to_in_state(
         col += 1;
     }
 
-    let _ = buffers.insert_into_buffer(current_id, &indent);
+    let _ = ctx.buffers.insert_into_buffer(current_id, &indent);
 
     Ok(Value::Int(mincol as i64))
 }
@@ -456,7 +448,7 @@ pub(crate) fn builtin_current_indentation_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_indentation_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_current_indentation_in_state(eval, args)
 }
 
 /// (current-column) -> integer
@@ -466,7 +458,7 @@ pub(crate) fn builtin_current_column_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_column_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_current_column_in_state(eval, args)
 }
 
 /// (move-to-column COLUMN &optional FORCE) -> COLUMN-REACHED
@@ -476,7 +468,7 @@ pub(crate) fn builtin_move_to_column_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_move_to_column_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_move_to_column_in_state(eval, args)
 }
 
 /// (indent-to COLUMN &optional MINIMUM) -> COLUMN
@@ -486,7 +478,7 @@ pub(crate) fn builtin_indent_to_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_indent_to_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_indent_to_in_state(eval, args)
 }
 
 // ---------------------------------------------------------------------------

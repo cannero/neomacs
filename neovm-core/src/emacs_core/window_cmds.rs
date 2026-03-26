@@ -5235,27 +5235,20 @@ pub(crate) fn builtin_set_frame_height(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_frame_height_in_state(
-        &mut eval.frames,
-        &mut eval.buffers,
-        &mut eval.display_host,
-        args,
-    )
+    builtin_set_frame_height_in_state(eval, args)
 }
 
 pub(crate) fn builtin_set_frame_height_in_state(
-    frames: &mut FrameManager,
-    buffers: &mut BufferManager,
-    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("set-frame-height", &args, 2)?;
     expect_max_args("set-frame-height", &args, 4)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(&mut ctx.frames, &mut ctx.buffers, Some(&args[0]), "frame-live-p")?;
     let pretend = args.get(2).is_some_and(Value::is_truthy);
     let pixelwise = args.get(3).is_some_and(Value::is_truthy);
     let (current_text_width_px, char_height, uses_window_system_pixels) = {
-        let frame = frames
+        let frame = &mut ctx.frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         (
@@ -5267,8 +5260,8 @@ pub(crate) fn builtin_set_frame_height_in_state(
     let text_height_px = check_frame_pixels(&args[1], pixelwise, char_height)?;
     if uses_window_system_pixels {
         resize_live_gui_frame(
-            frames,
-            display_host,
+            &mut ctx.frames,
+            &mut ctx.display_host,
             fid,
             current_text_width_px,
             text_height_px,
@@ -5276,7 +5269,7 @@ pub(crate) fn builtin_set_frame_height_in_state(
         )?;
     } else {
         let cols = {
-            let frame = frames
+            let frame = &mut ctx.frames
                 .get(fid)
                 .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
             frame_total_cols(frame)
@@ -5284,7 +5277,7 @@ pub(crate) fn builtin_set_frame_height_in_state(
         let text_lines = ((text_height_px as f32) / char_height.max(1.0))
             .floor()
             .max(1.0) as i64;
-        let frame = frames
+        let frame = &mut ctx.frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         set_frame_text_size(frame, cols, text_lines);
@@ -5297,27 +5290,20 @@ pub(crate) fn builtin_set_frame_width(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_frame_width_in_state(
-        &mut eval.frames,
-        &mut eval.buffers,
-        &mut eval.display_host,
-        args,
-    )
+    builtin_set_frame_width_in_state(eval, args)
 }
 
 pub(crate) fn builtin_set_frame_width_in_state(
-    frames: &mut FrameManager,
-    buffers: &mut BufferManager,
-    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("set-frame-width", &args, 2)?;
     expect_max_args("set-frame-width", &args, 4)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(&mut ctx.frames, &mut ctx.buffers, Some(&args[0]), "frame-live-p")?;
     let pretend = args.get(2).is_some_and(Value::is_truthy);
     let pixelwise = args.get(3).is_some_and(Value::is_truthy);
     let (current_text_height_px, char_width, uses_window_system_pixels) = {
-        let frame = frames
+        let frame = &mut ctx.frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         (
@@ -5329,8 +5315,8 @@ pub(crate) fn builtin_set_frame_width_in_state(
     let text_width_px = check_frame_pixels(&args[1], pixelwise, char_width)?;
     if uses_window_system_pixels {
         resize_live_gui_frame(
-            frames,
-            display_host,
+            &mut ctx.frames,
+            &mut ctx.display_host,
             fid,
             text_width_px,
             current_text_height_px,
@@ -5338,7 +5324,7 @@ pub(crate) fn builtin_set_frame_width_in_state(
         )?;
     } else {
         let text_lines = {
-            let frame = frames
+            let frame = &mut ctx.frames
                 .get(fid)
                 .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
             frame_text_lines(frame)
@@ -5346,7 +5332,7 @@ pub(crate) fn builtin_set_frame_width_in_state(
         let cols = ((text_width_px as f32) / char_width.max(1.0))
             .floor()
             .max(1.0) as i64;
-        let frame = frames
+        let frame = &mut ctx.frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         set_frame_text_size(frame, cols, text_lines);
@@ -5359,26 +5345,19 @@ pub(crate) fn builtin_set_frame_size(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_frame_size_in_state(
-        &mut eval.frames,
-        &mut eval.buffers,
-        &mut eval.display_host,
-        args,
-    )
+    builtin_set_frame_size_in_state(eval, args)
 }
 
 pub(crate) fn builtin_set_frame_size_in_state(
-    frames: &mut FrameManager,
-    buffers: &mut BufferManager,
-    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("set-frame-size", &args, 3)?;
     expect_max_args("set-frame-size", &args, 4)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(&mut ctx.frames, &mut ctx.buffers, Some(&args[0]), "frame-live-p")?;
     let pixelwise = args.get(3).is_some_and(Value::is_truthy);
     let (char_width, char_height, uses_window_system_pixels) = {
-        let frame = frames
+        let frame = &mut ctx.frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         (
@@ -5401,8 +5380,8 @@ pub(crate) fn builtin_set_frame_size_in_state(
     );
     if uses_window_system_pixels {
         resize_live_gui_frame(
-            frames,
-            display_host,
+            &mut ctx.frames,
+            &mut ctx.display_host,
             fid,
             text_width_px,
             text_height_px,
@@ -5415,7 +5394,7 @@ pub(crate) fn builtin_set_frame_size_in_state(
         let text_lines = ((text_height_px as f32) / char_height.max(1.0))
             .floor()
             .max(1.0) as i64;
-        let frame = frames
+        let frame = &mut ctx.frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         tracing::debug!(

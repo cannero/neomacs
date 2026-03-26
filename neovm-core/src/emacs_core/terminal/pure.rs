@@ -578,12 +578,12 @@ pub(crate) fn builtin_tty_type_eval(
 }
 
 pub(crate) fn builtin_tty_type_in_state(
-    frames: &crate::window::FrameManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-type", &args, 1)?;
     if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(frames, terminal)?;
+        expect_terminal_designator_in_state(&ctx.frames, terminal)?;
     }
     Ok(terminal_runtime()
         .tty_type
@@ -735,12 +735,12 @@ pub(crate) fn builtin_suspend_tty_eval(
 }
 
 pub(crate) fn builtin_suspend_tty_in_state(
-    frames: &crate::window::FrameManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("suspend-tty", &args, 1)?;
     if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(frames, terminal)?;
+        expect_terminal_designator_in_state(&ctx.frames, terminal)?;
     }
     Err(signal(
         "error",
@@ -782,12 +782,12 @@ pub(crate) fn builtin_resume_tty_eval(
 }
 
 pub(crate) fn builtin_resume_tty_in_state(
-    frames: &crate::window::FrameManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("resume-tty", &args, 1)?;
     if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(frames, terminal)?;
+        expect_terminal_designator_in_state(&ctx.frames, terminal)?;
     }
     Err(signal(
         "error",

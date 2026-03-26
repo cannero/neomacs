@@ -203,22 +203,22 @@ fn line_end_byte_narrowed(text: &str, byte_pos: usize, zv: usize) -> usize {
 
 /// (bobp) -- at beginning of buffer?
 pub(crate) fn builtin_bobp(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
-    builtin_bobp_in_manager(&eval.buffers, _args)
+    builtin_bobp_in_manager(eval, _args)
 }
 
 /// (eobp) -- at end of buffer?
 pub(crate) fn builtin_eobp(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
-    builtin_eobp_in_manager(&eval.buffers, _args)
+    builtin_eobp_in_manager(eval, _args)
 }
 
 /// (bolp) -- at beginning of line?
 pub(crate) fn builtin_bolp(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
-    builtin_bolp_in_manager(&eval.buffers, _args)
+    builtin_bolp_in_manager(eval, _args)
 }
 
 /// (eolp) -- at end of line?
 pub(crate) fn builtin_eolp(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
-    builtin_eolp_in_manager(&eval.buffers, _args)
+    builtin_eolp_in_manager(eval, _args)
 }
 
 // ===========================================================================
@@ -230,24 +230,24 @@ pub(crate) fn builtin_line_beginning_position(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_line_beginning_position_in_manager(&eval.buffers, args)
+    builtin_line_beginning_position_in_manager(eval, args)
 }
 
-pub(crate) fn builtin_bobp_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_bobp_in_manager(ctx: &crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("bobp", &args, 0)?;
-    let buf = current_buffer_in_manager(buffers)?;
+    let buf = current_buffer_in_manager(&ctx.buffers)?;
     Ok(Value::bool(buf.pt == buf.begv))
 }
 
-pub(crate) fn builtin_eobp_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_eobp_in_manager(ctx: &crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("eobp", &args, 0)?;
-    let buf = current_buffer_in_manager(buffers)?;
+    let buf = current_buffer_in_manager(&ctx.buffers)?;
     Ok(Value::bool(buf.pt == buf.zv))
 }
 
-pub(crate) fn builtin_bolp_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_bolp_in_manager(ctx: &crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("bolp", &args, 0)?;
-    let buf = current_buffer_in_manager(buffers)?;
+    let buf = current_buffer_in_manager(&ctx.buffers)?;
     if buf.pt == buf.begv {
         return Ok(Value::True);
     }
@@ -256,9 +256,9 @@ pub(crate) fn builtin_bolp_in_manager(buffers: &BufferManager, args: Vec<Value>)
     Ok(Value::bool(buf.pt == 0 || at_bol))
 }
 
-pub(crate) fn builtin_eolp_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_eolp_in_manager(ctx: &crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("eolp", &args, 0)?;
-    let buf = current_buffer_in_manager(buffers)?;
+    let buf = current_buffer_in_manager(&ctx.buffers)?;
     if buf.pt == buf.zv {
         return Ok(Value::True);
     }
@@ -269,7 +269,7 @@ pub(crate) fn builtin_eolp_in_manager(buffers: &BufferManager, args: Vec<Value>)
 }
 
 pub(crate) fn builtin_line_beginning_position_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("line-beginning-position", &args, 1)?;
@@ -278,7 +278,7 @@ pub(crate) fn builtin_line_beginning_position_in_manager(
     } else {
         expect_int(&args[0])?
     };
-    let buf = current_buffer_in_manager(buffers)?;
+    let buf = current_buffer_in_manager(&ctx.buffers)?;
     let text = buffer_text(buf);
     let begv = buf.begv;
     let zv = buf.zv;
@@ -297,11 +297,11 @@ pub(crate) fn builtin_line_end_position(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_line_end_position_in_manager(&eval.buffers, args)
+    builtin_line_end_position_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_line_end_position_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("line-end-position", &args, 1)?;
@@ -310,7 +310,7 @@ pub(crate) fn builtin_line_end_position_in_manager(
     } else {
         expect_int(&args[0])?
     };
-    let buf = current_buffer_in_manager(buffers)?;
+    let buf = current_buffer_in_manager(&ctx.buffers)?;
     let text = buffer_text(buf);
     let begv = buf.begv;
     let zv = buf.zv;
@@ -609,11 +609,11 @@ pub(crate) fn builtin_skip_chars_forward(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_skip_chars_forward_in_manager(&mut eval.buffers, args)
+    builtin_skip_chars_forward_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_skip_chars_forward_in_manager(
-    buffers: &mut crate::buffer::BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("skip-chars-forward", &args, 1)?;
@@ -627,9 +627,9 @@ pub(crate) fn builtin_skip_chars_forward_in_manager(
         }
     };
     let (negate, char_set) = parse_skip_chars_set(&set_str);
-    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = ctx.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (start_pos, pos, limit, moved_chars) = {
-        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = ctx.buffers.get(current_id).ok_or_else(no_buffer)?;
         let lim_byte = if args.len() > 1 && !args[1].is_nil() {
             char_pos_to_byte(buf, expect_int(&args[1])?)
         } else {
@@ -662,7 +662,7 @@ pub(crate) fn builtin_skip_chars_forward_in_manager(
     };
 
     debug_assert!(pos >= start_pos || limit <= start_pos);
-    let _ = buffers.goto_buffer_byte(current_id, pos);
+    let _ = ctx.buffers.goto_buffer_byte(current_id, pos);
     Ok(Value::Int(moved_chars))
 }
 
@@ -671,11 +671,11 @@ pub(crate) fn builtin_skip_chars_backward(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_skip_chars_backward_in_manager(&mut eval.buffers, args)
+    builtin_skip_chars_backward_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_skip_chars_backward_in_manager(
-    buffers: &mut crate::buffer::BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("skip-chars-backward", &args, 1)?;
@@ -689,9 +689,9 @@ pub(crate) fn builtin_skip_chars_backward_in_manager(
         }
     };
     let (negate, char_set) = parse_skip_chars_set(&set_str);
-    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = ctx.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (pos, moved_chars) = {
-        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = ctx.buffers.get(current_id).ok_or_else(no_buffer)?;
         let limit = if args.len() > 1 && !args[1].is_nil() {
             char_pos_to_byte(buf, expect_int(&args[1])?)
         } else {
@@ -721,7 +721,7 @@ pub(crate) fn builtin_skip_chars_backward_in_manager(
             buf.text.byte_to_char(pos) as i64 - buf.text.byte_to_char(start_pos) as i64;
         (pos, moved_chars)
     };
-    let _ = buffers.goto_buffer_byte(current_id, pos);
+    let _ = ctx.buffers.goto_buffer_byte(current_id, pos);
     Ok(Value::Int(moved_chars))
 }
 

@@ -350,22 +350,20 @@ pub(crate) fn builtin_get_file_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_file_buffer_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_get_file_buffer_in_state(eval, args)
 }
 
 pub(crate) fn builtin_get_file_buffer_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("get-file-buffer", &args, 1)?;
     let filename = expect_string(&args[0])?;
-    let resolved = super::fileio::resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let resolved = super::fileio::resolve_filename_in_state(&ctx.obarray, &[], &ctx.buffers, &filename);
     let resolved_true = canonicalize_or_self(&resolved);
 
-    for id in buffers.buffer_list() {
-        let Some(buf) = buffers.get(id) else {
+    for id in ctx.buffers.buffer_list() {
+        let Some(buf) = ctx.buffers.get(id) else {
             continue;
         };
         let Some(file_name) = &buf.file_name else {
@@ -373,7 +371,7 @@ pub(crate) fn builtin_get_file_buffer_in_state(
         };
 
         let candidate =
-            super::fileio::resolve_filename_in_state(obarray, dynamic, buffers, file_name);
+            super::fileio::resolve_filename_in_state(&ctx.obarray, &[], &ctx.buffers, file_name);
         if candidate == resolved {
             return Ok(Value::Buffer(id));
         }
@@ -429,7 +427,7 @@ pub(crate) fn builtin_kill_buffer_in_state(
 
     let was_current = buffers.current_buffer().map(|buf| buf.id) == Some(id);
     let replacement = if was_current {
-        match builtin_other_buffer_in_manager(buffers, vec![Value::Buffer(id)])? {
+        match builtin_other_buffer_in_manager_raw(buffers, vec![Value::Buffer(id)])? {
             Value::Buffer(next) if next != id => Some(next),
             _ => None,
         }
@@ -643,7 +641,7 @@ pub(crate) fn builtin_buffer_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_string_in_manager(&eval.buffers, args)
+    builtin_buffer_string_in_manager(eval, args)
 }
 
 /// (buffer-substring START END) → string
@@ -697,6 +695,13 @@ pub(crate) fn builtin_buffer_substring(
 }
 
 pub(crate) fn builtin_buffer_substring_in_manager(
+    ctx: &crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_buffer_substring_in_manager_raw(&ctx.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_substring_in_manager_raw(
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -741,11 +746,11 @@ pub(crate) fn builtin_buffer_substring_in_manager(
 }
 
 pub(crate) fn builtin_buffer_string_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("buffer-string", &args, 0)?;
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_start = buf.point_min();
@@ -1172,7 +1177,7 @@ pub(crate) fn builtin_insert_and_inherit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_and_inherit_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_insert_and_inherit_in_state(eval, args)
 }
 
 /// `(insert-before-markers-and-inherit &rest ARGS)` -> nil
@@ -1181,7 +1186,7 @@ pub(crate) fn builtin_insert_before_markers_and_inherit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_before_markers_and_inherit_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_insert_before_markers_and_inherit_in_state(eval, args)
 }
 
 /// `(insert-buffer-substring BUFFER &optional START END)` -> nil
@@ -1189,20 +1194,18 @@ pub(crate) fn builtin_insert_buffer_substring(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_buffer_substring_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_insert_buffer_substring_in_state(eval, args)
 }
 
 pub(crate) fn builtin_insert_buffer_substring_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("insert-buffer-substring", &args, 1, 3)?;
-    let buffer_id = resolve_buffer_designator_allow_nil_current_in_manager(buffers, &args[0])?;
+    let buffer_id = resolve_buffer_designator_allow_nil_current_in_manager(&mut ctx.buffers, &args[0])?;
     let (default_start, default_end) = buffer_id
         .and_then(|id| {
-            buffers.get(id).map(|buf| {
+            ctx.buffers.get(id).map(|buf| {
                 (
                     buf.point_min_char() as i64 + 1,
                     buf.point_max_char() as i64 + 1,
@@ -1211,25 +1214,25 @@ pub(crate) fn builtin_insert_buffer_substring_in_state(
         })
         .unwrap_or((1, 1));
     let start = if args.len() > 1 && !args[1].is_nil() {
-        expect_integer_or_marker_in_buffers(buffers, &args[1])?
+        expect_integer_or_marker_in_buffers(&mut ctx.buffers, &args[1])?
     } else {
         default_start
     };
     let end = if args.len() > 2 && !args[2].is_nil() {
-        expect_integer_or_marker_in_buffers(buffers, &args[2])?
+        expect_integer_or_marker_in_buffers(&mut ctx.buffers, &args[2])?
     } else {
         default_end
     };
 
     let text = checked_buffer_substring_for_char_region_in_manager(
-        buffers,
+        &mut ctx.buffers,
         buffer_id,
         start,
         end,
         Value::Int(start),
         Value::Int(end),
     )?;
-    builtin_insert_in_state(obarray, dynamic, buffers, vec![text])
+    builtin_insert_in_state(ctx, vec![text])
 }
 
 /// `(kill-all-local-variables &optional KILL-PERMANENT)` -> nil
@@ -1237,16 +1240,15 @@ pub(crate) fn builtin_kill_all_local_variables(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_kill_all_local_variables_in_state(&eval.obarray, &mut eval.buffers, args)
+    builtin_kill_all_local_variables_in_state(eval, args)
 }
 
 pub(crate) fn builtin_kill_all_local_variables_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("kill-all-local-variables", &args, 0, 1)?;
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _kill_permanent = args.first().copied().unwrap_or(Value::Nil);
@@ -1255,7 +1257,7 @@ pub(crate) fn builtin_kill_all_local_variables_in_state(
     // bindings and resets them to their defaults.  clear_buffer_local_properties
     // re-seeds defaults from seed_builtin_buffer_local_defaults (mode-name,
     // major-mode, buffer-read-only, etc.).
-    let _ = buffers.clear_buffer_local_properties(current_id);
+    let _ = ctx.buffers.clear_buffer_local_properties(current_id);
     Ok(Value::Nil)
 }
 
@@ -1357,25 +1359,23 @@ pub(crate) fn builtin_replace_region_contents_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_replace_region_contents_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_replace_region_contents_in_state(eval, args)
 }
 
 pub(crate) fn builtin_replace_region_contents_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("replace-region-contents", &args, 3, 6)?;
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let start = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
-    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
-    let source_value = replace_region_source_value_in_state(buffers, &args[2], current_id)?;
+    let start = expect_integer_or_marker_in_buffers(&mut ctx.buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(&mut ctx.buffers, &args[1])?;
+    let source_value = replace_region_source_value_in_state(&mut ctx.buffers, &args[2], current_id)?;
 
-    let read_only_buffer_name = buffers.current_buffer().and_then(|buf| {
-        if super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
+    let read_only_buffer_name = ctx.buffers.current_buffer().and_then(|buf| {
+        if super::editfns::buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
             Some(buf.name.clone())
         } else {
             None
@@ -1385,7 +1385,7 @@ pub(crate) fn builtin_replace_region_contents_in_state(
         return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
-    let buf = buffers
+    let buf = &mut ctx.buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let start_byte = super::editfns::lisp_pos_to_byte(buf, start);
@@ -1395,12 +1395,12 @@ pub(crate) fn builtin_replace_region_contents_in_state(
     } else {
         (end_byte, start_byte)
     };
-    let _ = buffers.delete_buffer_region(current_id, lo, hi);
-    let _ = buffers.goto_buffer_byte(current_id, lo);
+    let _ = ctx.buffers.delete_buffer_region(current_id, lo, hi);
+    let _ = ctx.buffers.goto_buffer_byte(current_id, lo);
     if args.get(5).is_some_and(|value| value.is_truthy()) {
-        builtin_insert_and_inherit_in_state(obarray, dynamic, buffers, vec![source_value])?;
+        builtin_insert_and_inherit_in_state(ctx, vec![source_value])?;
     } else {
-        builtin_insert_in_state(obarray, dynamic, buffers, vec![source_value])?;
+        builtin_insert_in_state(ctx, vec![source_value])?;
     }
 
     Ok(Value::True)
@@ -1411,19 +1411,19 @@ pub(crate) fn builtin_set_buffer_multibyte_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_buffer_multibyte_in_manager(&mut eval.buffers, args)
+    builtin_set_buffer_multibyte_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_set_buffer_multibyte_in_manager(
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-buffer-multibyte", &args, 1)?;
     let flag = args[0].is_truthy();
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = buffers.set_buffer_multibyte_flag(current_id, flag);
+    let _ = ctx.buffers.set_buffer_multibyte_flag(current_id, flag);
     Ok(args[0])
 }
 
@@ -1913,17 +1913,15 @@ pub(crate) fn builtin_constrain_to_field(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_constrain_to_field_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_constrain_to_field_in_state(eval, args)
 }
 
 pub(crate) fn builtin_constrain_to_field_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("constrain-to-field", &args, 2, 5)?;
-    let current = buffers
+    let current = &mut ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_min = current.point_min_char() as i64 + 1;
@@ -1935,9 +1933,9 @@ pub(crate) fn builtin_constrain_to_field_in_state(
     let mut new_pos = if let Some(point) = orig_point {
         point
     } else {
-        expect_integer_or_marker_in_buffers(buffers, &args[0])?
+        expect_integer_or_marker_in_buffers(&mut ctx.buffers, &args[0])?
     };
-    let old_pos = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let old_pos = expect_integer_or_marker_in_buffers(&mut ctx.buffers, &args[1])?;
     let escape_from_edge = args.get(2).is_some_and(|value| value.is_truthy());
     let only_in_line = args.get(3).is_some_and(|value| value.is_truthy());
 
@@ -1946,32 +1944,32 @@ pub(crate) fn builtin_constrain_to_field_in_state(
     {
         let old_capture =
             crate::emacs_core::builtins::misc_eval::builtin_get_pos_property_in_state(
-                obarray,
-                dynamic,
-                buffers,
+                &ctx.obarray,
+                &[],
+                &mut ctx.buffers,
                 vec![Value::Int(old_pos), *capture_prop],
             )?;
         old_capture.is_nil()
             && (old_pos <= point_min
-                || char_property_in_current_buffer(buffers, old_pos, *capture_prop)?.is_nil()
-                || char_property_in_current_buffer(buffers, old_pos - 1, *capture_prop)?.is_nil())
+                || char_property_in_current_buffer(&mut ctx.buffers, old_pos, *capture_prop)?.is_nil()
+                || char_property_in_current_buffer(&mut ctx.buffers, old_pos - 1, *capture_prop)?.is_nil())
     } else {
         true
     };
 
     let field_boundaries_present =
-        !char_property_in_current_buffer(buffers, new_pos, Value::symbol("field"))?.is_nil()
-            || !char_property_in_current_buffer(buffers, old_pos, Value::symbol("field"))?.is_nil()
+        !char_property_in_current_buffer(&mut ctx.buffers, new_pos, Value::symbol("field"))?.is_nil()
+            || !char_property_in_current_buffer(&mut ctx.buffers, old_pos, Value::symbol("field"))?.is_nil()
             || (new_pos > point_min
-                && !char_property_in_current_buffer(buffers, new_pos - 1, Value::symbol("field"))?
+                && !char_property_in_current_buffer(&mut ctx.buffers, new_pos - 1, Value::symbol("field"))?
                     .is_nil())
             || (old_pos > point_min
-                && !char_property_in_current_buffer(buffers, old_pos - 1, Value::symbol("field"))?
+                && !char_property_in_current_buffer(&mut ctx.buffers, old_pos - 1, Value::symbol("field"))?
                     .is_nil());
 
     let inhibit_field_text_motion = super::misc_eval::dynamic_or_global_symbol_value_in_state(
-        obarray,
-        dynamic,
+        &ctx.obarray,
+        &[],
         "inhibit-field-text-motion",
     )
     .is_some_and(|value| !value.is_nil());
@@ -1984,9 +1982,7 @@ pub(crate) fn builtin_constrain_to_field_in_state(
         let forward = new_pos > old_pos;
         let field_bound = if forward {
             expect_int(&builtin_field_end_in_state(
-                obarray,
-                dynamic,
-                buffers,
+                ctx,
                 vec![
                     Value::Int(old_pos),
                     Value::bool(escape_from_edge),
@@ -1995,9 +1991,7 @@ pub(crate) fn builtin_constrain_to_field_in_state(
             )?)?
         } else {
             expect_int(&builtin_field_beginning_in_state(
-                obarray,
-                dynamic,
-                buffers,
+                ctx,
                 vec![
                     Value::Int(old_pos),
                     Value::bool(escape_from_edge),
@@ -2012,7 +2006,7 @@ pub(crate) fn builtin_constrain_to_field_in_state(
             !forward
         };
         let same_line = !only_in_line
-            || !current_buffer_has_newline_between_positions(buffers, new_pos, field_bound)?;
+            || !current_buffer_has_newline_between_positions(&mut ctx.buffers, new_pos, field_bound)?;
         if should_constrain && same_line {
             new_pos = field_bound;
         }
@@ -2021,14 +2015,14 @@ pub(crate) fn builtin_constrain_to_field_in_state(
     if let Some(orig_point) = orig_point
         && new_pos != orig_point
     {
-        let current_id = buffers
+        let current_id = ctx.buffers
             .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        let buf = buffers
+        let buf = &mut ctx.buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let byte_pos = super::editfns::lisp_pos_to_byte(buf, new_pos);
-        let _ = buffers.goto_buffer_byte(current_id, byte_pos);
+        let _ = ctx.buffers.goto_buffer_byte(current_id, byte_pos);
     }
 
     Ok(Value::Int(new_pos))
@@ -2195,19 +2189,17 @@ pub(crate) fn builtin_field_beginning(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_field_beginning_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_field_beginning_in_state(eval, args)
 }
 
 pub(crate) fn builtin_field_beginning_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("field-beginning", &args, 3)?;
     let limit = match args.get(2) {
         Some(limit_value) if !limit_value.is_nil() => {
-            let limit = expect_integer_or_marker_in_buffers(buffers, limit_value)?;
+            let limit = expect_integer_or_marker_in_buffers(&ctx.buffers, limit_value)?;
             if limit <= 0 {
                 return Err(signal("args-out-of-range", vec![Value::Int(limit)]));
             }
@@ -2216,9 +2208,9 @@ pub(crate) fn builtin_field_beginning_in_state(
         _ => None,
     };
     let (beg, _) = find_field_bounds_in_state(
-        obarray,
-        dynamic,
-        buffers,
+        &ctx.obarray,
+        &[],
+        &ctx.buffers,
         args.first(),
         args.get(1).is_some_and(|value| value.is_truthy()),
         limit,
@@ -2229,26 +2221,24 @@ pub(crate) fn builtin_field_beginning_in_state(
 
 /// `(field-end &optional POS ESCAPE-FROM-EDGE LIMIT)` -> position
 pub(crate) fn builtin_field_end(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_field_end_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_field_end_in_state(eval, args)
 }
 
 pub(crate) fn builtin_field_end_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("field-end", &args, 3)?;
     let limit = match args.get(2) {
         Some(limit_value) if !limit_value.is_nil() => {
-            Some(expect_integer_or_marker_in_buffers(buffers, limit_value)?)
+            Some(expect_integer_or_marker_in_buffers(&ctx.buffers, limit_value)?)
         }
         _ => None,
     };
     let (_, end) = find_field_bounds_in_state(
-        obarray,
-        dynamic,
-        buffers,
+        &ctx.obarray,
+        &[],
+        &ctx.buffers,
         args.first(),
         args.get(1).is_some_and(|value| value.is_truthy()),
         None,
@@ -2262,19 +2252,17 @@ pub(crate) fn builtin_field_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_field_string_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_field_string_in_state(eval, args)
 }
 
 pub(crate) fn builtin_field_string_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("field-string", &args, 1)?;
     let (beg, end) =
-        find_field_bounds_in_state(obarray, dynamic, buffers, args.first(), false, None, None)?;
-    builtin_buffer_substring_in_manager(buffers, vec![Value::Int(beg), Value::Int(end)])
+        find_field_bounds_in_state(&ctx.obarray, &[], &ctx.buffers, args.first(), false, None, None)?;
+    builtin_buffer_substring_in_manager_raw(&ctx.buffers, vec![Value::Int(beg), Value::Int(end)])
 }
 
 /// `(field-string-no-properties &optional POS)` -> field text at POS.
@@ -2282,20 +2270,18 @@ pub(crate) fn builtin_field_string_no_properties(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_field_string_no_properties_in_state(&eval.obarray, &[], &eval.buffers, args)
+    builtin_field_string_no_properties_in_state(eval, args)
 }
 
 pub(crate) fn builtin_field_string_no_properties_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("field-string-no-properties", &args, 1)?;
     let (beg, end) =
-        find_field_bounds_in_state(obarray, dynamic, buffers, args.first(), false, None, None)?;
-    super::editfns::builtin_buffer_substring_no_properties_in_state(
-        buffers,
+        find_field_bounds_in_state(&ctx.obarray, &[], &ctx.buffers, args.first(), false, None, None)?;
+    super::editfns::builtin_buffer_substring_no_properties_in_state_raw(
+        &ctx.buffers,
         vec![Value::Int(beg), Value::Int(end)],
     )
 }
@@ -2305,22 +2291,20 @@ pub(crate) fn builtin_delete_field(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_delete_field_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_delete_field_in_state(eval, args)
 }
 
 pub(crate) fn builtin_delete_field_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("delete-field", &args, 1)?;
     let (beg, end) =
-        find_field_bounds_in_state(obarray, dynamic, buffers, args.first(), false, None, None)?;
-    super::editfns::builtin_delete_region_in_state(
-        obarray,
-        dynamic,
-        buffers,
+        find_field_bounds_in_state(&ctx.obarray, &[], &mut ctx.buffers, args.first(), false, None, None)?;
+    super::editfns::builtin_delete_region_in_state_raw(
+        &ctx.obarray,
+        &[],
+        &mut ctx.buffers,
         vec![Value::Int(beg), Value::Int(end)],
     )
 }
@@ -2352,68 +2336,68 @@ pub(crate) fn builtin_command_error_default_function(args: Vec<Value>) -> EvalRe
 
 /// (point) → integer
 pub(crate) fn builtin_point(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_point_in_manager(&eval.buffers, args)
+    builtin_point_in_manager(eval, args)
 }
 
 /// (point-min) → integer
 pub(crate) fn builtin_point_min(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_point_min_in_manager(&eval.buffers, args)
+    builtin_point_min_in_manager(eval, args)
 }
 
 /// (point-max) → integer
 pub(crate) fn builtin_point_max(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_point_max_in_manager(&eval.buffers, args)
+    builtin_point_max_in_manager(eval, args)
 }
 
 /// (goto-char POS) → POS
 pub(crate) fn builtin_goto_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_goto_char_in_manager(&mut eval.buffers, args)
+    builtin_goto_char_in_manager(eval, args)
 }
 
-pub(crate) fn builtin_point_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_point_in_manager(ctx: &crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("point", &args, 0)?;
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     Ok(Value::Int(buf.point_char() as i64 + 1))
 }
 
 pub(crate) fn builtin_point_min_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("point-min", &args, 0)?;
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     Ok(Value::Int(buf.point_min_char() as i64 + 1))
 }
 
 pub(crate) fn builtin_point_max_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("point-max", &args, 0)?;
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     Ok(Value::Int(buf.point_max_char() as i64 + 1))
 }
 
 pub(crate) fn builtin_goto_char_in_manager(
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("goto-char", &args, 1)?;
-    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
-    let current_id = buffers
+    let pos = expect_integer_or_marker_in_buffers(&ctx.buffers, &args[0])?;
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = buffers
+    let buf = ctx.buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = buf.lisp_pos_to_byte(pos);
-    let _ = buffers.goto_buffer_byte(current_id, byte_pos);
+    let _ = ctx.buffers.goto_buffer_byte(current_id, byte_pos);
     Ok(args[0])
 }
 
@@ -2525,19 +2509,17 @@ fn apply_inherited_text_properties(
 
 /// (insert &rest ARGS) → nil
 pub(crate) fn builtin_insert(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_insert_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_insert_in_state(eval, args)
 }
 
 pub(crate) fn builtin_insert_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     insert_pieces_in_state(
-        obarray,
-        dynamic,
-        buffers,
+        &ctx.obarray,
+        &[],
+        &mut ctx.buffers,
         collect_insert_pieces(&args)?,
         false,
         false,
@@ -2545,15 +2527,13 @@ pub(crate) fn builtin_insert_in_state(
 }
 
 pub(crate) fn builtin_insert_and_inherit_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     insert_pieces_in_state(
-        obarray,
-        dynamic,
-        buffers,
+        &ctx.obarray,
+        &[],
+        &mut ctx.buffers,
         collect_insert_pieces(&args)?,
         false,
         true,
@@ -2561,15 +2541,13 @@ pub(crate) fn builtin_insert_and_inherit_in_state(
 }
 
 pub(crate) fn builtin_insert_before_markers_and_inherit_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     insert_pieces_in_state(
-        obarray,
-        dynamic,
-        buffers,
+        &ctx.obarray,
+        &[],
+        &mut ctx.buffers,
         collect_insert_pieces(&args)?,
         true,
         true,
@@ -2635,13 +2613,11 @@ pub(super) fn insert_char_code_from_value(value: &Value) -> Result<i64, Flow> {
 
 /// `(insert-char CHARACTER &optional COUNT INHERIT)` -> nil
 pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_insert_char_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_insert_char_in_state(eval, args)
 }
 
 pub(crate) fn builtin_insert_char_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("insert-char", &args, 1, 3)?;
@@ -2665,33 +2641,31 @@ pub(crate) fn builtin_insert_char_in_state(
             vec![Value::symbol("characterp"), args[0]],
         ));
     };
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    if buffers
+    if ctx.buffers
         .get(current_id)
-        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf))
+        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(&ctx.obarray, &[], buf))
     {
         return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
     }
 
-    let insert_pos = buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
-    let _ = buffers.insert_into_buffer(current_id, &to_insert);
+    let insert_pos = ctx.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let _ = ctx.buffers.insert_into_buffer(current_id, &to_insert);
     if args.get(2).is_some_and(|value| value.is_truthy()) {
-        apply_inherited_text_properties(buffers, current_id, insert_pos, to_insert.len());
+        apply_inherited_text_properties(&mut ctx.buffers, current_id, insert_pos, to_insert.len());
     }
     Ok(Value::Nil)
 }
 
 /// `(insert-byte BYTE COUNT &optional INHERIT)` -> nil
 pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_insert_byte_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_insert_byte_in_state(eval, args)
 }
 
 pub(crate) fn builtin_insert_byte_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("insert-byte", &args, 2, 3)?;
@@ -2707,16 +2681,16 @@ pub(crate) fn builtin_insert_byte_in_state(
         return Ok(Value::Nil);
     }
 
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let multibyte = buffers
+    let multibyte = ctx.buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .multibyte;
-    if buffers
+    if ctx.buffers
         .get(current_id)
-        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf))
+        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(&ctx.obarray, &[], buf))
     {
         return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
     }
@@ -2732,10 +2706,10 @@ pub(crate) fn builtin_insert_byte_in_state(
             .expect("raw byte char should encode")
     };
     let to_insert = unit.repeat(count as usize);
-    let insert_pos = buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
-    let _ = buffers.insert_into_buffer(current_id, &to_insert);
+    let insert_pos = ctx.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let _ = ctx.buffers.insert_into_buffer(current_id, &to_insert);
     if args.get(2).is_some_and(|value| value.is_truthy()) {
-        apply_inherited_text_properties(buffers, current_id, insert_pos, to_insert.len());
+        apply_inherited_text_properties(&mut ctx.buffers, current_id, insert_pos, to_insert.len());
     }
     Ok(Value::Nil)
 }
@@ -2745,7 +2719,7 @@ pub(crate) fn builtin_delete_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_delete_region_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    super::editfns::builtin_delete_region_in_state(eval, args)
 }
 
 /// `(delete-and-extract-region START END)` -> deleted text
@@ -2753,12 +2727,7 @@ pub(crate) fn builtin_delete_and_extract_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_delete_and_extract_region_in_state(
-        &eval.obarray,
-        &[],
-        &mut eval.buffers,
-        args,
-    )
+    super::editfns::builtin_delete_and_extract_region_in_state(eval, args)
 }
 
 /// (subst-char-in-region START END FROMCHAR TOCHAR &optional NOUNDO) → nil
@@ -2766,19 +2735,17 @@ pub(crate) fn builtin_subst_char_in_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_subst_char_in_region_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    builtin_subst_char_in_region_in_state(eval, args)
 }
 
 pub(crate) fn builtin_subst_char_in_region_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("subst-char-in-region", &args, 4, 5)?;
 
-    let start = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
-    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let start = expect_integer_or_marker_in_buffers(&mut ctx.buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(&mut ctx.buffers, &args[1])?;
     let from_code = expect_character_code(&args[2])?;
     let to_code = expect_character_code(&args[3])?;
     let noundo = args.get(4).is_some_and(|value| !value.is_nil());
@@ -2805,11 +2772,11 @@ pub(crate) fn builtin_subst_char_in_region_in_state(
         ));
     }
 
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let (byte_start, byte_end, needs_change) = {
-        let buf = buffers
+        let buf = &mut ctx.buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let point_min = buf.point_min_char() as i64 + 1;
@@ -2838,14 +2805,14 @@ pub(crate) fn builtin_subst_char_in_region_in_state(
         return Ok(Value::Nil);
     }
 
-    if buffers
+    if ctx.buffers
         .get(current_id)
-        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf))
+        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(&ctx.obarray, &[], buf))
     {
         return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
     }
 
-    let _ = buffers
+    let _ = &mut ctx.buffers
         .subst_char_in_buffer_region(current_id, byte_start, byte_end, from_char, to_char, noundo);
     Ok(Value::Nil)
 }
@@ -2855,7 +2822,7 @@ pub(crate) fn builtin_erase_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_erase_buffer_in_state(&eval.obarray, &[], &mut eval.buffers, args)
+    super::editfns::builtin_erase_buffer_in_state(eval, args)
 }
 
 /// (buffer-enable-undo &optional BUFFER) -> nil
@@ -2863,11 +2830,11 @@ pub(crate) fn builtin_buffer_enable_undo(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_enable_undo_in_manager(&mut eval.buffers, args)
+    builtin_buffer_enable_undo_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_buffer_enable_undo_in_manager(
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 1 {
@@ -2881,21 +2848,21 @@ pub(crate) fn builtin_buffer_enable_undo_in_manager(
     }
 
     let id = if args.is_empty() || matches!(args[0], Value::Nil) {
-        buffers
+        ctx.buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
             .id
     } else {
         match &args[0] {
             Value::Buffer(id) => {
-                if buffers.get(*id).is_none() {
+                if ctx.buffers.get(*id).is_none() {
                     return Ok(Value::Nil);
                 }
                 *id
             }
             Value::Str(name_id) => {
                 let name = with_heap(|h| h.get_string(*name_id).to_owned());
-                buffers.find_buffer_by_name(&name).ok_or_else(|| {
+                ctx.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
                         vec![Value::string(format!("No buffer named {name}"))],
@@ -2910,7 +2877,7 @@ pub(crate) fn builtin_buffer_enable_undo_in_manager(
             }
         }
     };
-    buffers
+    ctx.buffers
         .configure_buffer_undo_list(id, Value::Nil)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
     Ok(Value::Nil)
@@ -2921,11 +2888,11 @@ pub(crate) fn builtin_buffer_disable_undo(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_disable_undo_in_manager(&mut eval.buffers, args)
+    builtin_buffer_disable_undo_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_buffer_disable_undo_in_manager(
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 1 {
@@ -2939,14 +2906,14 @@ pub(crate) fn builtin_buffer_disable_undo_in_manager(
     }
 
     let id = if args.is_empty() || matches!(args[0], Value::Nil) {
-        buffers
+        ctx.buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
             .id
     } else {
         match &args[0] {
             Value::Buffer(id) => {
-                if buffers.get(*id).is_none() {
+                if ctx.buffers.get(*id).is_none() {
                     return Err(signal(
                         "error",
                         vec![Value::string("Selecting deleted buffer")],
@@ -2956,7 +2923,7 @@ pub(crate) fn builtin_buffer_disable_undo_in_manager(
             }
             Value::Str(name_id) => {
                 let name = with_heap(|h| h.get_string(*name_id).to_owned());
-                match buffers.find_buffer_by_name(&name) {
+                match ctx.buffers.find_buffer_by_name(&name) {
                     Some(id) => id,
                     None => {
                         return Err(signal(
@@ -2974,7 +2941,7 @@ pub(crate) fn builtin_buffer_disable_undo_in_manager(
             }
         }
     };
-    buffers
+    ctx.buffers
         .configure_buffer_undo_list(id, Value::True)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
     Ok(Value::True)
@@ -2982,23 +2949,23 @@ pub(crate) fn builtin_buffer_disable_undo_in_manager(
 
 /// (buffer-size &optional BUFFER) → integer
 pub(crate) fn builtin_buffer_size(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_buffer_size_in_manager(&eval.buffers, args)
+    builtin_buffer_size_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_buffer_size_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("buffer-size", &args, 1)?;
     if args.is_empty() || matches!(args[0], Value::Nil) {
-        let buf = buffers
+        let buf = ctx.buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         return Ok(Value::Int(buf.text.char_count() as i64));
     }
 
     let id = expect_buffer_id(&args[0])?;
-    if let Some(buf) = buffers.get(id) {
+    if let Some(buf) = ctx.buffers.get(id) {
         Ok(Value::Int(buf.text.char_count() as i64))
     } else {
         Ok(Value::Int(0))
@@ -3010,39 +2977,39 @@ pub(crate) fn builtin_narrow_to_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_narrow_to_region_in_manager(&mut eval.buffers, args)
+    builtin_narrow_to_region_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_narrow_to_region_in_manager(
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("narrow-to-region", &args, 2)?;
-    let start = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
-    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
-    let current_id = buffers
+    let start = expect_integer_or_marker_in_buffers(&ctx.buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(&ctx.buffers, &args[1])?;
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let (byte_start, byte_end) =
-        normalize_narrow_region_in_buffers(buffers, current_id, start, end)?;
-    let _ = buffers.narrow_buffer_to_region(current_id, byte_start, byte_end);
+        normalize_narrow_region_in_buffers(&ctx.buffers, current_id, start, end)?;
+    let _ = ctx.buffers.narrow_buffer_to_region(current_id, byte_start, byte_end);
     Ok(Value::Nil)
 }
 
 /// (widen) → nil
 pub(crate) fn builtin_widen(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_widen_in_manager(&mut eval.buffers, args)
+    builtin_widen_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_widen_in_manager(
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("widen", &args, 0)?;
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = buffers.widen_buffer(current_id);
+    let _ = ctx.buffers.widen_buffer(current_id);
     Ok(Value::Nil)
 }
 
@@ -3051,23 +3018,23 @@ pub(crate) fn builtin_buffer_modified_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_modified_p_in_manager(&eval.buffers, args)
+    builtin_buffer_modified_p_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_buffer_modified_p_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("buffer-modified-p", &args, 1)?;
     if args.is_empty() || matches!(args[0], Value::Nil) {
-        let buf = buffers
+        let buf = ctx.buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         return Ok(Value::bool(buf.is_modified()));
     }
 
     let id = expect_buffer_id(&args[0])?;
-    if let Some(buf) = buffers.get(id) {
+    if let Some(buf) = ctx.buffers.get(id) {
         Ok(Value::bool(buf.is_modified()))
     } else {
         Ok(Value::Nil)
@@ -3079,19 +3046,19 @@ pub(crate) fn builtin_set_buffer_modified_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_buffer_modified_p_in_manager(&mut eval.buffers, args)
+    builtin_set_buffer_modified_p_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_set_buffer_modified_p_in_manager(
-    buffers: &mut BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-buffer-modified-p", &args, 1)?;
     let flag = args[0].is_truthy();
-    let current_id = buffers
+    let current_id = ctx.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = buffers.set_buffer_modified_flag(current_id, flag);
+    let _ = ctx.buffers.set_buffer_modified_flag(current_id, flag);
     Ok(args[0])
 }
 
@@ -3113,16 +3080,16 @@ pub(crate) fn builtin_buffer_modified_tick(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_modified_tick_in_manager(&eval.buffers, args)
+    builtin_buffer_modified_tick_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_buffer_modified_tick_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let target = optional_buffer_tick_target_in_manager(buffers, "buffer-modified-tick", &args)?;
+    let target = optional_buffer_tick_target_in_manager(&ctx.buffers, "buffer-modified-tick", &args)?;
     if let Some(id) = target
-        && let Some(buf) = buffers.get(id)
+        && let Some(buf) = ctx.buffers.get(id)
     {
         return Ok(Value::Int(buf.modified_tick));
     }
@@ -3134,17 +3101,17 @@ pub(crate) fn builtin_buffer_chars_modified_tick(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_chars_modified_tick_in_manager(&eval.buffers, args)
+    builtin_buffer_chars_modified_tick_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_buffer_chars_modified_tick_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let target =
-        optional_buffer_tick_target_in_manager(buffers, "buffer-chars-modified-tick", &args)?;
+        optional_buffer_tick_target_in_manager(&ctx.buffers, "buffer-chars-modified-tick", &args)?;
     if let Some(id) = target
-        && let Some(buf) = buffers.get(id)
+        && let Some(buf) = ctx.buffers.get(id)
     {
         return Ok(Value::Int(buf.chars_modified_tick));
     }
@@ -3153,15 +3120,15 @@ pub(crate) fn builtin_buffer_chars_modified_tick_in_manager(
 
 /// (buffer-list) → list of buffers
 pub(crate) fn builtin_buffer_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_buffer_list_in_manager(&eval.buffers, args)
+    builtin_buffer_list_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_buffer_list_in_manager(
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("buffer-list", &args, 1)?;
-    let ids = buffers.buffer_list();
+    let ids = ctx.buffers.buffer_list();
     let vals: Vec<Value> = ids.into_iter().map(Value::Buffer).collect();
     Ok(Value::list(vals))
 }
@@ -3198,10 +3165,17 @@ pub(crate) fn builtin_other_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_other_buffer_in_manager(&mut eval.buffers, args)
+    builtin_other_buffer_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_other_buffer_in_manager(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_other_buffer_in_manager_raw(&mut ctx.buffers, args)
+}
+
+pub(crate) fn builtin_other_buffer_in_manager_raw(
     buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -3239,11 +3213,11 @@ pub(crate) fn builtin_generate_new_buffer_name(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_generate_new_buffer_name_in_manager(&eval.buffers, args)
+    builtin_generate_new_buffer_name_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_generate_new_buffer_name_in_manager(
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("generate-new-buffer-name", &args, 1)?;
@@ -3262,7 +3236,7 @@ pub(crate) fn builtin_generate_new_buffer_name_in_manager(
     let base = expect_string(&args[0])?;
     let ignore = args.get(1).and_then(Value::as_str);
     Ok(Value::string(
-        buffers.generate_new_buffer_name_ignoring(&base, ignore),
+        ctx.buffers.generate_new_buffer_name_ignoring(&base, ignore),
     ))
 }
 
@@ -3274,21 +3248,21 @@ pub(crate) fn builtin_bufferp(args: Vec<Value>) -> EvalResult {
 
 /// (char-after &optional POS) → integer or nil
 pub(crate) fn builtin_char_after(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_char_after_in_manager(&eval.buffers, args)
+    builtin_char_after_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_char_after_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("char-after", &args, 1)?;
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = if args.is_empty() || matches!(args[0], Value::Nil) {
         (buf.point() < buf.zv).then_some(buf.point())
     } else {
-        let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+        let pos = expect_integer_or_marker_in_buffers(&ctx.buffers, &args[0])?;
         if pos <= 0 {
             return Ok(Value::Nil);
         }
@@ -3307,21 +3281,21 @@ pub(crate) fn builtin_char_after_in_manager(
 
 /// (char-before &optional POS) → integer or nil
 pub(crate) fn builtin_char_before(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_char_before_in_manager(&eval.buffers, args)
+    builtin_char_before_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_char_before_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("char-before", &args, 1)?;
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = if args.is_empty() || matches!(args[0], Value::Nil) {
         (buf.point() > buf.begv).then_some(buf.point())
     } else {
-        let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+        let pos = expect_integer_or_marker_in_buffers(&ctx.buffers, &args[0])?;
         if pos <= 0 {
             return Ok(Value::Nil);
         }
@@ -3369,11 +3343,11 @@ pub(crate) fn builtin_byte_to_position(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_byte_to_position_in_manager(&eval.buffers, args)
+    builtin_byte_to_position_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_byte_to_position_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("byte-to-position", &args, 1)?;
@@ -3382,7 +3356,7 @@ pub(crate) fn builtin_byte_to_position_in_manager(
         return Ok(Value::Nil);
     }
 
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -3410,17 +3384,17 @@ pub(crate) fn builtin_position_bytes(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_position_bytes_in_manager(&eval.buffers, args)
+    builtin_position_bytes_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_position_bytes_in_manager(
-    buffers: &BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("position-bytes", &args, 1)?;
-    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let pos = expect_integer_or_marker_in_buffers(&ctx.buffers, &args[0])?;
 
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -3435,10 +3409,10 @@ pub(crate) fn builtin_position_bytes_in_manager(
 
 /// `(get-byte &optional POSITION STRING)` -- return a byte value at point or in STRING.
 pub(crate) fn builtin_get_byte(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_get_byte_in_manager(&eval.buffers, args)
+    builtin_get_byte_in_manager(eval, args)
 }
 
-pub(crate) fn builtin_get_byte_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_get_byte_in_manager(ctx: &crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("get-byte", &args, 2)?;
 
     // STRING path: POSITION is a zero-based character index.
@@ -3472,14 +3446,14 @@ pub(crate) fn builtin_get_byte_in_manager(buffers: &BufferManager, args: Vec<Val
     }
 
     // Buffer path: POSITION is a 1-based character position.
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     let byte_pos = if args.is_empty() || args[0].is_nil() {
         buf.point()
     } else {
-        let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+        let pos = expect_integer_or_marker_in_buffers(&ctx.buffers, &args[0])?;
         let point_min = buf.point_min_char() as i64 + 1;
         let point_max = buf.point_max_char() as i64 + 1;
         if pos < point_min || pos >= point_max {

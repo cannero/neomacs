@@ -256,10 +256,17 @@ pub(crate) fn builtin_read_from_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_read_from_string_in_state(&eval.obarray, args)
+    builtin_read_from_string_in_state(eval, args)
 }
 
 pub(crate) fn builtin_read_from_string_in_state(
+    ctx: &crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_read_from_string_in_state_raw(&ctx.obarray, args)
+}
+
+pub(crate) fn builtin_read_from_string_in_state_raw(
     obarray: &crate::emacs_core::symbol::Obarray,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -561,12 +568,11 @@ fn skip_ws_comments(input: &str, mut pos: usize) -> usize {
 /// - If STREAM is nil, would read from stdin (returns nil in non-interactive mode).
 /// - If STREAM is a buffer, read from buffer at point.
 pub(crate) fn builtin_read(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_read_in_state(&eval.obarray, &mut eval.buffers, args)
+    builtin_read_in_state(eval, args)
 }
 
 pub(crate) fn builtin_read_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    buffers: &mut crate::buffer::BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("read", &args, 1)?;
@@ -582,7 +588,7 @@ pub(crate) fn builtin_read_in_state(
     match &args[0] {
         Value::Str(_) => {
             // Read from string
-            let result = builtin_read_from_string_in_state(obarray, args)?;
+            let result = builtin_read_from_string_in_state_raw(&ctx.obarray, args)?;
             // Return just the car (the parsed object)
             match &result {
                 Value::Cons(cell) => {
@@ -596,7 +602,7 @@ pub(crate) fn builtin_read_in_state(
             // Read from buffer at point
             let buf_id = *id;
             let (text, pt) = {
-                let buf = buffers
+                let buf = &mut ctx.buffers
                     .get(buf_id)
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
                 (buf.buffer_string(), buf.pt)
@@ -627,16 +633,16 @@ pub(crate) fn builtin_read_in_state(
                         vec![Value::string("End of file during parsing")],
                     )
                 })?;
-            let value = if let Some(bytecode) = first_form_byte_code_literal_value(obarray, &expr) {
+            let value = if let Some(bytecode) = first_form_byte_code_literal_value(&ctx.obarray, &expr) {
                 bytecode
-            } else if let Some(hash_table) = first_form_hash_table_literal_value(obarray, &expr) {
+            } else if let Some(hash_table) = first_form_hash_table_literal_value(&ctx.obarray, &expr) {
                 hash_table
             } else {
-                super::eval::Context::quote_to_runtime_value_in_state(obarray, &expr)
+                super::eval::Context::quote_to_runtime_value_in_state(&ctx.obarray, &expr)
             };
             // Advance point past the read form
             let new_pt = pt + end_offset;
-            let _ = buffers.goto_buffer_byte(buf_id, new_pt);
+            let _ = &mut ctx.buffers.goto_buffer_byte(buf_id, new_pt);
             Ok(value)
         }
         Value::Symbol(id) => Err(signal(
@@ -883,7 +889,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
             if !read_arg.is_nil() && !result_string.is_empty() {
                 // READ is non-nil: parse the result string as a Lisp expression
                 // (like calling (read STRING)) and return the parsed object.
-                let read_result = builtin_read_from_string_in_state(
+                let read_result = builtin_read_from_string_in_state_raw(
                     obarray,
                     vec![Value::string(&result_string)],
                 )?;
@@ -1343,7 +1349,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     match edit_result {
         Ok(_) | Err(Flow::Throw { .. }) => {
             if !read_arg.is_nil() && !result_string.is_empty() {
-                let read_result = builtin_read_from_string_in_state(
+                let read_result = builtin_read_from_string_in_state_raw(
                     &shared.obarray,
                     vec![Value::string(&result_string)],
                 )?;
@@ -1540,17 +1546,16 @@ pub(crate) fn builtin_input_pending_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_input_pending_p_in_state(&eval.obarray, &[], args)
+    builtin_input_pending_p_in_state(eval, args)
 }
 
 pub(crate) fn builtin_input_pending_p_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("input-pending-p", &args, 1)?;
     Ok(Value::bool(
-        peek_unread_command_event_in_state(obarray, dynamic).is_some(),
+        peek_unread_command_event_in_state(&ctx.obarray, &[]).is_some(),
     ))
 }
 
@@ -1565,30 +1570,19 @@ pub(crate) fn builtin_discard_input(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_discard_input_in_state(
-        &mut eval.obarray,
-        &mut [],
-        &mut eval.buffers,
-        &eval.custom,
-        eval.specpdl.as_slice(),
-        args,
-    )
+    builtin_discard_input_in_state(eval, args)
 }
 
 pub(crate) fn builtin_discard_input_in_state(
-    obarray: &mut Obarray,
-    dynamic: &mut [OrderedRuntimeBindingMap],
-    buffers: &mut crate::buffer::BufferManager,
-    custom: &CustomManager,
-    specpdl: &[super::eval::SpecBinding],
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("discard-input", &args, 0)?;
     super::eval::set_runtime_binding_in_state_raw(
-        obarray,
-        buffers,
-        custom,
-        specpdl,
+        &mut ctx.obarray,
+        &mut ctx.buffers,
+        &ctx.custom,
+        ctx.specpdl.as_slice(),
         intern("unread-command-events"),
         Value::Nil,
     );
@@ -1604,17 +1598,16 @@ pub(crate) fn builtin_current_input_mode(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (interrupt, _flow, _meta, _quit) = eval.current_input_mode_tuple();
-    builtin_current_input_mode_in_state(interrupt, args)
+    builtin_current_input_mode_in_state(eval, args)
 }
 
 pub(crate) fn builtin_current_input_mode_in_state(
-    input_mode_interrupt: bool,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-input-mode", &args, 0)?;
     Ok(Value::list(vec![
-        Value::bool(input_mode_interrupt),
+        Value::bool(ctx.input_mode_interrupt),
         Value::Nil,
         Value::True,
         Value::Int(7),
@@ -1636,12 +1629,12 @@ pub(crate) fn builtin_set_input_mode(
 }
 
 pub(crate) fn builtin_set_input_mode_in_state(
-    input_mode_interrupt: &mut bool,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("set-input-mode", &args, 3)?;
     expect_max_args("set-input-mode", &args, 4)?;
-    *input_mode_interrupt = args[0].is_truthy();
+    ctx.input_mode_interrupt = args[0].is_truthy();
     Ok(Value::Nil)
 }
 
@@ -1660,11 +1653,11 @@ pub(crate) fn builtin_set_input_interrupt_mode(
 }
 
 pub(crate) fn builtin_set_input_interrupt_mode_in_state(
-    input_mode_interrupt: &mut bool,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-input-interrupt-mode", &args, 1)?;
-    *input_mode_interrupt = args[0].is_truthy();
+    ctx.input_mode_interrupt = args[0].is_truthy();
     Ok(Value::Nil)
 }
 

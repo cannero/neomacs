@@ -2500,11 +2500,11 @@ pub(crate) fn builtin_backward_sexp(
 ///
 /// This uses the same core scanner as `forward-sexp`/`backward-sexp`.
 pub(crate) fn builtin_scan_lists(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_scan_lists_in_manager(&eval.buffers, args)
+    builtin_scan_lists_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_scan_lists_in_manager(
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() != 3 {
@@ -2542,7 +2542,7 @@ pub(crate) fn builtin_scan_lists_in_manager(
         }
     };
 
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
@@ -2559,11 +2559,11 @@ pub(crate) fn builtin_scan_lists_in_manager(
 
 /// `(scan-sexps FROM COUNT)` — scan over COUNT sexps from FROM.
 pub(crate) fn builtin_scan_sexps(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_scan_sexps_in_manager(&eval.buffers, args)
+    builtin_scan_sexps_in_manager(eval, args)
 }
 
 pub(crate) fn builtin_scan_sexps_in_manager(
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() != 2 {
@@ -2592,7 +2592,7 @@ pub(crate) fn builtin_scan_sexps_in_manager(
         }
     };
 
-    let buf = buffers
+    let buf = ctx.buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();

@@ -264,7 +264,7 @@ pub(crate) fn builtin_current_case_table_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_case_table_in_state(&mut eval.obarray, &mut eval.buffers, args)
+    builtin_current_case_table_in_state(eval, args)
 }
 
 /// `(standard-case-table)` -- evaluator-backed standard case table object.
@@ -272,7 +272,7 @@ pub(crate) fn builtin_standard_case_table_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_standard_case_table_in_state(&mut eval.obarray, args)
+    builtin_standard_case_table_in_state(eval, args)
 }
 
 /// `(set-case-table TABLE)` -- evaluator-backed current buffer case table set.
@@ -280,7 +280,7 @@ pub(crate) fn builtin_set_case_table_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_case_table_in_state(&mut eval.obarray, &mut eval.buffers, args)
+    builtin_set_case_table_in_state(eval, args)
 }
 
 /// `(set-standard-case-table TABLE)` -- evaluator-backed standard table set.
@@ -288,7 +288,7 @@ pub(crate) fn builtin_set_standard_case_table_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_standard_case_table_in_state(&mut eval.obarray, args)
+    builtin_set_standard_case_table_in_state(eval, args)
 }
 
 /// `(downcase CHAR)` -- convert a character to lowercase.
@@ -416,25 +416,23 @@ fn ensure_standard_case_table_object() -> EvalResult {
 }
 
 pub(crate) fn builtin_current_case_table_in_state(
-    obarray: &mut super::symbol::Obarray,
-    buffers: &mut crate::buffer::BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-case-table", &args, 0)?;
-    current_case_table_for_buffer_in_state(obarray, buffers)
+    current_case_table_for_buffer_in_state(&mut ctx.obarray, &mut ctx.buffers)
 }
 
 pub(crate) fn builtin_standard_case_table_in_state(
-    obarray: &mut super::symbol::Obarray,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("standard-case-table", &args, 0)?;
-    ensure_standard_case_table_object_in_state(obarray)
+    ensure_standard_case_table_object_in_state(&mut ctx.obarray)
 }
 
 pub(crate) fn builtin_set_case_table_in_state(
-    obarray: &mut super::symbol::Obarray,
-    buffers: &mut crate::buffer::BufferManager,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-case-table", &args, 1)?;
@@ -445,17 +443,17 @@ pub(crate) fn builtin_set_case_table_in_state(
         ));
     }
     let table = args[0];
-    let _ = ensure_standard_case_table_object_in_state(obarray)?;
-    set_current_case_table_for_buffer_in_state(buffers, table)?;
+    let _ = ensure_standard_case_table_object_in_state(&mut ctx.obarray)?;
+    set_current_case_table_for_buffer_in_state(&mut ctx.buffers, table)?;
     Ok(table)
 }
 
 pub(crate) fn builtin_set_standard_case_table_in_state(
-    obarray: &mut super::symbol::Obarray,
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let table = builtin_set_standard_case_table(args)?;
-    obarray.set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
+    &mut ctx.obarray.set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
     Ok(table)
 }
 
