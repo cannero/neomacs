@@ -2980,6 +2980,11 @@ fn finalize_cached_bootstrap_eval(
     // Register all builtins — pdump doesn't preserve the subr_registry
     // or obarray function cells for builtins registered via defsubr.
     super::builtins::init_builtins(eval);
+    // Restore the created-lisp-faces set from the face table — pdump
+    // doesn't preserve the thread-local CREATED_LISP_FACES HashSet, so
+    // faces like 'warning (defined by defface in faces.el) would be
+    // unrecognized without this.
+    super::font::restore_created_faces_from_table(&eval.face_table.face_list());
     clear_runtime_loader_state(eval);
     ensure_startup_compat_variables(eval, project_root);
     restore_cached_runtime_window_system_surface(eval);

@@ -3146,6 +3146,28 @@ fn eval_after_load_defines_function_on_provide() {
 }
 
 #[test]
+fn defface_warning_creates_face_after_bootstrap() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+
+    // Check: is 'warning a valid face after bootstrap?
+    let facep = crate::emacs_core::parser::parse_forms("(facep 'warning)").unwrap();
+    let result = eval.eval_expr(&facep[0]).expect("facep should work");
+    eprintln!("(facep 'warning) = {:?}", result);
+    assert!(
+        result.is_truthy(),
+        "'warning' should be a valid face after bootstrap (defined in faces.el)"
+    );
+}
+
+#[test]
 fn uninterned_symbol_in_hook_works() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(

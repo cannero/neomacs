@@ -1672,6 +1672,20 @@ fn is_created_lisp_face(name: &str) -> bool {
     CREATED_LISP_FACES.with(|slot| slot.borrow().contains(name))
 }
 
+/// Restore the `CREATED_LISP_FACES` set from an evaluator's face table.
+/// Called after pdump load to re-populate the thread-local face name set
+/// that was lost during serialization.
+pub(crate) fn restore_created_faces_from_table(face_names: &[String]) {
+    CREATED_LISP_FACES.with(|slot| {
+        let mut set = slot.borrow_mut();
+        for name in face_names {
+            if !KNOWN_FACES.contains(&name.as_str()) {
+                set.insert(name.clone());
+            }
+        }
+    });
+}
+
 fn mark_created_lisp_face(name: &str) {
     let inserted = CREATED_LISP_FACES.with(|slot| slot.borrow_mut().insert(name.to_string()));
     if inserted {
