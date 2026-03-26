@@ -1517,9 +1517,10 @@ fn completion_candidates_from_global_obarray_in_state(
 }
 
 pub(crate) fn completion_candidates_from_collection_in_state(
-    obarray: &Obarray,
+    ctx: &crate::emacs_core::eval::Context,
     collection: &Value,
 ) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
+    let obarray = &ctx.obarray;
     Ok(match collection {
         Value::Nil | Value::Cons(_) => Some(completion_candidates_from_list_value(collection)),
         Value::HashTable(table_id) => Some(completion_candidates_from_hash_table(*table_id)),
@@ -1538,7 +1539,7 @@ fn completion_candidates_from_collection(
     eval: &super::eval::Context,
     collection: &Value,
 ) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
-    completion_candidates_from_collection_in_state(eval.obarray(), collection)
+    completion_candidates_from_collection_in_state(eval, collection)
 }
 
 fn completion_predicate_matches_with(

@@ -1145,7 +1145,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
     mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
 ) -> EvalResult {
     let minibuffer_args = completing_read_minibuffer_args(obarray, args);
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
         obarray,
         buffers,
         custom,
@@ -1153,7 +1153,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         intern("minibuffer-completion-table"),
         args[1],
     );
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
         obarray,
         buffers,
         custom,
@@ -1164,7 +1164,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
 
     let result = read_from_minibuffer(&minibuffer_args);
 
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
         obarray,
         buffers,
         custom,
@@ -1172,7 +1172,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         intern("minibuffer-completion-table"),
         Value::Nil,
     );
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
         obarray,
         buffers,
         custom,
@@ -1371,7 +1371,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
 ) -> EvalResult {
     builtin_completing_read_in_runtime(shared, args)?;
     let minibuffer_args = completing_read_minibuffer_args(&shared.obarray, args);
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
         &mut shared.obarray,
         &mut shared.buffers,
         &shared.custom,
@@ -1379,7 +1379,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         intern("minibuffer-completion-table"),
         args[1],
     );
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
         &mut shared.obarray,
         &mut shared.buffers,
         &shared.custom,
@@ -1388,7 +1388,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         args.get(2).copied().unwrap_or(Value::Nil),
     );
     let result = finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, &minibuffer_args);
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
         &mut shared.obarray,
         &mut shared.buffers,
         &shared.custom,
@@ -1396,7 +1396,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         intern("minibuffer-completion-table"),
         Value::Nil,
     );
-    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state_raw(
         &mut shared.obarray,
         &mut shared.buffers,
         &shared.custom,
@@ -1584,7 +1584,7 @@ pub(crate) fn builtin_discard_input_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("discard-input", &args, 0)?;
-    super::eval::set_runtime_binding_in_state(
+    super::eval::set_runtime_binding_in_state_raw(
         obarray,
         buffers,
         custom,

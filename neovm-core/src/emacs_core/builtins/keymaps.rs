@@ -15,7 +15,11 @@ use super::keymap::{
 /// Accepts:
 /// - Cons cells starting with 'keymap
 /// - Symbols whose function definition is a keymap
-pub(crate) fn expect_keymap_in_obarray(obarray: &Obarray, value: &Value) -> Result<Value, Flow> {
+pub(crate) fn expect_keymap_in_obarray(ctx: &crate::emacs_core::eval::Context, value: &Value) -> Result<Value, Flow> {
+    expect_keymap_in_obarray_raw(&ctx.obarray, value)
+}
+
+fn expect_keymap_in_obarray_raw(obarray: &Obarray, value: &Value) -> Result<Value, Flow> {
     if is_list_keymap(value) {
         return Ok(*value);
     }
@@ -34,7 +38,7 @@ pub(crate) fn expect_keymap_in_obarray(obarray: &Obarray, value: &Value) -> Resu
 }
 
 fn expect_keymap(eval: &super::eval::Context, value: &Value) -> Result<Value, Flow> {
-    expect_keymap_in_obarray(eval.obarray(), value)
+    expect_keymap_in_obarray(eval, value)
 }
 
 /// Get the global keymap from obarray, creating one if needed.
@@ -146,7 +150,7 @@ pub(crate) fn builtin_accessible_keymaps_in_obarray(
 
     expect_min_args("accessible-keymaps", &args, 1)?;
     expect_max_args("accessible-keymaps", &args, 2)?;
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    let keymap = expect_keymap_in_obarray_raw(obarray, &args[0])?;
 
     // Collect all accessible keymaps
     let mut all_out = Vec::new();
@@ -248,7 +252,7 @@ pub(super) fn builtin_copy_keymap(eval: &mut super::eval::Context, args: Vec<Val
 
 pub(crate) fn builtin_copy_keymap_in_obarray(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("copy-keymap", &args, 1)?;
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    let keymap = expect_keymap_in_obarray_raw(obarray, &args[0])?;
     Ok(list_keymap_copy(&keymap))
 }
 
@@ -279,7 +283,7 @@ pub(crate) fn builtin_lookup_key_in_obarray(obarray: &Obarray, args: &[Value]) -
     expect_min_args("lookup-key", &args, 2)?;
     expect_max_args("lookup-key", &args, 3)?;
     // Optional 3rd arg ACCEPT-DEFAULTS is accepted but ignored.
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    let keymap = expect_keymap_in_obarray_raw(obarray, &args[0])?;
     let events = expect_key_events(&args[1])?;
 
     if events.is_empty() {
@@ -409,7 +413,7 @@ pub(crate) fn builtin_use_global_map_in_obarray(
     args: &[Value],
 ) -> EvalResult {
     expect_args("use-global-map", args, 1)?;
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    let keymap = expect_keymap_in_obarray_raw(obarray, &args[0])?;
     obarray.set_symbol_value("global-map", keymap);
     Ok(Value::Nil)
 }
@@ -772,7 +776,7 @@ pub(super) fn builtin_keymap_parent(
 
 pub(crate) fn builtin_keymap_parent_in_obarray(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("keymap-parent", &args, 1)?;
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    let keymap = expect_keymap_in_obarray_raw(obarray, &args[0])?;
     Ok(list_keymap_parent(&keymap))
 }
 
@@ -789,11 +793,11 @@ pub(crate) fn builtin_set_keymap_parent_in_obarray(
     args: &[Value],
 ) -> EvalResult {
     expect_args("set-keymap-parent", &args, 2)?;
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    let keymap = expect_keymap_in_obarray_raw(obarray, &args[0])?;
     let parent = if args[1].is_nil() {
         Value::Nil
     } else {
-        expect_keymap_in_obarray(obarray, &args[1])?
+        expect_keymap_in_obarray_raw(obarray, &args[1])?
     };
     list_keymap_set_parent(keymap, parent);
     Ok(args[1])

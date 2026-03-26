@@ -220,6 +220,22 @@ pub(crate) fn print_options_from_state(obarray: &super::symbol::Obarray) -> Prin
 }
 
 pub(crate) fn print_value_in_state(
+    ctx: &crate::emacs_core::eval::Context,
+    value: &Value,
+) -> String {
+    format_value_in_state(
+        &ctx.obarray,
+        &ctx.buffers,
+        &ctx.frames,
+        &ctx.threads,
+        value,
+        print_options_from_state(&ctx.obarray),
+    )
+}
+
+/// Low-level print with decomposed state references -- for callers that
+/// only have individual borrows (e.g. inside `printer_runtime_state` blocks).
+pub(crate) fn print_value_in_state_raw(
     obarray: &super::symbol::Obarray,
     buffers: &crate::buffer::BufferManager,
     frames: &crate::window::FrameManager,
@@ -593,13 +609,7 @@ fn append_cons_bytes_in_state(
 
 /// Render a value with evaluator-context-aware opaque handle formatting.
 pub fn print_value_with_eval(eval: &super::eval::Context, value: &Value) -> String {
-    print_value_in_state(
-        &eval.obarray,
-        &eval.buffers,
-        &eval.frames,
-        &eval.threads,
-        value,
-    )
+    print_value_in_state(eval, value)
 }
 
 /// Render a value as bytes with evaluator-context-aware opaque handle formatting.

@@ -1199,7 +1199,7 @@ fn begin_macro_expansion_scope_in_state(
     }
 
     obarray.set_symbol_value("lexical-binding", Value::bool(!lexenv.is_nil()));
-    set_runtime_binding_in_state(
+    set_runtime_binding_in_state_raw(
         obarray,
         buffers,
         custom,
@@ -1223,7 +1223,7 @@ fn finish_macro_expansion_scope_in_state(
     temp_roots: &mut Vec<Value>,
     state: ActiveMacroExpansionScopeState,
 ) {
-    set_runtime_binding_in_state(
+    set_runtime_binding_in_state_raw(
         obarray,
         buffers,
         custom,
@@ -7937,7 +7937,7 @@ impl Context {
     /// - For plain variables: SPECPDL_LET
     pub(crate) fn specbind(&mut self, sym_id: SymId, value: Value) {
         let resolved =
-            builtins::resolve_variable_alias_id_in_obarray(&self.obarray, sym_id).unwrap_or(sym_id);
+            builtins::resolve_variable_alias_id_in_obarray_raw(&self.obarray, sym_id).unwrap_or(sym_id);
         let name = resolve_sym(resolved);
 
         // Check if this is a buffer-local variable (GNU: SYMBOL_LOCALIZED path)
@@ -8061,7 +8061,7 @@ pub(crate) fn specbind_in_state(
     value: Value,
 ) {
     let resolved =
-        super::builtins::resolve_variable_alias_id_in_obarray(obarray, sym_id).unwrap_or(sym_id);
+        super::builtins::resolve_variable_alias_id_in_obarray_raw(obarray, sym_id).unwrap_or(sym_id);
     let old_value = obarray.symbol_value_id(resolved).copied();
     specpdl.push(SpecBinding::Let {
         sym_id: resolved,
@@ -8107,6 +8107,21 @@ pub(crate) fn unbind_to_in_state(
 }
 
 pub(crate) fn set_runtime_binding_in_state(
+    ctx: &mut Context,
+    sym_id: SymId,
+    value: Value,
+) -> Option<crate::buffer::BufferId> {
+    set_runtime_binding_in_state_raw(
+        &mut ctx.obarray,
+        &mut ctx.buffers,
+        &ctx.custom,
+        ctx.specpdl.as_slice(),
+        sym_id,
+        value,
+    )
+}
+
+pub(crate) fn set_runtime_binding_in_state_raw(
     obarray: &mut Obarray,
     buffers: &mut BufferManager,
     custom: &CustomManager,
@@ -8375,7 +8390,7 @@ impl Context {
             }
         }
 
-        set_runtime_binding_in_state(
+        set_runtime_binding_in_state_raw(
             &mut self.obarray,
             &mut self.buffers,
             &self.custom,
@@ -8394,7 +8409,7 @@ impl Context {
         sym_id: SymId,
         value: Value,
     ) -> Option<crate::buffer::BufferId> {
-        set_runtime_binding_in_state(
+        set_runtime_binding_in_state_raw(
             &mut self.obarray,
             &mut self.buffers,
             &self.custom,

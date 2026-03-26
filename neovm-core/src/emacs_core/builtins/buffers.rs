@@ -3541,7 +3541,7 @@ pub(crate) fn builtin_buffer_local_value_in_state(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_name_in_obarray(
+    let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_name_in_obarray_raw(
         obarray, name,
     )?;
     let id = expect_buffer_id(&args[1])?;

@@ -392,7 +392,7 @@ pub(crate) fn builtin_defalias(eval: &mut super::eval::Context, args: Vec<Value>
     }
     if let Some(docstring) = docstring {
         super::symbols::builtin_put_in_obarray(
-            eval.obarray_mut(),
+            eval,
             vec![result, Value::symbol("function-documentation"), docstring],
         )?;
     }
@@ -783,6 +783,13 @@ fn resolve_print_target(eval: &super::eval::Context, printcharfun: Option<&Value
 }
 
 pub(crate) fn resolve_print_target_in_state(
+    ctx: &crate::emacs_core::eval::Context,
+    printcharfun: Option<&Value>,
+) -> Value {
+    resolve_print_target_in_state_raw(&ctx.obarray, &[], printcharfun)
+}
+
+fn resolve_print_target_in_state_raw(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     printcharfun: Option<&Value>,
@@ -931,7 +938,7 @@ pub(crate) fn write_print_output_in_state(
     printcharfun: Option<&Value>,
     text: &str,
 ) -> Result<(), Flow> {
-    let target = resolve_print_target_in_state(obarray, dynamic, printcharfun);
+    let target = resolve_print_target_in_state_raw(obarray, dynamic, printcharfun);
     write_print_output_to_target(buffers, target, text)
 }
 
@@ -1067,7 +1074,7 @@ pub(crate) fn print_value_princ_in_state(
         || threads.mutex_id_from_handle(value).is_some()
         || threads.condition_variable_id_from_handle(value).is_some()
     {
-        return super::error::print_value_in_state(obarray, buffers, frames, threads, value);
+        return super::error::print_value_in_state_raw(obarray, buffers, frames, threads, value);
     }
     match value {
         Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
@@ -1080,7 +1087,7 @@ pub(crate) fn print_value_princ_in_state(
             if buffers.dead_buffer_last_name(*id).is_some() {
                 return "#<killed buffer>".to_string();
             }
-            super::error::print_value_in_state(obarray, buffers, frames, threads, value)
+            super::error::print_value_in_state_raw(obarray, buffers, frames, threads, value)
         }
         Value::Cons(_) => {
             if let Some(shorthand) = print_value_princ_list_shorthand(value, &|item| {
@@ -1135,7 +1142,7 @@ pub(crate) fn print_value_princ_in_state(
                 .collect();
             format!("#s({})", parts.join(" "))
         }
-        other => super::error::print_value_in_state(obarray, buffers, frames, threads, other),
+        other => super::error::print_value_in_state_raw(obarray, buffers, frames, threads, other),
     }
 }
 
@@ -1186,7 +1193,7 @@ pub(crate) fn prin1_to_string_value_in_state(
     if noescape {
         match value {
             Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-            other => super::error::print_value_in_state(obarray, buffers, frames, threads, other),
+            other => super::error::print_value_in_state_raw(obarray, buffers, frames, threads, other),
         }
     } else {
         bytes_to_storage_string(&super::error::print_value_bytes_in_state(
@@ -1265,10 +1272,7 @@ pub(crate) fn builtin_prin1_eval(eval: &mut super::eval::Context, args: Vec<Valu
     }
 
     let text = super::error::print_value_in_state(
-        &eval.obarray,
-        &eval.buffers,
-        &eval.frames,
-        &eval.threads,
+        eval,
         &args[0],
     );
     let saved_roots = eval.save_temp_roots();
@@ -1289,7 +1293,7 @@ pub(crate) fn builtin_prin1_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("prin1", &args, 1)?;
-    let text = super::error::print_value_in_state(obarray, buffers, frames, threads, &args[0]);
+    let text = super::error::print_value_in_state_raw(obarray, buffers, frames, threads, &args[0]);
     write_print_output_in_state(obarray, dynamic, buffers, args.get(1), &text)?;
     Ok(args[0])
 }
@@ -1354,10 +1358,7 @@ pub(crate) fn builtin_print_eval(eval: &mut super::eval::Context, args: Vec<Valu
     let mut text = String::new();
     text.push('\n');
     text.push_str(&super::error::print_value_in_state(
-        &eval.obarray,
-        &eval.buffers,
-        &eval.frames,
-        &eval.threads,
+        eval,
         &args[0],
     ));
     text.push('\n');
@@ -1381,7 +1382,7 @@ pub(crate) fn builtin_print_in_state(
     expect_min_args("print", &args, 1)?;
     let mut text = String::new();
     text.push('\n');
-    text.push_str(&super::error::print_value_in_state(
+    text.push_str(&super::error::print_value_in_state_raw(
         obarray, buffers, frames, threads, &args[0],
     ));
     text.push('\n');
@@ -1405,7 +1406,7 @@ pub(crate) fn builtin_terpri_in_state(
     args: Vec<Value>,
 ) -> Result<Option<Value>, Flow> {
     expect_max_args("terpri", &args, 2)?;
-    let target = resolve_print_target_in_state(obarray, dynamic, args.first());
+    let target = resolve_print_target_in_state_raw(obarray, dynamic, args.first());
     if print_target_is_direct(target) {
         write_print_output_to_target(buffers, target, "\n")?;
         return Ok(Some(Value::True));
@@ -1507,7 +1508,7 @@ pub(crate) fn builtin_write_char_in_state(
 ) -> Result<Option<Value>, Flow> {
     expect_range_args("write-char", &args, 1, 2)?;
     let char_code = expect_fixnum(&args[0])?;
-    let target = resolve_print_target_in_state(obarray, dynamic, args.get(1));
+    let target = resolve_print_target_in_state_raw(obarray, dynamic, args.get(1));
 
     if print_target_is_direct(target) {
         if let Some(text) = write_char_rendered_text(char_code) {

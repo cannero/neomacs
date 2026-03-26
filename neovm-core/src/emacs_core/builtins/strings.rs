@@ -1124,7 +1124,7 @@ pub(crate) fn builtin_format_wrapper_strict_in_state(
         let s = do_format(
             &args,
             &|v| format_percent_s_in_state(obarray, buffers, frames, threads, v),
-            &|v| super::error::print_value_in_state(obarray, buffers, frames, threads, v),
+            &|v| super::error::print_value_in_state_raw(obarray, buffers, frames, threads, v),
         )?;
         Ok(Value::string(s))
     })

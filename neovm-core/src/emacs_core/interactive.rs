@@ -1820,7 +1820,7 @@ fn interactive_apply_shift_selection_prefix_in_state(
         mark_activated = true;
     }
     if mark_activated {
-        let _ = super::eval::set_runtime_binding_in_state(
+        let _ = super::eval::set_runtime_binding_in_state_raw(
             obarray,
             buffers,
             custom,

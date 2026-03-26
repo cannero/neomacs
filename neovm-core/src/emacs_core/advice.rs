@@ -208,7 +208,7 @@ pub(crate) fn builtin_add_variable_watcher(
 
     let var_name = expect_symbol_name(&args[0])?;
     let resolved =
-        super::builtins::resolve_variable_alias_name_in_obarray(eval.obarray(), &var_name)?;
+        super::builtins::resolve_variable_alias_name_in_obarray(eval, &var_name)?;
     let callback = args[1];
 
     eval.watchers.add_watcher(&resolved, callback);
@@ -226,7 +226,7 @@ pub(crate) fn builtin_remove_variable_watcher(
 
     let var_name = expect_symbol_name(&args[0])?;
     let resolved =
-        super::builtins::resolve_variable_alias_name_in_obarray(eval.obarray(), &var_name)?;
+        super::builtins::resolve_variable_alias_name_in_obarray(eval, &var_name)?;
     let callback = args[1];
 
     eval.watchers.remove_watcher(&resolved, &callback);
@@ -251,7 +251,7 @@ pub(crate) fn builtin_get_variable_watchers_in_state(
     expect_args("get-variable-watchers", &args, 1)?;
 
     let var_name = expect_symbol_name(&args[0])?;
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(obarray, &var_name)?;
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray_raw(obarray, &var_name)?;
     Ok(Value::list(watchers.get_watchers(&resolved)))
 }
 

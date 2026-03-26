@@ -7,21 +7,19 @@ use crate::emacs_core::symbol::Obarray;
 // ===========================================================================
 
 fn symbol_dynamic_buffer_or_global_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
-    symbol_dynamic_buffer_or_global_value_in_state(eval.obarray(), &[], &eval.buffers, name)
+    symbol_dynamic_buffer_or_global_value_in_state(eval, name)
 }
 
 pub(crate) fn symbol_dynamic_buffer_or_global_value_in_state(
-    obarray: &Obarray,
-    _dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
+    ctx: &crate::emacs_core::eval::Context,
     name: &str,
 ) -> Option<Value> {
-    if let Some(buf) = buffers.current_buffer()
+    if let Some(buf) = ctx.buffers.current_buffer()
         && let Some(value) = buf.get_buffer_local(name)
     {
         return Some(*value);
     }
-    obarray.symbol_value(name).cloned()
+    ctx.obarray.symbol_value(name).cloned()
 }
 
 fn collect_hook_functions_impl(
@@ -61,14 +59,14 @@ fn collect_hook_functions_impl(
 }
 
 pub(crate) fn collect_hook_functions_in_state(
-    obarray: &Obarray,
+    ctx: &crate::emacs_core::eval::Context,
     hook_name: &str,
     hook_value: Value,
     inherit_global: bool,
 ) -> Vec<Value> {
     let mut functions = Vec::new();
     collect_hook_functions_impl(
-        obarray,
+        &ctx.obarray,
         hook_name,
         hook_value,
         inherit_global,
@@ -85,7 +83,7 @@ fn run_hook_value(
     inherit_global: bool,
 ) -> Result<(), Flow> {
     let funcs =
-        collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, inherit_global);
+        collect_hook_functions_in_state(eval, hook_name, hook_value, inherit_global);
     // Root all hook functions AND args so GC during apply can't collect them.
     let saved = eval.save_temp_roots();
     for f in &funcs {
@@ -149,7 +147,7 @@ pub(crate) fn builtin_run_hook_with_args_until_success(
     })?;
     let hook_args: Vec<Value> = args[1..].to_vec();
     let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    let funcs = collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true);
+    let funcs = collect_hook_functions_in_state(eval, hook_name, hook_value, true);
     // Root hook functions and args for GC safety during apply.
     let saved = eval.save_temp_roots();
     for f in &funcs {
@@ -184,7 +182,7 @@ pub(crate) fn builtin_run_hook_with_args_until_failure(
     })?;
     let hook_args: Vec<Value> = args[1..].to_vec();
     let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    let funcs = collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true);
+    let funcs = collect_hook_functions_in_state(eval, hook_name, hook_value, true);
     // Root hook functions and args for GC safety during apply.
     let saved = eval.save_temp_roots();
     for f in &funcs {
@@ -220,7 +218,7 @@ pub(crate) fn builtin_run_hook_wrapped(
     let wrapper = args[1];
     let wrapped_args: Vec<Value> = args[2..].to_vec();
     let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    for func in collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true) {
+    for func in collect_hook_functions_in_state(eval, hook_name, hook_value, true) {
         let mut call_args = Vec::with_capacity(wrapped_args.len() + 1);
         call_args.push(func);
         call_args.extend(wrapped_args.clone());
