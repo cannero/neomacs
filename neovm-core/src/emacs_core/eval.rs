@@ -1899,6 +1899,8 @@ impl Context {
         obarray.set_symbol_value("image-scaling-factor", Value::Float(1.0, 0));
         // Display engine C variables (xdisp.c)
         obarray.set_symbol_value("global-mode-string", Value::Nil);
+        // File loading C variables (lread.c)
+        obarray.set_symbol_value("load-in-progress", Value::Nil);
         // Other missing C variables cus-start.el checks
         obarray.set_symbol_value("history-length", Value::Int(100));
         obarray.set_symbol_value("minibuffer-follows-selected-frame", Value::True);

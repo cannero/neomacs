@@ -2150,7 +2150,20 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
     if is_fboundp {
         let abs_path = Value::string(path_str.clone());
         if let Err(e) = eval.apply(Value::Symbol(dale_id), vec![abs_path]) {
-            tracing::warn!("do-after-load-evaluation error for {}: {:?}", path_str, e);
+            let err_msg = match &e {
+                super::error::Flow::Signal(sig) => {
+                    let sym = super::intern::resolve_sym(sig.symbol);
+                    let data: Vec<String> =
+                        sig.data.iter().map(|v| format_value_for_error(v)).collect();
+                    format!("({} {})", sym, data.join(" "))
+                }
+                other => format!("{other:?}"),
+            };
+            tracing::warn!(
+                "do-after-load-evaluation error for {}: {}",
+                path_str,
+                err_msg
+            );
         }
     }
 }
