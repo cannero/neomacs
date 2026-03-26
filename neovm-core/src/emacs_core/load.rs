@@ -1803,6 +1803,22 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
         } else {
             Vec::new()
         };
+        // Snapshot features BEFORE expansion so we can track which features
+        // were loaded as side effects of macro expansion. These need to be
+        // required during V2 cache replay.
+        //
+        // Only track dependencies for files outside the NeoVM lisp/ directory
+        // and outside the GNU Emacs lisp/ mirror. Loadup files have their
+        // features available from the pdump; adding require forms for them
+        // would fail during early bootstrap.
+        let path_str_for_check = path.to_string_lossy();
+        let is_external_file = !path_str_for_check.contains("/neomacs-main/lisp/")
+            && !path_str_for_check.contains("/emacs-mirror/emacs/lisp/");
+        let features_before: Vec<SymId> = if macroexpand_fn.is_some() && is_external_file {
+            eval.features.clone()
+        } else {
+            Vec::new()
+        };
         let run_forms = |working_eval: &mut super::eval::Context,
                          eager_macroexpand_fn: Option<Value>,
                          expanded_forms: &mut Vec<Expr>|
@@ -1923,6 +1939,47 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
             run_forms(eval, Some(mexp_fn), &mut expanded_collector)?;
         } else {
             run_forms(eval, None, &mut expanded_collector)?;
+        }
+
+        // Compute features loaded during macro expansion (side effects).
+        // These must be `require`d during V2 cache replay so expanded forms
+        // that call functions from those features find them defined.
+        // This mirrors how GNU Emacs .elc files include the `require` calls
+        // from the source file — macro expansion loads the packages, and the
+        // compiled output depends on them being available at runtime.
+        let expansion_deps: Vec<String> = if !features_before.is_empty() {
+            eval.refresh_features_from_variable();
+            eval.features
+                .iter()
+                .filter(|f| !features_before.contains(f))
+                .map(|f| super::intern::resolve_sym(*f).to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Prepend (require 'feature nil t) forms for expansion dependencies.
+        // Use noerror=t because during loadup, some features may not be
+        // available yet (they're loaded later in the bootstrap sequence).
+        // The require is best-effort: if the feature is available, load it
+        // to ensure expanded forms can call its functions.
+        if !expansion_deps.is_empty() && !expanded_collector.is_empty() {
+            let mut dep_forms: Vec<Expr> = expansion_deps
+                .iter()
+                .map(|feat| {
+                    Expr::List(vec![
+                        Expr::Symbol(intern("require")),
+                        Expr::List(vec![
+                            Expr::Symbol(intern("quote")),
+                            Expr::Symbol(intern(feat)),
+                        ]),
+                        Expr::Symbol(intern("nil")),
+                        Expr::Symbol(intern("t")), // noerror
+                    ])
+                })
+                .collect();
+            dep_forms.append(&mut expanded_collector);
+            expanded_collector = dep_forms;
         }
 
         // Write V2 expanded cache if we collected forms and none contain OpaqueValues.
