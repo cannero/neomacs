@@ -1958,23 +1958,32 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
             Vec::new()
         };
 
-        // Prepend (require 'feature nil t) forms for expansion dependencies.
-        // Use noerror=t because during loadup, some features may not be
-        // available yet (they're loaded later in the bootstrap sequence).
-        // The require is best-effort: if the feature is available, load it
-        // to ensure expanded forms can call its functions.
+        // Prepend best-effort (require 'feature) for expansion dependencies.
+        // Wrap in condition-case to suppress ALL errors — not just file-missing
+        // but also "feature not provided". This is because some features loaded
+        // during macro expansion (like theme support) may not provide their
+        // feature when loaded in a different context.
         if !expansion_deps.is_empty() && !expanded_collector.is_empty() {
             let mut dep_forms: Vec<Expr> = expansion_deps
                 .iter()
                 .map(|feat| {
+                    // (condition-case nil (require 'FEATURE nil t) (error nil))
                     Expr::List(vec![
-                        Expr::Symbol(intern("require")),
-                        Expr::List(vec![
-                            Expr::Symbol(intern("quote")),
-                            Expr::Symbol(intern(feat)),
-                        ]),
+                        Expr::Symbol(intern("condition-case")),
                         Expr::Symbol(intern("nil")),
-                        Expr::Symbol(intern("t")), // noerror
+                        Expr::List(vec![
+                            Expr::Symbol(intern("require")),
+                            Expr::List(vec![
+                                Expr::Symbol(intern("quote")),
+                                Expr::Symbol(intern(feat)),
+                            ]),
+                            Expr::Symbol(intern("nil")),
+                            Expr::Symbol(intern("t")),
+                        ]),
+                        Expr::List(vec![
+                            Expr::Symbol(intern("error")),
+                            Expr::Symbol(intern("nil")),
+                        ]),
                     ])
                 })
                 .collect();
