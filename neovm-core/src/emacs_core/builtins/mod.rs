@@ -2103,6 +2103,55 @@ fn defsubr_coding_system_priority_list(
     super::coding::builtin_coding_system_priority_list(&eval.coding_systems, args)
 }
 
+fn defsubr_coding_system_p(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_coding_system_p(&eval.coding_systems, args)
+}
+fn defsubr_check_coding_system(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_check_coding_system(&eval.coding_systems, args)
+}
+fn defsubr_check_coding_systems_region(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    super::coding::builtin_check_coding_systems_region(&eval.coding_systems, args)
+}
+fn defsubr_define_coding_system_internal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    super::coding::builtin_define_coding_system_internal(&mut eval.coding_systems, args)
+}
+fn defsubr_define_coding_system_alias(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    super::coding::builtin_define_coding_system_alias(&mut eval.coding_systems, args)
+}
+fn defsubr_set_coding_system_priority(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    super::coding::builtin_set_coding_system_priority(&mut eval.coding_systems, args)
+}
+fn defsubr_set_keyboard_coding_system_internal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    super::coding::builtin_set_keyboard_coding_system_internal(&mut eval.coding_systems, args)
+}
+fn defsubr_set_safe_terminal_coding_system_internal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    super::coding::builtin_set_safe_terminal_coding_system_internal(&mut eval.coding_systems, args)
+}
+fn defsubr_set_terminal_coding_system_internal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    super::coding::builtin_set_terminal_coding_system_internal(&mut eval.coding_systems, args)
+}
+
 /// Register all builtins via defsubr — function pointer dispatch.
 ///
 /// This replaces the giant match-by-name block in dispatch_builtin.
@@ -7939,6 +7988,1715 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         ctx,
         "memory-use-counts",
         super::builtins_extra::builtin_memory_use_counts
+    );
+
+    // -----------------------------------------------------------------------
+    // Migrate ALL remaining legacy-only builtins to defsubr.
+    // These were previously dispatched only via PureBuiltinId enum or the
+    // legacy match-by-name block in dispatch_builtin().
+    // -----------------------------------------------------------------------
+
+    // -- Arithmetic --
+    ctx.defsubr("+", super::builtins::arithmetic::builtin_add_eval, 0, None);
+    ctx.defsubr("-", super::builtins::arithmetic::builtin_sub_eval, 0, None);
+    ctx.defsubr("*", |_ctx, args| builtin_mul(args), 0, None);
+    ctx.defsubr("/", |_ctx, args| builtin_div(args), 0, None);
+    ctx.defsubr("%", |_ctx, args| builtin_percent(args), 0, None);
+    ctx.defsubr("mod", |_ctx, args| builtin_mod(args), 0, None);
+    ctx.defsubr("1+", |_ctx, args| builtin_add1(args), 0, None);
+    ctx.defsubr("1-", |_ctx, args| builtin_sub1(args), 0, None);
+    ctx.defsubr("max", |ctx, args| builtin_max_eval(ctx, args), 0, None);
+    ctx.defsubr("min", |ctx, args| builtin_min_eval(ctx, args), 0, None);
+    ctx.defsubr("abs", |_ctx, args| builtin_abs(args), 0, None);
+
+    // -- Logical / bitwise --
+    ctx.defsubr("logand", |_ctx, args| builtin_logand(args), 0, None);
+    ctx.defsubr("logior", |_ctx, args| builtin_logior(args), 0, None);
+    ctx.defsubr("logxor", |_ctx, args| builtin_logxor(args), 0, None);
+    ctx.defsubr("lognot", |_ctx, args| builtin_lognot(args), 0, None);
+    ctx.defsubr("ash", |_ctx, args| builtin_ash(args), 0, None);
+
+    // -- Numeric comparisons --
+    ctx.defsubr("=", builtin_num_eq_eval, 0, None);
+    ctx.defsubr("<", builtin_num_lt_eval, 0, None);
+    ctx.defsubr("<=", builtin_num_le_eval, 0, None);
+    ctx.defsubr(">", builtin_num_gt_eval, 0, None);
+    ctx.defsubr(">=", builtin_num_ge_eval, 0, None);
+    ctx.defsubr("/=", builtin_num_ne_eval, 0, None);
+
+    // -- Type predicates --
+    ctx.defsubr("null", |_ctx, args| builtin_null(args), 0, None);
+    ctx.defsubr("not", |_ctx, args| builtin_not(args), 0, None);
+    ctx.defsubr("atom", |_ctx, args| builtin_atom(args), 0, None);
+    ctx.defsubr("consp", |_ctx, args| builtin_consp(args), 0, None);
+    ctx.defsubr("listp", |_ctx, args| builtin_listp(args), 0, None);
+    ctx.defsubr(
+        "list-of-strings-p",
+        |_ctx, args| builtin_list_of_strings_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr("nlistp", |_ctx, args| builtin_nlistp(args), 0, None);
+    ctx.defsubr("symbolp", |_ctx, args| builtin_symbolp(args), 0, None);
+    ctx.defsubr("booleanp", |_ctx, args| builtin_booleanp(args), 0, None);
+    ctx.defsubr("numberp", |_ctx, args| builtin_numberp(args), 0, None);
+    ctx.defsubr("integerp", |_ctx, args| builtin_integerp(args), 0, None);
+    ctx.defsubr(
+        "integer-or-null-p",
+        |_ctx, args| builtin_integer_or_null_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-or-null-p",
+        |_ctx, args| builtin_string_or_null_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr("floatp", |_ctx, args| builtin_floatp(args), 0, None);
+    ctx.defsubr("stringp", |_ctx, args| builtin_stringp(args), 0, None);
+    ctx.defsubr("vectorp", |_ctx, args| builtin_vectorp(args), 0, None);
+    ctx.defsubr("characterp", |_ctx, args| builtin_characterp(args), 0, None);
+    ctx.defsubr(
+        "char-uppercase-p",
+        |_ctx, args| builtin_char_uppercase_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr("keywordp", |_ctx, args| builtin_keywordp(args), 0, None);
+    ctx.defsubr(
+        "hash-table-p",
+        |_ctx, args| builtin_hash_table_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr("bufferp", |_ctx, args| builtin_bufferp(args), 0, None);
+    ctx.defsubr("type-of", |_ctx, args| builtin_type_of(args), 0, None);
+    ctx.defsubr("sequencep", |_ctx, args| builtin_sequencep(args), 0, None);
+    ctx.defsubr("arrayp", |_ctx, args| builtin_arrayp(args), 0, None);
+    ctx.defsubr("ignore", |_ctx, args| builtin_ignore(args), 0, None);
+    ctx.defsubr("cl-type-of", |_ctx, args| builtin_cl_type_of(args), 0, None);
+
+    // -- Equality --
+    ctx.defsubr("eq", |_ctx, args| builtin_eq(args), 0, None);
+    ctx.defsubr("eql", |_ctx, args| builtin_eql(args), 0, None);
+    ctx.defsubr("equal", |_ctx, args| builtin_equal(args), 0, None);
+
+    // -- Cons / List --
+    ctx.defsubr("cons", |_ctx, args| builtin_cons(args), 0, None);
+    ctx.defsubr("car", |_ctx, args| builtin_car(args), 0, None);
+    ctx.defsubr("cdr", |_ctx, args| builtin_cdr(args), 0, None);
+    ctx.defsubr("car-safe", |_ctx, args| builtin_car_safe(args), 0, None);
+    ctx.defsubr("cdr-safe", |_ctx, args| builtin_cdr_safe(args), 0, None);
+    ctx.defsubr("setcar", |_ctx, args| builtin_setcar(args), 0, None);
+    ctx.defsubr("setcdr", |_ctx, args| builtin_setcdr(args), 0, None);
+    ctx.defsubr("list", |_ctx, args| builtin_list(args), 0, None);
+    ctx.defsubr("length", |_ctx, args| builtin_length(args), 0, None);
+    ctx.defsubr("nth", |_ctx, args| builtin_nth(args), 0, None);
+    ctx.defsubr("nthcdr", |_ctx, args| builtin_nthcdr(args), 0, None);
+    ctx.defsubr("append", |_ctx, args| builtin_append(args), 0, None);
+    ctx.defsubr("reverse", |_ctx, args| builtin_reverse(args), 0, None);
+    ctx.defsubr("nreverse", |_ctx, args| builtin_nreverse(args), 0, None);
+    ctx.defsubr("member", |_ctx, args| builtin_member(args), 0, None);
+    ctx.defsubr("memq", |_ctx, args| builtin_memq(args), 0, None);
+    ctx.defsubr("assq", |_ctx, args| builtin_assq(args), 0, None);
+    ctx.defsubr(
+        "copy-sequence",
+        |_ctx, args| builtin_copy_sequence(args),
+        0,
+        None,
+    );
+    ctx.defsubr("plist-get", |_ctx, args| builtin_plist_get(args), 0, None);
+    ctx.defsubr("plist-put", |_ctx, args| builtin_plist_put(args), 0, None);
+    ctx.defsubr(
+        "copy-alist",
+        |_ctx, args| super::misc::builtin_copy_alist(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "rassoc",
+        |_ctx, args| super::misc::builtin_rassoc(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "rassq",
+        |_ctx, args| super::misc::builtin_rassq(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "make-list",
+        |_ctx, args| super::misc::builtin_make_list(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "safe-length",
+        |_ctx, args| super::misc::builtin_safe_length(args),
+        0,
+        None,
+    );
+
+    // -- String --
+    ctx.defsubr(
+        "string-equal",
+        |_ctx, args| builtin_string_equal(args),
+        0,
+        None,
+    );
+    ctx.defsubr("string=", |_ctx, args| builtin_string_equal(args), 0, None);
+    ctx.defsubr(
+        "string-lessp",
+        |_ctx, args| builtin_string_lessp(args),
+        0,
+        None,
+    );
+    ctx.defsubr("string<", |_ctx, args| builtin_string_lessp(args), 0, None);
+    ctx.defsubr(
+        "string-greaterp",
+        |_ctx, args| builtin_string_greaterp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string>",
+        |_ctx, args| builtin_string_greaterp(args),
+        0,
+        None,
+    );
+    ctx.defsubr("substring", |_ctx, args| builtin_substring(args), 0, None);
+    ctx.defsubr("concat", |_ctx, args| builtin_concat(args), 0, None);
+    ctx.defsubr(
+        "unibyte-string",
+        |_ctx, args| builtin_unibyte_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-to-number",
+        |_ctx, args| builtin_string_to_number(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "number-to-string",
+        |_ctx, args| builtin_number_to_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr("upcase", |_ctx, args| builtin_upcase(args), 0, None);
+    ctx.defsubr("downcase", |_ctx, args| builtin_downcase(args), 0, None);
+    ctx.defsubr(
+        "char-to-string",
+        |_ctx, args| builtin_char_to_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-to-char",
+        |_ctx, args| builtin_string_to_char(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "clear-string",
+        |_ctx, args| builtin_clear_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "compare-strings",
+        |_ctx, args| super::fns::builtin_compare_strings(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-version-lessp",
+        |_ctx, args| super::fns::builtin_string_version_lessp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-collate-lessp",
+        |_ctx, args| super::fns::builtin_string_collate_lessp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-collate-equalp",
+        |_ctx, args| super::fns::builtin_string_collate_equalp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "equal-including-properties",
+        |_ctx, args| super::fns::builtin_equal_including_properties(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-make-multibyte",
+        |_ctx, args| super::fns::builtin_string_make_multibyte(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-make-unibyte",
+        |_ctx, args| super::fns::builtin_string_make_unibyte(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-to-multibyte",
+        |_ctx, args| super::misc::builtin_string_to_multibyte(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-to-unibyte",
+        |_ctx, args| super::misc::builtin_string_to_unibyte(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-as-unibyte",
+        |_ctx, args| super::misc::builtin_string_as_unibyte(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-as-multibyte",
+        |_ctx, args| super::misc::builtin_string_as_multibyte(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "unibyte-char-to-multibyte",
+        |_ctx, args| super::misc::builtin_unibyte_char_to_multibyte(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "multibyte-char-to-unibyte",
+        |_ctx, args| super::misc::builtin_multibyte_char_to_unibyte(args),
+        0,
+        None,
+    );
+
+    // -- Vector --
+    ctx.defsubr(
+        "make-vector",
+        |_ctx, args| builtin_make_vector(args),
+        0,
+        None,
+    );
+    ctx.defsubr("vector", |_ctx, args| builtin_vector(args), 0, None);
+    ctx.defsubr("aref", |_ctx, args| builtin_aref(args), 0, None);
+    ctx.defsubr("aset", |_ctx, args| builtin_aset(args), 0, None);
+    ctx.defsubr("vconcat", |_ctx, args| builtin_vconcat(args), 0, None);
+
+    // -- Hash table --
+    ctx.defsubr(
+        "make-hash-table",
+        |_ctx, args| builtin_make_hash_table(args),
+        0,
+        None,
+    );
+    ctx.defsubr("gethash", |_ctx, args| builtin_gethash(args), 0, None);
+    ctx.defsubr("puthash", |_ctx, args| builtin_puthash(args), 0, None);
+    ctx.defsubr("remhash", |_ctx, args| builtin_remhash(args), 0, None);
+    ctx.defsubr("clrhash", |_ctx, args| builtin_clrhash(args), 0, None);
+    ctx.defsubr(
+        "hash-table-count",
+        |_ctx, args| builtin_hash_table_count(args),
+        0,
+        None,
+    );
+
+    // -- Float / math / conversion --
+    ctx.defsubr("float", |_ctx, args| builtin_float(args), 0, None);
+    ctx.defsubr("truncate", |_ctx, args| builtin_truncate(args), 0, None);
+    ctx.defsubr("floor", |_ctx, args| builtin_floor(args), 0, None);
+    ctx.defsubr("ceiling", |_ctx, args| builtin_ceiling(args), 0, None);
+    ctx.defsubr("round", |_ctx, args| builtin_round(args), 0, None);
+    ctx.defsubr(
+        "copysign",
+        |_ctx, args| super::floatfns::builtin_copysign(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "frexp",
+        |_ctx, args| super::floatfns::builtin_frexp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "ldexp",
+        |_ctx, args| super::floatfns::builtin_ldexp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "logb",
+        |_ctx, args| super::floatfns::builtin_logb(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "fceiling",
+        |_ctx, args| super::floatfns::builtin_fceiling(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "ffloor",
+        |_ctx, args| super::floatfns::builtin_ffloor(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "fround",
+        |_ctx, args| super::floatfns::builtin_fround(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "ftruncate",
+        |_ctx, args| super::floatfns::builtin_ftruncate(args),
+        0,
+        None,
+    );
+
+    // -- Symbol --
+    ctx.defsubr(
+        "symbol-name",
+        |_ctx, args| builtin_symbol_name(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "make-symbol",
+        |_ctx, args| builtin_make_symbol(args),
+        0,
+        None,
+    );
+
+    // -- Misc pure --
+    ctx.defsubr(
+        "bitmap-spec-p",
+        |_ctx, args| builtin_bitmap_spec_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "byte-to-string",
+        |_ctx, args| builtin_byte_to_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "clear-buffer-auto-save-failure",
+        |_ctx, args| builtin_clear_buffer_auto_save_failure(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "clear-face-cache",
+        |_ctx, args| builtin_clear_face_cache(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "combine-after-change-execute",
+        |_ctx, args| builtin_combine_after_change_execute(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "command-error-default-function",
+        |_ctx, args| builtin_command_error_default_function(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "locale-info",
+        |_ctx, args| super::misc::builtin_locale_info(args),
+        0,
+        None,
+    );
+    ctx.defsubr("nconc", |_ctx, args| builtin_nconc(args), 0, None);
+
+    // -- Subr introspection --
+    ctx.defsubr(
+        "subr-name",
+        |_ctx, args| super::subr_info::builtin_subr_name(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "subr-arity",
+        |_ctx, args| super::subr_info::builtin_subr_arity(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "native-comp-function-p",
+        |_ctx, args| super::subr_info::builtin_native_comp_function_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "interpreted-function-p",
+        |_ctx, args| super::subr_info::builtin_interpreted_function_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr("func-arity", builtin_func_arity_eval, 0, None);
+
+    // -- Character encoding --
+    ctx.defsubr(
+        "char-width",
+        |_ctx, args| crate::encoding::builtin_char_width(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "string-bytes",
+        |_ctx, args| crate::encoding::builtin_string_bytes(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "multibyte-string-p",
+        |_ctx, args| crate::encoding::builtin_multibyte_string_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "encode-coding-string",
+        |_ctx, args| crate::encoding::builtin_encode_coding_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "decode-coding-string",
+        |_ctx, args| crate::encoding::builtin_decode_coding_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "char-or-string-p",
+        |_ctx, args| crate::encoding::builtin_char_or_string_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "max-char",
+        |_ctx, args| crate::encoding::builtin_max_char(args),
+        0,
+        None,
+    );
+
+    // -- Search --
+    ctx.defsubr(
+        "regexp-quote",
+        |_ctx, args| super::search::builtin_regexp_quote(args),
+        0,
+        None,
+    );
+
+    // -- File I/O --
+    ctx.defsubr(
+        "file-attributes-lessp",
+        |_ctx, args| super::dired::builtin_file_attributes_lessp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "system-users",
+        |_ctx, args| super::dired::builtin_system_users(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "system-groups",
+        |_ctx, args| super::dired::builtin_system_groups(args),
+        0,
+        None,
+    );
+
+    // -- User / editfns --
+    ctx.defsubr(
+        "user-uid",
+        |_ctx, args| super::editfns::builtin_user_uid(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "user-real-uid",
+        |_ctx, args| super::editfns::builtin_user_real_uid(args),
+        0,
+        None,
+    );
+
+    // -- Time/date --
+    ctx.defsubr(
+        "time-add",
+        |_ctx, args| super::timefns::builtin_time_add(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "time-subtract",
+        |_ctx, args| super::timefns::builtin_time_subtract(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "time-less-p",
+        |_ctx, args| super::timefns::builtin_time_less_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "time-equal-p",
+        |_ctx, args| super::timefns::builtin_time_equal_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "current-time-string",
+        |_ctx, args| super::timefns::builtin_current_time_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "current-time-zone",
+        |_ctx, args| super::timefns::builtin_current_time_zone(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "encode-time",
+        |_ctx, args| super::timefns::builtin_encode_time(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "decode-time",
+        |_ctx, args| super::timefns::builtin_decode_time(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "time-convert",
+        |_ctx, args| super::timefns::builtin_time_convert(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-time-zone-rule",
+        |_ctx, args| super::timefns::builtin_set_time_zone_rule(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "format-time-string",
+        |_ctx, args| super::format::builtin_format_time_string(args),
+        0,
+        None,
+    );
+
+    // -- Case/char --
+    ctx.defsubr(
+        "upcase-initials",
+        |_ctx, args| super::casefiddle::builtin_upcase_initials(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "char-resolve-modifiers",
+        |_ctx, args| super::casefiddle::builtin_char_resolve_modifiers(args),
+        0,
+        None,
+    );
+
+    // -- Font/face --
+    ctx.defsubr(
+        "fontp",
+        |_ctx, args| super::font::builtin_fontp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "font-spec",
+        |_ctx, args| super::font::builtin_font_spec(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "font-get",
+        |_ctx, args| super::font::builtin_font_get(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "font-put",
+        |_ctx, args| super::font::builtin_font_put(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "font-xlfd-name",
+        |_ctx, args| super::font::builtin_font_xlfd_name(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "close-font",
+        |_ctx, args| super::font::builtin_close_font(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "clear-font-cache",
+        |_ctx, args| super::font::builtin_clear_font_cache(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-lisp-face-attribute-values",
+        |_ctx, args| super::font::builtin_internal_lisp_face_attribute_values(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-lisp-face-equal-p",
+        |_ctx, args| super::font::builtin_internal_lisp_face_equal_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-lisp-face-empty-p",
+        |_ctx, args| super::font::builtin_internal_lisp_face_empty_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "face-attribute-relative-p",
+        |_ctx, args| super::font::builtin_face_attribute_relative_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "merge-face-attribute",
+        |_ctx, args| super::font::builtin_merge_face_attribute(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "color-gray-p",
+        |_ctx, args| super::font::builtin_color_gray_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "color-supported-p",
+        |_ctx, args| super::font::builtin_color_supported_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "color-distance",
+        |_ctx, args| super::font::builtin_color_distance(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "color-values-from-color-spec",
+        |_ctx, args| super::font::builtin_color_values_from_color_spec(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-face-x-get-resource",
+        |_ctx, args| super::font::builtin_internal_face_x_get_resource(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-set-font-selection-order",
+        |_ctx, args| super::font::builtin_internal_set_font_selection_order(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-set-alternative-font-family-alist",
+        |_ctx, args| super::font::builtin_internal_set_alternative_font_family_alist(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-set-alternative-font-registry-alist",
+        |_ctx, args| super::font::builtin_internal_set_alternative_font_registry_alist(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-copy-lisp-face",
+        super::font::builtin_internal_copy_lisp_face_eval,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-get-lisp-face-attribute",
+        super::font::builtin_internal_get_lisp_face_attribute_eval,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "internal-merge-in-global-face",
+        super::font::builtin_internal_merge_in_global_face_eval,
+        0,
+        None,
+    );
+
+    // -- Case table --
+    ctx.defsubr(
+        "case-table-p",
+        |_ctx, args| super::casetab::builtin_case_table_p(args),
+        0,
+        None,
+    );
+
+    // -- Category --
+    ctx.defsubr(
+        "category-table-p",
+        |_ctx, args| super::category::builtin_category_table_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "copy-category-table",
+        |_ctx, args| super::category::builtin_copy_category_table(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "make-category-table",
+        |_ctx, args| super::category::builtin_make_category_table(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "category-set-mnemonics",
+        |_ctx, args| super::category::builtin_category_set_mnemonics(args),
+        0,
+        None,
+    );
+
+    // -- Char-table / bool-vector --
+    ctx.defsubr(
+        "char-table-p",
+        |_ctx, args| super::chartable::builtin_char_table_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-char-table-range",
+        |_ctx, args| super::chartable::builtin_set_char_table_range(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "char-table-range",
+        |_ctx, args| super::chartable::builtin_char_table_range(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "char-table-parent",
+        |_ctx, args| super::chartable::builtin_char_table_parent(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-char-table-parent",
+        |_ctx, args| super::chartable::builtin_set_char_table_parent(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "char-table-extra-slot",
+        |_ctx, args| super::chartable::builtin_char_table_extra_slot(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-char-table-extra-slot",
+        |_ctx, args| super::chartable::builtin_set_char_table_extra_slot(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "char-table-subtype",
+        |_ctx, args| super::chartable::builtin_char_table_subtype(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector",
+        |_ctx, args| super::chartable::builtin_bool_vector(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "make-bool-vector",
+        |_ctx, args| super::chartable::builtin_make_bool_vector(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector-count-population",
+        |_ctx, args| super::chartable::builtin_bool_vector_count_population(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector-count-consecutive",
+        |_ctx, args| super::chartable::builtin_bool_vector_count_consecutive(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector-intersection",
+        |_ctx, args| super::chartable::builtin_bool_vector_intersection(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector-not",
+        |_ctx, args| super::chartable::builtin_bool_vector_not(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector-set-difference",
+        |_ctx, args| super::chartable::builtin_bool_vector_set_difference(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector-union",
+        |_ctx, args| super::chartable::builtin_bool_vector_union(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector-exclusive-or",
+        |_ctx, args| super::chartable::builtin_bool_vector_exclusive_or(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bool-vector-subsetp",
+        |_ctx, args| super::chartable::builtin_bool_vector_subsetp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "make-char-table",
+        super::chartable::builtin_make_char_table,
+        0,
+        None,
+    );
+
+    // -- Charset --
+    ctx.defsubr(
+        "charset-priority-list",
+        |_ctx, args| super::charset::builtin_charset_priority_list(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-charset-priority",
+        |_ctx, args| super::charset::builtin_set_charset_priority(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "char-charset",
+        |_ctx, args| super::charset::builtin_char_charset(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "charset-id-internal",
+        |_ctx, args| super::charset::builtin_charset_id_internal(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "declare-equiv-charset",
+        |_ctx, args| super::charset::builtin_declare_equiv_charset(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "find-charset-string",
+        |_ctx, args| super::charset::builtin_find_charset_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "decode-big5-char",
+        |_ctx, args| super::charset::builtin_decode_big5_char(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "decode-char",
+        |_ctx, args| super::charset::builtin_decode_char(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "decode-sjis-char",
+        |_ctx, args| super::charset::builtin_decode_sjis_char(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "encode-big5-char",
+        |_ctx, args| super::charset::builtin_encode_big5_char(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "encode-char",
+        |_ctx, args| super::charset::builtin_encode_char(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "encode-sjis-char",
+        |_ctx, args| super::charset::builtin_encode_sjis_char(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "get-unused-iso-final-char",
+        |_ctx, args| super::charset::builtin_get_unused_iso_final_char(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "clear-charset-maps",
+        |_ctx, args| super::charset::builtin_clear_charset_maps(args),
+        0,
+        None,
+    );
+
+    // -- Coding system (eval-dependent via coding_systems field) --
+    ctx.defsubr("coding-system-p", defsubr_coding_system_p, 0, None);
+    ctx.defsubr("check-coding-system", defsubr_check_coding_system, 0, None);
+    ctx.defsubr(
+        "check-coding-systems-region",
+        defsubr_check_coding_systems_region,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "define-coding-system-internal",
+        defsubr_define_coding_system_internal,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "define-coding-system-alias",
+        defsubr_define_coding_system_alias,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-coding-system-priority",
+        defsubr_set_coding_system_priority,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-keyboard-coding-system-internal",
+        defsubr_set_keyboard_coding_system_internal,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-safe-terminal-coding-system-internal",
+        defsubr_set_safe_terminal_coding_system_internal,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-terminal-coding-system-internal",
+        defsubr_set_terminal_coding_system_internal,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "set-text-conversion-style",
+        |_ctx, args| super::coding::builtin_set_text_conversion_style(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "text-quoting-style",
+        |_ctx, args| super::coding::builtin_text_quoting_style(args),
+        0,
+        None,
+    );
+
+    // -- CCL (eval-dependent) --
+    ctx.defsubr("ccl-program-p", builtin_ccl_program_p_eval, 0, None);
+    ctx.defsubr("ccl-execute", builtin_ccl_execute_eval, 0, None);
+    ctx.defsubr(
+        "ccl-execute-on-string",
+        builtin_ccl_execute_on_string_eval,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "register-ccl-program",
+        builtin_register_ccl_program_eval,
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "register-code-conversion-map",
+        builtin_register_code_conversion_map_eval,
+        0,
+        None,
+    );
+
+    // -- Eval builtins (eval-dependent) --
+    ctx.defsubr("defconst-1", builtin_defconst_1_eval, 0, None);
+    ctx.defsubr("defvar-1", builtin_defvar_1_eval, 0, None);
+    ctx.defsubr("yes-or-no-p", super::reader::builtin_yes_or_no_p, 0, None);
+    ctx.defsubr(
+        "locate-file-internal",
+        super::lread::builtin_locate_file_internal,
+        0,
+        None,
+    );
+
+    // -- Dispnew --
+    ctx.defsubr(
+        "redraw-display",
+        |_ctx, args| super::dispnew::pure::builtin_redraw_display(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "open-termscript",
+        |_ctx, args| super::dispnew::pure::builtin_open_termscript(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "ding",
+        |_ctx, args| super::dispnew::pure::builtin_ding(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "frame--z-order-lessp",
+        |_ctx, args| super::dispnew::pure::builtin_frame_z_order_lessp(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "force-window-update",
+        |_ctx, args| super::dispnew::pure::builtin_force_window_update(args),
+        0,
+        None,
+    );
+
+    // -- Display/terminal --
+    ctx.defsubr(
+        "x-export-frames",
+        |_ctx, args| super::display::builtin_x_export_frames(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-backspace-delete-keys-p",
+        |_ctx, args| super::display::builtin_x_backspace_delete_keys_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-change-window-property",
+        |_ctx, args| super::display::builtin_x_change_window_property(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-focus-frame",
+        |_ctx, args| super::display::builtin_x_focus_frame(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-get-local-selection",
+        |_ctx, args| super::display::builtin_x_get_local_selection(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-get-modifier-masks",
+        |_ctx, args| super::display::builtin_x_get_modifier_masks(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-get-selection-internal",
+        |_ctx, args| super::display::builtin_x_get_selection_internal(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-display-list",
+        |_ctx, args| super::display::builtin_x_display_list(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-disown-selection-internal",
+        |_ctx, args| super::display::builtin_x_disown_selection_internal(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-delete-window-property",
+        |_ctx, args| super::display::builtin_x_delete_window_property(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-frame-edges",
+        |_ctx, args| super::display::builtin_x_frame_edges(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-frame-geometry",
+        |_ctx, args| super::display::builtin_x_frame_geometry(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-frame-list-z-order",
+        |_ctx, args| super::display::builtin_x_frame_list_z_order(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-frame-restack",
+        |_ctx, args| super::display::builtin_x_frame_restack(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-family-fonts",
+        |_ctx, args| super::display::builtin_x_family_fonts(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-get-atom-name",
+        |_ctx, args| super::display::builtin_x_get_atom_name(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-mouse-absolute-pixel-position",
+        |_ctx, args| super::display::builtin_x_mouse_absolute_pixel_position(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-own-selection-internal",
+        |_ctx, args| super::display::builtin_x_own_selection_internal(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-parse-geometry",
+        |_ctx, args| super::display::builtin_x_parse_geometry(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-popup-dialog",
+        |_ctx, args| super::display::builtin_x_popup_dialog(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-popup-menu",
+        |_ctx, args| super::display::builtin_x_popup_menu(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-register-dnd-atom",
+        |_ctx, args| super::display::builtin_x_register_dnd_atom(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-selection-exists-p",
+        |_ctx, args| super::display::builtin_x_selection_exists_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-selection-owner-p",
+        |_ctx, args| super::display::builtin_x_selection_owner_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-hide-tip",
+        |_ctx, args| super::display::builtin_x_hide_tip(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-internal-focus-input-context",
+        |_ctx, args| super::display::builtin_x_internal_focus_input_context(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-send-client-message",
+        |_ctx, args| super::display::builtin_x_send_client_message(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-show-tip",
+        |_ctx, args| super::display::builtin_x_show_tip(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-set-mouse-absolute-pixel-position",
+        |_ctx, args| super::display::builtin_x_set_mouse_absolute_pixel_position(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-synchronize",
+        |_ctx, args| super::display::builtin_x_synchronize(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-translate-coordinates",
+        |_ctx, args| super::display::builtin_x_translate_coordinates(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-uses-old-gtk-dialog",
+        |_ctx, args| super::display::builtin_x_uses_old_gtk_dialog(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-window-property",
+        |_ctx, args| super::display::builtin_x_window_property(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-window-property-attributes",
+        |_ctx, args| super::display::builtin_x_window_property_attributes(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "x-wm-set-size-hint",
+        |_ctx, args| super::display::builtin_x_wm_set_size_hint(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "terminal-list",
+        |_ctx, args| super::terminal::pure::builtin_terminal_list(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "delete-terminal",
+        |_ctx, args| super::terminal::pure::builtin_delete_terminal(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "make-terminal-frame",
+        |_ctx, args| super::terminal::pure::builtin_make_terminal_frame(args),
+        0,
+        None,
+    );
+
+    // -- Image --
+    ctx.defsubr(
+        "image-size",
+        |_ctx, args| super::image::builtin_image_size(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "image-mask-p",
+        |_ctx, args| super::image::builtin_image_mask_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "image-flush",
+        |_ctx, args| super::image::builtin_image_flush(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "clear-image-cache",
+        |_ctx, args| super::image::builtin_clear_image_cache(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "image-cache-size",
+        |_ctx, args| super::image::builtin_image_cache_size(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "image-metadata",
+        |_ctx, args| super::image::builtin_image_metadata(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "imagep",
+        |_ctx, args| super::image::builtin_imagep(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "image-transforms-p",
+        |_ctx, args| super::image::builtin_image_transforms_p(args),
+        0,
+        None,
+    );
+
+    // -- Display engine (xdisp) --
+    ctx.defsubr(
+        "invisible-p",
+        |_ctx, args| super::xdisp::builtin_invisible_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "line-pixel-height",
+        |_ctx, args| super::xdisp::builtin_line_pixel_height(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "move-point-visually",
+        |_ctx, args| super::xdisp::builtin_move_point_visually(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "lookup-image-map",
+        |_ctx, args| super::xdisp::builtin_lookup_image_map(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "current-bidi-paragraph-direction",
+        |_ctx, args| super::xdisp::builtin_current_bidi_paragraph_direction(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bidi-resolved-levels",
+        |_ctx, args| super::xdisp::builtin_bidi_resolved_levels(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "bidi-find-overridden-directionality",
+        |_ctx, args| super::xdisp::builtin_bidi_find_overridden_directionality(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "move-to-window-line",
+        |_ctx, args| super::xdisp::builtin_move_to_window_line(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "line-number-display-width",
+        |_ctx, args| super::xdisp::builtin_line_number_display_width(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "long-line-optimizations-p",
+        |_ctx, args| super::xdisp::builtin_long_line_optimizations_p(args),
+        0,
+        None,
+    );
+
+    // -- XML/decompress --
+    ctx.defsubr(
+        "libxml-parse-html-region",
+        |_ctx, args| super::xml::builtin_libxml_parse_html_region(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "libxml-parse-xml-region",
+        |_ctx, args| super::xml::builtin_libxml_parse_xml_region(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "libxml-available-p",
+        |_ctx, args| super::xml::builtin_libxml_available_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "zlib-available-p",
+        |_ctx, args| super::xml::builtin_zlib_available_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "zlib-decompress-region",
+        |_ctx, args| super::xml::builtin_zlib_decompress_region(args),
+        0,
+        None,
+    );
+
+    // -- Native compilation compatibility --
+    ctx.defsubr(
+        "comp--compile-ctxt-to-file0",
+        |_ctx, args| super::comp::builtin_comp_compile_ctxt_to_file0(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp--init-ctxt",
+        |_ctx, args| super::comp::builtin_comp_init_ctxt(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp--install-trampoline",
+        |_ctx, args| super::comp::builtin_comp_install_trampoline(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp--late-register-subr",
+        |_ctx, args| super::comp::builtin_comp_late_register_subr(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp--register-lambda",
+        |_ctx, args| super::comp::builtin_comp_register_lambda(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp--register-subr",
+        |_ctx, args| super::comp::builtin_comp_register_subr(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp--release-ctxt",
+        |_ctx, args| super::comp::builtin_comp_release_ctxt(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp--subr-signature",
+        |_ctx, args| super::comp::builtin_comp_subr_signature(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp-el-to-eln-filename",
+        |_ctx, args| super::comp::builtin_comp_el_to_eln_filename(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp-el-to-eln-rel-filename",
+        |_ctx, args| super::comp::builtin_comp_el_to_eln_rel_filename(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp-libgccjit-version",
+        |_ctx, args| super::comp::builtin_comp_libgccjit_version(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp-native-compiler-options-effective-p",
+        |_ctx, args| super::comp::builtin_comp_native_compiler_options_effective_p(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "comp-native-driver-options-effective-p",
+        |_ctx, args| super::comp::builtin_comp_native_driver_options_effective_p(args),
+        0,
+        None,
+    );
+
+    // -- DBus compatibility --
+    ctx.defsubr(
+        "dbus--init-bus",
+        |_ctx, args| super::dbus::builtin_dbus_init_bus(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "dbus-get-unique-name",
+        |_ctx, args| super::dbus::builtin_dbus_get_unique_name(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "dbus-message-internal",
+        |_ctx, args| super::dbus::builtin_dbus_message_internal(args),
+        0,
+        None,
+    );
+
+    // -- Documentation/help --
+    ctx.defsubr(
+        "Snarf-documentation",
+        |_ctx, args| super::doc::builtin_snarf_documentation(args),
+        0,
+        None,
+    );
+
+    // -- JSON --
+    ctx.defsubr(
+        "json-serialize",
+        |_ctx, args| super::json::builtin_json_serialize(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "json-parse-string",
+        |_ctx, args| super::json::builtin_json_parse_string(args),
+        0,
+        None,
+    );
+
+    // -- Composite --
+    ctx.defsubr(
+        "compose-string-internal",
+        |_ctx, args| super::composite::builtin_compose_string_internal(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "find-composition-internal",
+        |_ctx, args| super::composite::builtin_find_composition_internal(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "composition-get-gstring",
+        |_ctx, args| super::composite::builtin_composition_get_gstring(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "clear-composition-cache",
+        |_ctx, args| super::composite::builtin_clear_composition_cache(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "composition-sort-rules",
+        |_ctx, args| super::composite::builtin_composition_sort_rules(args),
+        0,
+        None,
+    );
+
+    // -- Marker --
+    ctx.defsubr(
+        "markerp",
+        |_ctx, args| super::marker::builtin_markerp(args),
+        0,
+        None,
+    );
+
+    // -- Lread --
+    ctx.defsubr(
+        "get-load-suffixes",
+        |_ctx, args| super::lread::builtin_get_load_suffixes(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "read-coding-system",
+        |_ctx, args| super::lread::builtin_read_coding_system(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "read-non-nil-coding-system",
+        |_ctx, args| super::lread::builtin_read_non_nil_coding_system(args),
+        0,
+        None,
+    );
+
+    // -- Base64/hash --
+    ctx.defsubr(
+        "base64-encode-string",
+        |_ctx, args| super::fns::builtin_base64_encode_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "base64-decode-string",
+        |_ctx, args| super::fns::builtin_base64_decode_string(args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "base64url-encode-string",
+        |_ctx, args| super::fns::builtin_base64url_encode_string(args),
+        0,
+        None,
     );
 
     // Register ALL legacy dispatch builtins as Subr in the obarray.
