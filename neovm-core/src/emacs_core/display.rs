@@ -937,25 +937,6 @@ pub(crate) fn builtin_display_color_cells_eval(
     }
 }
 
-pub(crate) fn builtin_display_color_cells_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("display-color-cells", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator_in_state(&ctx.frames, display)?;
-    }
-    if display_window_system_symbol_in_state(&ctx.frames, &ctx.obarray, &[], args.first())?
-        .is_some_and(gui_window_system_active_value)
-    {
-        Ok(Value::Int(16777216))
-    } else if terminal_runtime_supports_color() {
-        Ok(Value::Int(terminal_runtime_color_cells()))
-    } else {
-        Ok(Value::Int(0))
-    }
-}
-
 /// Context-aware variant of `display-planes`.
 pub(crate) fn builtin_display_planes_eval(
     eval: &mut super::eval::Context,
@@ -1026,39 +1007,27 @@ pub(crate) fn builtin_window_system_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_window_system_in_state(
-        &eval.obarray,
-        &[],
-        &mut eval.frames,
-        &mut eval.buffers,
-        args,
-    )
-}
-
-pub(crate) fn builtin_window_system_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_max_args("window-system", &args, 1)?;
     match args.first() {
         None | Some(Value::Nil) => {
-            if let Some(window_system) = selected_frame_window_system_symbol_in_state(frames) {
+            if let Some(window_system) =
+                selected_frame_window_system_symbol_in_state(&mut eval.frames)
+            {
                 return Ok(window_system);
             }
         }
         Some(_) => {
-            if let Some(window_system) =
-                frame_window_system_symbol_in_state(frames, buffers, args.first())?
-            {
+            if let Some(window_system) = frame_window_system_symbol_in_state(
+                &mut eval.frames,
+                &mut eval.buffers,
+                args.first(),
+            )? {
                 return Ok(window_system);
             }
         }
     }
     Ok(
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system")
+        dynamic_or_global_symbol_value_in_state(&eval.obarray, &[], "window-system")
             .unwrap_or(Value::Nil),
     )
 }
@@ -1928,12 +1897,6 @@ pub(crate) fn builtin_x_server_vendor_eval(
     x_optional_display_query_error_eval(eval, "x-server-vendor", args)
 }
 
-pub(crate) fn builtin_x_server_vendor_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    x_optional_display_query_error_in_state(&ctx.frames, "x-server-vendor", args)
-}
 
 /// (x-display-set-last-user-time DISPLAY USER-TIME) -> error in batch/no-X context.
 pub(crate) fn builtin_x_display_set_last_user_time(args: Vec<Value>) -> EvalResult {

@@ -683,13 +683,6 @@ pub(crate) fn builtin_define_category_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_define_category_in_manager(&mut eval.category_manager, args)
-}
-
-pub(crate) fn builtin_define_category_in_manager(
-    category_manager: &mut CategoryManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("define-category", &args, 2)?;
     expect_max_args("define-category", &args, 3)?;
 
@@ -715,7 +708,7 @@ pub(crate) fn builtin_define_category_in_manager(
     }
 
     // TABLE (arg 2) is currently ignored; category tables are not first-class.
-    category_manager
+    eval.category_manager
         .current_mut()
         .define_category(cat, &docstring)
         .map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
@@ -731,13 +724,6 @@ pub(crate) fn builtin_category_docstring_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_category_docstring_in_manager(&eval.category_manager, args)
-}
-
-pub(crate) fn builtin_category_docstring_in_manager(
-    category_manager: &CategoryManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("category-docstring", &args, 1)?;
     expect_max_args("category-docstring", &args, 2)?;
 
@@ -745,7 +731,7 @@ pub(crate) fn builtin_category_docstring_in_manager(
     // TABLE (arg 1) is currently ignored; category tables are not first-class.
     let _ = args.get(1);
 
-    match category_manager.current().category_docstring(cat) {
+    match eval.category_manager.current().category_docstring(cat) {
         Some(doc) => Ok(Value::string(doc)),
         None => Ok(Value::Nil),
     }
@@ -758,18 +744,11 @@ pub(crate) fn builtin_get_unused_category_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_unused_category_in_manager(&eval.category_manager, args)
-}
-
-pub(crate) fn builtin_get_unused_category_in_manager(
-    category_manager: &CategoryManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_max_args("get-unused-category", &args, 1)?;
     // TABLE (arg 0) is currently ignored; category tables are not first-class.
     let _ = args.first();
 
-    match category_manager.current().get_unused_category() {
+    match eval.category_manager.current().get_unused_category() {
         Some(cat) => Ok(Value::Char(cat)),
         None => Ok(Value::Nil),
     }
@@ -783,18 +762,11 @@ pub(crate) fn builtin_char_category_set(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_char_category_set_in_manager(&eval.category_manager, args)
-}
-
-pub(crate) fn builtin_char_category_set_in_manager(
-    category_manager: &CategoryManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("char-category-set", &args, 1)?;
 
     let ch = extract_char(&args[0], "char-category-set")?;
 
-    let cats = category_manager.current().char_category_set(ch);
+    let cats = eval.category_manager.current().char_category_set(ch);
 
     // Build a 128-element bool-vector.
     let mut bits = vec![Value::Int(0); 128];

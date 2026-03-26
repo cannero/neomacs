@@ -793,13 +793,6 @@ pub(crate) fn collect_mapatoms_symbols(
 
 /// (unintern NAME &optional OBARRAY) — remove symbol from obarray.
 pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_unintern_in_obarray(&mut eval.obarray, args)
-}
-
-pub(crate) fn builtin_unintern_in_obarray(
-    obarray: &mut crate::emacs_core::symbol::Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("unintern", &args, 1)?;
     expect_max_args("unintern", &args, 2)?;
     validate_optional_obarray_arg(&args)?;
@@ -867,7 +860,7 @@ pub(crate) fn builtin_unintern_in_obarray(
     }
 
     // Global obarray path
-    let removed = obarray.unintern(&name);
+    let removed = eval.obarray.unintern(&name);
     Ok(if removed { Value::True } else { Value::Nil })
 }
 #[cfg(test)]

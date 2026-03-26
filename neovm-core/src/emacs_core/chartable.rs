@@ -226,13 +226,6 @@ pub fn ct_set_single(table: &Value, ch: i64, value: Value) {
 /// If SUB-TYPE has a `char-table-extra-slots` property, its value
 /// specifies how many extra slots the char-table has (0..10).
 pub(crate) fn builtin_make_char_table(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_make_char_table_in_state(eval.obarray(), args)
-}
-
-pub(crate) fn builtin_make_char_table_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("make-char-table", &args, 1)?;
     expect_max_args("make-char-table", &args, 2)?;
     let sub_type = args[0];
@@ -240,7 +233,7 @@ pub(crate) fn builtin_make_char_table_in_state(
     // Read char-table-extra-slots property from the sub-type symbol,
     // matching GNU Emacs chartab.c:Fmake_char_table.
     let n_extras = if let Some(name) = sub_type.as_symbol_name() {
-        obarray
+        eval.obarray
             .get_property(name, "char-table-extra-slots")
             .and_then(|v| v.as_int())
             .unwrap_or(0)

@@ -629,7 +629,13 @@ pub(crate) fn builtin_list_fonts(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_list_fonts_in_state(frames: &FrameManager, args: Vec<Value>) -> EvalResult {
+/// Context-aware variant of `list-fonts`.
+///
+/// Accepts live frame designators in the optional FRAME slot.
+pub(crate) fn builtin_list_fonts_eval(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("list-fonts", &args, 1)?;
     expect_max_args("list-fonts", &args, 4)?;
     if !is_font_spec(&args[0]) {
@@ -638,18 +644,8 @@ pub(crate) fn builtin_list_fonts_in_state(frames: &FrameManager, args: Vec<Value
             vec![Value::symbol("font-spec"), args[0]],
         ));
     }
-    expect_optional_frame_designator_in_state(frames, args.get(1))?;
+    expect_optional_frame_designator_in_state(&eval.frames, args.get(1))?;
     Ok(Value::Nil)
-}
-
-/// Context-aware variant of `list-fonts`.
-///
-/// Accepts live frame designators in the optional FRAME slot.
-pub(crate) fn builtin_list_fonts_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_list_fonts_in_state(&eval.frames, args)
 }
 
 fn font_weight_from_value(value: Value) -> Option<FontWeight> {
@@ -785,15 +781,6 @@ pub(crate) fn builtin_font_family_list(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_font_family_list_in_state(
-    frames: &FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("font-family-list", &args, 1)?;
-    expect_optional_frame_designator_in_state(frames, args.first())?;
-    Ok(Value::Nil)
-}
-
 /// Context-aware variant of `font-family-list`.
 ///
 /// Accepts live frame designators in the optional FRAME slot.
@@ -801,7 +788,9 @@ pub(crate) fn builtin_font_family_list_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_font_family_list_in_state(&eval.frames, args)
+    expect_max_args("font-family-list", &args, 1)?;
+    expect_optional_frame_designator_in_state(&eval.frames, args.first())?;
+    Ok(Value::Nil)
 }
 
 /// `(font-xlfd-name FONT &optional FOLD-WILDCARDS)` -- render font-spec fields

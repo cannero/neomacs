@@ -458,29 +458,20 @@ pub(crate) fn builtin_directory_files_and_attributes(args: Vec<Value>) -> EvalRe
     directory_files_and_attributes_with_dir(&args, dir)
 }
 
-pub(crate) fn builtin_directory_files_and_attributes_in_state(
-    obarray: &super::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("directory-files-and-attributes", &args, 1, 6)?;
-    let dir = super::fileio::resolve_filename_in_state(
-        obarray,
-        dynamic,
-        buffers,
-        &expect_string("directory-files-and-attributes", &args[0])?,
-    );
-    directory_files_and_attributes_with_dir(&args, dir)
-}
-
 /// Context-backed variant of `directory-files-and-attributes`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
 pub(crate) fn builtin_directory_files_and_attributes_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_directory_files_and_attributes_in_state(&eval.obarray, &[], &eval.buffers, args)
+    expect_range_args("directory-files-and-attributes", &args, 1, 6)?;
+    let dir = super::fileio::resolve_filename_in_state(
+        &eval.obarray,
+        &[],
+        &eval.buffers,
+        &expect_string("directory-files-and-attributes", &args[0])?,
+    );
+    directory_files_and_attributes_with_dir(&args, dir)
 }
 
 fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalResult {
@@ -625,19 +616,19 @@ pub(crate) fn builtin_file_name_all_completions(args: Vec<Value>) -> EvalResult 
     ))
 }
 
-pub(crate) fn builtin_file_name_all_completions_in_state(
-    obarray: &super::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
+/// Context-backed variant of `file-name-all-completions`.
+/// Resolves relative DIRECTORY against dynamic/default `default-directory`.
+pub(crate) fn builtin_file_name_all_completions_eval(
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("file-name-all-completions", &args, 2, 2)?;
 
     let file = expect_string("file-name-all-completions", &args[0])?;
     let directory = super::fileio::resolve_filename_in_state(
-        obarray,
-        dynamic,
-        buffers,
+        &eval.obarray,
+        &[],
+        &eval.buffers,
         &expect_string("file-name-all-completions", &args[1])?,
     );
     if file.contains('/') {
@@ -647,15 +638,6 @@ pub(crate) fn builtin_file_name_all_completions_in_state(
     Ok(Value::list(
         completions.into_iter().map(Value::string).collect(),
     ))
-}
-
-/// Context-backed variant of `file-name-all-completions`.
-/// Resolves relative DIRECTORY against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_name_all_completions_eval(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_file_name_all_completions_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 fn collect_file_name_completions(file: &str, directory: &str) -> Result<Vec<String>, Flow> {
@@ -969,18 +951,15 @@ pub(crate) fn builtin_file_attributes(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_file_attributes_in_state(
-    obarray: &super::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// Context-backed variant of `file-attributes`.
+/// Resolves relative FILENAME against dynamic/default `default-directory`.
+pub(crate) fn builtin_file_attributes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("file-attributes", &args, 1, 2)?;
 
     let filename = super::fileio::resolve_filename_in_state(
-        obarray,
-        dynamic,
-        buffers,
+        &eval.obarray,
+        &[],
+        &eval.buffers,
         &expect_string("file-attributes", &args[0])?,
     );
     // GNU Emacs: return string names unless ID-FORMAT is nil or 'integer.
@@ -992,12 +971,6 @@ pub(crate) fn builtin_file_attributes_in_state(
         Some(attrs) => Ok(attrs),
         None => Ok(Value::Nil),
     }
-}
-
-/// Context-backed variant of `file-attributes`.
-/// Resolves relative FILENAME against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_attributes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_file_attributes_in_state(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-attributes-lessp F1 F2)

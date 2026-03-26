@@ -2069,14 +2069,6 @@ pub(crate) fn builtin_find_coding_systems_region_internal_eval(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_find_coding_systems_region_internal_in_state(&eval.coding_systems, &eval.buffers, args)
-}
-
-pub(crate) fn builtin_find_coding_systems_region_internal_in_state(
-    coding_systems: &CodingSystemManager,
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("find-coding-systems-region-internal", &args, 2)?;
     expect_max_args("find-coding-systems-region-internal", &args, 3)?;
 
@@ -2089,7 +2081,7 @@ pub(crate) fn builtin_find_coding_systems_region_internal_in_state(
             )
         });
         return Ok(safe_coding_systems_for_text(
-            coding_systems,
+            &eval.coding_systems,
             &text,
             multibyte,
             exclude.as_deref(),
@@ -2100,7 +2092,8 @@ pub(crate) fn builtin_find_coding_systems_region_internal_in_state(
     let end = marker_or_integer_position(&args[1])?;
     let exclude = args.get(2).and_then(super::value::list_to_vec);
 
-    let buffer = buffers
+    let buffer = eval
+        .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     if !buffer.multibyte {
@@ -2118,7 +2111,7 @@ pub(crate) fn builtin_find_coding_systems_region_internal_in_state(
     let text = buffer.text.to_string();
     let slice = &text[start_byte..end_byte];
     Ok(safe_coding_systems_for_text(
-        coding_systems,
+        &eval.coding_systems,
         slice,
         buffer.multibyte,
         exclude.as_deref(),

@@ -2499,14 +2499,7 @@ pub(crate) fn builtin_backward_sexp(
 /// `(scan-lists FROM COUNT DEPTH)` — scan across balanced expressions.
 ///
 /// This uses the same core scanner as `forward-sexp`/`backward-sexp`.
-pub(crate) fn builtin_scan_lists(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_scan_lists_in_manager(eval, args)
-}
-
-pub(crate) fn builtin_scan_lists_in_manager(
-    ctx: &crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() != 3 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2558,14 +2551,7 @@ pub(crate) fn builtin_scan_lists_in_manager(
 }
 
 /// `(scan-sexps FROM COUNT)` — scan over COUNT sexps from FROM.
-pub(crate) fn builtin_scan_sexps(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_scan_sexps_in_manager(eval, args)
-}
-
-pub(crate) fn builtin_scan_sexps_in_manager(
-    ctx: &crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -3096,13 +3082,6 @@ pub(crate) fn builtin_parse_partial_sexp(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_parse_partial_sexp_in_manager(&mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_parse_partial_sexp_in_manager(
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     if args.len() < 2 || args.len() > 6 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -3139,7 +3118,8 @@ pub(crate) fn builtin_parse_partial_sexp_in_manager(
         ));
     }
 
-    let buf = buffers
+    let buf = eval
+        .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
@@ -3148,7 +3128,7 @@ pub(crate) fn builtin_parse_partial_sexp_in_manager(
     let (state, stop_pos) =
         parse_state_from_range_with_options(buf, &table, from, to, oldstate, commentstop);
     let stop_byte = lisp_pos_to_byte(buf, stop_pos);
-    if let Some(buf_mut) = buffers.current_buffer_mut() {
+    if let Some(buf_mut) = eval.buffers.current_buffer_mut() {
         buf_mut.goto_char(stop_byte);
     }
     Ok(state)
@@ -3156,13 +3136,6 @@ pub(crate) fn builtin_parse_partial_sexp_in_manager(
 
 /// `(syntax-ppss &optional POS)` — parser state at POS.
 pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_syntax_ppss_in_manager(&eval.buffers, args)
-}
-
-pub(crate) fn builtin_syntax_ppss_in_manager(
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -3170,7 +3143,8 @@ pub(crate) fn builtin_syntax_ppss_in_manager(
         ));
     }
 
-    let buf = buffers
+    let buf = eval
+        .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();

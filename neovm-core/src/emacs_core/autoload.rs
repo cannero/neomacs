@@ -510,10 +510,16 @@ pub(crate) fn builtin_symbol_file(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_symbol_file_in_state(
-    obarray: &Obarray,
-    autoloads: &AutoloadManager,
-    args: &[Value],
+/// Context-aware `(symbol-file SYMBOL &optional TYPE)`.
+///
+/// NeoVM currently tracks symbol origin only for autoloaded function symbols.
+/// This matches GNU Emacs behavior for the currently supported subset:
+/// - non-symbol SYMBOL returns nil
+/// - TYPE nil/missing/`defun` queries function definition origin
+/// - other TYPE values return nil
+pub(crate) fn builtin_symbol_file_eval(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() || args.len() > 3 {
         return Err(signal(
@@ -536,11 +542,11 @@ pub(crate) fn builtin_symbol_file_in_state(
         return Ok(Value::Nil);
     }
 
-    if let Some(entry) = autoloads.get_entry(symbol_name) {
+    if let Some(entry) = eval.autoloads.get_entry(symbol_name) {
         return Ok(Value::string(entry.file.clone()));
     }
 
-    if let Some(fndef) = obarray.symbol_function(symbol_name).cloned() {
+    if let Some(fndef) = eval.obarray.symbol_function(symbol_name).cloned() {
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {
                 if let Some(Value::Str(id)) = items.get(1) {
@@ -551,20 +557,6 @@ pub(crate) fn builtin_symbol_file_in_state(
     }
 
     Ok(Value::Nil)
-}
-
-/// Context-aware `(symbol-file SYMBOL &optional TYPE)`.
-///
-/// NeoVM currently tracks symbol origin only for autoloaded function symbols.
-/// This matches GNU Emacs behavior for the currently supported subset:
-/// - non-symbol SYMBOL returns nil
-/// - TYPE nil/missing/`defun` queries function definition origin
-/// - other TYPE values return nil
-pub(crate) fn builtin_symbol_file_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_symbol_file_in_state(&eval.obarray, &eval.autoloads, &args)
 }
 
 // ---------------------------------------------------------------------------

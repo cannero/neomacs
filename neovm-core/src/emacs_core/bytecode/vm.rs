@@ -2532,30 +2532,30 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_make_local_variable_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::custom::builtin_make_local_variable_in_state(
+        crate::emacs_core::custom::builtin_make_local_variable(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_local_variable_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::custom::builtin_local_variable_p_in_state(
-            &*self.ctx,
+        crate::emacs_core::custom::builtin_local_variable_p(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_buffer_local_variables_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::custom::builtin_buffer_local_variables_in_state(
-            &*self.ctx,
+        crate::emacs_core::custom::builtin_buffer_local_variables(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_kill_local_variable_shared(&mut self, args: &[Value]) -> EvalResult {
-        let outcome = crate::emacs_core::custom::builtin_kill_local_variable_in_state(
+        let outcome = crate::emacs_core::custom::builtin_kill_local_variable_impl(
             &mut *self.ctx,
-            args.to_vec(),
+            args,
         )?;
         if outcome.removed
             && let Some(buffer_id) = outcome.buffer_id
@@ -3434,7 +3434,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_compare_buffer_substrings_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_compare_buffer_substrings_in_state(
+        crate::emacs_core::builtins::builtin_compare_buffer_substrings_with_case_fold(
             self.case_fold_search_enabled(),
             &self.ctx.buffers,
             args.to_vec(),
@@ -3463,7 +3463,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_undo_boundary_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::undo::builtin_undo_boundary_in_state(
+        crate::emacs_core::undo::builtin_undo_boundary_eval(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3628,22 +3628,22 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_find_charset_region_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::charset::builtin_find_charset_region_in_manager(
-            &*self.ctx,
+        crate::emacs_core::charset::builtin_find_charset_region_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_charset_after_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::charset::builtin_charset_after_in_manager(
-            &*self.ctx,
+        crate::emacs_core::charset::builtin_charset_after_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_compose_region_internal_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::composite::builtin_compose_region_internal_in_manager(
-            &*self.ctx,
+        crate::emacs_core::composite::builtin_compose_region_internal_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
@@ -3698,11 +3698,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_scan_lists_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::syntax::builtin_scan_lists_in_manager(&*self.ctx, args.to_vec())
+        crate::emacs_core::syntax::builtin_scan_lists(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_scan_sexps_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::syntax::builtin_scan_sexps_in_manager(&*self.ctx, args.to_vec())
+        crate::emacs_core::syntax::builtin_scan_sexps(&mut *self.ctx, args.to_vec())
     }
 
     fn visible_variable_value_or_nil(&self, name: &str) -> Value {
@@ -4403,8 +4403,8 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_current_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_current_message_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_current_message_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
@@ -4438,36 +4438,36 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_format_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_format_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_format_wrapper_strict_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_format_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_format_message_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_format_message_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_message_in_state(
+        crate::emacs_core::builtins::builtin_message_eval(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_box_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_message_box_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_message_box_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_or_box_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_message_or_box_in_state(
-            &*self.ctx,
+        crate::emacs_core::builtins::builtin_message_or_box_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
@@ -4719,8 +4719,8 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_x_server_vendor_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::display::builtin_x_server_vendor_in_state(
-            &*self.ctx,
+        crate::emacs_core::display::builtin_x_server_vendor_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
@@ -4733,29 +4733,29 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_display_color_cells_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::display::builtin_display_color_cells_in_state(
-            &*self.ctx,
+        crate::emacs_core::display::builtin_display_color_cells_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_tty_type_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::terminal::pure::builtin_tty_type_in_state(
-            &*self.ctx,
+        crate::emacs_core::terminal::pure::builtin_tty_type_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_suspend_tty_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::terminal::pure::builtin_suspend_tty_in_state(
-            &*self.ctx,
+        crate::emacs_core::terminal::pure::builtin_suspend_tty_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_resume_tty_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::terminal::pure::builtin_resume_tty_in_state(
-            &*self.ctx,
+        crate::emacs_core::terminal::pure::builtin_resume_tty_eval(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }

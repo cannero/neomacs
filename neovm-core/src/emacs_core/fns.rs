@@ -380,39 +380,18 @@ fn replace_buffer_region(
     )
 }
 
-pub(crate) fn builtin_base64_encode_region_in_manager(
-    buffers: &mut BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("base64-encode-region", &args, 2, 3)?;
-    let (buffer_id, start_byte, end_byte) =
-        normalize_current_buffer_region_bounds_in_manager(buffers, &args[0], &args[1])?;
-    let source = read_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte)?;
-    let no_line_break = args.get(2).is_some_and(|v| v.is_truthy());
-    let encoded = base64_encode(source.as_bytes(), B64_STD, true, !no_line_break);
-    replace_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte, &encoded)?;
-    Ok(Value::Int(encoded.len() as i64))
-}
-
 /// (base64-encode-region START END &optional NO-LINE-BREAK)
 pub(crate) fn builtin_base64_encode_region_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_base64_encode_region_in_manager(&mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_base64url_encode_region_in_manager(
-    buffers: &mut BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("base64url-encode-region", &args, 2, 3)?;
+    expect_range_args("base64-encode-region", &args, 2, 3)?;
     let (buffer_id, start_byte, end_byte) =
-        normalize_current_buffer_region_bounds_in_manager(buffers, &args[0], &args[1])?;
-    let source = read_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte)?;
-    let no_pad = args.get(2).is_some_and(|v| v.is_truthy());
-    let encoded = base64_encode(source.as_bytes(), B64_URL, !no_pad, false);
-    replace_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte, &encoded)?;
+        normalize_current_buffer_region_bounds_in_manager(&mut eval.buffers, &args[0], &args[1])?;
+    let source = read_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
+    let no_line_break = args.get(2).is_some_and(|v| v.is_truthy());
+    let encoded = base64_encode(source.as_bytes(), B64_STD, true, !no_line_break);
+    replace_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte, &encoded)?;
     Ok(Value::Int(encoded.len() as i64))
 }
 
@@ -421,17 +400,25 @@ pub(crate) fn builtin_base64url_encode_region_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_base64url_encode_region_in_manager(&mut eval.buffers, args)
+    expect_range_args("base64url-encode-region", &args, 2, 3)?;
+    let (buffer_id, start_byte, end_byte) =
+        normalize_current_buffer_region_bounds_in_manager(&mut eval.buffers, &args[0], &args[1])?;
+    let source = read_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
+    let no_pad = args.get(2).is_some_and(|v| v.is_truthy());
+    let encoded = base64_encode(source.as_bytes(), B64_URL, !no_pad, false);
+    replace_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte, &encoded)?;
+    Ok(Value::Int(encoded.len() as i64))
 }
 
-pub(crate) fn builtin_base64_decode_region_in_manager(
-    buffers: &mut BufferManager,
+/// (base64-decode-region START END &optional BASE64URL NOERROR)
+pub(crate) fn builtin_base64_decode_region_eval(
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("base64-decode-region", &args, 2, 4)?;
     let (buffer_id, start_byte, end_byte) =
-        normalize_current_buffer_region_bounds_in_manager(buffers, &args[0], &args[1])?;
-    let source = read_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte)?;
+        normalize_current_buffer_region_bounds_in_manager(&mut eval.buffers, &args[0], &args[1])?;
+    let source = read_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
     let use_url = args.get(2).is_some_and(|v| v.is_truthy());
     let noerror = args.get(3).is_some_and(|v| v.is_truthy());
     let table = if use_url {
@@ -443,23 +430,15 @@ pub(crate) fn builtin_base64_decode_region_in_manager(
     match base64_decode(&source, &table) {
         Ok(bytes) => {
             let decoded = String::from_utf8_lossy(&bytes).into_owned();
-            replace_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte, &decoded)?;
+            replace_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte, &decoded)?;
             Ok(Value::Int(bytes.len() as i64))
         }
         Err(()) if noerror => {
-            replace_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte, "")?;
+            replace_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte, "")?;
             Ok(Value::Int(0))
         }
         Err(()) => Err(signal("error", vec![Value::string("Invalid base64 data")])),
     }
-}
-
-/// (base64-decode-region START END &optional BASE64URL NOERROR)
-pub(crate) fn builtin_base64_decode_region_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_base64_decode_region_in_manager(&mut eval.buffers, args)
 }
 
 // ---------------------------------------------------------------------------
@@ -494,10 +473,6 @@ pub(crate) fn builtin_md5(args: Vec<Value>) -> EvalResult {
 ///
 /// Context-aware implementation that also supports buffer objects.
 pub(crate) fn builtin_md5_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_md5_in_state(&eval.buffers, args)
-}
-
-pub(crate) fn builtin_md5_in_state(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
     expect_range_args("md5", &args, 1, 5)?;
     validate_md5_coding_system_arg(&args)?;
     let object = &args[0];
@@ -508,7 +483,7 @@ pub(crate) fn builtin_md5_in_state(buffers: &BufferManager, args: Vec<Value>) ->
             args.get(2),
         )?)),
         Value::Buffer(id) => Ok(Value::string(md5_hex_for_buffer_in_manager(
-            buffers,
+            &eval.buffers,
             *id,
             args.get(1),
             args.get(2),
@@ -867,13 +842,6 @@ pub(crate) fn builtin_secure_hash_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_secure_hash_in_state(&eval.buffers, args)
-}
-
-pub(crate) fn builtin_secure_hash_in_state(
-    buffers: &BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("secure-hash", &args, 2, 5)?;
     let algo_name = secure_hash_algorithm_name(&args[0])?;
 
@@ -881,7 +849,7 @@ pub(crate) fn builtin_secure_hash_in_state(
     let input = match object {
         Value::Str(_) => hash_slice_for_string(object, args.get(2), args.get(3))?,
         Value::Buffer(id) => {
-            hash_slice_for_buffer_in_manager(buffers, *id, args.get(2), args.get(3))?
+            hash_slice_for_buffer_in_manager(&eval.buffers, *id, args.get(2), args.get(3))?
         }
         other => {
             return Err(signal(
@@ -909,17 +877,10 @@ pub(crate) fn builtin_buffer_hash_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_hash_in_state(&eval.buffers, args)
-}
-
-pub(crate) fn builtin_buffer_hash_in_state(
-    buffers: &BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("buffer-hash", &args, 0, 1)?;
 
     let buffer_id = if args.is_empty() || args[0].is_nil() {
-        buffers
+        eval.buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
             .id
@@ -928,7 +889,7 @@ pub(crate) fn builtin_buffer_hash_in_state(
             Value::Buffer(id) => *id,
             Value::Str(id) => {
                 let name = with_heap(|h| h.get_string(*id).to_owned());
-                buffers.find_buffer_by_name(&name).ok_or_else(|| {
+                eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
                         vec![Value::string(format!("No buffer named {name}"))],
@@ -945,7 +906,8 @@ pub(crate) fn builtin_buffer_hash_in_state(
     };
 
     // GNU Emacs accepts killed buffer objects and hashes as empty content.
-    let text = buffers
+    let text = eval
+        .buffers
         .get(buffer_id)
         .map(|buf| buf.buffer_string())
         .unwrap_or_default();

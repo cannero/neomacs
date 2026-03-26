@@ -189,8 +189,8 @@ fn autoload_type_of(value: &Value) -> Option<super::autoload::AutoloadType> {
     Some(super::autoload::AutoloadType::from_value(&type_value))
 }
 
-pub(crate) fn builtin_functionp_in_obarray(
-    obarray: &crate::emacs_core::symbol::Obarray,
+pub(crate) fn builtin_functionp_eval(
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("functionp", &args, 1)?;
@@ -201,7 +201,7 @@ pub(crate) fn builtin_functionp_in_obarray(
         _ => None,
     } {
         if let Some(function) =
-            resolve_indirect_symbol_by_id_in_obarray(obarray, symbol).map(|(_, value)| value)
+            resolve_indirect_symbol_by_id_in_obarray(&eval.obarray, symbol).map(|(_, value)| value)
         {
             if let Some(autoload_type) = autoload_type_of(&function) {
                 matches!(autoload_type, super::autoload::AutoloadType::Function)
@@ -221,13 +221,6 @@ pub(crate) fn builtin_functionp_in_obarray(
         }
     };
     Ok(Value::bool(is_function))
-}
-
-pub(crate) fn builtin_functionp_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_functionp_in_obarray(eval.obarray(), args)
 }
 
 pub(crate) fn builtin_keywordp(args: Vec<Value>) -> EvalResult {
@@ -368,20 +361,12 @@ pub(crate) fn builtin_symbol_with_pos_pos(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_char_equal(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_char_equal_in_state(&eval.obarray, &[], args)
-}
-
-pub(crate) fn builtin_char_equal_in_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("char-equal", &args, 2)?;
     let left = expect_char_equal_code(&args[0])?;
     let right = expect_char_equal_code(&args[1])?;
     let case_fold = super::misc_eval::dynamic_or_global_symbol_value_in_state(
-        obarray,
-        dynamic,
+        &eval.obarray,
+        &[],
         "case-fold-search",
     )
     .map(|v| !v.is_nil())

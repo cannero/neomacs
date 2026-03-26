@@ -577,20 +577,6 @@ pub(crate) fn builtin_tty_type_eval(
         .unwrap_or(Value::Nil))
 }
 
-pub(crate) fn builtin_tty_type_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("tty-type", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(&ctx.frames, terminal)?;
-    }
-    Ok(terminal_runtime()
-        .tty_type
-        .map(Value::string)
-        .unwrap_or(Value::Nil))
-}
-
 /// (tty-top-frame &optional TERMINAL) -> nil
 pub(crate) fn builtin_tty_top_frame(args: Vec<Value>) -> EvalResult {
     expect_max_args("tty-top-frame", &args, 1)?;
@@ -734,21 +720,6 @@ pub(crate) fn builtin_suspend_tty_eval(
     ))
 }
 
-pub(crate) fn builtin_suspend_tty_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("suspend-tty", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(&ctx.frames, terminal)?;
-    }
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Attempt to suspend a non-text terminal device",
-        )],
-    ))
-}
 
 /// (resume-tty &optional TTY) -> error in GUI/non-text terminal context.
 pub(crate) fn builtin_resume_tty(args: Vec<Value>) -> EvalResult {
@@ -781,21 +752,6 @@ pub(crate) fn builtin_resume_tty_eval(
     ))
 }
 
-pub(crate) fn builtin_resume_tty_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("resume-tty", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(&ctx.frames, terminal)?;
-    }
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Attempt to resume a non-text terminal device",
-        )],
-    ))
-}
 
 // ---------------------------------------------------------------------------
 // Builtins moved from builtins.rs

@@ -695,7 +695,7 @@ pub(crate) fn builtin_ngettext(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_format_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     // With specbind, dynamic let-bindings are written directly to the obarray,
     // so print_options_from_state correctly resolves print-* variables.
-    builtin_format_in_state(eval, args)
+    builtin_format_wrapper_strict_eval(eval, args)
 }
 
 fn format_percent_s_in_state(
@@ -1088,17 +1088,8 @@ pub(super) fn builtin_format_wrapper_strict(args: Vec<Value>) -> EvalResult {
     })
 }
 
-pub(super) fn builtin_format_wrapper_strict_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    // With specbind, dynamic let-bindings are written directly to the obarray,
-    // so builtin_format_wrapper_strict_in_state correctly resolves print-* variables.
-    builtin_format_wrapper_strict_in_state(eval, args)
-}
-
-pub(crate) fn builtin_format_wrapper_strict_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+pub(crate) fn builtin_format_wrapper_strict_eval(
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
@@ -1112,12 +1103,6 @@ pub(crate) fn builtin_format_wrapper_strict_in_state(
     })
 }
 
-pub(crate) fn builtin_format_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_format_wrapper_strict_in_state(ctx, args)
-}
 
 /// Apply `text-quoting-style` translation to a string.
 ///
@@ -1151,18 +1136,11 @@ pub(crate) fn builtin_format_message(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_format_message_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_format_message_in_state(eval, args)
-}
-
-pub(crate) fn builtin_format_message_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("format-message", &args, 1)?;
-    let formatted = builtin_format_in_state(ctx, args)?;
+    let formatted = builtin_format_wrapper_strict_eval(ctx, args)?;
     match formatted {
         Value::Str(id) => {
             let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());

@@ -1122,18 +1122,10 @@ pub(crate) fn builtin_frame_id_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_frame_id_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("frame-id", &args, 0, 1)?;
     let fid = super::window_cmds::resolve_frame_id_in_state(
-        frames,
-        buffers,
+        &mut eval.frames,
+        &mut eval.buffers,
         args.first(),
         "frame-live-p",
     )?;
@@ -1170,18 +1162,10 @@ pub(crate) fn builtin_frame_root_frame_eval(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_frame_root_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_frame_root_frame_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("frame-root-frame", &args, 0, 1)?;
     let fid = super::window_cmds::resolve_frame_id_in_state(
-        frames,
-        buffers,
+        &mut eval.frames,
+        &mut eval.buffers,
         args.first(),
         "frame-live-p",
     )?;

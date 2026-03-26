@@ -1091,16 +1091,10 @@ pub(crate) fn builtin_json_parse_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_json_parse_buffer_in_manager(&mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_json_parse_buffer_in_manager(
-    buffers: &mut BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     let opts = parse_parse_kwargs(&args, 0)?;
     let (input, point_base) = {
-        let buf = buffers
+        let buf = eval
+            .buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         (
@@ -1121,8 +1115,8 @@ pub(crate) fn builtin_json_parse_buffer_in_manager(
 
     let result = parser.parse_value()?;
     let new_point = point_base + parser.pos;
-    if let Some(current_id) = buffers.current_buffer_id() {
-        let _ = buffers.goto_buffer_byte(current_id, new_point);
+    if let Some(current_id) = eval.buffers.current_buffer_id() {
+        let _ = eval.buffers.goto_buffer_byte(current_id, new_point);
     }
     Ok(result)
 }
@@ -1131,20 +1125,14 @@ pub(crate) fn builtin_json_parse_buffer_in_manager(
 ///
 /// Keyword arguments mirror `json-serialize` (`:null-object`, `:false-object`).
 pub(crate) fn builtin_json_insert(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_json_insert_in_manager(&mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_json_insert_in_manager(
-    buffers: &mut BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("json-insert", &args, 1)?;
     let opts = parse_serialize_kwargs(&args, 1)?;
     let json = serialize_to_json(&args[0], &opts, 0)?;
-    let current_id = buffers
+    let current_id = eval
+        .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = buffers.insert_into_buffer(current_id, &json);
+    let _ = eval.buffers.insert_into_buffer(current_id, &json);
     Ok(Value::Nil)
 }
 

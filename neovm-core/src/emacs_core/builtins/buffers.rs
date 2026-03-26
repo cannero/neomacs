@@ -1392,10 +1392,10 @@ pub(crate) fn builtin_compare_buffer_substrings(
     let case_fold = super::misc_eval::dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|value| !value.is_nil())
         .unwrap_or(true);
-    builtin_compare_buffer_substrings_in_state(case_fold, &eval.buffers, args)
+    builtin_compare_buffer_substrings_with_case_fold(case_fold, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_compare_buffer_substrings_in_state(
+pub(crate) fn builtin_compare_buffer_substrings_with_case_fold(
     case_fold: bool,
     buffers: &BufferManager,
     args: Vec<Value>,

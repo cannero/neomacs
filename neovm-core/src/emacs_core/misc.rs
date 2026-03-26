@@ -607,15 +607,8 @@ pub(crate) fn builtin_backtrace_frames_from_thread(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_backtrace_frames_from_thread_in_state(&eval.threads, args)
-}
-
-pub(crate) fn builtin_backtrace_frames_from_thread_in_state(
-    threads: &crate::emacs_core::threads::ThreadManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("backtrace--frames-from-thread", &args, 1)?;
-    expect_threadp_in_state(threads, &args[0])?;
+    expect_threadp_in_state(&eval.threads, &args[0])?;
     Ok(Value::list(vec![Value::list(vec![
         Value::True,
         Value::symbol("backtrace--frames-from-thread"),
@@ -628,10 +621,6 @@ pub(crate) fn builtin_backtrace_locals(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_backtrace_locals_in_state(args)
-}
-
-pub(crate) fn builtin_backtrace_locals_in_state(args: Vec<Value>) -> EvalResult {
     expect_min_args("backtrace--locals", &args, 1)?;
     expect_max_args("backtrace--locals", &args, 2)?;
     let frame = expect_wholenump(&args[0])?;
@@ -652,10 +641,6 @@ pub(crate) fn builtin_backtrace_debug(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_backtrace_debug_in_state(args)
-}
-
-pub(crate) fn builtin_backtrace_debug_in_state(args: Vec<Value>) -> EvalResult {
     expect_min_args("backtrace-debug", &args, 2)?;
     expect_max_args("backtrace-debug", &args, 3)?;
     let _ = expect_wholenump(&args[0])?;
@@ -668,10 +653,6 @@ pub(crate) fn builtin_backtrace_eval(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_backtrace_eval_in_state(args)
-}
-
-pub(crate) fn builtin_backtrace_eval_in_state(args: Vec<Value>) -> EvalResult {
     expect_min_args("backtrace-eval", &args, 2)?;
     expect_max_args("backtrace-eval", &args, 3)?;
     let _ = expect_wholenump(&args[0])?;
@@ -688,10 +669,6 @@ pub(crate) fn builtin_backtrace_frame_internal(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_backtrace_frame_internal_in_state(args)
-}
-
-pub(crate) fn builtin_backtrace_frame_internal_in_state(args: Vec<Value>) -> EvalResult {
     expect_args("backtrace-frame--internal", &args, 3)?;
     Ok(Value::Nil)
 }
@@ -700,18 +677,11 @@ pub(crate) fn builtin_backtrace_frame_internal_in_state(args: Vec<Value>) -> Eva
 /// Uses the dynamic binding stack depth as a proxy (the true depth counter
 /// is private to the Context).
 pub(crate) fn builtin_recursion_depth(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_recursion_depth_in_state(0, args)
-}
-
-pub(crate) fn builtin_recursion_depth_in_state(
-    dynamic_depth: usize,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("recursion-depth", &args, 0)?;
-    Ok(Value::Int(dynamic_depth as i64))
+    Ok(Value::Int(0))
 }
 
 // ===========================================================================

@@ -77,16 +77,7 @@ pub(crate) fn builtin_message_or_box(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_message_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    let result = builtin_message_in_state(eval, args)?;
-    eval.redisplay();
-    Ok(result)
-}
-
-pub(crate) fn builtin_message_in_state(
-    ctx: &mut crate::emacs_core::eval::Context,
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message", &args, 1)?;
@@ -104,7 +95,7 @@ pub(crate) fn builtin_message_in_state(
     // GNU Emacs's `message` ALWAYS calls `format-message` on the args,
     // even for a single string argument.  This converts %% -> % and
     // applies text-quoting (curly quotes).
-    let msg = match super::strings::builtin_format_message_in_state(
+    let msg = match super::strings::builtin_format_message_eval(
         ctx,
         args.clone(),
     )? {
@@ -113,18 +104,12 @@ pub(crate) fn builtin_message_in_state(
     };
     ctx.set_current_message(Some(msg.clone()));
     eprintln!("{}", msg);
+    ctx.redisplay();
     Ok(Value::string(msg))
 }
 
 pub(crate) fn builtin_message_box_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_message_box_in_state(eval, args)
-}
-
-pub(crate) fn builtin_message_box_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message-box", &args, 1)?;
@@ -132,7 +117,7 @@ pub(crate) fn builtin_message_box_in_state(
         return Ok(Value::Nil);
     }
     // GNU Emacs: always calls format-message, even for single-arg.
-    let msg = match super::strings::builtin_format_message_in_state(
+    let msg = match super::strings::builtin_format_message_eval(
         ctx,
         args.clone(),
     )? {
@@ -144,14 +129,7 @@ pub(crate) fn builtin_message_box_in_state(
 }
 
 pub(crate) fn builtin_message_or_box_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_message_or_box_in_state(eval, args)
-}
-
-pub(crate) fn builtin_message_or_box_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message-or-box", &args, 1)?;
@@ -159,7 +137,7 @@ pub(crate) fn builtin_message_or_box_in_state(
         return Ok(Value::Nil);
     }
     // GNU Emacs: always calls format-message, even for single-arg.
-    let msg = match super::strings::builtin_format_message_in_state(
+    let msg = match super::strings::builtin_format_message_eval(
         ctx,
         args.clone(),
     )? {
@@ -177,14 +155,7 @@ pub(crate) fn builtin_current_message(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_current_message_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_current_message_in_state(eval, args)
-}
-
-pub(crate) fn builtin_current_message_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-message", &args, 0)?;

@@ -85,14 +85,7 @@ pub(crate) fn builtin_undo_boundary(args: Vec<Value>) -> EvalResult {
 /// Context-dependent variant used during normal execution: inserts an
 /// undo boundary into the current buffer's undo list.
 pub(crate) fn builtin_undo_boundary_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_undo_boundary_in_state(eval, args)
-}
-
-pub(crate) fn builtin_undo_boundary_in_state(
-    ctx: &mut crate::emacs_core::eval::Context,
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("undo-boundary", &args, 0)?;

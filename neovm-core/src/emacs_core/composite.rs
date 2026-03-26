@@ -100,14 +100,7 @@ pub(crate) fn builtin_compose_region_internal(args: Vec<Value>) -> EvalResult {
 /// - validates range against the current buffer's accessible positions
 /// - returns nil on success
 pub(crate) fn builtin_compose_region_internal_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_compose_region_internal_in_manager(eval, args)
-}
-
-pub(crate) fn builtin_compose_region_internal_in_manager(
-    ctx: &crate::emacs_core::eval::Context,
+    ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("compose-region-internal", &args, 2, 4)?;

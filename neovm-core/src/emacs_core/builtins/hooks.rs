@@ -428,25 +428,17 @@ pub(crate) fn builtin_current_window_configuration(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_window_configuration_in_state(&mut eval.frames, &mut eval.buffers, args)
-}
-
-pub(crate) fn builtin_current_window_configuration_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_max_args("current-window-configuration", &args, 1)?;
 
     let frame = if let Some(frame) = args.first() {
-        expect_optional_live_frame_designator_in_state(frame, frames)?;
+        expect_optional_live_frame_designator_in_state(frame, &mut eval.frames)?;
         if frame.is_nil() {
-            super::window_cmds::selected_frame_impl(frames, buffers, vec![])?
+            super::window_cmds::selected_frame_impl(&mut eval.frames, &mut eval.buffers, vec![])?
         } else {
             *frame
         }
     } else {
-        super::window_cmds::selected_frame_impl(frames, buffers, vec![])?
+        super::window_cmds::selected_frame_impl(&mut eval.frames, &mut eval.buffers, vec![])?
     };
 
     let Value::Frame(frame_raw_id) = frame else {
@@ -456,7 +448,7 @@ pub(crate) fn builtin_current_window_configuration_in_state(
         ));
     };
     let frame_id = crate::window::FrameId(frame_raw_id);
-    if let Some(frame_state) = frames.get(frame_id) {
+    if let Some(frame_state) = eval.frames.get(frame_id) {
         let mut snapshot = WindowConfigurationSnapshot {
             frame_id,
             root_window: frame_state.root_window.clone(),
@@ -464,7 +456,7 @@ pub(crate) fn builtin_current_window_configuration_in_state(
             minibuffer_window: frame_state.minibuffer_window,
             minibuffer_leaf: frame_state.minibuffer_leaf.clone(),
         };
-        normalize_selected_window_point_in_snapshot(&mut snapshot, buffers);
+        normalize_selected_window_point_in_snapshot(&mut snapshot, &mut eval.buffers);
         let serial = next_window_configuration_serial();
         WINDOW_CONFIGURATION_SNAPSHOTS.with(|slot| {
             let mut store = slot.borrow_mut();
@@ -488,17 +480,6 @@ pub(crate) fn builtin_set_window_configuration(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let result =
-        builtin_set_window_configuration_in_state(&mut eval.frames, &mut eval.buffers, args)?;
-    eval.redisplay();
-    Ok(result)
-}
-
-pub(crate) fn builtin_set_window_configuration_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_range_args("set-window-configuration", &args, 1, 3)?;
     let Some((_frame, serial)) = window_configuration_parts_from_value(&args[0]) else {
         return Err(signal(
@@ -510,31 +491,33 @@ pub(crate) fn builtin_set_window_configuration_in_state(
     let snapshot = WINDOW_CONFIGURATION_SNAPSHOTS.with(|slot| slot.borrow().get(&serial).cloned());
 
     if let Some(snapshot) = snapshot {
-        let selected_window_state = if let Some(frame) = frames.get_mut(snapshot.frame_id) {
-            frame.root_window = snapshot.root_window;
-            frame.selected_window = snapshot.selected_window;
-            frame.minibuffer_window = snapshot.minibuffer_window;
-            frame.minibuffer_leaf = snapshot.minibuffer_leaf;
-            frame
-                .find_window(frame.selected_window)
-                .and_then(|window| match window {
-                    crate::window::Window::Leaf {
-                        buffer_id, point, ..
-                    } => Some((*buffer_id, *point)),
-                    crate::window::Window::Internal { .. } => None,
-                })
-        } else {
-            None
-        };
+        let selected_window_state =
+            if let Some(frame) = eval.frames.get_mut(snapshot.frame_id) {
+                frame.root_window = snapshot.root_window;
+                frame.selected_window = snapshot.selected_window;
+                frame.minibuffer_window = snapshot.minibuffer_window;
+                frame.minibuffer_leaf = snapshot.minibuffer_leaf;
+                frame
+                    .find_window(frame.selected_window)
+                    .and_then(|window| match window {
+                        crate::window::Window::Leaf {
+                            buffer_id, point, ..
+                        } => Some((*buffer_id, *point)),
+                        crate::window::Window::Internal { .. } => None,
+                    })
+            } else {
+                None
+            };
         if let Some((buffer_id, point)) = selected_window_state {
-            buffers.set_current(buffer_id);
-            if let Some(buffer) = buffers.get(buffer_id) {
+            eval.buffers.set_current(buffer_id);
+            if let Some(buffer) = eval.buffers.get(buffer_id) {
                 let byte_pos = buffer.lisp_pos_to_byte(point as i64);
-                let _ = buffers.goto_buffer_byte(buffer_id, byte_pos);
+                let _ = eval.buffers.goto_buffer_byte(buffer_id, byte_pos);
             }
         }
     }
 
+    eval.redisplay();
     Ok(Value::True)
 }
 
@@ -647,14 +630,6 @@ pub(crate) fn builtin_run_window_scroll_functions(
 }
 
 pub(crate) fn builtin_featurep(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_featurep_in_state(&eval.obarray, &mut eval.features, args)
-}
-
-pub(crate) fn builtin_featurep_in_state(
-    obarray: &Obarray,
-    features: &mut Vec<SymId>,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("featurep", &args, 1)?;
     expect_max_args("featurep", &args, 2)?;
     let name = args[0].as_symbol_name().ok_or_else(|| {
@@ -663,7 +638,11 @@ pub(crate) fn builtin_featurep_in_state(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    if !crate::emacs_core::eval::feature_present_in_state(obarray, features, name) {
+    if !crate::emacs_core::eval::feature_present_in_state(
+        &eval.obarray,
+        &mut eval.features,
+        name,
+    ) {
         return Ok(Value::Nil);
     }
 
@@ -674,7 +653,8 @@ pub(crate) fn builtin_featurep_in_state(
         return Ok(Value::True);
     }
 
-    let subfeatures = obarray
+    let subfeatures = eval
+        .obarray
         .get_property(name, "subfeatures")
         .cloned()
         .unwrap_or(Value::Nil);
