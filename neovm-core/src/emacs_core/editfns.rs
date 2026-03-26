@@ -9,7 +9,6 @@
 //! - byte pos       →  Lisp char: `buf.text.byte_to_char(byte_pos) + 1`
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::intern;
 use super::symbol::Obarray;
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
@@ -111,10 +110,6 @@ pub(crate) fn buffer_read_only_active_in_state(
         .is_some_and(|value| value.is_truthy())
 }
 
-fn buffer_read_only_active(eval: &super::eval::Context, buf: &crate::buffer::Buffer) -> bool {
-    buffer_read_only_active_in_state(&eval.obarray, &[], buf)
-}
-
 pub(crate) fn ensure_current_buffer_writable_in_state(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
@@ -128,7 +123,7 @@ pub(crate) fn ensure_current_buffer_writable_in_state(
     Ok(())
 }
 
-pub(crate) fn ensure_current_buffer_writable(eval: &super::eval::Context) -> Result<(), Flow> {
+fn ensure_current_buffer_writable(eval: &super::eval::Context) -> Result<(), Flow> {
     ensure_current_buffer_writable_in_state(&eval.obarray, &[], &eval.buffers)
 }
 
@@ -230,13 +225,6 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Context, args: Vec<Value>) 
 /// markers at that position past the inserted text (regardless of their
 /// InsertionType).
 pub(crate) fn builtin_insert_before_markers(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_insert_before_markers_in_state(eval, args)
-}
-
-pub(crate) fn builtin_insert_before_markers_in_state(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -249,11 +237,7 @@ pub(crate) fn builtin_insert_before_markers_in_state(
 }
 
 /// `(delete-char N &optional KILLFLAG)` — delete N characters forward.
-pub(crate) fn builtin_delete_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_delete_char_in_state(eval, args)
-}
-
-pub(crate) fn builtin_delete_char_in_state(
+pub(crate) fn builtin_delete_char(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -309,7 +293,7 @@ pub(crate) fn builtin_delete_char_in_state(
 }
 
 /// `(delete-region START END)` — delete text in the accessible current buffer.
-pub(crate) fn builtin_delete_region_in_state(
+pub(crate) fn builtin_delete_region(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -338,7 +322,7 @@ pub(crate) fn builtin_delete_region_in_state(
 }
 
 /// `(delete-and-extract-region START END)` — delete text and return it.
-pub(crate) fn builtin_delete_and_extract_region_in_state(
+pub(crate) fn builtin_delete_and_extract_region(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -370,7 +354,7 @@ pub(crate) fn builtin_delete_and_extract_region_in_state(
 }
 
 /// `(erase-buffer)` — delete all text and remove any narrowing restriction.
-pub(crate) fn builtin_erase_buffer_in_state(
+pub(crate) fn builtin_erase_buffer(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -438,13 +422,6 @@ pub(crate) fn builtin_buffer_substring(
 /// `(buffer-substring-no-properties START END)` — same as buffer-substring
 /// (text properties not yet implemented at the Lisp value level).
 pub(crate) fn builtin_buffer_substring_no_properties(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_buffer_substring_no_properties_in_state(eval, args)
-}
-
-pub(crate) fn builtin_buffer_substring_no_properties_in_state(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -462,13 +439,6 @@ pub(crate) fn builtin_buffer_substring_no_properties_in_state(
 
 /// `(following-char)` — return character after point (0 if at end).
 pub(crate) fn builtin_following_char(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_following_char_in_state(eval, args)
-}
-
-pub(crate) fn builtin_following_char_in_state(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -484,13 +454,6 @@ pub(crate) fn builtin_following_char_in_state(
 
 /// `(preceding-char)` — return character before point (0 if at beginning).
 pub(crate) fn builtin_preceding_char(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_preceding_char_in_state(eval, args)
-}
-
-pub(crate) fn builtin_preceding_char_in_state(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

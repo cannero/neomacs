@@ -238,8 +238,11 @@ fn delete_horizontal_space_at_point(
 // Shared-runtime indentation builtins
 // ---------------------------------------------------------------------------
 
-pub(crate) fn builtin_current_indentation_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+/// (current-indentation) -> integer
+///
+/// Return indentation columns for the current line.
+pub(crate) fn builtin_current_indentation_eval(
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-indentation", &args, 0)?;
@@ -263,8 +266,11 @@ pub(crate) fn builtin_current_indentation_in_state(
     Ok(Value::Int(column as i64))
 }
 
-pub(crate) fn builtin_current_column_in_state(
-    ctx: &crate::emacs_core::eval::Context,
+/// (current-column) -> integer
+///
+/// Return the display column at point on the current line.
+pub(crate) fn builtin_current_column_eval(
+    ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-column", &args, 0)?;
@@ -281,7 +287,10 @@ pub(crate) fn builtin_current_column_in_state(
     Ok(Value::Int(column_for_prefix(prefix, tabw) as i64))
 }
 
-pub(crate) fn builtin_move_to_column_in_state(
+/// (move-to-column COLUMN &optional FORCE) -> COLUMN-REACHED
+///
+/// Move point on the current line according to display columns.
+pub(crate) fn builtin_move_to_column_eval(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -365,7 +374,10 @@ pub(crate) fn builtin_move_to_column_in_state(
     Ok(Value::Int(reached as i64))
 }
 
-pub(crate) fn builtin_indent_to_in_state(
+/// (indent-to COLUMN &optional MINIMUM) -> COLUMN
+///
+/// GNU Emacs `Findent_to` primitive from `src/indent.c`.
+pub(crate) fn builtin_indent_to_eval(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -437,49 +449,6 @@ pub(crate) fn builtin_indent_to_in_state(
     Ok(Value::Int(mincol as i64))
 }
 
-// ---------------------------------------------------------------------------
-// Eval-dependent wrappers
-// ---------------------------------------------------------------------------
-
-/// (current-indentation) -> integer
-///
-/// Return indentation columns for the current line.
-pub(crate) fn builtin_current_indentation_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_current_indentation_in_state(eval, args)
-}
-
-/// (current-column) -> integer
-///
-/// Return the display column at point on the current line.
-pub(crate) fn builtin_current_column_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_current_column_in_state(eval, args)
-}
-
-/// (move-to-column COLUMN &optional FORCE) -> COLUMN-REACHED
-///
-/// Move point on the current line according to display columns.
-pub(crate) fn builtin_move_to_column_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_move_to_column_in_state(eval, args)
-}
-
-/// (indent-to COLUMN &optional MINIMUM) -> COLUMN
-///
-/// GNU Emacs `Findent_to` primitive from `src/indent.c`.
-pub(crate) fn builtin_indent_to_eval(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_indent_to_in_state(eval, args)
-}
 
 // ---------------------------------------------------------------------------
 // Variable initialisation

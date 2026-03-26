@@ -2274,7 +2274,7 @@ pub(crate) fn builtin_field_string_no_properties_in_state(
     expect_max_args("field-string-no-properties", &args, 1)?;
     let (beg, end) =
         find_field_bounds_in_state(&ctx.obarray, &[], &ctx.buffers, args.first(), false, None, None)?;
-    super::editfns::builtin_buffer_substring_no_properties_in_state(
+    super::editfns::builtin_buffer_substring_no_properties(
         ctx,
         vec![Value::Int(beg), Value::Int(end)],
     )
@@ -2295,7 +2295,7 @@ pub(crate) fn builtin_delete_field_in_state(
     expect_max_args("delete-field", &args, 1)?;
     let (beg, end) =
         find_field_bounds_in_state(&ctx.obarray, &[], &mut ctx.buffers, args.first(), false, None, None)?;
-    super::editfns::builtin_delete_region_in_state(
+    super::editfns::builtin_delete_region(
         ctx,
         vec![Value::Int(beg), Value::Int(end)],
     )
@@ -2711,7 +2711,7 @@ pub(crate) fn builtin_delete_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_delete_region_in_state(eval, args)
+    super::editfns::builtin_delete_region(eval, args)
 }
 
 /// `(delete-and-extract-region START END)` -> deleted text
@@ -2719,7 +2719,7 @@ pub(crate) fn builtin_delete_and_extract_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_delete_and_extract_region_in_state(eval, args)
+    super::editfns::builtin_delete_and_extract_region(eval, args)
 }
 
 /// (subst-char-in-region START END FROMCHAR TOCHAR &optional NOUNDO) → nil
@@ -2814,7 +2814,7 @@ pub(crate) fn builtin_erase_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_erase_buffer_in_state(eval, args)
+    super::editfns::builtin_erase_buffer(eval, args)
 }
 
 /// (buffer-enable-undo &optional BUFFER) -> nil

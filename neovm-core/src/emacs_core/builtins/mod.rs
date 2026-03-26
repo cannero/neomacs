@@ -2932,13 +2932,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("delete-char", super::editfns::builtin_delete_char, 0, None);
     ctx.defsubr(
         "following-char",
-        super::editfns::builtin_following_char,
+        |eval, args| super::editfns::builtin_following_char(eval, args),
         0,
         None,
     );
     ctx.defsubr(
         "preceding-char",
-        super::editfns::builtin_preceding_char,
+        |eval, args| super::editfns::builtin_preceding_char(eval, args),
         0,
         None,
     );
@@ -6371,7 +6371,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "buffer-substring-no-properties",
-        super::editfns::builtin_buffer_substring_no_properties,
+        |eval, args| super::editfns::builtin_buffer_substring_no_properties(eval, args),
         0,
         None,
     );
