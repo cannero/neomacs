@@ -7272,19 +7272,10 @@ impl Context {
                         "wrong-type-argument",
                         vec![Value::symbol("symbolp"), function],
                     ))
-                } else if function.cons_car().is_symbol_named("lambda") {
-                    match self.eval_value(&function) {
-                        Ok(callable) => self.apply(callable, args),
-                        Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument" => {
-                            Err(signal("invalid-function", vec![function]))
-                        }
-                        Err(err) => Err(err),
-                    }
-                } else if function.cons_car().is_symbol_named("closure") {
-                    // (closure ENV ARGS BODY...) — convert to Lambda and apply.
-                    // This mirrors GNU Emacs funcall_lambda which handles
-                    // closure cons cells by extracting env, arglist, and body.
-                    match self.convert_closure_cons_to_lambda(function) {
+                } else if function.cons_car().is_symbol_named("lambda")
+                    || function.cons_car().is_symbol_named("closure")
+                {
+                    match self.instantiate_callable_cons_form(function) {
                         Ok(callable) => self.apply(callable, args),
                         Err(_) => Err(signal("invalid-function", vec![function])),
                     }
@@ -7296,50 +7287,125 @@ impl Context {
         }
     }
 
-    /// Convert a `(closure ENV ARGS BODY...)` cons cell into a
-    /// `Value::Lambda` so it can be applied.  This mirrors GNU Emacs
-    /// `funcall_lambda` which extracts env, arglist, and body from closure
-    /// cons cells produced by `(function (lambda ...))` under lexical binding.
-    fn convert_closure_cons_to_lambda(&mut self, closure_cons: Value) -> EvalResult {
-        // Structure: (closure ENV ARGS [DOCSTRING] BODY...)
-        let items = list_to_vec(&closure_cons)
-            .ok_or_else(|| signal("invalid-function", vec![closure_cons]))?;
-        // items[0] = symbol "closure", items[1] = ENV, items[2] = ARGS, items[3..] = BODY
-        if items.len() < 3 {
-            return Err(signal("invalid-function", vec![closure_cons]));
-        }
-        let env_value = items[1];
-        let params_value = items[2];
-
-        // Determine body start (skip optional docstring)
-        let (body_start, docstring_value) = if items.len() > 3 {
-            if items[3].is_string() && items.len() > 4 {
-                (4, items[3])
-            } else {
-                (3, Value::Nil)
-            }
-        } else {
-            (3, Value::Nil)
+    /// Convert a `(lambda ...)` or `(closure ...)` cons cell into a
+    /// `Value::Lambda`.  This mirrors GNU Emacs's `funcall_lambda` which
+    /// handles both forms.  Used by both the interpreter and the bytecode VM.
+    pub(crate) fn instantiate_callable_cons_form(&mut self, function: Value) -> EvalResult {
+        let items =
+            list_to_vec(&function).ok_or_else(|| signal("invalid-function", vec![function]))?;
+        let Some(head_name) = items.first().and_then(Value::as_symbol_name) else {
+            return Err(signal("invalid-function", vec![function]));
         };
 
-        let body_value = if body_start < items.len() {
-            Value::list(items[body_start..].to_vec())
+        let (env_value, params_value, mut body_start) = match head_name {
+            "lambda" => {
+                let Some(params_value) = items.get(1).copied() else {
+                    return Err(signal("invalid-function", vec![function]));
+                };
+                let env_value = if self
+                    .obarray
+                    .symbol_value("lexical-binding")
+                    .is_some_and(|value| value.is_truthy())
+                    || !self.lexenv.is_nil()
+                {
+                    if self.lexenv.is_nil() {
+                        Value::list(vec![Value::True])
+                    } else {
+                        self.lexenv
+                    }
+                } else {
+                    Value::Nil
+                };
+                (env_value, params_value, 2)
+            }
+            "closure" => {
+                let (Some(env_value), Some(params_value)) =
+                    (items.get(1).copied(), items.get(2).copied())
+                else {
+                    return Err(signal("invalid-function", vec![function]));
+                };
+                (env_value, params_value, 3)
+            }
+            _ => return Err(signal("invalid-function", vec![function])),
+        };
+
+        let docstring_value = if matches!(items.get(body_start), Some(Value::Str(_)))
+            && items.get(body_start + 1).is_some()
+        {
+            let value = items[body_start];
+            body_start += 1;
+            value
         } else {
             Value::Nil
         };
 
+        let mut doc_form_value = Value::Nil;
+        if let Some(item) = items.get(body_start)
+            && let Some(entry) = list_to_vec(item)
+            && entry.len() == 2
+            && entry[0].as_symbol_name() == Some(":documentation")
+        {
+            doc_form_value = entry[1];
+            body_start += 1;
+        }
+
+        while let Some(item) = items.get(body_start) {
+            let Some(declare) = list_to_vec(item) else {
+                break;
+            };
+            if declare
+                .first()
+                .and_then(Value::as_symbol_name)
+                .is_some_and(|name| name == "declare")
+            {
+                body_start += 1;
+            } else {
+                break;
+            }
+        }
+
+        let body_value = if body_start >= items.len() {
+            Value::Nil
+        } else {
+            Value::list(items[body_start..].to_vec())
+        };
+        let closure_doc_value = if !doc_form_value.is_nil() {
+            doc_form_value
+        } else {
+            docstring_value
+        };
+        let iform_value = Value::Nil;
+
         let saved = self.save_temp_roots();
-        self.push_temp_root(env_value);
+        self.push_temp_root(function);
         self.push_temp_root(params_value);
         self.push_temp_root(body_value);
-        self.push_temp_root(docstring_value);
+        self.push_temp_root(env_value);
+        self.push_temp_root(closure_doc_value);
+
+        if head_name == "lambda" && !env_value.is_nil() {
+            let closure_hook = self
+                .obarray
+                .symbol_value("internal-make-interpreted-closure-function")
+                .cloned()
+                .unwrap_or(Value::Nil);
+            if !closure_hook.is_nil() {
+                self.push_temp_root(closure_hook);
+                let result = self.apply(
+                    closure_hook,
+                    vec![params_value, body_value, env_value, closure_doc_value, iform_value],
+                );
+                self.restore_temp_roots(saved);
+                return result;
+            }
+        }
 
         let result = builtins::symbols::make_interpreted_closure_from_parts(
             &params_value,
             &body_value,
             &env_value,
-            Some(&docstring_value),
-            Some(&Value::Nil),
+            Some(&closure_doc_value),
+            Some(&iform_value),
         );
         self.restore_temp_roots(saved);
         result

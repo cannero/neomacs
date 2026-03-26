@@ -3827,132 +3827,6 @@ impl<'a> Vm<'a> {
         Value::Nil
     }
 
-    fn instantiate_callable_cons_form(&mut self, function: Value) -> EvalResult {
-        let items =
-            list_to_vec(&function).ok_or_else(|| signal("invalid-function", vec![function]))?;
-        let Some(head_name) = items.first().and_then(Value::as_symbol_name) else {
-            return Err(signal("invalid-function", vec![function]));
-        };
-
-        let (env_value, params_value, mut body_start) = match head_name {
-            "lambda" => {
-                let Some(params_value) = items.get(1).copied() else {
-                    return Err(signal("invalid-function", vec![function]));
-                };
-                let env_value = if self
-                    .ctx
-                    .obarray
-                    .symbol_value("lexical-binding")
-                    .is_some_and(|value| value.is_truthy())
-                    || !self.ctx.lexenv.is_nil()
-                {
-                    if self.ctx.lexenv.is_nil() {
-                        Value::list(vec![Value::True])
-                    } else {
-                        self.ctx.lexenv
-                    }
-                } else {
-                    Value::Nil
-                };
-                (env_value, params_value, 2)
-            }
-            "closure" => {
-                let (Some(env_value), Some(params_value)) =
-                    (items.get(1).copied(), items.get(2).copied())
-                else {
-                    return Err(signal("invalid-function", vec![function]));
-                };
-                (env_value, params_value, 3)
-            }
-            _ => return Err(signal("invalid-function", vec![function])),
-        };
-
-        let docstring_value = if matches!(items.get(body_start), Some(Value::Str(_)))
-            && items.get(body_start + 1).is_some()
-        {
-            let value = items[body_start];
-            body_start += 1;
-            value
-        } else {
-            Value::Nil
-        };
-
-        let mut doc_form_value = Value::Nil;
-        if let Some(item) = items.get(body_start)
-            && let Some(entry) = list_to_vec(item)
-            && entry.len() == 2
-            && entry[0].as_symbol_name() == Some(":documentation")
-        {
-            doc_form_value = entry[1];
-            body_start += 1;
-        }
-
-        while let Some(item) = items.get(body_start) {
-            let Some(declare) = list_to_vec(item) else {
-                break;
-            };
-            if declare
-                .first()
-                .and_then(Value::as_symbol_name)
-                .is_some_and(|name| name == "declare")
-            {
-                body_start += 1;
-            } else {
-                break;
-            }
-        }
-
-        let body_value = if body_start >= items.len() {
-            Value::Nil
-        } else {
-            Value::list(items[body_start..].to_vec())
-        };
-        let closure_doc_value = if !doc_form_value.is_nil() {
-            doc_form_value
-        } else {
-            docstring_value
-        };
-        let iform_value = Value::Nil;
-
-        let mut extra_roots = vec![
-            function,
-            params_value,
-            body_value,
-            env_value,
-            closure_doc_value,
-            iform_value,
-        ];
-
-        if head_name == "lambda" && !env_value.is_nil() {
-            let closure_hook =
-                self.visible_variable_value_or_nil("internal-make-interpreted-closure-function");
-            if !closure_hook.is_nil() {
-                extra_roots.push(closure_hook);
-                return self.with_extra_roots(&extra_roots, |vm| {
-                    vm.call_function_with_roots(
-                        closure_hook,
-                        &[
-                            params_value,
-                            body_value,
-                            env_value,
-                            closure_doc_value,
-                            iform_value,
-                        ],
-                    )
-                });
-            }
-        }
-
-        self.with_extra_roots(&extra_roots, |_vm| {
-            crate::emacs_core::builtins::symbols::make_interpreted_closure_from_parts(
-                &params_value,
-                &body_value,
-                &env_value,
-                Some(&closure_doc_value),
-                Some(&iform_value),
-            )
-        })
-    }
 
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
         match func_val {
@@ -4281,7 +4155,7 @@ impl<'a> Vm<'a> {
         )?;
         let extra_roots = args.to_vec();
         if crate::emacs_core::interactive::callable_form_needs_instantiation(&plan.func) {
-            plan.func = self.instantiate_callable_cons_form(plan.func)?;
+            plan.func = self.ctx.instantiate_callable_cons_form(plan.func)?;
         }
         let (function, call_args) =
             crate::emacs_core::interactive::resolve_call_interactively_target_and_args_with_vm_fallback(
