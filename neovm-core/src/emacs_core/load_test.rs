@@ -3080,6 +3080,38 @@ fn compiled_bootstrap_cl_preload_stubs_work_after_faces() {
 }
 
 #[test]
+fn deftheme_and_provide_theme_works() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+
+    // Test: deftheme + provide-theme should provide the THEME-theme feature
+    let forms = crate::emacs_core::parser::parse_forms(
+        "(progn (deftheme test-neovm \"Test\") (provide-theme 'test-neovm))",
+    )
+    .unwrap();
+    let result = eval.eval_expr(&forms[0]);
+    eprintln!("deftheme+provide-theme result: {:?}", result);
+
+    let provided = eval
+        .eval_expr(
+            &crate::emacs_core::parser::parse_forms("(featurep 'test-neovm-theme)").unwrap()[0],
+        )
+        .unwrap();
+    eprintln!("(featurep 'test-neovm-theme) = {:?}", provided);
+    assert!(
+        provided.is_truthy(),
+        "provide-theme should provide the THEME-theme feature"
+    );
+}
+
+#[test]
 fn eval_after_load_defines_function_on_provide() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(

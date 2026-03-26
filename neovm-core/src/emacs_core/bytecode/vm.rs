@@ -482,12 +482,11 @@ impl<'a> Vm<'a> {
                         });
                     } else {
                         let specpdl_count = self.ctx.specpdl.len();
-                        crate::emacs_core::eval::specbind_in_state(
-                            &mut self.ctx.obarray,
-                            &mut self.ctx.specpdl,
-                            name_id,
-                            val,
-                        );
+                        // Use full specbind which handles buffer-local variables
+                        // (LetLocal/LetDefault). The simplified specbind_in_state
+                        // only handles plain Let bindings, which causes bugs when
+                        // let-binding buffer-local variables like `mode-name`.
+                        self.ctx.specbind(name_id, val);
                         specpdl.push(VmUnwindEntry::DynamicBinding {
                             name: name.clone(),
                             restored_value: old_value,
@@ -3957,72 +3956,15 @@ impl<'a> Vm<'a> {
 
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
         match func_val {
+            // Fast path: stay in VM for bytecoded calls.
+            // Matches GNU Emacs's CLOSUREP → goto setup_frame in bytecode.c.
             Value::ByteCode(_) => {
                 let bc_data = func_val.get_bytecode_data().unwrap().clone();
                 self.execute_with_func_value(&bc_data, args, func_val)
             }
-            Value::Lambda(_) => {
-                let lambda_data = func_val.get_lambda_data().unwrap().clone();
-                let mut extra_roots = Vec::with_capacity(args.len() + 1);
-                extra_roots.push(func_val);
-                extra_roots.extend(args.iter().copied());
-                let call_state = self.ctx.begin_lambda_call(&lambda_data, &args, func_val)?;
-                let body = lambda_data.body.clone();
-                let result = crate::emacs_core::eval::eval_lambda_body_in_vm_runtime(
-                    &mut self.ctx,
-                    &[],
-                    &extra_roots,
-                    body,
-                );
-                self.ctx.finish_lambda_call(call_state);
-                result
-            }
-            Value::Subr(id) => self.dispatch_vm_builtin(resolve_sym(id), args),
-            Value::Symbol(id) => {
-                let name = resolve_sym(id);
-                // Try obarray function cell
-                if let Some(func) = self.ctx.obarray.symbol_function(name).cloned() {
-                    if func.is_nil() {
-                        if self.ctx.subr_registry.contains_key(&intern(name)) {
-                            return self.dispatch_vm_builtin(name, args);
-                        }
-                        return Err(signal("void-function", vec![Value::symbol(name)]));
-                    }
-                    if crate::emacs_core::autoload::is_autoload_value(&func) {
-                        let mut autoload_roots = Vec::with_capacity(args.len() + 2);
-                        autoload_roots.push(Value::Symbol(id));
-                        autoload_roots.push(func);
-                        autoload_roots.extend(args.iter().copied());
-                        let loaded =
-                            crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
-                                &mut self.ctx,
-                                &[],
-                                &[func, Value::Symbol(id)],
-                                &autoload_roots,
-                            )?;
-                        return self.call_function(loaded, args);
-                    }
-                    return self.call_function(func, args);
-                }
-                // Try builtin
-                self.dispatch_vm_builtin(name, args)
-            }
-            function @ Value::Cons(_) => {
-                if crate::emacs_core::autoload::is_autoload_value(&function) {
-                    Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("symbolp"), function],
-                    ))
-                } else if function.cons_car().is_symbol_named("lambda")
-                    || function.cons_car().is_symbol_named("closure")
-                {
-                    let callable = self.instantiate_callable_cons_form(function)?;
-                    self.call_function(callable, args)
-                } else {
-                    Err(signal("invalid-function", vec![function]))
-                }
-            }
-            _ => Err(signal("invalid-function", vec![func_val])),
+            // Everything else: shared dispatch via funcall_general on Context.
+            // Matches GNU Emacs where exec_byte_code delegates to funcall_general.
+            _ => self.ctx.funcall_general(func_val, args),
         }
     }
 
@@ -4239,66 +4181,10 @@ impl<'a> Vm<'a> {
 
     /// Dispatch to builtin functions from the VM.
     fn dispatch_vm_builtin(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
-        // Handle VM-specific builtins that need call_function (the VM's own
-        // dispatch loop). Everything else goes through the unified
-        // dispatch_builtin on Context.
+        // VM-internal bytecode operations that are not real Elisp builtins.
         match name {
-            "apply" => {
-                if args.is_empty() {
-                    return Err(signal(
-                        "wrong-number-of-arguments",
-                        vec![Value::symbol("apply"), Value::Int(args.len() as i64)],
-                    ));
-                }
-                if args.len() == 1 {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("listp"), args[0]],
-                    ));
-                }
-                let func = args[0];
-                let last = &args[args.len() - 1];
-                let mut call_args: Vec<Value> = args[1..args.len() - 1].to_vec();
-                let spread = match last {
-                    Value::Nil => Vec::new(),
-                    Value::Cons(_) => list_to_vec(last).ok_or_else(|| {
-                        signal("wrong-type-argument", vec![Value::symbol("listp"), *last])
-                    })?,
-                    _ => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("listp"), *last],
-                        ));
-                    }
-                };
-                call_args.extend(spread);
-                return self.call_function(func, call_args);
-            }
-            "funcall" => {
-                if args.is_empty() {
-                    return Err(signal(
-                        "wrong-number-of-arguments",
-                        vec![Value::symbol("funcall"), Value::Int(args.len() as i64)],
-                    ));
-                }
-                return self.call_function(args[0], args[1..].to_vec());
-            }
-            "funcall-interactively" => {
-                if args.is_empty() {
-                    return Err(signal(
-                        "wrong-number-of-arguments",
-                        vec![
-                            Value::symbol("funcall-interactively"),
-                            Value::Int(args.len() as i64),
-                        ],
-                    ));
-                }
-                return self.call_function(args[0], args[1..].to_vec());
-            }
             "call-interactively" => return self.builtin_call_interactively_shared(&args),
-            "interactive" => return Ok(Value::Nil),
             "%%defvar" => {
-                // args: [init_value, symbol_name]
                 if args.len() >= 2 {
                     let sym_name = args[1].as_symbol_name().unwrap_or("nil").to_string();
                     if !self.ctx.obarray.boundp(&sym_name) {
@@ -4328,31 +4214,13 @@ impl<'a> Vm<'a> {
                     )],
                 ));
             }
-            "throw" => {
-                if args.len() != 2 {
-                    return Err(signal(
-                        "wrong-number-of-arguments",
-                        vec![Value::Subr(intern("throw")), Value::Int(args.len() as i64)],
-                    ));
-                }
-                let tag = args[0];
-                let value = args[1];
-                // Check evaluator catch_tags for a matching catch.
-                if !tag.is_nil() && self.ctx.catch_tags.iter().rev().any(|t| eq_value(t, &tag)) {
-                    return Err(Flow::Throw { tag, value });
-                }
-                return Err(signal("no-catch", vec![tag, value]));
-            }
-            "signal" => return crate::emacs_core::errors::builtin_signal(args),
             _ => {}
         }
 
-        // Unified dispatch: all builtins go through the single dispatch_builtin
-        // on Context. No more duplicated _in_obarray/_in_state variants needed.
-        if let Some(result) = builtins::dispatch_builtin(&mut *self.ctx, name, args) {
-            return result.map_err(|flow| normalize_vm_builtin_error(name, flow));
-        }
-        Err(signal("void-function", vec![Value::symbol(name)]))
+        // All real builtins go through funcall_general → dispatch_subr.
+        // This matches GNU Emacs where the bytecode VM delegates to
+        // funcall_general for everything except bytecoded closures.
+        self.ctx.funcall_general(Value::Subr(intern(name)), args)
     }
 
     fn with_default_directory_binding<T>(

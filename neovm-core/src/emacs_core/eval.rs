@@ -7231,13 +7231,16 @@ impl Context {
         // function-application boundary so those paths don't exhaust the
         // native thread stack long before max-lisp-eval-depth is reached.
         let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
-            self.apply_inner(function, args)
+            self.funcall_general(function, args)
         });
         self.restore_temp_roots(saved_roots);
         result
     }
 
-    fn apply_inner(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
+    /// Unified function dispatch — matches GNU Emacs's funcall_general.
+    /// Called by both the tree-walking interpreter (via apply) and the
+    /// bytecode VM (via Vm::call_function).
+    pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
         match function {
             Value::ByteCode(bc) => {
                 self.refresh_features_from_variable();
