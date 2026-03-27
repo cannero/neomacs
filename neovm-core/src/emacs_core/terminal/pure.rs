@@ -341,20 +341,9 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 // ---------------------------------------------------------------------------
 
 /// (terminal-name &optional TERMINAL) -> "initial_terminal"
-pub(crate) fn builtin_terminal_name(args: Vec<Value>) -> EvalResult {
-    expect_max_args("terminal-name", &args, 1)?;
-    if let Some(term) = args.first() {
-        if !term.is_nil() {
-            expect_terminal_designator(term)?;
-        }
-    }
-    Ok(Value::string(TERMINAL_NAME))
-}
-
-/// Context-aware variant of `terminal-name`.
 ///
 /// Accepts live frame designators in addition to terminal designators.
-pub(crate) fn builtin_terminal_name_eval(
+pub(crate) fn builtin_terminal_name(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -381,18 +370,9 @@ pub(crate) fn builtin_selected_terminal(args: Vec<Value>) -> EvalResult {
 }
 
 /// (frame-terminal &optional FRAME) -> opaque terminal handle.
-pub(crate) fn builtin_frame_terminal(args: Vec<Value>) -> EvalResult {
-    expect_max_args("frame-terminal", &args, 1)?;
-    if let Some(frame) = args.first() {
-        crate::emacs_core::display::expect_frame_designator(frame)?;
-    }
-    Ok(terminal_handle_value())
-}
-
-/// Context-aware variant of `frame-terminal`.
 ///
 /// Accepts live frame designators in addition to nil.
-pub(crate) fn builtin_frame_terminal_eval(
+pub(crate) fn builtin_frame_terminal(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -409,17 +389,11 @@ pub(crate) fn builtin_frame_terminal_eval(
 }
 
 /// (terminal-live-p TERMINAL) -> t
-pub(crate) fn builtin_terminal_live_p(args: Vec<Value>) -> EvalResult {
-    expect_range_args("terminal-live-p", &args, 1, 1)?;
-    Ok(Value::bool(terminal_designator_p(&args[0])))
-}
-
-/// Context-aware variant of `terminal-live-p`.
 ///
 /// In GNU Emacs, terminal-live-p returns the terminal type symbol
 /// (e.g. 'x, 'w32) for GUI terminals, or t for TTY.  This is used
 /// by framep-on-display to determine the window system type.
-pub(crate) fn builtin_terminal_live_p_eval(
+pub(crate) fn builtin_terminal_live_p(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -438,17 +412,9 @@ pub(crate) fn builtin_terminal_live_p_eval(
 }
 
 /// (terminal-parameter TERMINAL PARAMETER) -> value
-pub(crate) fn builtin_terminal_parameter(args: Vec<Value>) -> EvalResult {
-    expect_args("terminal-parameter", &args, 2)?;
-    expect_terminal_designator(&args[0])?;
-    let key = expect_symbol_key(&args[1])?;
-    TERMINAL_PARAMS.with(|slot| Ok(lookup_terminal_parameter_value(&slot.borrow(), &key)))
-}
-
-/// Context-aware variant of `terminal-parameter`.
 ///
 /// Accepts live frame designators in addition to terminal designators.
-pub(crate) fn builtin_terminal_parameter_eval(
+pub(crate) fn builtin_terminal_parameter(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -459,23 +425,9 @@ pub(crate) fn builtin_terminal_parameter_eval(
 }
 
 /// (terminal-parameters &optional TERMINAL) -> alist of terminal parameters
-pub(crate) fn builtin_terminal_parameters(args: Vec<Value>) -> EvalResult {
-    expect_max_args("terminal-parameters", &args, 1)?;
-    if let Some(term) = args.first() {
-        if !term.is_nil() {
-            expect_terminal_designator(term)?;
-        }
-    }
-    TERMINAL_PARAMS.with(|slot| {
-        let merged = terminal_parameters_with_defaults(&slot.borrow());
-        Ok(make_alist(merged))
-    })
-}
-
-/// Context-aware variant of `terminal-parameters`.
 ///
 /// Accepts live frame designators in addition to terminal designators.
-pub(crate) fn builtin_terminal_parameters_eval(
+pub(crate) fn builtin_terminal_parameters(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -492,34 +444,9 @@ pub(crate) fn builtin_terminal_parameters_eval(
 }
 
 /// (set-terminal-parameter TERMINAL PARAMETER VALUE) -> previous value
-pub(crate) fn builtin_set_terminal_parameter(args: Vec<Value>) -> EvalResult {
-    expect_args("set-terminal-parameter", &args, 3)?;
-    expect_terminal_designator(&args[0])?;
-    if matches!(args[1], Value::Str(_)) {
-        return Ok(Value::Nil);
-    }
-    let key = args[1];
-    TERMINAL_PARAMS.with(|slot| {
-        let mut params = slot.borrow_mut();
-        if let Some((_, stored_value)) = params
-            .iter_mut()
-            .find(|(stored_key, _)| eq_value(stored_key, &key))
-        {
-            let previous = *stored_value;
-            *stored_value = args[2];
-            return Ok(previous);
-        }
-
-        let previous = terminal_parameter_default_value(&key).unwrap_or(Value::Nil);
-        params.push((key, args[2]));
-        Ok(previous)
-    })
-}
-
-/// Context-aware variant of `set-terminal-parameter`.
 ///
 /// Accepts live frame designators in addition to terminal designators.
-pub(crate) fn builtin_set_terminal_parameter_eval(
+pub(crate) fn builtin_set_terminal_parameter(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -551,19 +478,7 @@ pub(crate) fn builtin_set_terminal_parameter_eval(
 // ---------------------------------------------------------------------------
 
 /// (tty-type &optional TERMINAL) -> nil
-pub(crate) fn builtin_tty_type(args: Vec<Value>) -> EvalResult {
-    expect_max_args("tty-type", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator(terminal)?;
-    }
-    Ok(terminal_runtime()
-        .tty_type
-        .map(Value::string)
-        .unwrap_or(Value::Nil))
-}
-
-/// Context-aware variant of `tty-type`.
-pub(crate) fn builtin_tty_type_eval(
+pub(crate) fn builtin_tty_type(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -578,16 +493,7 @@ pub(crate) fn builtin_tty_type_eval(
 }
 
 /// (tty-top-frame &optional TERMINAL) -> nil
-pub(crate) fn builtin_tty_top_frame(args: Vec<Value>) -> EvalResult {
-    expect_max_args("tty-top-frame", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator(terminal)?;
-    }
-    Ok(Value::Nil)
-}
-
-/// Context-aware variant of `tty-top-frame`.
-pub(crate) fn builtin_tty_top_frame_eval(
+pub(crate) fn builtin_tty_top_frame(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -606,16 +512,7 @@ pub(crate) fn builtin_tty_top_frame_eval(
 }
 
 /// (tty-display-color-p &optional TERMINAL) -> nil
-pub(crate) fn builtin_tty_display_color_p(args: Vec<Value>) -> EvalResult {
-    expect_max_args("tty-display-color-p", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator(terminal)?;
-    }
-    Ok(Value::bool(terminal_runtime().supports_color()))
-}
-
-/// Context-aware variant of `tty-display-color-p`.
-pub(crate) fn builtin_tty_display_color_p_eval(
+pub(crate) fn builtin_tty_display_color_p(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -627,16 +524,7 @@ pub(crate) fn builtin_tty_display_color_p_eval(
 }
 
 /// (tty-display-color-cells &optional TERMINAL) -> 0
-pub(crate) fn builtin_tty_display_color_cells(args: Vec<Value>) -> EvalResult {
-    expect_max_args("tty-display-color-cells", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator(terminal)?;
-    }
-    Ok(Value::Int(terminal_runtime().color_cells))
-}
-
-/// Context-aware variant of `tty-display-color-cells`.
-pub(crate) fn builtin_tty_display_color_cells_eval(
+pub(crate) fn builtin_tty_display_color_cells(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -648,16 +536,7 @@ pub(crate) fn builtin_tty_display_color_cells_eval(
 }
 
 /// (tty-no-underline &optional TERMINAL) -> nil
-pub(crate) fn builtin_tty_no_underline(args: Vec<Value>) -> EvalResult {
-    expect_max_args("tty-no-underline", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator(terminal)?;
-    }
-    Ok(Value::Nil)
-}
-
-/// Context-aware variant of `tty-no-underline`.
-pub(crate) fn builtin_tty_no_underline_eval(
+pub(crate) fn builtin_tty_no_underline(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -669,16 +548,7 @@ pub(crate) fn builtin_tty_no_underline_eval(
 }
 
 /// (controlling-tty-p &optional TERMINAL) -> nil
-pub(crate) fn builtin_controlling_tty_p(args: Vec<Value>) -> EvalResult {
-    expect_max_args("controlling-tty-p", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator(terminal)?;
-    }
-    Ok(Value::bool(terminal_runtime().controlling_tty))
-}
-
-/// Context-aware variant of `controlling-tty-p`.
-pub(crate) fn builtin_controlling_tty_p_eval(
+pub(crate) fn builtin_controlling_tty_p(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -690,21 +560,7 @@ pub(crate) fn builtin_controlling_tty_p_eval(
 }
 
 /// (suspend-tty &optional TTY) -> error in GUI/non-text terminal context.
-pub(crate) fn builtin_suspend_tty(args: Vec<Value>) -> EvalResult {
-    expect_max_args("suspend-tty", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator(terminal)?;
-    }
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Attempt to suspend a non-text terminal device",
-        )],
-    ))
-}
-
-/// Context-aware variant of `suspend-tty`.
-pub(crate) fn builtin_suspend_tty_eval(
+pub(crate) fn builtin_suspend_tty(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -722,21 +578,7 @@ pub(crate) fn builtin_suspend_tty_eval(
 
 
 /// (resume-tty &optional TTY) -> error in GUI/non-text terminal context.
-pub(crate) fn builtin_resume_tty(args: Vec<Value>) -> EvalResult {
-    expect_max_args("resume-tty", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator(terminal)?;
-    }
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Attempt to resume a non-text terminal device",
-        )],
-    ))
-}
-
-/// Context-aware variant of `resume-tty`.
-pub(crate) fn builtin_resume_tty_eval(
+pub(crate) fn builtin_resume_tty(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

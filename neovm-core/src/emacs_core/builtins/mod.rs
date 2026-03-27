@@ -1001,15 +1001,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr("list-fonts", super::font::builtin_list_fonts_eval, 0, None);
-    ctx.defsubr("find-font", super::font::builtin_find_font_eval, 0, None);
+    ctx.defsubr("list-fonts", super::font::builtin_list_fonts, 0, None);
+    ctx.defsubr("find-font", super::font::builtin_find_font, 0, None);
     ctx.defsubr(
         "font-family-list",
-        super::font::builtin_font_family_list_eval,
+        super::font::builtin_font_family_list,
         0,
         None,
     );
-    ctx.defsubr("font-info", super::font::builtin_font_info_eval, 0, None);
+    ctx.defsubr("font-info", super::font::builtin_font_info, 0, None);
     ctx.defsubr("new-fontset", builtin_new_fontset_eval, 0, None);
     ctx.defsubr("set-fontset-font", builtin_set_fontset_font_eval, 0, None);
     ctx.defsubr(
@@ -2402,80 +2402,80 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("frame-root-frame", builtin_frame_root_frame_eval, 0, None);
     ctx.defsubr(
         "x-open-connection",
-        super::display::builtin_x_open_connection_eval,
+        super::display::builtin_x_open_connection,
         0,
         None,
     );
     ctx.defsubr(
         "x-get-resource",
-        super::display::builtin_x_get_resource_eval,
+        super::display::builtin_x_get_resource,
         0,
         None,
     );
     ctx.defsubr(
         "x-list-fonts",
-        super::display::builtin_x_list_fonts_eval,
+        super::display::builtin_x_list_fonts,
         0,
         None,
     );
     ctx.defsubr(
         "window-system",
-        super::display::builtin_window_system_eval,
+        super::display::builtin_window_system,
         0,
         None,
     );
     ctx.defsubr("current-idle-time", builtin_current_idle_time_eval, 0, None);
     ctx.defsubr(
         "x-server-version",
-        super::display::builtin_x_server_version_eval,
+        super::display::builtin_x_server_version,
         0,
         None,
     );
     ctx.defsubr(
         "x-server-input-extension-version",
-        super::display::builtin_x_server_input_extension_version_eval,
+        super::display::builtin_x_server_input_extension_version,
         0,
         None,
     );
     ctx.defsubr(
         "x-server-vendor",
-        super::display::builtin_x_server_vendor_eval,
+        super::display::builtin_x_server_vendor,
         0,
         None,
     );
     ctx.defsubr(
         "display-color-cells",
-        super::display::builtin_display_color_cells_eval,
+        super::display::builtin_display_color_cells,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-mm-height",
-        super::display::builtin_x_display_mm_height_eval,
+        super::display::builtin_x_display_mm_height,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-mm-width",
-        super::display::builtin_x_display_mm_width_eval,
+        super::display::builtin_x_display_mm_width,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-planes",
-        super::display::builtin_x_display_planes_eval,
+        super::display::builtin_x_display_planes,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-screens",
-        super::display::builtin_x_display_screens_eval,
+        super::display::builtin_x_display_screens,
         0,
         None,
     );
     ctx.defsubr(
         "x-close-connection",
-        super::display::builtin_x_close_connection_eval,
+        super::display::builtin_x_close_connection,
         0,
         None,
     );
@@ -2942,48 +2942,48 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr("font-at", super::font::builtin_font_at_eval, 0, None);
-    ctx.defsubr("face-font", super::font::builtin_face_font_eval, 0, None);
+    ctx.defsubr("font-at", super::font::builtin_font_at, 0, None);
+    ctx.defsubr("face-font", super::font::builtin_face_font, 0, None);
     ctx.defsubr(
         "access-file",
-        super::fileio::builtin_access_file_eval,
+        super::fileio::builtin_access_file,
         0,
         None,
     );
     ctx.defsubr(
         "expand-file-name",
-        super::fileio::builtin_expand_file_name_eval,
+        super::fileio::builtin_expand_file_name,
         0,
         None,
     );
     ctx.defsubr(
         "delete-file-internal",
-        super::fileio::builtin_delete_file_internal_eval,
+        super::fileio::builtin_delete_file_internal,
         0,
         None,
     );
     ctx.defsubr(
         "rename-file",
-        super::fileio::builtin_rename_file_eval,
+        super::fileio::builtin_rename_file,
         0,
         None,
     );
-    ctx.defsubr("copy-file", super::fileio::builtin_copy_file_eval, 0, None);
+    ctx.defsubr("copy-file", super::fileio::builtin_copy_file, 0, None);
     ctx.defsubr(
         "add-name-to-file",
-        super::fileio::builtin_add_name_to_file_eval,
+        super::fileio::builtin_add_name_to_file,
         0,
         None,
     );
     ctx.defsubr(
         "make-symbolic-link",
-        super::fileio::builtin_make_symbolic_link_eval,
+        super::fileio::builtin_make_symbolic_link,
         0,
         None,
     );
     ctx.defsubr(
         "directory-files",
-        super::fileio::builtin_directory_files_eval,
+        super::fileio::builtin_directory_files,
         0,
         None,
     );
@@ -2995,80 +2995,80 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "file-exists-p",
-        super::fileio::builtin_file_exists_p_eval,
+        super::fileio::builtin_file_exists_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-readable-p",
-        super::fileio::builtin_file_readable_p_eval,
+        super::fileio::builtin_file_readable_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-writable-p",
-        super::fileio::builtin_file_writable_p_eval,
+        super::fileio::builtin_file_writable_p,
         0,
         None,
     );
-    ctx.defsubr("file-acl", super::fileio::builtin_file_acl_eval, 0, None);
+    ctx.defsubr("file-acl", super::fileio::builtin_file_acl, 0, None);
     ctx.defsubr(
         "file-executable-p",
-        super::fileio::builtin_file_executable_p_eval,
+        super::fileio::builtin_file_executable_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-locked-p",
-        super::fileio::builtin_file_locked_p_eval,
+        super::fileio::builtin_file_locked_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-selinux-context",
-        super::fileio::builtin_file_selinux_context_eval,
+        super::fileio::builtin_file_selinux_context,
         0,
         None,
     );
     ctx.defsubr(
         "file-system-info",
-        super::fileio::builtin_file_system_info_eval,
+        super::fileio::builtin_file_system_info,
         0,
         None,
     );
     ctx.defsubr(
         "file-directory-p",
-        super::fileio::builtin_file_directory_p_eval,
+        super::fileio::builtin_file_directory_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-regular-p",
-        super::fileio::builtin_file_regular_p_eval,
+        super::fileio::builtin_file_regular_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-symlink-p",
-        super::fileio::builtin_file_symlink_p_eval,
+        super::fileio::builtin_file_symlink_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-modes",
-        super::fileio::builtin_file_modes_eval,
+        super::fileio::builtin_file_modes,
         0,
         None,
     );
     ctx.defsubr(
         "set-file-modes",
-        super::fileio::builtin_set_file_modes_eval,
+        super::fileio::builtin_set_file_modes,
         0,
         None,
     );
     ctx.defsubr(
         "set-file-times",
-        super::fileio::builtin_set_file_times_eval,
+        super::fileio::builtin_set_file_times,
         0,
         None,
     );
@@ -3129,97 +3129,97 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "display-supports-face-attributes-p",
-        super::display::builtin_display_supports_face_attributes_p_eval,
+        super::display::builtin_display_supports_face_attributes_p,
         0,
         None,
     );
     ctx.defsubr(
         "terminal-name",
-        super::terminal::pure::builtin_terminal_name_eval,
+        super::terminal::pure::builtin_terminal_name,
         0,
         None,
     );
     ctx.defsubr(
         "terminal-live-p",
-        super::terminal::pure::builtin_terminal_live_p_eval,
+        super::terminal::pure::builtin_terminal_live_p,
         0,
         None,
     );
     ctx.defsubr(
         "terminal-parameter",
-        super::terminal::pure::builtin_terminal_parameter_eval,
+        super::terminal::pure::builtin_terminal_parameter,
         0,
         None,
     );
     ctx.defsubr(
         "terminal-parameters",
-        super::terminal::pure::builtin_terminal_parameters_eval,
+        super::terminal::pure::builtin_terminal_parameters,
         0,
         None,
     );
     ctx.defsubr(
         "set-terminal-parameter",
-        super::terminal::pure::builtin_set_terminal_parameter_eval,
+        super::terminal::pure::builtin_set_terminal_parameter,
         0,
         None,
     );
     ctx.defsubr(
         "tty-type",
-        super::terminal::pure::builtin_tty_type_eval,
+        super::terminal::pure::builtin_tty_type,
         0,
         None,
     );
     ctx.defsubr(
         "tty-top-frame",
-        super::terminal::pure::builtin_tty_top_frame_eval,
+        super::terminal::pure::builtin_tty_top_frame,
         0,
         None,
     );
     ctx.defsubr(
         "tty-display-color-p",
-        super::terminal::pure::builtin_tty_display_color_p_eval,
+        super::terminal::pure::builtin_tty_display_color_p,
         0,
         None,
     );
     ctx.defsubr(
         "tty-display-color-cells",
-        super::terminal::pure::builtin_tty_display_color_cells_eval,
+        super::terminal::pure::builtin_tty_display_color_cells,
         0,
         None,
     );
     ctx.defsubr(
         "tty-no-underline",
-        super::terminal::pure::builtin_tty_no_underline_eval,
+        super::terminal::pure::builtin_tty_no_underline,
         0,
         None,
     );
     ctx.defsubr(
         "controlling-tty-p",
-        super::terminal::pure::builtin_controlling_tty_p_eval,
+        super::terminal::pure::builtin_controlling_tty_p,
         0,
         None,
     );
     ctx.defsubr(
         "suspend-tty",
-        super::terminal::pure::builtin_suspend_tty_eval,
+        super::terminal::pure::builtin_suspend_tty,
         0,
         None,
     );
     ctx.defsubr(
         "resume-tty",
-        super::terminal::pure::builtin_resume_tty_eval,
+        super::terminal::pure::builtin_resume_tty,
         0,
         None,
     );
     ctx.defsubr(
         "frame-terminal",
-        super::terminal::pure::builtin_frame_terminal_eval,
+        super::terminal::pure::builtin_frame_terminal,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-monitor-attributes-list",
-        super::display::builtin_x_display_monitor_attributes_list_eval,
+        super::display::builtin_x_display_monitor_attributes_list,
         0,
         None,
     );
@@ -3464,13 +3464,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "internal-make-lisp-face",
-        super::font::builtin_internal_make_lisp_face_eval,
+        super::font::builtin_internal_make_lisp_face,
         0,
         None,
     );
     ctx.defsubr(
         "internal-set-lisp-face-attribute",
-        |_ctx, args| super::font::builtin_internal_set_lisp_face_attribute(args),
+        super::font::builtin_internal_set_lisp_face_attribute,
         0,
         None,
     );
@@ -4401,7 +4401,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "make-temp-file-internal",
-        |_ctx, args| builtin_make_temp_file_internal(args),
+        builtin_make_temp_file_internal,
         0,
         None,
     );
@@ -5933,13 +5933,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "delete-directory-internal",
-        super::fileio::builtin_delete_directory_internal_eval,
+        super::fileio::builtin_delete_directory_internal,
         0,
         None,
     );
     ctx.defsubr(
         "make-directory-internal",
-        super::fileio::builtin_make_directory_internal_eval,
+        super::fileio::builtin_make_directory_internal,
         0,
         None,
     );
@@ -5951,7 +5951,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "find-file-name-handler",
-        super::fileio::builtin_find_file_name_handler_eval,
+        super::fileio::builtin_find_file_name_handler,
         0,
         None,
     );
@@ -5963,19 +5963,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "file-accessible-directory-p",
-        super::fileio::builtin_file_accessible_directory_p_eval,
+        super::fileio::builtin_file_accessible_directory_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-name-case-insensitive-p",
-        super::fileio::builtin_file_name_case_insensitive_p_eval,
+        super::fileio::builtin_file_name_case_insensitive_p,
         0,
         None,
     );
     ctx.defsubr(
         "file-newer-than-file-p",
-        super::fileio::builtin_file_newer_than_file_p_eval,
+        super::fileio::builtin_file_newer_than_file_p,
         0,
         None,
     );
@@ -6221,55 +6221,55 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "x-display-pixel-width",
-        super::display::builtin_x_display_pixel_width_eval,
+        super::display::builtin_x_display_pixel_width,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-pixel-height",
-        super::display::builtin_x_display_pixel_height_eval,
+        super::display::builtin_x_display_pixel_height,
         0,
         None,
     );
     ctx.defsubr(
         "x-server-max-request-size",
-        super::display::builtin_x_server_max_request_size_eval,
+        super::display::builtin_x_server_max_request_size,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-grayscale-p",
-        super::display::builtin_x_display_grayscale_p_eval,
+        super::display::builtin_x_display_grayscale_p,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-backing-store",
-        super::display::builtin_x_display_backing_store_eval,
+        super::display::builtin_x_display_backing_store,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-color-cells",
-        super::display::builtin_x_display_color_cells_eval,
+        super::display::builtin_x_display_color_cells,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-save-under",
-        super::display::builtin_x_display_save_under_eval,
+        super::display::builtin_x_display_save_under,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-set-last-user-time",
-        super::display::builtin_x_display_set_last_user_time_eval,
+        super::display::builtin_x_display_set_last_user_time,
         0,
         None,
     );
     ctx.defsubr(
         "x-display-visual-class",
-        super::display::builtin_x_display_visual_class_eval,
+        super::display::builtin_x_display_visual_class,
         0,
         None,
     );
@@ -6457,16 +6457,16 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     // -----------------------------------------------------------------------
 
     // -- Arithmetic --
-    ctx.defsubr("+", super::builtins::arithmetic::builtin_add_eval, 0, None);
-    ctx.defsubr("-", super::builtins::arithmetic::builtin_sub_eval, 0, None);
+    ctx.defsubr("+", super::builtins::arithmetic::builtin_add, 0, None);
+    ctx.defsubr("-", super::builtins::arithmetic::builtin_sub, 0, None);
     ctx.defsubr("*", |_ctx, args| builtin_mul(args), 0, None);
     ctx.defsubr("/", |_ctx, args| builtin_div(args), 0, None);
     ctx.defsubr("%", |_ctx, args| builtin_percent(args), 0, None);
     ctx.defsubr("mod", |_ctx, args| builtin_mod(args), 0, None);
     ctx.defsubr("1+", |_ctx, args| builtin_add1(args), 0, None);
     ctx.defsubr("1-", |_ctx, args| builtin_sub1(args), 0, None);
-    ctx.defsubr("max", |ctx, args| builtin_max_eval(ctx, args), 0, None);
-    ctx.defsubr("min", |ctx, args| builtin_min_eval(ctx, args), 0, None);
+    ctx.defsubr("max", |ctx, args| builtin_max(ctx, args), 0, None);
+    ctx.defsubr("min", |ctx, args| builtin_min(ctx, args), 0, None);
     ctx.defsubr("abs", |_ctx, args| builtin_abs(args), 0, None);
 
     // -- Logical / bitwise --
@@ -6477,12 +6477,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("ash", |_ctx, args| builtin_ash(args), 0, None);
 
     // -- Numeric comparisons --
-    ctx.defsubr("=", builtin_num_eq_eval, 0, None);
-    ctx.defsubr("<", builtin_num_lt_eval, 0, None);
-    ctx.defsubr("<=", builtin_num_le_eval, 0, None);
-    ctx.defsubr(">", builtin_num_gt_eval, 0, None);
-    ctx.defsubr(">=", builtin_num_ge_eval, 0, None);
-    ctx.defsubr("/=", builtin_num_ne_eval, 0, None);
+    ctx.defsubr("=", builtin_num_eq, 0, None);
+    ctx.defsubr("<", builtin_num_lt, 0, None);
+    ctx.defsubr("<=", builtin_num_le, 0, None);
+    ctx.defsubr(">", builtin_num_gt, 0, None);
+    ctx.defsubr(">=", builtin_num_ge, 0, None);
+    ctx.defsubr("/=", builtin_num_ne, 0, None);
 
     // -- Type predicates --
     ctx.defsubr("null", |_ctx, args| builtin_null(args), 0, None);
@@ -7207,19 +7207,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "internal-copy-lisp-face",
-        super::font::builtin_internal_copy_lisp_face_eval,
+        super::font::builtin_internal_copy_lisp_face,
         0,
         None,
     );
     ctx.defsubr(
         "internal-get-lisp-face-attribute",
-        super::font::builtin_internal_get_lisp_face_attribute_eval,
+        super::font::builtin_internal_get_lisp_face_attribute,
         0,
         None,
     );
     ctx.defsubr(
         "internal-merge-in-global-face",
-        super::font::builtin_internal_merge_in_global_face_eval,
+        super::font::builtin_internal_merge_in_global_face,
         0,
         None,
     );

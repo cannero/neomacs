@@ -4706,18 +4706,18 @@ impl<'a> Vm<'a> {
 
     fn builtin_x_get_resource_shared(&mut self, args: &[Value]) -> EvalResult {
         self.ctx.with_parent_evaluator(|eval| {
-            crate::emacs_core::display::builtin_x_get_resource_eval(eval, args.to_vec())
+            crate::emacs_core::display::builtin_x_get_resource(eval, args.to_vec())
         })
     }
 
     fn builtin_x_list_fonts_shared(&mut self, args: &[Value]) -> EvalResult {
         self.ctx.with_parent_evaluator(|eval| {
-            crate::emacs_core::display::builtin_x_list_fonts_eval(eval, args.to_vec())
+            crate::emacs_core::display::builtin_x_list_fonts(eval, args.to_vec())
         })
     }
 
     fn builtin_x_server_vendor_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::display::builtin_x_server_vendor_eval(
+        crate::emacs_core::display::builtin_x_server_vendor(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -4731,7 +4731,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_display_color_cells_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::display::builtin_display_color_cells_eval(
+        crate::emacs_core::display::builtin_display_color_cells(
             &mut *self.ctx,
             args.to_vec(),
         )

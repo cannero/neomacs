@@ -143,7 +143,7 @@ fn find_font_eval_requests_exact_registry_match_from_display_host() {
         Value::symbol("normal"),
     ])
     .unwrap();
-    let font = builtin_find_font_eval(&mut eval, vec![spec]).unwrap();
+    let font = builtin_find_font(&mut eval, vec![spec]).unwrap();
 
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("family")])
@@ -195,7 +195,7 @@ fn find_font_eval_returns_gnu_canonical_ultra_light_weight_symbol() {
         Value::string("JetBrains Mono"),
     ])
     .unwrap();
-    let font = builtin_find_font_eval(&mut eval, vec![spec]).unwrap();
+    let font = builtin_find_font(&mut eval, vec![spec]).unwrap();
 
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("weight")]).unwrap(),
@@ -308,7 +308,7 @@ fn list_fonts_rejects_non_font_spec() {
 fn eval_list_fonts_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_list_fonts_eval(
+    let result = builtin_list_fonts(
         &mut eval,
         vec![
             Value::vector(vec![Value::Keyword(intern(FONT_SPEC_TAG))]),
@@ -338,7 +338,7 @@ fn find_font_rejects_non_font_spec() {
 fn eval_find_font_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_find_font_eval(
+    let result = builtin_find_font(
         &mut eval,
         vec![
             Value::vector(vec![Value::Keyword(intern(FONT_SPEC_TAG))]),
@@ -409,7 +409,7 @@ fn font_family_list_rejects_non_nil_frame_designator() {
 fn eval_font_family_list_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_font_family_list_eval(&mut eval, vec![Value::Int(frame_id)]).unwrap();
+    let result = builtin_font_family_list(&mut eval, vec![Value::Int(frame_id)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -477,8 +477,8 @@ fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
     let face = Value::symbol("font-at-buffer-face");
-    builtin_internal_make_lisp_face_eval(&mut eval, vec![face]).unwrap();
-    builtin_internal_set_lisp_face_attribute_eval(
+    builtin_internal_make_lisp_face(&mut eval, vec![face]).unwrap();
+    builtin_internal_set_lisp_face_attribute(
         &mut eval,
         vec![
             face,
@@ -497,7 +497,7 @@ fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
     let end = buffer.text.char_to_byte(2);
     buffer.text_props.put_property(start, end, "face", face);
 
-    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(2)]).unwrap();
+    let font = builtin_font_at(&mut eval, vec![Value::Int(2)]).unwrap();
     assert!(
         builtin_fontp(vec![font, Value::symbol("font-object")])
             .unwrap()
@@ -517,8 +517,8 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
     let face = Value::symbol("font-at-string-face");
-    builtin_internal_make_lisp_face_eval(&mut eval, vec![face]).unwrap();
-    builtin_internal_set_lisp_face_attribute_eval(
+    builtin_internal_make_lisp_face(&mut eval, vec![face]).unwrap();
+    builtin_internal_set_lisp_face_attribute(
         &mut eval,
         vec![
             face,
@@ -538,7 +538,7 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
     table.put_property(start, end, "face", face);
     crate::emacs_core::value::set_string_text_properties_table(id, table);
 
-    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(1), Value::Nil, string]).unwrap();
+    let font = builtin_font_at(&mut eval, vec![Value::Int(1), Value::Nil, string]).unwrap();
     assert!(
         builtin_fontp(vec![font, Value::symbol("font-object")])
             .unwrap()
@@ -576,7 +576,7 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
         .text_props
         .put_property(start, end, "face", inline_face);
 
-    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(1)]).unwrap();
+    let font = builtin_font_at(&mut eval, vec![Value::Int(1)]).unwrap();
     assert!(
         builtin_fontp(vec![font, Value::symbol("font-object")])
             .unwrap()
@@ -626,7 +626,7 @@ fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
         .text_props
         .put_property(start, end, "face", inline_face);
 
-    let _ = builtin_font_at_eval(&mut eval, vec![Value::Int(1)]).unwrap();
+    let _ = builtin_font_at(&mut eval, vec![Value::Int(1)]).unwrap();
 
     let request = captured
         .borrow()
@@ -675,7 +675,7 @@ fn font_at_eval_prefers_backend_selected_font_match_when_available() {
         .text_props
         .put_property(start, end, "face", inline_face);
 
-    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(2)]).unwrap();
+    let font = builtin_font_at(&mut eval, vec![Value::Int(2)]).unwrap();
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("family")])
             .unwrap()
@@ -774,7 +774,7 @@ fn internal_copy_lisp_face_returns_to_when_frame_t() {
 #[test]
 fn internal_copy_lisp_face_eval_updates_face_table() {
     let mut eval = crate::emacs_core::Context::new();
-    builtin_internal_set_lisp_face_attribute_eval(
+    builtin_internal_set_lisp_face_attribute(
         &mut eval,
         vec![
             Value::symbol("bold"),
@@ -784,7 +784,7 @@ fn internal_copy_lisp_face_eval_updates_face_table() {
     )
     .unwrap();
 
-    let copied = builtin_internal_copy_lisp_face_eval(
+    let copied = builtin_internal_copy_lisp_face(
         &mut eval,
         vec![
             Value::symbol("bold"),
@@ -1004,7 +1004,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
             .insert("font-parameter".to_string(), font_object);
     }
 
-    builtin_internal_set_lisp_face_attribute_eval(
+    builtin_internal_set_lisp_face_attribute(
         &mut eval,
         vec![
             Value::symbol("default"),
@@ -1017,7 +1017,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
 
     assert_eq!(
         builtin_font_get(vec![
-            builtin_internal_get_lisp_face_attribute_eval(
+            builtin_internal_get_lisp_face_attribute(
                 &mut eval,
                 vec![
                     Value::symbol("default"),
@@ -1034,7 +1034,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
     );
     assert_eq!(
         builtin_font_get(vec![
-            builtin_internal_get_lisp_face_attribute_eval(
+            builtin_internal_get_lisp_face_attribute(
                 &mut eval,
                 vec![
                     Value::symbol("default"),
@@ -1051,7 +1051,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
     );
     assert!(
         builtin_font_get(vec![
-            builtin_internal_get_lisp_face_attribute_eval(
+            builtin_internal_get_lisp_face_attribute(
                 &mut eval,
                 vec![
                     Value::symbol("default"),
@@ -1066,7 +1066,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
         .is_nil()
     );
     assert_eq!(
-        builtin_internal_get_lisp_face_attribute_eval(
+        builtin_internal_get_lisp_face_attribute(
             &mut eval,
             vec![
                 Value::symbol("default"),
@@ -1079,7 +1079,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
         true
     );
     assert_eq!(
-        builtin_internal_get_lisp_face_attribute_eval(
+        builtin_internal_get_lisp_face_attribute(
             &mut eval,
             vec![
                 Value::symbol("default"),
@@ -1092,7 +1092,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
         Some("Hack")
     );
     assert_eq!(
-        builtin_internal_get_lisp_face_attribute_eval(
+        builtin_internal_get_lisp_face_attribute(
             &mut eval,
             vec![
                 Value::symbol("default"),
@@ -1119,7 +1119,7 @@ fn face_font_eval_returns_font_name_on_live_gui_frame() {
     frame.char_width = 8.0;
     frame.char_height = 16.0;
 
-    let result = builtin_face_font_eval(&mut eval, vec![Value::symbol("default")]).unwrap();
+    let result = builtin_face_font(&mut eval, vec![Value::symbol("default")]).unwrap();
     assert!(result.is_string());
     assert!(result.as_str().is_some_and(|name| !name.is_empty()));
 }
@@ -1143,8 +1143,8 @@ fn font_info_eval_accepts_font_object_on_live_gui_frame() {
         .expect("current buffer")
         .insert("a");
 
-    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(1)]).unwrap();
-    let info = builtin_font_info_eval(&mut eval, vec![font]).unwrap();
+    let font = builtin_font_at(&mut eval, vec![Value::Int(1)]).unwrap();
+    let info = builtin_font_info(&mut eval, vec![font]).unwrap();
     let Value::Vector(id) = info else {
         panic!("expected font info vector");
     };
@@ -1590,7 +1590,7 @@ fn internal_get_lisp_face_attribute_eval_reads_live_face_table() {
         FaceAttrValue::Color(Color::rgb(191, 191, 191)),
     );
 
-    let value = builtin_internal_get_lisp_face_attribute_eval(
+    let value = builtin_internal_get_lisp_face_attribute(
         &mut eval,
         vec![
             Value::symbol("mode-line"),
@@ -1609,9 +1609,9 @@ fn internal_merge_in_global_face_eval_updates_live_face_table() {
     let face = Value::symbol("__neovm_internal_merge_global_face_eval");
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
-    builtin_internal_make_lisp_face_eval(&mut eval, vec![face])
+    builtin_internal_make_lisp_face(&mut eval, vec![face])
         .expect("create dynamic face in live face table");
-    builtin_internal_set_lisp_face_attribute_eval(
+    builtin_internal_set_lisp_face_attribute(
         &mut eval,
         vec![
             face,
@@ -1621,10 +1621,10 @@ fn internal_merge_in_global_face_eval_updates_live_face_table() {
         ],
     )
     .expect("set defaults background");
-    builtin_internal_merge_in_global_face_eval(&mut eval, vec![face, Value::Int(frame_id)])
+    builtin_internal_merge_in_global_face(&mut eval, vec![face, Value::Int(frame_id)])
         .expect("merge defaults into selected live face");
 
-    let value = builtin_internal_get_lisp_face_attribute_eval(
+    let value = builtin_internal_get_lisp_face_attribute(
         &mut eval,
         vec![face, Value::keyword(":background"), Value::Nil],
     )
@@ -1638,9 +1638,9 @@ fn internal_get_lisp_face_attribute_eval_prefers_explicit_lisp_face_values() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let face = Value::symbol("__neovm_internal_get_lisp_face_attribute_eval_prefers_lisp");
 
-    builtin_internal_make_lisp_face_eval(&mut eval, vec![face])
+    builtin_internal_make_lisp_face(&mut eval, vec![face])
         .expect("create dynamic face in live face table");
-    builtin_internal_set_lisp_face_attribute_eval(
+    builtin_internal_set_lisp_face_attribute(
         &mut eval,
         vec![
             face,
@@ -1651,7 +1651,7 @@ fn internal_get_lisp_face_attribute_eval_prefers_explicit_lisp_face_values() {
     )
     .expect("set selected foreground");
 
-    let value = builtin_internal_get_lisp_face_attribute_eval(
+    let value = builtin_internal_get_lisp_face_attribute(
         &mut eval,
         vec![face, Value::keyword(":foreground"), Value::Nil],
     )

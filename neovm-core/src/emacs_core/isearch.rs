@@ -1594,7 +1594,7 @@ fn replace_string_eval_impl(
 
 /// `(replace-string FROM-STRING TO-STRING &optional DELIMITED START END BACKWARD REGION-NONCONTIGUOUS-P)` —
 /// evaluator-backed non-interactive replace subset.
-pub(crate) fn builtin_replace_string_eval(
+pub(crate) fn builtin_replace_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1760,7 +1760,7 @@ fn replace_regexp_eval_impl(
 
 /// `(replace-regexp REGEXP TO-STRING &optional DELIMITED START END BACKWARD REGION-NONCONTIGUOUS-P)` —
 /// evaluator-backed non-interactive regexp replacement subset.
-pub(crate) fn builtin_replace_regexp_eval(
+pub(crate) fn builtin_replace_regexp(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1772,7 +1772,7 @@ pub(crate) fn builtin_replace_regexp_eval(
 ///
 /// Current subset behavior performs unconditional replacement across the target
 /// region, matching batch automation use-cases.
-pub(crate) fn builtin_query_replace_eval(
+pub(crate) fn builtin_query_replace(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1785,7 +1785,7 @@ pub(crate) fn builtin_query_replace_eval(
 ///
 /// Current subset behavior performs unconditional regexp replacement across the
 /// target region, matching batch automation use-cases.
-pub(crate) fn builtin_query_replace_regexp_eval(
+pub(crate) fn builtin_query_replace_regexp(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1800,7 +1800,7 @@ pub(crate) fn builtin_query_replace_regexp_eval(
 
 /// `(keep-lines REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed non-interactive line filtering subset.
-pub(crate) fn builtin_keep_lines_eval(
+pub(crate) fn builtin_keep_lines(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1877,7 +1877,7 @@ pub(crate) fn builtin_keep_lines_eval(
 
 /// `(flush-lines REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed non-interactive line filtering subset.
-pub(crate) fn builtin_flush_lines_eval(
+pub(crate) fn builtin_flush_lines(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1948,7 +1948,7 @@ pub(crate) fn builtin_flush_lines_eval(
 
 /// `(how-many REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed regexp match counting subset.
-pub(crate) fn builtin_how_many_eval(
+pub(crate) fn builtin_how_many(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1976,7 +1976,7 @@ pub(crate) fn builtin_how_many_eval(
 
 /// `(count-matches REGEXP &optional START END INTERACTIVE)` —
 /// evaluator-backed regexp match counting subset.
-pub(crate) fn builtin_count_matches_eval(
+pub(crate) fn builtin_count_matches(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

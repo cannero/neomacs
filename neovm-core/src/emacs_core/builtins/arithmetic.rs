@@ -11,25 +11,8 @@ unsafe extern "C" {
 // Arithmetic
 // ===========================================================================
 
-pub(crate) fn builtin_add(args: Vec<Value>) -> EvalResult {
-    if has_float(&args) {
-        let mut sum = 0.0f64;
-        for a in &args {
-            sum += expect_number_or_marker_f64(a)?;
-        }
-        Ok(Value::Float(sum, next_float_id()))
-    } else {
-        // Official Emacs uses wrapping arithmetic for integer + (no overflow error).
-        let mut sum = 0i64;
-        for a in &args {
-            sum = sum.wrapping_add(expect_integer_or_marker_after_number_check(a)?);
-        }
-        Ok(Value::Int(sum))
-    }
-}
-
 /// Eval-aware `+` that reads live marker positions from buffers.
-pub(crate) fn builtin_add_eval(
+pub(crate) fn builtin_add(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -48,39 +31,8 @@ pub(crate) fn builtin_add_eval(
     }
 }
 
-pub(crate) fn builtin_sub(args: Vec<Value>) -> EvalResult {
-    if args.is_empty() {
-        return Ok(Value::Int(0));
-    }
-    if args.len() == 1 {
-        // Unary negation — Emacs wraps on overflow
-        if has_float(&args) {
-            return Ok(Value::Float(
-                -expect_number_or_marker_f64(&args[0])?,
-                next_float_id(),
-            ));
-        }
-        let n = expect_integer_or_marker_after_number_check(&args[0])?;
-        return Ok(Value::Int(n.wrapping_neg()));
-    }
-    if has_float(&args) {
-        let mut acc = expect_number_or_marker_f64(&args[0])?;
-        for a in &args[1..] {
-            acc -= expect_number_or_marker_f64(a)?;
-        }
-        Ok(Value::Float(acc, next_float_id()))
-    } else {
-        // Official Emacs uses wrapping arithmetic for integer - (no overflow error).
-        let mut acc = expect_integer_or_marker_after_number_check(&args[0])?;
-        for a in &args[1..] {
-            acc = acc.wrapping_sub(expect_integer_or_marker_after_number_check(a)?);
-        }
-        Ok(Value::Int(acc))
-    }
-}
-
 /// Eval-aware `-` that reads live marker positions from buffers.
-pub(crate) fn builtin_sub_eval(
+pub(crate) fn builtin_sub(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -257,28 +209,7 @@ pub(crate) fn builtin_sub1(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_max(args: Vec<Value>) -> EvalResult {
-    expect_min_args("max", &args, 1)?;
-    let mut best_num = expect_number_or_marker_f64(&args[0])?;
-    let mut best_value = args[0];
-    for a in &args[1..] {
-        let n = expect_number_or_marker_f64(a)?;
-        if n > best_num {
-            best_num = n;
-            best_value = *a;
-        }
-    }
-    match best_value {
-        Value::Int(_) | Value::Float(_, _) => Ok(best_value),
-        Value::Char(c) => Ok(Value::Int(c as i64)),
-        other if super::marker::is_marker(&other) => {
-            Ok(Value::Int(super::marker::marker_position_as_int(&other)?))
-        }
-        _ => unreachable!("max winner must be numeric"),
-    }
-}
-
-pub(crate) fn builtin_max_eval(eval: &super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_max(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("max", &args, 1)?;
     let mut best_num = expect_number_or_marker_f64_eval(eval, &args[0])?;
     let mut best_value = args[0];
@@ -299,28 +230,7 @@ pub(crate) fn builtin_max_eval(eval: &super::eval::Context, args: Vec<Value>) ->
     }
 }
 
-pub(crate) fn builtin_min(args: Vec<Value>) -> EvalResult {
-    expect_min_args("min", &args, 1)?;
-    let mut best_num = expect_number_or_marker_f64(&args[0])?;
-    let mut best_value = args[0];
-    for a in &args[1..] {
-        let n = expect_number_or_marker_f64(a)?;
-        if n < best_num {
-            best_num = n;
-            best_value = *a;
-        }
-    }
-    match best_value {
-        Value::Int(_) | Value::Float(_, _) => Ok(best_value),
-        Value::Char(c) => Ok(Value::Int(c as i64)),
-        other if super::marker::is_marker(&other) => {
-            Ok(Value::Int(super::marker::marker_position_as_int(&other)?))
-        }
-        _ => unreachable!("min winner must be numeric"),
-    }
-}
-
-pub(crate) fn builtin_min_eval(eval: &super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("min", &args, 1)?;
     let mut best_num = expect_number_or_marker_f64_eval(eval, &args[0])?;
     let mut best_value = args[0];
@@ -406,18 +316,7 @@ pub(crate) fn builtin_ash(args: Vec<Value>) -> EvalResult {
 // Comparisons
 // ===========================================================================
 
-pub(crate) fn builtin_num_eq(args: Vec<Value>) -> EvalResult {
-    expect_min_args("=", &args, 2)?;
-    let first = expect_number_or_marker_f64(&args[0])?;
-    for a in &args[1..] {
-        if expect_number_or_marker_f64(a)? != first {
-            return Ok(Value::Nil);
-        }
-    }
-    Ok(Value::t())
-}
-
-pub(crate) fn builtin_num_eq_eval(
+pub(crate) fn builtin_num_eq(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -431,17 +330,7 @@ pub(crate) fn builtin_num_eq_eval(
     Ok(Value::t())
 }
 
-pub(crate) fn builtin_num_lt(args: Vec<Value>) -> EvalResult {
-    expect_min_args("<", &args, 2)?;
-    for pair in args.windows(2) {
-        if !(expect_number_or_marker_f64(&pair[0])? < expect_number_or_marker_f64(&pair[1])?) {
-            return Ok(Value::Nil);
-        }
-    }
-    Ok(Value::t())
-}
-
-pub(crate) fn builtin_num_lt_eval(
+pub(crate) fn builtin_num_lt(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -456,17 +345,7 @@ pub(crate) fn builtin_num_lt_eval(
     Ok(Value::t())
 }
 
-pub(crate) fn builtin_num_le(args: Vec<Value>) -> EvalResult {
-    expect_min_args("<=", &args, 2)?;
-    for pair in args.windows(2) {
-        if !(expect_number_or_marker_f64(&pair[0])? <= expect_number_or_marker_f64(&pair[1])?) {
-            return Ok(Value::Nil);
-        }
-    }
-    Ok(Value::t())
-}
-
-pub(crate) fn builtin_num_le_eval(
+pub(crate) fn builtin_num_le(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -481,17 +360,7 @@ pub(crate) fn builtin_num_le_eval(
     Ok(Value::t())
 }
 
-pub(crate) fn builtin_num_gt(args: Vec<Value>) -> EvalResult {
-    expect_min_args(">", &args, 2)?;
-    for pair in args.windows(2) {
-        if !(expect_number_or_marker_f64(&pair[0])? > expect_number_or_marker_f64(&pair[1])?) {
-            return Ok(Value::Nil);
-        }
-    }
-    Ok(Value::t())
-}
-
-pub(crate) fn builtin_num_gt_eval(
+pub(crate) fn builtin_num_gt(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -506,17 +375,7 @@ pub(crate) fn builtin_num_gt_eval(
     Ok(Value::t())
 }
 
-pub(crate) fn builtin_num_ge(args: Vec<Value>) -> EvalResult {
-    expect_min_args(">=", &args, 2)?;
-    for pair in args.windows(2) {
-        if !(expect_number_or_marker_f64(&pair[0])? >= expect_number_or_marker_f64(&pair[1])?) {
-            return Ok(Value::Nil);
-        }
-    }
-    Ok(Value::t())
-}
-
-pub(crate) fn builtin_num_ge_eval(
+pub(crate) fn builtin_num_ge(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -531,14 +390,7 @@ pub(crate) fn builtin_num_ge_eval(
     Ok(Value::t())
 }
 
-pub(crate) fn builtin_num_ne(args: Vec<Value>) -> EvalResult {
-    expect_args("/=", &args, 2)?;
-    let a = expect_number_or_marker_f64(&args[0])?;
-    let b = expect_number_or_marker_f64(&args[1])?;
-    Ok(Value::bool(a != b))
-}
-
-pub(crate) fn builtin_num_ne_eval(
+pub(crate) fn builtin_num_ne(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

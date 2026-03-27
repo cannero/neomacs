@@ -1094,35 +1094,6 @@ fn make_temp_name_suffix() -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// (expand-file-name NAME &optional DEFAULT-DIRECTORY) -> string
-pub(crate) fn builtin_expand_file_name(args: Vec<Value>) -> EvalResult {
-    expect_min_args("expand-file-name", &args, 1)?;
-    if args.len() > 2 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("expand-file-name"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-    let name = expect_string_strict(&args[0])?;
-    let default_dir = if let Some(arg) = args.get(1) {
-        match arg {
-            Value::Nil => None,
-            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-            // Emacs treats non-string DEFAULT-DIRECTORY as root.
-            _ => Some("/".to_string()),
-        }
-    } else {
-        None
-    };
-    Ok(Value::string(expand_file_name(
-        &name,
-        default_dir.as_deref(),
-    )))
-}
-
 /// Context-aware variant of `expand-file-name` that falls back to dynamic
 /// `default-directory` when DEFAULT-DIRECTORY is omitted or nil.
 pub(crate) fn builtin_expand_file_name_impl(
@@ -1158,38 +1129,8 @@ pub(crate) fn builtin_expand_file_name_impl(
     )))
 }
 
-pub(crate) fn builtin_expand_file_name_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_expand_file_name_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (make-temp-file PREFIX &optional DIR-FLAG SUFFIX TEXT) -> string
-pub(crate) fn builtin_make_temp_file(args: Vec<Value>) -> EvalResult {
-    expect_min_args("make-temp-file", &args, 1)?;
-    if args.len() > 4 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("make-temp-file"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-
-    let prefix = expect_temp_prefix(&args[0])?;
-    let dir_flag = args.get(1).is_some_and(|value| value.is_truthy());
-    let suffix = match args.get(2) {
-        None | Some(Value::Nil) => String::new(),
-        Some(value) => expect_string_strict(value)?,
-    };
-    let text = match args.get(3) {
-        None | Some(Value::Nil) => None,
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-        Some(_) => None,
-    };
-    let temp_dir = std::env::temp_dir().to_string_lossy().into_owned();
-
-    let path = make_temp_file_impl(&temp_dir, &prefix, dir_flag, &suffix, text.as_deref())?;
-    Ok(Value::string(path))
 }
 
 /// (make-temp-name PREFIX) -> string
@@ -1224,7 +1165,7 @@ pub(crate) fn builtin_get_truename_buffer(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware variant of `make-temp-file` that honors dynamic
 /// `temporary-file-directory`.
-pub(crate) fn builtin_make_temp_file_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_make_temp_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("make-temp-file", &args, 1)?;
     if args.len() > 4 {
         return Err(signal(
@@ -1254,37 +1195,10 @@ pub(crate) fn builtin_make_temp_file_eval(eval: &Context, args: Vec<Value>) -> E
     Ok(Value::string(path))
 }
 
-/// (make-nearby-temp-file PREFIX &optional DIR-FLAG SUFFIX) -> string
-pub(crate) fn builtin_make_nearby_temp_file(args: Vec<Value>) -> EvalResult {
-    expect_min_args("make-nearby-temp-file", &args, 1)?;
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("make-nearby-temp-file"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-
-    let prefix = expect_temp_prefix(&args[0])?;
-    let dir_flag = args.get(1).is_some_and(|value| value.is_truthy());
-    let suffix = match args.get(2) {
-        None | Some(Value::Nil) => String::new(),
-        Some(value) => expect_string_strict(value)?,
-    };
-    let fallback_temp_dir = std::env::temp_dir().to_string_lossy().into_owned();
-    let (temp_dir, file_prefix) =
-        split_nearby_temp_prefix(&prefix).unwrap_or_else(|| (fallback_temp_dir, prefix.clone()));
-
-    let path = make_temp_file_impl(&temp_dir, &file_prefix, dir_flag, &suffix, None)?;
-    Ok(Value::string(path))
-}
-
 /// Context-aware variant of `make-nearby-temp-file` that resolves relative
 /// directory-containing prefixes against dynamic/default `default-directory`
 /// and honors dynamic `temporary-file-directory` fallback.
-pub(crate) fn builtin_make_nearby_temp_file_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_make_nearby_temp_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("make-nearby-temp-file", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -1309,27 +1223,6 @@ pub(crate) fn builtin_make_nearby_temp_file_eval(eval: &Context, args: Vec<Value
 
     let path = make_temp_file_impl(&temp_dir, &file_prefix, dir_flag, &suffix, None)?;
     Ok(Value::string(path))
-}
-
-/// (file-truename FILENAME &optional COUNTER PREV-DIRS) -> string
-pub(crate) fn builtin_file_truename(args: Vec<Value>) -> EvalResult {
-    expect_min_args("file-truename", &args, 1)?;
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("file-truename"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-
-    let filename = expect_string_strict(&args[0])?;
-    if let Some(counter) = args.get(1) {
-        validate_file_truename_counter(counter)?;
-    }
-
-    Ok(Value::string(file_truename(&filename, None)))
 }
 
 /// Context-aware variant of `file-truename` that resolves relative
@@ -1362,7 +1255,7 @@ pub(crate) fn builtin_file_truename_impl(
     )))
 }
 
-pub(crate) fn builtin_file_truename_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_truename(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_truename_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1599,17 +1492,6 @@ fn delete_file_compat(filename: &str) -> Result<(), Flow> {
     }
 }
 
-/// `(access-file FILE OPERATION)` -- verify FILE is accessible for OPERATION.
-pub(crate) fn builtin_access_file(args: Vec<Value>) -> EvalResult {
-    expect_args("access-file", &args, 2)?;
-    let filename = expect_string_strict(&args[0])?;
-    let operation = expect_string_strict(&args[1])?;
-    match fs::metadata(&filename) {
-        Ok(_) => Ok(Value::Nil),
-        Err(err) => Err(signal_file_action_error(err, &operation, &filename)),
-    }
-}
-
 /// Context-aware variant of `access-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_access_file_impl(
@@ -1628,15 +1510,8 @@ pub(crate) fn builtin_access_file_impl(
     }
 }
 
-pub(crate) fn builtin_access_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_access_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_access_file_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-exists-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_exists_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-exists-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_exists_p(&filename)))
 }
 
 /// Context-aware variant of `file-exists-p` that resolves relative paths
@@ -1653,15 +1528,8 @@ pub(crate) fn builtin_file_exists_p_impl(
     Ok(Value::bool(file_exists_p(&filename)))
 }
 
-pub(crate) fn builtin_file_exists_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_exists_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_exists_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-readable-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_readable_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-readable-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_readable_p(&filename)))
 }
 
 /// Context-aware variant of `file-readable-p` that resolves relative paths
@@ -1678,15 +1546,8 @@ pub(crate) fn builtin_file_readable_p_impl(
     Ok(Value::bool(file_readable_p(&filename)))
 }
 
-pub(crate) fn builtin_file_readable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_readable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_readable_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-writable-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_writable_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-writable-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_writable_p(&filename)))
 }
 
 /// Context-aware variant of `file-writable-p` that resolves relative paths
@@ -1703,15 +1564,8 @@ pub(crate) fn builtin_file_writable_p_impl(
     Ok(Value::bool(file_writable_p(&filename)))
 }
 
-pub(crate) fn builtin_file_writable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_writable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_writable_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-accessible-directory-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_accessible_directory_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-accessible-directory-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_accessible_directory_p(&filename)))
 }
 
 /// Context-aware variant of `file-accessible-directory-p` that resolves
@@ -1728,18 +1582,11 @@ pub(crate) fn builtin_file_accessible_directory_p_impl(
     Ok(Value::bool(file_accessible_directory_p(&filename)))
 }
 
-pub(crate) fn builtin_file_accessible_directory_p_eval(
+pub(crate) fn builtin_file_accessible_directory_p(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_file_accessible_directory_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-executable-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_executable_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-executable-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_executable_p(&filename)))
 }
 
 /// Context-aware variant of `file-executable-p` that resolves relative paths
@@ -1756,14 +1603,8 @@ pub(crate) fn builtin_file_executable_p_impl(
     Ok(Value::bool(file_executable_p(&filename)))
 }
 
-pub(crate) fn builtin_file_executable_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_executable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_executable_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-acl FILENAME) -> ACL string or nil
-pub(crate) fn builtin_file_acl(args: Vec<Value>) -> EvalResult {
-    expect_args("file-acl", &args, 1)?;
-    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_file_acl_impl(
@@ -1779,7 +1620,7 @@ pub(crate) fn builtin_file_acl_impl(
 }
 
 /// Context-aware variant of `file-acl`.
-pub(crate) fn builtin_file_acl_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_acl(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_acl_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1789,13 +1630,6 @@ pub(crate) fn builtin_set_file_acl(args: Vec<Value>) -> EvalResult {
     let _filename = &args[0];
     let _acl = &args[1];
     Ok(Value::Nil)
-}
-
-/// (file-locked-p FILENAME) -> locker info or nil
-pub(crate) fn builtin_file_locked_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-locked-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_locked_p(&filename)))
 }
 
 /// Context-aware variant of `file-locked-p` that resolves relative paths
@@ -1812,20 +1646,8 @@ pub(crate) fn builtin_file_locked_p_impl(
     Ok(Value::bool(file_locked_p(&filename)))
 }
 
-pub(crate) fn builtin_file_locked_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_locked_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_locked_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-selinux-context FILENAME) -> (user role type range)
-pub(crate) fn builtin_file_selinux_context(args: Vec<Value>) -> EvalResult {
-    expect_args("file-selinux-context", &args, 1)?;
-    let _filename = expect_string_strict(&args[0])?;
-    Ok(Value::list(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-    ]))
 }
 
 pub(crate) fn builtin_file_selinux_context_impl(
@@ -1846,7 +1668,7 @@ pub(crate) fn builtin_file_selinux_context_impl(
 }
 
 /// Context-aware variant of `file-selinux-context`.
-pub(crate) fn builtin_file_selinux_context_eval(
+pub(crate) fn builtin_file_selinux_context(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1859,18 +1681,6 @@ pub(crate) fn builtin_set_file_selinux_context(args: Vec<Value>) -> EvalResult {
     let _filename = expect_string_strict(&args[0])?;
     let _context = &args[1];
     Ok(Value::Nil)
-}
-
-/// (file-system-info PATH) -> (total free avail) in bytes
-pub(crate) fn builtin_file_system_info(args: Vec<Value>) -> EvalResult {
-    expect_args("file-system-info", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let (total, free, avail) = file_system_info(&filename)?;
-    Ok(Value::list(vec![
-        Value::Int(total),
-        Value::Int(free),
-        Value::Int(avail),
-    ]))
 }
 
 /// Context-aware variant of `file-system-info` that resolves relative paths
@@ -1892,15 +1702,8 @@ pub(crate) fn builtin_file_system_info_impl(
     ]))
 }
 
-pub(crate) fn builtin_file_system_info_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_system_info(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_system_info_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-directory-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_directory_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-directory-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_directory_p(&filename)))
 }
 
 /// Context-aware variant of `file-directory-p` that resolves relative paths
@@ -1917,15 +1720,8 @@ pub(crate) fn builtin_file_directory_p_impl(
     Ok(Value::bool(file_directory_p(&filename)))
 }
 
-pub(crate) fn builtin_file_directory_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_directory_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_directory_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-regular-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_regular_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-regular-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_regular_p(&filename)))
 }
 
 /// Context-aware variant of `file-regular-p` that resolves relative paths
@@ -1942,15 +1738,8 @@ pub(crate) fn builtin_file_regular_p_impl(
     Ok(Value::bool(file_regular_p(&filename)))
 }
 
-pub(crate) fn builtin_file_regular_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_regular_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_regular_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-symlink-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_symlink_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-symlink-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_symlink_p(&filename)))
 }
 
 /// Context-aware variant of `file-symlink-p` that resolves relative paths
@@ -1967,16 +1756,8 @@ pub(crate) fn builtin_file_symlink_p_impl(
     Ok(Value::bool(file_symlink_p(&filename)))
 }
 
-pub(crate) fn builtin_file_symlink_p_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_symlink_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_symlink_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-name-case-insensitive-p FILENAME) -> t or nil
-pub(crate) fn builtin_file_name_case_insensitive_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-name-case-insensitive-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = expand_file_name(&filename, None);
-    Ok(Value::bool(file_name_case_insensitive_p(&filename)))
 }
 
 /// Context-aware variant of `file-name-case-insensitive-p` that resolves
@@ -1993,21 +1774,11 @@ pub(crate) fn builtin_file_name_case_insensitive_p_impl(
     Ok(Value::bool(file_name_case_insensitive_p(&filename)))
 }
 
-pub(crate) fn builtin_file_name_case_insensitive_p_eval(
+pub(crate) fn builtin_file_name_case_insensitive_p(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_file_name_case_insensitive_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-newer-than-file-p FILE1 FILE2) -> t or nil
-pub(crate) fn builtin_file_newer_than_file_p(args: Vec<Value>) -> EvalResult {
-    expect_args("file-newer-than-file-p", &args, 2)?;
-    let file1 = expect_string_strict(&args[0])?;
-    let file2 = expect_string_strict(&args[1])?;
-    let file1 = expand_file_name(&file1, None);
-    let file2 = expand_file_name(&file2, None);
-    Ok(Value::bool(file_newer_than_file_p(&file1, &file2)))
 }
 
 /// Context-aware variant of `file-newer-than-file-p` that resolves
@@ -2026,27 +1797,11 @@ pub(crate) fn builtin_file_newer_than_file_p_impl(
     Ok(Value::bool(file_newer_than_file_p(&file1, &file2)))
 }
 
-pub(crate) fn builtin_file_newer_than_file_p_eval(
+pub(crate) fn builtin_file_newer_than_file_p(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_file_newer_than_file_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (file-modes FILENAME &optional FLAG) -> integer or nil
-pub(crate) fn builtin_file_modes(args: Vec<Value>) -> EvalResult {
-    expect_min_args("file-modes", &args, 1)?;
-    if args.len() > 2 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("file-modes"), Value::Int(args.len() as i64)],
-        ));
-    }
-    let filename = expect_string_strict(&args[0])?;
-    match file_modes(&filename) {
-        Some(mode) => Ok(Value::Int(mode as i64)),
-        None => Ok(Value::Nil),
-    }
 }
 
 pub(crate) fn builtin_file_modes_impl(
@@ -2072,42 +1827,8 @@ pub(crate) fn builtin_file_modes_impl(
 
 /// Context-aware variant of `file-modes` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_modes_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (set-file-modes FILENAME MODE &optional FLAG) -> nil
-pub(crate) fn builtin_set_file_modes(args: Vec<Value>) -> EvalResult {
-    expect_min_args("set-file-modes", &args, 2)?;
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("set-file-modes"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-    let filename = expect_string_strict(&args[0])?;
-    let mode = expect_fixnum(&args[1])?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = fs::Permissions::from_mode(mode as u32);
-        fs::set_permissions(&filename, perms)
-            .map_err(|err| signal_file_action_error(err, "Doing chmod", &filename))?;
-    }
-    #[cfg(not(unix))]
-    {
-        let mut perms = fs::metadata(&filename)
-            .map_err(|err| signal_file_action_error(err, "Doing chmod", &filename))?
-            .permissions();
-        let writable = (mode & 0o222) != 0;
-        perms.set_readonly(!writable);
-        fs::set_permissions(&filename, perms)
-            .map_err(|err| signal_file_action_error(err, "Doing chmod", &filename))?;
-    }
-    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_set_file_modes_impl(
@@ -2151,33 +1872,8 @@ pub(crate) fn builtin_set_file_modes_impl(
 
 /// Context-aware variant of `set-file-modes` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_set_file_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_set_file_modes_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (set-file-times FILENAME &optional TIMESTAMP FLAG) -> t
-pub(crate) fn builtin_set_file_times(args: Vec<Value>) -> EvalResult {
-    expect_min_args("set-file-times", &args, 1)?;
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("set-file-times"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-    let filename = expect_string_strict(&args[0])?;
-    let filename = expand_file_name(&filename, None);
-    let timestamp = if args.len() > 1 && !args[1].is_nil() {
-        Some(parse_timestamp_arg(&args[1])?)
-    } else {
-        None
-    };
-    // Emacs currently treats all non-nil values like `nofollow`.
-    let nofollow = args.get(2).is_some_and(|flag| !flag.is_nil());
-    set_file_times_compat(&filename, timestamp, nofollow)?;
-    Ok(Value::True)
 }
 
 pub(crate) fn builtin_set_file_times_impl(
@@ -2210,7 +1906,7 @@ pub(crate) fn builtin_set_file_times_impl(
 
 /// Context-aware variant of `set-file-times` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_set_file_times_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_file_times(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_set_file_times_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2333,23 +2029,9 @@ pub(crate) fn builtin_default_file_modes(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int((!mask) & 0o777))
 }
 
-/// (delete-file FILENAME &optional TRASH) -> nil
-pub(crate) fn builtin_delete_file(args: Vec<Value>) -> EvalResult {
-    expect_min_args("delete-file", &args, 1)?;
-    if args.len() > 2 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("delete-file"), Value::Int(args.len() as i64)],
-        ));
-    }
-    let filename = expect_string_strict(&args[0])?;
-    delete_file_compat(&filename)?;
-    Ok(Value::Nil)
-}
-
 /// Context-aware variant of `delete-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_delete_file_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_delete_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("delete-file", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -2359,14 +2041,6 @@ pub(crate) fn builtin_delete_file_eval(eval: &Context, args: Vec<Value>) -> Eval
     }
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_for_eval(eval, &filename);
-    delete_file_compat(&filename)?;
-    Ok(Value::Nil)
-}
-
-/// (delete-file-internal FILENAME) -> nil
-pub(crate) fn builtin_delete_file_internal(args: Vec<Value>) -> EvalResult {
-    expect_args("delete-file-internal", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
     delete_file_compat(&filename)?;
     Ok(Value::Nil)
 }
@@ -2386,43 +2060,11 @@ pub(crate) fn builtin_delete_file_internal_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_delete_file_internal_eval(
+pub(crate) fn builtin_delete_file_internal(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_file_internal_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (delete-directory DIRECTORY &optional RECURSIVE TRASH) -> nil
-pub(crate) fn builtin_delete_directory(args: Vec<Value>) -> EvalResult {
-    expect_min_args("delete-directory", &args, 1)?;
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("delete-directory"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-    let directory = expect_string_strict(&args[0])?;
-    let recursive = args.get(1).is_some_and(|value| value.is_truthy());
-    let result = if recursive {
-        fs::remove_dir_all(&directory)
-    } else {
-        fs::remove_dir(&directory)
-    };
-    result.map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
-    Ok(Value::Nil)
-}
-
-/// (delete-directory-internal DIRECTORY) -> nil
-pub(crate) fn builtin_delete_directory_internal(args: Vec<Value>) -> EvalResult {
-    expect_args("delete-directory-internal", &args, 1)?;
-    let directory = expect_string_strict(&args[0])?;
-    fs::remove_dir(&directory)
-        .map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
-    Ok(Value::Nil)
 }
 
 /// Context-aware variant of `delete-directory-internal` that resolves
@@ -2441,7 +2083,7 @@ pub(crate) fn builtin_delete_directory_internal_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_delete_directory_internal_eval(
+pub(crate) fn builtin_delete_directory_internal(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -2450,7 +2092,7 @@ pub(crate) fn builtin_delete_directory_internal_eval(
 
 /// Context-aware variant of `delete-directory` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_delete_directory_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_delete_directory(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("delete-directory", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2471,45 +2113,6 @@ pub(crate) fn builtin_delete_directory_eval(eval: &Context, args: Vec<Value>) ->
     };
     result.map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
     Ok(Value::Nil)
-}
-
-/// (make-symbolic-link TARGET LINKNAME &optional OK-IF-ALREADY-EXISTS) -> nil
-pub(crate) fn builtin_make_symbolic_link(args: Vec<Value>) -> EvalResult {
-    expect_min_args("make-symbolic-link", &args, 2)?;
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("make-symbolic-link"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-    let target = expect_string_strict(&args[0])?;
-    let linkname = expect_string_strict(&args[1])?;
-    let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
-
-    #[cfg(unix)]
-    {
-        if ok_if_exists && fs::symlink_metadata(&linkname).is_ok() {
-            fs::remove_file(&linkname)
-                .map_err(|err| signal_file_io_path(err, "Removing old name", &linkname))?;
-        }
-        std::os::unix::fs::symlink(&target, &linkname)
-            .map_err(|err| signal_file_io_path(err, "Making symbolic link", &linkname))?;
-        Ok(Value::Nil)
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = (target, linkname, ok_if_exists);
-        Err(signal(
-            "file-error",
-            vec![Value::string(
-                "Symbolic links are unsupported on this platform",
-            )],
-        ))
-    }
 }
 
 /// Context-aware variant of `make-symbolic-link` that resolves relative
@@ -2559,39 +2162,8 @@ pub(crate) fn builtin_make_symbolic_link_impl(
     }
 }
 
-pub(crate) fn builtin_make_symbolic_link_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_make_symbolic_link_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (rename-file FROM TO) -> nil
-pub(crate) fn builtin_rename_file(args: Vec<Value>) -> EvalResult {
-    expect_min_args("rename-file", &args, 2)?;
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("rename-file"), Value::Int(args.len() as i64)],
-        ));
-    }
-    let from = expect_string_strict(&args[0])?;
-    let to = expect_string_strict(&args[1])?;
-    let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
-    if fs::symlink_metadata(&to).is_ok() {
-        if ok_if_exists {
-            fs::remove_file(&to).map_err(|e| signal_file_io_path(e, "Removing old name", &to))?;
-        } else {
-            return Err(signal(
-                "file-already-exists",
-                vec![
-                    Value::string("Renaming"),
-                    Value::string(format!("File exists: {to}")),
-                    Value::string(&from),
-                    Value::string(&to),
-                ],
-            ));
-        }
-    }
-    rename_file(&from, &to).map_err(|e| signal_file_io_paths(e, "Renaming", &from, &to))?;
-    Ok(Value::Nil)
 }
 
 /// Context-aware variant of `rename-file` that resolves relative paths
@@ -2632,35 +2204,8 @@ pub(crate) fn builtin_rename_file_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_rename_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_rename_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_rename_file_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (copy-file FROM TO) -> nil
-pub(crate) fn builtin_copy_file(args: Vec<Value>) -> EvalResult {
-    expect_min_args("copy-file", &args, 2)?;
-    if args.len() > 6 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("copy-file"), Value::Int(args.len() as i64)],
-        ));
-    }
-    let from = expect_string_strict(&args[0])?;
-    let to = expect_string_strict(&args[1])?;
-    let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
-    if fs::symlink_metadata(&to).is_ok() && !ok_if_exists {
-        return Err(signal(
-            "file-already-exists",
-            vec![
-                Value::string("Copying"),
-                Value::string(format!("File exists: {to}")),
-                Value::string(&from),
-                Value::string(&to),
-            ],
-        ));
-    }
-    copy_file(&from, &to).map_err(|e| signal_file_io_paths(e, "Copying", &from, &to))?;
-    Ok(Value::Nil)
 }
 
 /// Context-aware variant of `copy-file` that resolves relative paths
@@ -2697,32 +2242,8 @@ pub(crate) fn builtin_copy_file_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_copy_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_copy_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_copy_file_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (add-name-to-file OLDNAME NEWNAME &optional OK-IF-ALREADY-EXISTS) -> nil
-pub(crate) fn builtin_add_name_to_file(args: Vec<Value>) -> EvalResult {
-    expect_min_args("add-name-to-file", &args, 2)?;
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("add-name-to-file"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-    let oldname = expect_string_strict(&args[0])?;
-    let newname = expect_string_strict(&args[1])?;
-    let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
-    if ok_if_exists && fs::symlink_metadata(&newname).is_ok() {
-        fs::remove_file(&newname)
-            .map_err(|err| signal_file_io_path(err, "Removing old name", &newname))?;
-    }
-    add_name_to_file(&oldname, &newname)
-        .map_err(|err| signal_file_io_paths(err, "Adding new name", &oldname, &newname))?;
-    Ok(Value::Nil)
 }
 
 /// Context-aware variant of `add-name-to-file` that resolves relative paths
@@ -2757,16 +2278,8 @@ pub(crate) fn builtin_add_name_to_file_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_add_name_to_file_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_add_name_to_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_add_name_to_file_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (make-directory-internal DIR) -> nil
-pub(crate) fn builtin_make_directory_internal(args: Vec<Value>) -> EvalResult {
-    expect_args("make-directory-internal", &args, 1)?;
-    let dir = expect_string_strict(&args[0])?;
-    make_directory(&dir, false).map_err(|e| signal_file_io_path(e, "Creating directory", &dir))?;
-    Ok(Value::Nil)
 }
 
 /// Context-aware variant of `make-directory-internal` that resolves relative
@@ -2784,19 +2297,11 @@ pub(crate) fn builtin_make_directory_internal_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_make_directory_internal_eval(
+pub(crate) fn builtin_make_directory_internal(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_directory_internal_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (find-file-name-handler FILENAME OPERATION) -> handler or nil
-pub(crate) fn builtin_find_file_name_handler(args: Vec<Value>) -> EvalResult {
-    expect_args("find-file-name-handler", &args, 2)?;
-    let _filename = expect_string_strict(&args[0])?;
-    let _operation = &args[1];
-    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_find_file_name_handler_impl(
@@ -2813,54 +2318,11 @@ pub(crate) fn builtin_find_file_name_handler_impl(
 }
 
 /// Context-aware variant of `find-file-name-handler`.
-pub(crate) fn builtin_find_file_name_handler_eval(
+pub(crate) fn builtin_find_file_name_handler(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_find_file_name_handler_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// (directory-files DIR &optional FULL MATCH NOSORT COUNT) -> list of strings
-pub(crate) fn builtin_directory_files(args: Vec<Value>) -> EvalResult {
-    expect_min_args("directory-files", &args, 1)?;
-    if args.len() > 5 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("directory-files"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-    let dir = expect_string_strict(&args[0])?;
-    let full = args.get(1).is_some_and(|v| v.is_truthy());
-    let match_pattern = if let Some(val) = args.get(2) {
-        if val.is_truthy() {
-            Some(expect_string_strict(val)?)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    let nosort = args.get(3).is_some_and(|v| v.is_truthy());
-    let count = if let Some(val) = args.get(4) {
-        match val {
-            Value::Int(n) if *n >= 0 => Some(*n as usize),
-            other => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("natnump"), *other],
-                ));
-            }
-        }
-    } else {
-        None
-    };
-
-    let files = directory_files(&dir, full, match_pattern.as_deref(), nosort, count)
-        .map_err(|e| signal_directory_files_error(e, &dir))?;
-    Ok(Value::list(files.into_iter().map(Value::string).collect()))
 }
 
 /// Context-aware variant of `directory-files` that resolves relative DIR
@@ -2913,7 +2375,7 @@ pub(crate) fn builtin_directory_files_impl(
     Ok(Value::list(files.into_iter().map(Value::string).collect()))
 }
 
-pub(crate) fn builtin_directory_files_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_directory_files(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_directory_files_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
