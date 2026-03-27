@@ -1,11 +1,24 @@
-# GNU Emacs C Backend — Full Subsystem Dependency Graph
+# GNU Emacs Backend — Approximate Header-Coupling Map
 
 **Date**: 2026-03-28
-**Source**: Extracted from `#include` analysis of all ~120 `.c` files in GNU Emacs `src/`.
+**Source**: Derived from `#include` analysis of GNU Emacs `src/` C-family
+files, bucketed into coarse subsystems for audit planning.
 
 ## Legend
 
 `A → B [files]` means files in subsystem A include headers from subsystem B.
+
+This document is useful for finding coupling hot spots, but it is not a proof
+of semantic dependency order:
+
+- `#include` edges show header-level coupling, not call flow, init order, or
+  behavioral ownership.
+- The subsystem buckets here are heuristic. GNU Emacs does not define these as
+  formal architectural layers.
+- The "layers" below are therefore an audit aid, not a strict DAG.
+- Objective-C backend files and some generated/platform-specific glue are
+  summarized more loosely than the core C files, so "full" would overstate what
+  this map proves.
 
 ---
 
@@ -233,11 +246,13 @@ Timer  (atimer.c, timefns.c)
 
 ---
 
-## Layer 7: Platform Backends (all implement `termhooks.h`)
+## Layer 7: Platform Backends (many center on `termhooks.h`)
 
-Every backend has the **same dependency shape**: they all depend on the core
-windowing model (Frame, Window, Terminal) + Display + Font + I18n + Command.
-This is by design — `termhooks.h` defines the interface contract.
+Many backends have a broadly similar dependency shape: they depend on the core
+windowing model (Frame, Window, Terminal) plus Display, Font, I18n, and
+Command. But the details differ, and some backends reuse other backend code.
+So this section should be read as a family resemblance map, not a proof of
+perfect interchangeability.
 
 ```
 X Backend  (xterm.c, xfns.c, xmenu.c, xselect.c, xrdb.c,
@@ -326,7 +341,7 @@ Main  (emacs.c)
 
 ---
 
-## Complete Subsystem File List
+## Subsystem File Inventory Used For This Sketch
 
 | Subsystem | Files | Count |
 |-----------|-------|-------|
@@ -385,13 +400,15 @@ Main  (emacs.c)
    Frame, Display because `alloc.c` walks all object types for GC. This is the
    hardest coupling to break.
 
-2. **Platform backends are perfectly interchangeable** — they all depend on the
-   same upper layers and implement `termhooks.h`. This is the cleanest
-   separation point.
+2. **Platform backends share a common seam, but are not interchangeable** —
+   many of them implement `termhooks.h`-style hooks, but several also reuse
+   code from other backends or carry platform-only dependencies. Treat
+   `termhooks.h` as an important boundary, not as proof that every backend has
+   the same shape.
 
 3. **Display is the most coupled subsystem** — `xdisp.c` touches everything:
    Buffer, Window, Frame, Font, I18n, Command, Timer, Image, Terminal. This is
-   why Neomacs replaced it entirely with a Rust layout engine.
+   the hardest GNU subsystem to mirror mechanically.
 
 4. **Font is cross-cutting** — it touches both the windowing model (Frame,
    Window) and platform backends (X, PGTK, Haiku, Android, W32 each have font

@@ -5,10 +5,17 @@
 ## Executive Summary
 
 Neomacs loads the **exact same `loadup.el`** from the GNU Emacs lisp/ directory,
-producing an equivalent dumped state. The post-dump runtime path diverges in how
-it enters `recursive-edit` and sets up display, but the **Lisp-level semantics
-are preserved**. There are a few areas that could break 100% compatibility ---
-detailed below.
+but that does **not** mean it produces an equivalent dumped state. The current
+design is similar at the top-level file-loading layer, yet it still diverges
+from GNU Emacs in bootstrap construction details such as builtin registration,
+post-cache repair work, startup shims, and some function/object shapes.
+
+So the right conclusion is:
+
+- the top-level Lisp bootstrap path is intentionally close to GNU Emacs
+- the current bootstrap is **not** equal to GNU Emacs by construction
+- semantic parity must be established by differential tests, not inferred from
+  "same `loadup.el`"
 
 ---
 
@@ -24,7 +31,7 @@ detailed below.
 6. `(dump-emacs-portable "emacs.pdmp")` serializes state
 7. `kill-emacs` terminates temacs
 
-### Neomacs
+### Neomacs (`neomacs-bin/src/main.rs` + `neovm-core/src/emacs_core/load.rs`)
 
 1. Rust `main()` calls `create_bootstrap_evaluator_cached_with_features(&["neomacs"])`
    (`load.rs:2673`)
@@ -37,16 +44,18 @@ detailed below.
    `term/neo-win` (`load.rs:2636-2646`)
 6. Saves result to `.pdump` cache file for subsequent runs
 
-### Verdict: COMPATIBLE
+### Verdict: PARTIALLY COMPATIBLE
 
-The core bootstrap loads the same files in the same order. The key differences:
+The core bootstrap loads the same top-level file, but several construction
+details still differ in ways that can matter semantically:
 
 | Aspect | GNU Emacs | Neomacs | Compatibility Risk |
 |--------|-----------|---------|-------------------|
-| `dump-mode` | `"pdump"` | `nil` | **LOW** — loadup.el's `(null dump-mode)` branch adds load-path subdirs and sets `max-lisp-eval-depth` higher, which is fine |
-| Window system in loadup | `(featurep 'x)` → loads x-win | `(featurep 'x)` → false | **DESIGNED** — neo-win loaded separately after loadup |
+| `dump-mode` | `"pdump"` / `"pbootstrap"` during dump | `nil` during bootstrap load | **MEDIUM** — this changes which `loadup.el` branches execute and interacts with eval-depth and startup defaults |
+| Window system in loadup | `(featurep 'x)` / backend features select platform Lisp | `(featurep 'x)` is typically false for neomacs bootstrap | **MEDIUM** — `term/common-win` / `term/neo-win` are loaded separately after `loadup.el` |
+| Builtin registration after cached bootstrap | Builtins are present as part of dumped runtime construction | Cached bootstrap is repaired in Rust after load | **MEDIUM** — Neomacs re-runs builtin registration and runtime surface repair after cache restore |
 | Native compilation | `(featurep 'native-compile)` gates trampoline setup | No native comp | **LOW** — neomacs doesn't support native comp yet |
-| `Snarf-documentation` | Runs during dump | Skipped or fails silently | **MEDIUM** — see below |
+| `Snarf-documentation` | Runs during dump flow, with fallback handling | May fail silently in the non-dumping bootstrap path | **MEDIUM** — see below |
 
 ---
 
@@ -76,7 +85,7 @@ The core bootstrap loads the same files in the same order. The key differences:
    - Runs `window-setup-hook`
    - Displays splash screen
 
-### Neomacs (main.rs)
+### Neomacs (`neomacs-bin/src/main.rs`)
 
 1. Rust `main()` creates evaluator from pdmp cache
 2. `bootstrap_buffers()` — creates *scratch*, *Messages*, minibuffer, first
@@ -91,17 +100,18 @@ The core bootstrap loads the same files in the same order. The key differences:
 8. `recursive_edit` evaluates `top-level` → `(normal-top-level)` → **same
    `command-line` function from startup.el**
 
-### Verdict: MOSTLY COMPATIBLE with specific differences
+### Verdict: Same top-level Lisp startup path, but not yet proven equal
 
 The critical insight: **Neomacs runs the same `startup.el` `command-line`
 function**. The `top-level` variable points to `normal-top-level` just like GNU
-Emacs. The divergence is in what happens *before* entering that Lisp code.
+Emacs. The divergence is in what happens *before* entering that Lisp code and
+in what runtime state has been preconstructed for it.
 
 ---
 
 ## Compatibility Risk Analysis
 
-### 1. `window-system-initialization` Timing — LOW RISK
+### 1. `window-system-initialization` Timing — MEDIUM RISK
 
 GNU: `command-line` calls `window-system-initialization` which calls
 `x-open-connection`.
@@ -109,8 +119,9 @@ Neomacs: `window-system-initialization` dispatches to `neo-win.el`'s
 `cl-defmethod` which calls `x-open-connection` (a Rust builtin stub). The
 render thread is already running.
 
-**Status**: Compatible. neo-win.el properly implements the
-`window-system-initialization` protocol.
+**Status**: Intended to be compatible, but this still needs differential
+testing. Running the same top-level Lisp method is not enough if the precreated
+frame/display state differs.
 
 ### 2. Frame Pre-Creation vs Lazy Creation — MEDIUM RISK
 
@@ -143,60 +154,61 @@ Neomacs: `ensure_gnu_startup_terminal_frame` creates a hidden non-GUI frame as
 **Risk**: The frame ordering and visibility semantics should match, but the
 exact frame lifecycle (delete/recreate during startup) could differ.
 
-### 5. `site-start.el` / `early-init.el` / Init File Loading — COMPATIBLE
+### 5. `site-start.el` / `early-init.el` / Init File Loading — INTENDED SAME PATH
 
 These are all handled by `startup.el`'s `command-line` function, which Neomacs
-runs identically. The load paths point to the same `lisp/` directory.
+runs from the same GNU Lisp sources. But this still depends on Neomacs matching
+GNU's loader semantics, CLI argument forwarding, and startup variable state.
 
-### 6. Hook Execution Order — COMPATIBLE
+### 6. Hook Execution Order — INTENDED SAME ORDER
 
-Since Neomacs runs the same `startup.el` code, the hook order is identical:
+Since Neomacs runs the same `startup.el` code, the intended hook order is:
 
 1. `before-init-hook`
 2. `after-init-hook`
 3. `emacs-startup-hook` + `term-setup-hook`
 4. `window-setup-hook`
 
-### 7. Package Initialization — COMPATIBLE
+### 7. Package Initialization — INTENDED SAME PATH
 
 `package-activate-all` runs during `command-line` if
 `package-enable-at-startup` is non-nil. Same code path.
 
-### 8. GC Disabled During Startup — LOW RISK
+### 8. GC Disabled During Startup — LOW/MEDIUM RISK
 
 Neomacs sets `evaluator.set_gc_threshold(usize::MAX)` before entering
 recursive_edit (main.rs:659), disabling GC during startup. GNU Emacs runs GC
 normally.
 
-**Risk**: Higher memory usage during startup. Should not affect semantics unless
-code relies on GC side effects (weak hash tables, etc.). GC is re-enabled later
-by the Lisp-level `garbage-collect` calls.
+**Risk**: Higher memory usage during startup, plus possible semantic exposure
+for code that depends on GC timing or weak object behavior. This is not the
+highest-risk item, but it is more than a pure performance note.
 
 ### 9. `function-get` Override — LOW RISK
 
 Neomacs overrides the Elisp `function-get` with a Rust builtin
-(main.rs:1185-1186) to avoid excessive eval depth during macroexpand.
+to avoid excessive eval depth during macroexpand.
 
-**Risk**: Should be functionally identical, just faster. If there's any
-behavioral difference in the Rust implementation vs the Elisp one, it would show
-up here.
+**Risk**: This is a compatibility shim, not a GNU-equal construction. It should
+be covered by differential tests instead of being assumed equivalent.
 
-### 10. `load-source-file-function` — COMPATIBLE
+### 10. `load-source-file-function` — PARTIALLY VERIFIED
 
 GNU sets `load-source-file-function` in loadup.el (line 147). Neomacs runs the
-same loadup.el.
+same loadup.el, and the current loader does consult it for source-file loads.
 
-### 11. No `.elc` Loading — MEDIUM RISK
+**Risk**: Source-load handling is closer than before, but recursive-load
+limits, `.elc` paths, and cache shortcuts still need differential coverage.
 
-Neomacs's loader doesn't support `.elc.gz` (load.rs:1178-1181) and appears to
-load `.el` source files. GNU Emacs loads `.elc` compiled files.
+### 11. `.elc` / `.neobc` Loading Differences — MEDIUM RISK
 
-**Risk**: Slower execution of Lisp during bootstrap (interpreted vs
-byte-compiled). This shouldn't affect semantics since both paths evaluate the
-same code, but:
-- Macro expansion behavior may differ subtly between interpreted and
-  byte-compiled code
-- Performance-critical paths like `font-lock`, `simple.el`, etc. will be slower
+Neomacs supports `.elc`, does **not** support compressed `.elc.gz`, and also
+adds a NeoVM-only `.neobc` cache path for `.el` source files.
+
+**Risk**:
+- `.elc.gz` incompatibility is a real loading gap
+- `.neobc` must remain observationally invisible to Lisp
+- byte-code vs interpreted function shape can still diverge after bootstrap
 
 ### 12. `emacs-build-number` / Repository Version — LOW RISK
 
@@ -218,16 +230,16 @@ DOC file doesn't exist or the builtin doesn't work the same way.
 **Risk**: Documentation strings for builtins may be missing.
 `(documentation 'some-builtin)` could return nil or error.
 
-### 14. `dump-mode` Cleanup — LOW RISK
+### 14. Post-Cache Runtime Repair — MEDIUM RISK
 
-GNU: loadup.el uninterns `dump-mode` before allowing user code.
-Neomacs: `dump-mode` is set to `nil` before loadup, then set to `nil` again in
-main.rs (line 660). `loadup.el` line 678-680 strips `-l loadup` from
-`command-line-args`.
+GNU Emacs restores a dumped runtime whose builtin/function surface already has
+the expected shape. Neomacs performs post-cache repair work after loading a
+cached bootstrap image, including builtin registration and some runtime keymap /
+window-system normalization.
 
-**Risk**: The variable `dump-mode` remains bound (but nil) in Neomacs. GNU
-uninterns it. Code checking `(boundp 'dump-mode)` would see different results.
-Extremely unlikely to matter.
+**Risk**: Compatibility here depends on the repair logic staying perfectly in
+sync with GNU runtime state. That is workable, but it is not equal by
+construction.
 
 ---
 
@@ -235,22 +247,23 @@ Extremely unlikely to matter.
 
 | Area | Risk | Details |
 |------|------|---------|
-| loadup.el file loading sequence | OK | Identical files, identical order |
-| Window system initialization | OK | neo-win.el properly implements the protocol |
-| Hook ordering | OK | Same startup.el runs |
-| Init file / early-init loading | OK | Same startup.el handles it |
-| Package activation | OK | Same code path |
+| loadup.el top-level entry | MEDIUM | Same file, but not same bootstrap construction |
+| Window system initialization | MEDIUM | Same Lisp entry point, different pre-state |
+| Hook ordering | MEDIUM | Intended same via startup.el, still needs full oracle coverage |
+| Init file / early-init loading | MEDIUM | Same startup path, dependent on loader/CLI parity |
+| Package activation | MEDIUM | Same startup path, not independently proven |
 | Frame lifecycle during startup | MEDIUM | Pre-created frame may cause edge cases |
-| .elc.gz unsupported | MEDIUM | Interpreted-only, no compressed elc |
+| Cached bootstrap repair | MEDIUM | Builtins and some runtime state are repaired after cache load |
+| `.elc` / `.neobc` handling | MEDIUM | `.elc` supported, `.elc.gz` unsupported, `.neobc` adds a NeoVM-only path |
 | Documentation strings (Snarf) | MEDIUM | May be missing for builtins |
 | Splash screen disabled | LOW | Intentional, users can override |
-| GC disabled during startup | LOW | Performance difference only |
+| GC disabled during startup | LOW/MEDIUM | Mostly performance, but timing-sensitive code can notice |
 | build-number / repo version | LOW | Variables undefined, rarely used |
-| `function-get` override | LOW | Should be semantically identical |
+| `function-get` override | LOW/MEDIUM | Compatibility shim, should be tested not assumed |
 | Native compilation | LOW | Not supported, but not expected |
 
-**Bottom line**: The bootstrap pipeline is **semantically compatible at the Lisp
-level**. The same `startup.el` → `normal-top-level` → `command-line` →
-`command-line-1` sequence runs in both. The two medium-risk items (frame
-pre-creation and .elc loading) are the most likely to cause subtle behavioral
-differences in edge cases, but won't break normal usage.
+**Bottom line**: The bootstrap pipeline is **directionally close but not yet
+GNU-equal**. The same `startup.el` → `normal-top-level` → `command-line` path
+does run, but Neomacs still relies on bootstrap-time and post-cache repair
+logic that GNU Emacs does not need. That makes bootstrap compatibility a real
+audit target, not a box that can be checked just because `loadup.el` is shared.

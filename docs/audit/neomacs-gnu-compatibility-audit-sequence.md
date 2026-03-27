@@ -7,6 +7,11 @@
 The audit sequence follows the dependency graph bottom-up. You can't audit Display
 until Buffer semantics are verified, since Display depends on Buffer.
 
+This sequence is not purely linear. Basic `lread` / `load` / `require` /
+autoload / bootstrap invariants are a cross-cutting prerequisite and should be
+audited as soon as the VM can execute meaningful Lisp. Phase 10 below is the
+final end-to-end startup audit, not the first place to think about loading.
+
 ```
 Phase 1    Phase 2    Phase 3    Phase 4    Phase 5
 Lisp VM →  Buffer →  I18n   →  Search →  Editing
@@ -14,7 +19,7 @@ Lisp VM →  Buffer →  I18n   →  Search →  Editing
                                 File I/O
 
 Phase 6    Phase 7    Phase 8    Phase 9    Phase 10
-Window  →  Display →  Command →  Process →  Bootstrap
+Window  →  Display →  Command →  Process →  Startup
 Frame                              Thread     Integration
 Font                               Timer
 Terminal
@@ -50,8 +55,10 @@ cascades everywhere.
 
 ### Method
 
-Run GNU Emacs's ERT test suite (`make check`) against Neomacs. Compare
-`emacs --batch -Q -l file.el -f ert-test ...` output.
+Start with focused GNU-vs-Neomacs differential oracles for `eval`, `funcall`,
+special forms, GC-visible behavior, and bytecode. Reuse GNU ERT coverage where
+the harness fits, but do not assume GNU's full `make check` can be dropped onto
+Neomacs unchanged.
 
 ---
 
@@ -140,7 +147,8 @@ chars). Compare encoding/decoding round-trips.
   `scan-sexps`, syntax properties, multibyte syntax
 - **lread.c** — `read`, `read-from-string`, `read-buffer`, `intern`,
   `intern-soft`, `obarray`, `mapatoms`, load-path, `load`, `require`,
-  `provide`, `autoload`, `load-file`, `eval-buffer`, `eval-region`
+  `provide`, `autoload`, `load-file`, `eval-buffer`, `eval-region`,
+  `load-source-file-function`, recursive-load limits, load history
 - **print.c** — `prin1`, `prin1-to-string`, `princ`, `print`, `terpri`,
   `write-char`, circle notation, readable output
 - **doc.c** — `documentation`, `Snarf-documentation`
@@ -186,14 +194,21 @@ files, compare results.
 
 ### Method
 
-Most of these are `.el` files (simple.el, files.el, etc.) — verify they load
-and behave identically.
+This phase mixes C primitives with Lisp wrappers. For APIs GNU owns in C, match
+the primitive semantics first. For APIs GNU owns in `.el`, keep the GNU Lisp
+implementation and differential-test behavior instead of reimplementing it in
+Rust.
 
 ---
 
 ## Phase 6: Windowing Model
 
 ### Audit items
+
+Separate GNU C-owned primitives in `window.c` / `frame.c` / `terminal.c` /
+`font.c` from higher-level commands in `lisp/window.el`, `frame.el`, and
+related Lisp files. Only the GNU C-owned surface should be reimplemented in
+Rust.
 
 - **window.c** — `selected-window`, `select-window`,
   `get-buffer-window`, `get-lru-window`, `split-window`,
@@ -203,8 +218,15 @@ and behave identically.
   `set-window-start`, `window-end`, `window-height`, `window-width`,
   `window-body-height`, `window-body-width`, `window-edges`,
   `window-inside-edges`, `window-pixel-edges`, `window-at`,
-  `window-absolute-pixel-edges`, window sizes, window combinations,
-  `fit-window-to-buffer`, `balance-windows`
+  `window-absolute-pixel-edges`, `window-scroll-bars`,
+  `set-window-scroll-bars`, `window-fringes`, `set-window-fringes`,
+  `window-vscroll`, `set-window-vscroll`, `window-prev-buffers`,
+  `window-next-buffers`, `window-use-time`, window sizes,
+  window combinations
+- **lisp/window.el** — `split-window-below`, `split-window-right`,
+  `fit-window-to-buffer`, `balance-windows`, `switch-to-buffer`,
+  `window-state-get`, `window-state-put`, and related high-level window
+  commands should come from GNU Lisp, not from duplicate Rust ownership
 - **frame.c** — `selected-frame`, `select-frame`, `make-frame`,
   `delete-frame`, `frame-list`, `frame-parameter`,
   `set-frame-parameter`, `modify-frame-parameters`, `frame-width`,
@@ -258,8 +280,10 @@ Create frames, split windows, verify pixel-level geometry matches.
 
 ### Method
 
-Visual regression tests. Render same buffer contents in both, compare
-glyph-by-glyph output.
+Start with differential oracles for layout-independent display state
+(`window-start`, `window-end`, fringes, scroll bars, face/overlay ownership),
+then add visual regression tests once font and frame parity are strong enough
+to make pixel comparisons meaningful.
 
 ---
 
@@ -323,7 +347,7 @@ Send same keystroke sequences, compare resulting commands.
 
 ---
 
-## Phase 10: Bootstrap & Integration
+## Phase 10: Startup & Integration
 
 ### Audit items
 
@@ -361,8 +385,10 @@ For each phase, the workflow is:
 3. If implemented in Rust: compare semantics
    → Write ERT test, run in both GNU Emacs and Neomacs
 
-4. If implemented in .el: verify file loads identically
-   → Same .el file must produce same behavior
+4. Determine GNU ownership before writing code
+   → If GNU owns it in C, implement it in Rust
+   → If GNU owns it in `.el`, load the GNU Lisp and avoid shadowing it with a
+     Rust fallback unless bootstrap absolutely requires one
 
 5. Document gaps
    → Missing primitives, divergent behavior, wrong defaults
@@ -383,5 +409,6 @@ grep -rh 'intern\|"defun\|Subr(' neovm-core/src/ | \
 comm -23 /tmp/gnu_defuns.txt /tmp/neomacs_builtins.txt
 ```
 
-This gives you the exact list of missing C primitives that need Rust
-implementations.
+This is only a seed inventory. It will miss aliases, autoloaded Lisp entry
+points, generated registrations, and post-bootstrap function-cell rewrites, so
+it should not be treated as the final ownership truth.
