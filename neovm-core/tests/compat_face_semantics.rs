@@ -33,6 +33,20 @@ fn compat_face_semantics_matches_gnu_emacs() {
   (face-attributes-as-vector '(:box (:line-width 3 :color "red" :style released-button)))
   (face-attributes-as-vector '(:foreground nil :background nil :distant-foreground nil :extend nil)))"#,
         },
+        FaceCase {
+            name: "frame_sensitive_face_state",
+            form: r##"(let* ((f (selected-frame))
+       (face 'compat-runtime-face))
+  (list
+   (vectorp (internal-make-lisp-face face f))
+   (eq (internal-copy-lisp-face 'default face f f) face)
+   (eq (internal-set-lisp-face-attribute face :foreground "red" f) face)
+   (equal (internal-get-lisp-face-attribute face :foreground f) "red")
+   (progn
+     (internal-set-lisp-face-attribute face :foreground "blue" t)
+     (internal-merge-in-global-face face f)
+     (equal (internal-get-lisp-face-attribute face :foreground f) "blue"))))"##,
+        },
     ];
 
     for case in cases {
