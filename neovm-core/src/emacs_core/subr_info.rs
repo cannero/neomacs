@@ -1605,13 +1605,12 @@ pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(result))
 }
 
-/// `(macrop OBJECT)` -- return t if OBJECT is a macro.
-pub(crate) fn builtin_macrop_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("macrop", &args, 1)?;
-    if let Some(marker) = autoload_macro_marker(&args[0]) {
+/// Check if a single value is a macro.  Shared by `builtin_macrop` and tests.
+pub(crate) fn macrop_check(obj: &Value) -> EvalResult {
+    if let Some(marker) = autoload_macro_marker(obj) {
         return Ok(marker);
     }
-    Ok(Value::bool(is_macro_object(&args[0])))
+    Ok(Value::bool(is_macro_object(obj)))
 }
 
 /// `(commandp FUNCTION &optional FOR-CALL-INTERACTIVELY)` -- return t if

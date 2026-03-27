@@ -1700,10 +1700,14 @@ pub(crate) fn builtin_x_display_set_last_user_time(
     x_optional_display_query_error_eval(eval, "x-display-set-last-user-time", query_args)
 }
 
-/// (x-open-connection DISPLAY &optional XRM-STRING MUST-SUCCEED) -> nil
-/// In batch/no-X context this reports a display-open failure.
-pub(crate) fn builtin_x_open_connection_batch(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_x_open_connection(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("x-open-connection", &args, 1, 3)?;
+    if x_window_system_active(eval) {
+        return Ok(Value::Nil);
+    }
     match &args[0] {
         Value::Nil => Err(signal(
             "error",
@@ -1723,21 +1727,22 @@ pub(crate) fn builtin_x_open_connection_batch(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_x_open_connection(
+/// Context-aware variant of `x-close-connection`.
+///
+/// Live frame designators map to batch-compatible frame-class errors.
+pub(crate) fn builtin_x_close_connection(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("x-open-connection", &args, 1, 3)?;
-    if x_window_system_active(eval) {
-        return Ok(Value::Nil);
-    }
-    builtin_x_open_connection_batch(args)
-}
-
-/// (x-close-connection DISPLAY) -> nil
-/// In batch/no-X context this signals display/X availability errors.
-pub(crate) fn builtin_x_close_connection_batch(args: Vec<Value>) -> EvalResult {
     expect_args("x-close-connection", &args, 1)?;
+    if let Some(display) = args.first() {
+        if live_frame_designator_p(eval, display) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Window system frame should be used")],
+            ));
+        }
+    }
     match &args[0] {
         Value::Nil => Err(signal(
             "error",
@@ -1763,57 +1768,6 @@ pub(crate) fn builtin_x_close_connection_batch(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// Context-aware variant of `x-close-connection`.
-///
-/// Live frame designators map to batch-compatible frame-class errors.
-pub(crate) fn builtin_x_close_connection(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("x-close-connection", &args, 1)?;
-    if let Some(display) = args.first() {
-        if live_frame_designator_p(eval, display) {
-            return Err(signal(
-                "error",
-                vec![Value::string("Window system frame should be used")],
-            ));
-        }
-    }
-    builtin_x_close_connection_batch(args)
-}
-
-/// (x-display-pixel-width &optional TERMINAL)
-///
-/// Batch/no-X semantics: signal X-not-in-use, invalid frame designator, or
-/// display-open failure depending on argument shape.
-pub(crate) fn builtin_x_display_pixel_width_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("x-display-pixel-width", &args, 1)?;
-    match args.first() {
-        None | Some(Value::Nil) => Err(signal(
-            "error",
-            vec![Value::string("X windows are not in use or not initialized")],
-        )),
-        Some(display) if is_terminal_handle(display) => {
-            if let Some(err) = terminal_not_x_display_error(display) {
-                Err(err)
-            } else {
-                Err(invalid_get_device_terminal_error(display))
-            }
-        }
-        Some(Value::Str(_)) => {
-            let display = args[0].as_str().unwrap();
-            Err(signal(
-                "error",
-                vec![Value::string(format!("Display {display} can’t be opened"))],
-            ))
-        }
-        Some(other) => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("frame-live-p"), *other],
-        )),
-    }
-}
-
 /// Context-aware variant of `x-display-pixel-width`.
 ///
 /// Accepts live frame designators and maps them to the same batch/no-X error
@@ -1831,15 +1785,6 @@ pub(crate) fn builtin_x_display_pixel_width(
             ));
         }
     }
-    builtin_x_display_pixel_width_batch(args)
-}
-
-/// (x-display-pixel-height &optional TERMINAL)
-///
-/// Batch/no-X semantics: signal X-not-in-use, invalid frame designator, or
-/// display-open failure depending on argument shape.
-pub(crate) fn builtin_x_display_pixel_height_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("x-display-pixel-height", &args, 1)?;
     match args.first() {
         None | Some(Value::Nil) => Err(signal(
             "error",
@@ -1883,7 +1828,30 @@ pub(crate) fn builtin_x_display_pixel_height(
             ));
         }
     }
-    builtin_x_display_pixel_height_batch(args)
+    match args.first() {
+        None | Some(Value::Nil) => Err(signal(
+            "error",
+            vec![Value::string("X windows are not in use or not initialized")],
+        )),
+        Some(display) if is_terminal_handle(display) => {
+            if let Some(err) = terminal_not_x_display_error(display) {
+                Err(err)
+            } else {
+                Err(invalid_get_device_terminal_error(display))
+            }
+        }
+        Some(Value::Str(_)) => {
+            let display = args[0].as_str().unwrap();
+            Err(signal(
+                "error",
+                vec![Value::string(format!("Display {display} can’t be opened"))],
+            ))
+        }
+        Some(other) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), *other],
+        )),
+    }
 }
 
 // ---------------------------------------------------------------------------

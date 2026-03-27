@@ -4113,7 +4113,7 @@ impl<'a> Vm<'a> {
                 }
             });
         }
-        crate::emacs_core::builtins::builtin_assoc_inner(vec![args[0], args[1]])
+        crate::emacs_core::builtins::builtin_assoc(&mut *self.ctx, vec![args[0], args[1]])
     }
 
     fn builtin_plist_member_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4167,7 +4167,7 @@ impl<'a> Vm<'a> {
     fn builtin_garbage_collect_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("garbage-collect", args, 0)?;
         self.ctx.gc_collect();
-        crate::emacs_core::builtins_extra::builtin_garbage_collect_inner(vec![])
+        crate::emacs_core::builtins_extra::builtin_garbage_collect_stats()
     }
 
     fn builtin_kill_emacs_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4272,8 +4272,8 @@ impl<'a> Vm<'a> {
                 },
             );
         }
-        crate::emacs_core::dired::builtin_file_name_completion_inner(
-            &mut self.ctx,
+        crate::emacs_core::dired::builtin_file_name_completion(
+            &mut *self.ctx,
             args.to_vec(),
         )
     }
@@ -4692,16 +4692,14 @@ impl<'a> Vm<'a> {
             return Ok(result);
         }
         let target = crate::emacs_core::builtins::resolve_print_target_in_state(&*self.ctx, args.get(1));
-        let char_code = match crate::emacs_core::builtins::builtin_write_char_inner(args.to_vec())? {
-            Value::Int(n) => n,
-            _ => unreachable!("write-char returns character"),
-        };
+        builtins::expect_range_args("write-char", args, 1, 2)?;
+        let char_code = builtins::expect_fixnum(&args[0])?;
         self.call_function_with_roots(target, &[Value::Int(char_code)])?;
         Ok(Value::Int(char_code))
     }
 
     fn builtin_redraw_frame_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::dispnew::pure::builtin_redraw_frame_inner(args.to_vec())
+        crate::emacs_core::dispnew::pure::builtin_redraw_frame(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_x_get_resource_shared(&mut self, args: &[Value]) -> EvalResult {

@@ -206,15 +206,6 @@ fn window_cursor_visible(window_id: WindowId) -> bool {
 // Dispnew builtins
 // ---------------------------------------------------------------------------
 
-/// (redraw-frame &optional FRAME) -> nil
-pub(crate) fn builtin_redraw_frame_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("redraw-frame", &args, 0, 1)?;
-    if let Some(frame) = args.first() {
-        expect_frame_designator(frame)?;
-    }
-    Ok(Value::Nil)
-}
-
 /// Context-aware variant of `redraw-frame`.
 ///
 /// Accepts live frame designators in addition to nil.

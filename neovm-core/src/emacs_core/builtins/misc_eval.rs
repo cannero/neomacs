@@ -491,8 +491,8 @@ pub(super) fn builtin_garbage_collect(
 ) -> EvalResult {
     expect_args("garbage-collect", &args, 0)?;
     eval.gc_collect();
-    // Return the same stats format as the old stub for compatibility.
-    super::builtins_extra::builtin_garbage_collect_inner(vec![])
+    // Return GC stats.
+    super::builtins_extra::builtin_garbage_collect_stats()
 }
 
 pub(crate) fn builtin_load(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -1304,12 +1304,6 @@ pub(super) fn write_char_rendered_text(char_code: i64) -> Option<String> {
     char::from_u32(code)
         .map(|ch| ch.to_string())
         .or_else(|| encode_nonunicode_char_for_storage(code))
-}
-
-pub(crate) fn builtin_write_char_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("write-char", &args, 1, 2)?;
-    let char_code = expect_fixnum(&args[0])?;
-    Ok(Value::Int(char_code))
 }
 
 pub(crate) fn builtin_write_char(

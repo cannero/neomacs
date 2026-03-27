@@ -750,9 +750,8 @@ fn gc_bucket(name: &str, counts: &[i64]) -> Value {
     Value::list(items)
 }
 
-/// `(garbage-collect)` -> GC stats list.
-pub(crate) fn builtin_garbage_collect_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("garbage-collect", &args, 0)?;
+/// Build the GC stats list (shared by eval and vm garbage-collect paths).
+pub(crate) fn builtin_garbage_collect_stats() -> EvalResult {
     let counts = Value::memory_use_counts_snapshot();
     let conses = counts[0].max(0);
     let floats = counts[1].max(0);

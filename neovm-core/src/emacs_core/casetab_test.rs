@@ -200,19 +200,22 @@ fn builtin_set_case_table_wrong_args() {
 
 #[test]
 fn builtin_set_standard_case_table_returns_arg() {
+    let mut ctx = super::super::eval::Context::new();
     let table = make_case_table_value();
-    let result = builtin_set_standard_case_table_inner(vec![table]).unwrap();
+    let result = builtin_set_standard_case_table(&mut ctx, vec![table]).unwrap();
     assert_eq!(result, table);
 }
 
 #[test]
 fn builtin_set_standard_case_table_rejects_non_table() {
-    assert!(builtin_set_standard_case_table_inner(vec![Value::Int(1)]).is_err());
+    let mut ctx = super::super::eval::Context::new();
+    assert!(builtin_set_standard_case_table(&mut ctx, vec![Value::Int(1)]).is_err());
 }
 
 #[test]
 fn builtin_set_standard_case_table_wrong_args() {
-    assert!(builtin_set_standard_case_table_inner(vec![]).is_err());
+    let mut ctx = super::super::eval::Context::new();
+    assert!(builtin_set_standard_case_table(&mut ctx, vec![]).is_err());
 }
 
 #[test]

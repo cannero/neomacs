@@ -676,10 +676,6 @@ fn preserve_emacs_downcase_string_payload(code: i64) -> bool {
     )
 }
 
-pub(crate) fn builtin_format_inner(args: Vec<Value>) -> EvalResult {
-    builtin_format_wrapper_strict_inner(args)
-}
-
 pub(crate) fn builtin_ngettext(args: Vec<Value>) -> EvalResult {
     expect_args("ngettext", &args, 3)?;
     let singular = expect_strict_string(&args[0])?;
@@ -1078,16 +1074,6 @@ fn do_format(
     Ok(result)
 }
 
-pub(super) fn builtin_format_wrapper_strict_inner(args: Vec<Value>) -> EvalResult {
-    crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
-        expect_min_args("format", &args, 1)?;
-        let s = do_format(&args, &format_value_princ, &|v| {
-            super::print::print_value(v)
-        })?;
-        Ok(Value::string(s))
-    })
-}
-
 pub(crate) fn builtin_format_wrapper_strict(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1121,18 +1107,6 @@ fn apply_text_quoting(s: &str) -> String {
         }
     }
     out
-}
-
-pub(crate) fn builtin_format_message_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("format-message", &args, 1)?;
-    let formatted = builtin_format_inner(args)?;
-    match formatted {
-        Value::Str(id) => {
-            let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());
-            Ok(Value::string(apply_text_quoting(&s)))
-        }
-        other => Ok(other),
-    }
 }
 
 pub(crate) fn builtin_format_message(

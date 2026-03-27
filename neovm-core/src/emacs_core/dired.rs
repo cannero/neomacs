@@ -540,22 +540,6 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
     Ok(Value::list(result))
 }
 
-/// (file-name-completion FILE DIRECTORY &optional PREDICATE)
-///
-/// Complete file name FILE in DIRECTORY.
-/// Returns the longest common completion prefix, or t if FILE is an exact
-/// and unique match, or nil if no completions exist.
-pub(crate) fn builtin_file_name_completion_inner(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    let plan = prepare_file_name_completion_in_state(&eval.obarray, &[], &eval.buffers, &args)?;
-    let predicate = args.get(2);
-    let completions =
-        filter_completions_by_symbol_predicate(eval, predicate, &plan.directory, plan.completions)?;
-    Ok(resolve_file_name_completion(&plan.file, completions))
-}
-
 /// Context-backed variant of `file-name-completion`.
 /// This supports arbitrary callable predicates and matches Emacs behavior of
 /// binding `default-directory` to DIRECTORY while predicate is invoked.

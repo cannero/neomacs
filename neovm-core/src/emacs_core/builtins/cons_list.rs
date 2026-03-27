@@ -718,36 +718,6 @@ pub(crate) fn builtin_memql(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_assoc_inner(args: Vec<Value>) -> EvalResult {
-    crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Assoc, || {
-        expect_args("assoc", &args, 2)?;
-        let key = &args[0];
-        let list = args[1];
-        let mut cursor = list;
-        loop {
-            match cursor {
-                Value::Nil => return Ok(Value::Nil),
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
-                    if let Value::Cons(ref entry) = pair.car {
-                        let entry_pair = read_cons(*entry);
-                        if equal_value(key, &entry_pair.car, 0) {
-                            return Ok(pair.car);
-                        }
-                    }
-                    cursor = pair.cdr;
-                }
-                _ => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("listp"), list],
-                    ));
-                }
-            }
-        }
-    })
-}
-
 pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Assoc, || {
         expect_range_args("assoc", &args, 2, 3)?;
@@ -761,61 +731,75 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
             eval.push_temp_root(*key);
             eval.push_temp_root(list);
             eval.push_temp_root(test_fn.unwrap());
-            let result = builtin_assoc_eval_inner(eval, key, list, &test_fn);
+            let result = (|| -> EvalResult {
+                let saved_roots = eval.save_temp_roots();
+                eval.push_temp_root(list);
+                let result = (|| -> EvalResult {
+                    let mut cursor = list;
+                    loop {
+                        match cursor {
+                            Value::Nil => return Ok(Value::Nil),
+                            Value::Cons(cell) => {
+                                let pair = read_cons(cell);
+                                if let Value::Cons(ref entry) = pair.car {
+                                    let entry_pair = read_cons(*entry);
+                                    let matches = if let Some(test_fn) = &test_fn {
+                                        eval.apply(*test_fn, vec![entry_pair.car, *key])?
+                                            .is_truthy()
+                                    } else {
+                                        equal_value(key, &entry_pair.car, 0)
+                                    };
+                                    if matches {
+                                        return Ok(pair.car);
+                                    }
+                                }
+                                cursor = pair.cdr;
+                            }
+                            _ => {
+                                return Err(signal(
+                                    "wrong-type-argument",
+                                    vec![Value::symbol("listp"), list],
+                                ));
+                            }
+                        }
+                    }
+                })();
+                eval.restore_temp_roots(saved_roots);
+                result
+            })();
             eval.restore_temp_roots(saved);
             return result;
         }
-        builtin_assoc_eval_inner(eval, key, list, &test_fn)
-    })
-}
-
-fn builtin_assoc_eval_inner(
-    eval: &mut super::eval::Context,
-    key: &Value,
-    list: Value,
-    test_fn: &Option<Value>,
-) -> EvalResult {
-    // key, list, and test_fn are already rooted by the caller
-    // (builtin_assoc).  Root cursor too since it traverses
-    // the list and may become the only reference to a cons cell
-    // if the predicate mutates the list.
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(list);
-
-    let result = (|| -> EvalResult {
-        let mut cursor = list;
-        loop {
-            match cursor {
-                Value::Nil => return Ok(Value::Nil),
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
-                    if let Value::Cons(ref entry) = pair.car {
-                        let entry_pair = read_cons(*entry);
-                        let matches = if let Some(test_fn) = test_fn {
-                            // GNU Emacs calls (TESTFN ALIST-KEY SEARCH-KEY)
-                            eval.apply(*test_fn, vec![entry_pair.car, *key])?
-                                .is_truthy()
-                        } else {
-                            equal_value(key, &entry_pair.car, 0)
-                        };
-                        if matches {
-                            return Ok(pair.car);
+        // No test_fn: simple equal-based traversal (no rooting needed)
+        let saved_roots = eval.save_temp_roots();
+        eval.push_temp_root(list);
+        let result = (|| -> EvalResult {
+            let mut cursor = list;
+            loop {
+                match cursor {
+                    Value::Nil => return Ok(Value::Nil),
+                    Value::Cons(cell) => {
+                        let pair = read_cons(cell);
+                        if let Value::Cons(ref entry) = pair.car {
+                            let entry_pair = read_cons(*entry);
+                            if equal_value(key, &entry_pair.car, 0) {
+                                return Ok(pair.car);
+                            }
                         }
+                        cursor = pair.cdr;
                     }
-                    cursor = pair.cdr;
-                }
-                _ => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("listp"), list],
-                    ));
+                    _ => {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("listp"), list],
+                        ));
+                    }
                 }
             }
-        }
-    })();
-
-    eval.restore_temp_roots(saved_roots);
-    result
+        })();
+        eval.restore_temp_roots(saved_roots);
+        result
+    })
 }
 
 pub(crate) fn builtin_assq(args: Vec<Value>) -> EvalResult {

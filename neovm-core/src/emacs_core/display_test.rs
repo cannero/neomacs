@@ -2,7 +2,7 @@ use super::*;
 use crate::emacs_core::dispnew::pure::{
     builtin_internal_show_cursor_inner, builtin_internal_show_cursor,
     builtin_internal_show_cursor_p_inner, builtin_internal_show_cursor_p, builtin_open_termscript,
-    builtin_redraw_frame_inner, builtin_redraw_frame, builtin_send_string_to_terminal_inner,
+    builtin_redraw_frame, builtin_send_string_to_terminal_inner,
     builtin_send_string_to_terminal, reset_dispnew_thread_locals,
 };
 use crate::emacs_core::intern::resolve_sym;
@@ -322,7 +322,8 @@ fn eval_frame_terminal_accepts_live_frame_designator() {
 
 #[test]
 fn redraw_frame_rejects_non_frame_designator() {
-    let result = builtin_redraw_frame_inner(vec![Value::string("not-a-frame")]);
+    let mut ctx = crate::emacs_core::Context::new();
+    let result = builtin_redraw_frame(&mut ctx, vec![Value::string("not-a-frame")]);
     assert!(result.is_err());
 }
 

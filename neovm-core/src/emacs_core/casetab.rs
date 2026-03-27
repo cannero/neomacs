@@ -215,22 +215,6 @@ pub(crate) fn builtin_case_table_p(args: Vec<Value>) -> EvalResult {
 
 
 
-/// `(set-standard-case-table TABLE)` -- set the standard case table.
-///
-/// Pure fallback: validate TABLE and return it.
-pub(crate) fn builtin_set_standard_case_table_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("set-standard-case-table", &args, 1)?;
-    if !is_case_table(&args[0]) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("case-table-p"), args[0]],
-        ));
-    }
-    STANDARD_CASE_TABLE_OBJECT.with(|slot| {
-        *slot.borrow_mut() = Some(args[0]);
-    });
-    Ok(args[0])
-}
 
 
 /// `(downcase CHAR)` -- convert a character to lowercase.
@@ -398,8 +382,18 @@ pub(crate) fn builtin_set_standard_case_table(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let table = builtin_set_standard_case_table_inner(args)?;
-    &mut ctx.obarray.set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
+    expect_args("set-standard-case-table", &args, 1)?;
+    if !is_case_table(&args[0]) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("case-table-p"), args[0]],
+        ));
+    }
+    STANDARD_CASE_TABLE_OBJECT.with(|slot| {
+        *slot.borrow_mut() = Some(args[0]);
+    });
+    let table = args[0];
+    ctx.obarray.set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
     Ok(table)
 }
 

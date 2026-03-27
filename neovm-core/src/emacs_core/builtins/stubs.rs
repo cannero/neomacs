@@ -493,7 +493,10 @@ pub(crate) fn builtin_sqlite_execute(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int(0))
 }
 
-pub(crate) fn builtin_sqlite_execute_batch(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_sqlite_execute_batch(
+    _ctx: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("sqlite-execute-batch", &args, 2)?;
     let id = expect_sqlitep(&args[0])?;
     if !sqlite_is_open_handle(id) {

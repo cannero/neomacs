@@ -436,7 +436,7 @@ fn runtime_identity_arity_contracts() {
 
 #[test]
 fn garbage_collect_shape_and_arity() {
-    let gc = builtin_garbage_collect_inner(vec![]).unwrap();
+    let gc = builtin_garbage_collect_stats().unwrap();
     let buckets = super::super::value::list_to_vec(&gc).expect("gc list");
     assert_eq!(buckets.len(), 9);
     let names = buckets
@@ -474,11 +474,6 @@ fn garbage_collect_shape_and_arity() {
         );
     }
 
-    let err = builtin_garbage_collect_inner(vec![Value::Int(1)]).unwrap_err();
-    match err {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
-        other => panic!("expected signal, got {other:?}"),
-    }
 }
 
 #[test]

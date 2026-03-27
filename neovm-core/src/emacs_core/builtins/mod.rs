@@ -5425,7 +5425,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "sqlite-execute-batch",
-        |_ctx, args| builtin_sqlite_execute_batch(args),
+        builtin_sqlite_execute_batch,
         0,
         None,
     );

@@ -2250,17 +2250,17 @@ pub(crate) fn builtin_macrop(eval: &mut super::eval::Context, args: Vec<Value>) 
             if let Some(function) =
                 startup_virtual_autoload_function_cell(eval, resolve_sym(symbol))
             {
-                return super::subr_info::builtin_macrop_inner(vec![function]);
+                return super::subr_info::macrop_check(&function);
             }
         }
         if let Some(function) = resolve_indirect_symbol_by_id(eval, symbol).map(|(_, value)| value)
         {
-            return super::subr_info::builtin_macrop_inner(vec![function]);
+            return super::subr_info::macrop_check(&function);
         }
         return Ok(Value::Nil);
     }
 
-    super::subr_info::builtin_macrop_inner(args)
+    super::subr_info::macrop_check(&args[0])
 }
 
 /// Hash a string for custom obarray bucket index.

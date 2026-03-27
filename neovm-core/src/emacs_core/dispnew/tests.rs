@@ -4,13 +4,15 @@ use crate::emacs_core::value::Value;
 
 #[test]
 fn redraw_frame_nil_returns_nil() {
-    let result = builtin_redraw_frame_inner(vec![]).unwrap();
+    let mut ctx = crate::emacs_core::eval::Context::new();
+    let result = builtin_redraw_frame(&mut ctx, vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn redraw_frame_rejects_non_frame_designator() {
-    let result = builtin_redraw_frame_inner(vec![Value::string("not-a-frame")]);
+    let mut ctx = crate::emacs_core::eval::Context::new();
+    let result = builtin_redraw_frame(&mut ctx, vec![Value::string("not-a-frame")]);
     assert!(result.is_err());
 }
 

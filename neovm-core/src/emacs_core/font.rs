@@ -2395,9 +2395,12 @@ pub(crate) fn builtin_internal_lisp_face_p(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// `(internal-make-lisp-face FACE &optional FRAME)` -- create/reset FACE as a
-/// Lisp face and return its attribute vector.
-pub(crate) fn builtin_internal_make_lisp_face_batch(args: Vec<Value>) -> EvalResult {
+/// Eval-backed version of `internal-make-lisp-face` that also ensures the face
+/// exists in the evaluator's `FaceTable`.
+pub(crate) fn builtin_internal_make_lisp_face(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("internal-make-lisp-face", &args, 1)?;
     expect_max_args("internal-make-lisp-face", &args, 2)?;
     let face_name = require_symbol_face_name(&args[0])?;
@@ -2411,27 +2414,19 @@ pub(crate) fn builtin_internal_make_lisp_face_batch(args: Vec<Value>) -> EvalRes
     }
     mark_created_lisp_face(&face_name);
     clear_face_overrides(&face_name, true);
-    Ok(make_lisp_face_vector())
-}
-
-/// Eval-backed version of `internal-make-lisp-face` that also ensures the face
-/// exists in the evaluator's `FaceTable`.
-pub(crate) fn builtin_internal_make_lisp_face(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    let result = builtin_internal_make_lisp_face_batch(args.clone())?;
-    if let Ok(face_name) = require_symbol_face_name(&args[0]) {
-        crate::emacs_core::xfaces::ensure_face_new_frame_defaults_entry(eval, &face_name);
-        eval.face_table.ensure_face(&face_name);
-        eval.face_change_count += 1;
-    }
+    let result = make_lisp_face_vector();
+    crate::emacs_core::xfaces::ensure_face_new_frame_defaults_entry(eval, &face_name);
+    eval.face_table.ensure_face(&face_name);
+    eval.face_change_count += 1;
     Ok(result)
 }
 
-/// `(internal-copy-lisp-face FROM TO FRAME NEW-FRAME)` -- copy defaults overrides to
-/// `TO` and return `TO`.
-pub(crate) fn builtin_internal_copy_lisp_face_batch(args: Vec<Value>) -> EvalResult {
+/// Eval-backed version of `internal-copy-lisp-face` that also mirrors the
+/// copied face into the evaluator's `FaceTable`.
+pub(crate) fn builtin_internal_copy_lisp_face(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal-copy-lisp-face", &args, 4)?;
     let _ = require_symbol_face_name(&args[0])?;
     let to_name = require_symbol_face_name(&args[1])?;
@@ -2451,18 +2446,7 @@ pub(crate) fn builtin_internal_copy_lisp_face_batch(args: Vec<Value>) -> EvalRes
     let from_name = resolve_copy_source_face_symbol(&args[0])?;
     mark_created_lisp_face(&to_name);
     copy_defaults_overrides(&from_name, &to_name);
-    Ok(args[1])
-}
-
-/// Eval-backed version of `internal-copy-lisp-face` that also mirrors the
-/// copied face into the evaluator's `FaceTable`.
-pub(crate) fn builtin_internal_copy_lisp_face(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    let result = builtin_internal_copy_lisp_face_batch(args.clone())?;
-    let from_name = resolve_copy_source_face_symbol(&args[0])?;
-    let to_name = require_symbol_face_name(&args[1])?;
+    let result = args[1];
 
     let copied = eval
         .face_table
@@ -2477,9 +2461,14 @@ pub(crate) fn builtin_internal_copy_lisp_face(
     Ok(result)
 }
 
-/// `(internal-set-lisp-face-attribute FACE ATTR VALUE &optional FRAME)` --
-/// set FACE attribute in selected-frame/default face domains.
-pub(crate) fn builtin_internal_set_lisp_face_attribute_batch(args: Vec<Value>) -> EvalResult {
+/// Eval-backed version of `internal-set-lisp-face-attribute` that also
+/// updates the evaluator's `FaceTable`, making the face attributes
+/// available to the Rust layout engine for rendering.
+pub(crate) fn builtin_internal_set_lisp_face_attribute(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    // Pure logic (FACE_ATTR_STATE storage + validation)
     expect_min_args("internal-set-lisp-face-attribute", &args, 3)?;
     expect_max_args("internal-set-lisp-face-attribute", &args, 4)?;
     let face = &args[0];
@@ -2525,18 +2514,7 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_batch(args: Vec<Value>) -
         }
     }
 
-    Ok(*face)
-}
-
-/// Eval-backed version of `internal-set-lisp-face-attribute` that also
-/// updates the evaluator's `FaceTable`, making the face attributes
-/// available to the Rust layout engine for rendering.
-pub(crate) fn builtin_internal_set_lisp_face_attribute(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    // First, do the existing pure logic (FACE_ATTR_STATE storage + validation)
-    let result = builtin_internal_set_lisp_face_attribute_batch(args.clone())?;
+    let result = *face;
 
     // Now also update the evaluator's FaceTable
     if args.len() >= 3 {
@@ -3109,9 +3087,10 @@ pub(crate) fn builtin_internal_lisp_face_empty_p(args: Vec<Value>) -> EvalResult
     Ok(Value::True)
 }
 
-/// `(internal-merge-in-global-face FACE FRAME)` -- merge concrete defaults-face
-/// overrides into selected-frame face state.
-pub(crate) fn builtin_internal_merge_in_global_face_batch(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_internal_merge_in_global_face(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal-merge-in-global-face", &args, 2)?;
     if !frame_device_designator_p(&args[1]) {
         return Err(signal(
@@ -3125,15 +3104,7 @@ pub(crate) fn builtin_internal_merge_in_global_face_batch(args: Vec<Value>) -> E
         mark_selected_created_lisp_face(&face_name);
     }
     merge_defaults_overrides_into_selected(&face_name);
-    Ok(Value::Nil)
-}
 
-pub(crate) fn builtin_internal_merge_in_global_face(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    let result = builtin_internal_merge_in_global_face_batch(args.clone())?;
-    let face_name = resolve_face_name_for_merge(&args[0])?;
     FACE_ATTR_STATE.with(|slot| {
         let state = slot.borrow();
         if let Some(attrs) = state.defaults_overrides.get(&face_name) {
@@ -3156,7 +3127,7 @@ pub(crate) fn builtin_internal_merge_in_global_face(
     if let Some(frame_id) = live_frame_id_for_face_update(eval, args.get(1))? {
         mirror_runtime_face_into_frame(eval, frame_id, &face_name);
     }
-    Ok(result)
+    Ok(Value::Nil)
 }
 
 /// `(face-attribute-relative-p ATTRIBUTE VALUE)` -- return t if VALUE is the
@@ -3540,47 +3511,6 @@ pub(crate) fn builtin_face_id(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-/// `(face-font FACE &optional FRAME CHARACTER)` -- returns nil for batch
-/// compatibility when the face exists.
-pub(crate) fn builtin_face_font_batch(args: Vec<Value>) -> EvalResult {
-    expect_min_args("face-font", &args, 1)?;
-    expect_max_args("face-font", &args, 3)?;
-    match &args[0] {
-        Value::Str(id) => {
-            let name = with_heap(|h| h.get_string(*id).to_owned());
-            if KNOWN_FACES.contains(&name.as_str()) {
-                Ok(Value::Nil)
-            } else {
-                let payload = if name.is_empty() {
-                    Value::symbol("")
-                } else {
-                    Value::symbol(&name)
-                };
-                Err(signal(
-                    "error",
-                    vec![Value::string("Invalid face"), payload],
-                ))
-            }
-        }
-        Value::Nil => Err(signal("error", vec![Value::string("Invalid face")])),
-        Value::True | Value::Symbol(_) => {
-            if let Some(name) = symbol_name_for_face_value(&args[0]) {
-                if KNOWN_FACES.contains(&name.as_str()) {
-                    return Ok(Value::Nil);
-                }
-            }
-            Err(signal(
-                "error",
-                vec![Value::string("Invalid face"), args[0]],
-            ))
-        }
-        _ => Err(signal(
-            "error",
-            vec![Value::string("Invalid face"), args[0]],
-        )),
-    }
-}
-
 pub(crate) fn builtin_face_font(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -3627,7 +3557,40 @@ pub(crate) fn builtin_face_font(
         .get(frame_id)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
     if frame.window_system.is_none() {
-        return builtin_face_font_batch(args);
+        return match &args[0] {
+            Value::Str(id) => {
+                let name = with_heap(|h| h.get_string(*id).to_owned());
+                if KNOWN_FACES.contains(&name.as_str()) {
+                    Ok(Value::Nil)
+                } else {
+                    let payload = if name.is_empty() {
+                        Value::symbol("")
+                    } else {
+                        Value::symbol(&name)
+                    };
+                    Err(signal(
+                        "error",
+                        vec![Value::string("Invalid face"), payload],
+                    ))
+                }
+            }
+            Value::Nil => Err(signal("error", vec![Value::string("Invalid face")])),
+            Value::True | Value::Symbol(_) => {
+                if let Some(name) = symbol_name_for_face_value(&args[0]) {
+                    if KNOWN_FACES.contains(&name.as_str()) {
+                        return Ok(Value::Nil);
+                    }
+                }
+                Err(signal(
+                    "error",
+                    vec![Value::string("Invalid face"), args[0]],
+                ))
+            }
+            _ => Err(signal(
+                "error",
+                vec![Value::string("Invalid face"), args[0]],
+            )),
+        };
     }
 
     let face_name = resolve_face_name_for_domain(&args[0], false)?;
