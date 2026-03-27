@@ -41,10 +41,10 @@ pub enum Op {
     // -- Function calls -------------------------------------------------------
     /// Call function on stack with N args.
     /// Stack: [func arg1 arg2 ... argN] -> [result]
-    Call(u8),
+    Call(u16),
     /// Like Call but also passes the function through apply semantics.
     /// Last arg is spread as a list.
-    Apply(u8),
+    Apply(u16),
 
     // -- Control flow ---------------------------------------------------------
     /// Unconditional jump to absolute instruction index.

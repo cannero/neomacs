@@ -281,7 +281,7 @@ impl Compiler {
             for arg in tail {
                 self.compile_expr(func, arg, true);
             }
-            self.emit_tracked(func, Op::Call(tail.len() as u8));
+            self.emit_tracked(func, Op::Call(tail.len() as u16));
 
             if !for_value {
                 self.emit_tracked(func, Op::Pop);
@@ -297,7 +297,7 @@ impl Compiler {
                     for arg in tail {
                         self.compile_expr(func, arg, true);
                     }
-                    self.emit_tracked(func, Op::Call(tail.len() as u8));
+                    self.emit_tracked(func, Op::Call(tail.len() as u16));
                     if !for_value {
                         self.emit_tracked(func, Op::Pop);
                     }
@@ -311,7 +311,7 @@ impl Compiler {
         for arg in tail {
             self.compile_expr(func, arg, true);
         }
-        self.emit_tracked(func, Op::Call(tail.len() as u8));
+        self.emit_tracked(func, Op::Call(tail.len() as u16));
         if !for_value {
             self.emit_tracked(func, Op::Pop);
         }
@@ -418,7 +418,7 @@ impl Compiler {
                     for arg in &tail[1..] {
                         self.compile_expr(func, arg, true);
                     }
-                    self.emit_tracked(func, Op::Call(tail.len().saturating_sub(1) as u8));
+                    self.emit_tracked(func, Op::Call(tail.len().saturating_sub(1) as u16));
                     if !for_value {
                         self.emit_tracked(func, Op::Pop);
                     }

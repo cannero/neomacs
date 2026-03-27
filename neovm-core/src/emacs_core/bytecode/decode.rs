@@ -191,14 +191,14 @@ fn decode_pass1(
             }
 
             // 32-39: call
-            32..=37 => ops.push(RawOp::Resolved(Op::Call((byte - 32) as u8))),
+            32..=37 => ops.push(RawOp::Resolved(Op::Call((byte - 32) as u16))),
             38 => {
                 let arg = fetch1(bytecodes, &mut pos, byte_offset)?;
-                ops.push(RawOp::Resolved(Op::Call(arg)));
+                ops.push(RawOp::Resolved(Op::Call(arg as u16)));
             }
             39 => {
                 let arg = fetch2(bytecodes, &mut pos, byte_offset)?;
-                ops.push(RawOp::Resolved(Op::Call(arg as u8)));
+                ops.push(RawOp::Resolved(Op::Call(arg)));
             }
 
             // 40-47: unbind
