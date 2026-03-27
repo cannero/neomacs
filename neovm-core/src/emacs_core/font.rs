@@ -1705,10 +1705,16 @@ fn face_exists_for_domain(name: &str, defaults_frame: bool) -> bool {
     if KNOWN_FACES.contains(&name) {
         return true;
     }
-    if defaults_frame {
-        is_created_lisp_face(name)
-    } else {
+    // A face created via defface/internal-make-lisp-face exists for all
+    // domains. GNU Emacs uses a single hash table for face lookup —
+    // there is no distinction between "defaults" and "selected" existence.
+    if is_created_lisp_face(name) {
+        return true;
+    }
+    if !defaults_frame {
         is_selected_created_lisp_face(name)
+    } else {
+        false
     }
 }
 
