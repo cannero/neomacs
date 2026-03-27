@@ -46,6 +46,32 @@ fn compat_window_semantics_matches_gnu_emacs() {
           (window-normal-size vparent t))))"#,
         },
         WindowCase {
+            name: "window_parameter_storage_matches_gnu_lifecycle",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((left (selected-window))
+         (_ (set-window-parameter left 'foo 'left))
+         (right (split-window nil nil 'right))
+         (root (frame-root-window)))
+    (list
+     (window-parameter left 'foo)
+     (window-parameter right 'foo)
+     (progn
+       (set-window-parameter right 'foo 'right)
+       (window-parameter right 'foo))
+     (progn
+       (set-window-parameter root 'foo 'root)
+       (window-parameter root 'foo))
+     (progn
+       (delete-window right)
+       (list
+        (window-parameter left 'foo)
+        (window-parameter right 'foo)
+        (condition-case err
+            (window-parameters right)
+          (error (car err))))))))"#,
+        },
+        WindowCase {
             name: "set_window_buffer_restores_saved_window_state",
             form: r#"(save-window-excursion
   (let* ((w (selected-window))

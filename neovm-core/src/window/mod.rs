@@ -8,13 +8,14 @@
 //! - The **minibuffer window** is a special single-line window at the bottom.
 
 use crate::buffer::BufferId;
-use crate::emacs_core::value::{HashTableTest, Value, eq_value, with_heap_mut};
+use crate::emacs_core::value::{HashTableTest, Value, with_heap_mut};
 use crate::face::Face as RuntimeFace;
 use crate::gc::GcTrace;
 use std::collections::{HashMap, HashSet};
 
 mod display;
 mod history;
+mod parameters;
 
 // ---------------------------------------------------------------------------
 // IDs
@@ -122,6 +123,8 @@ impl Default for WindowDisplayState {
     }
 }
 
+pub(crate) type WindowParameters = Vec<(Value, Value)>;
+
 // ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
@@ -155,8 +158,8 @@ pub enum Window {
         point: usize,
         /// Whether this is a dedicated window.
         dedicated: bool,
-        /// Window parameters (name -> value).
-        parameters: HashMap<String, Value>,
+        /// Lisp-visible per-window parameter alist, newest entries first.
+        parameters: WindowParameters,
         /// Desired height in lines (for fixed windows, 0 = flexible).
         fixed_height: usize,
         /// Desired width in columns (for fixed windows, 0 = flexible).
@@ -175,6 +178,8 @@ pub enum Window {
         direction: SplitDirection,
         children: Vec<Window>,
         bounds: Rect,
+        /// Lisp-visible per-window parameter alist, newest entries first.
+        parameters: WindowParameters,
         /// Combination limit — prevents recombination when non-nil.
         /// Mirrors GNU Emacs `w->combination_limit`.
         combination_limit: bool,
@@ -195,7 +200,7 @@ impl Window {
             window_end_valid: false,
             point: 1,
             dedicated: false,
-            parameters: HashMap::new(),
+            parameters: Vec::new(),
             fixed_height: 0,
             fixed_width: 0,
             hscroll: 0,
@@ -252,6 +257,20 @@ impl Window {
         match self {
             Window::Leaf { display, .. } => Some(display),
             Window::Internal { .. } => None,
+        }
+    }
+
+    /// Return this window's Lisp-visible parameter alist.
+    pub fn parameters(&self) -> &WindowParameters {
+        match self {
+            Window::Leaf { parameters, .. } | Window::Internal { parameters, .. } => parameters,
+        }
+    }
+
+    /// Return a mutable reference to this window's Lisp-visible parameter alist.
+    pub fn parameters_mut(&mut self) -> &mut WindowParameters {
+        match self {
+            Window::Leaf { parameters, .. } | Window::Internal { parameters, .. } => parameters,
         }
     }
 
@@ -990,7 +1009,7 @@ pub struct FrameManager {
     next_window_id: u64,
     old_selected_window: Option<WindowId>,
     deleted_windows: HashSet<WindowId>,
-    window_parameters: HashMap<WindowId, Vec<(Value, Value)>>,
+    deleted_window_parameters: HashMap<WindowId, WindowParameters>,
     window_prev_buffers: HashMap<WindowId, Value>,
     window_next_buffers: HashMap<WindowId, Value>,
     window_buffer_positions: HashMap<WindowId, HashMap<BufferId, (usize, usize)>>,
@@ -1007,7 +1026,7 @@ impl FrameManager {
             next_window_id: 1,
             old_selected_window: None,
             deleted_windows: HashSet::new(),
-            window_parameters: HashMap::new(),
+            deleted_window_parameters: HashMap::new(),
             window_prev_buffers: HashMap::new(),
             window_next_buffers: HashMap::new(),
             window_buffer_positions: HashMap::new(),
@@ -1021,6 +1040,7 @@ impl FrameManager {
         let id = WindowId(self.next_window_id);
         self.next_window_id += 1;
         self.deleted_windows.remove(&id);
+        self.deleted_window_parameters.remove(&id);
         id
     }
 
@@ -1085,14 +1105,21 @@ impl FrameManager {
     /// Delete a frame.
     pub fn delete_frame(&mut self, id: FrameId) -> bool {
         if let Some(frame) = self.frames.remove(&id) {
-            let previous_selected = self.selected;
             for wid in frame.window_list() {
                 self.deleted_windows.insert(wid);
+                if let Some(window) = frame.find_window(wid) {
+                    self.deleted_window_parameters
+                        .insert(wid, window.parameters().clone());
+                }
                 self.window_buffer_positions.remove(&wid);
                 self.window_use_times.remove(&wid);
             }
             if let Some(minibuffer_wid) = frame.minibuffer_window {
                 self.deleted_windows.insert(minibuffer_wid);
+                if let Some(window) = frame.find_window(minibuffer_wid) {
+                    self.deleted_window_parameters
+                        .insert(minibuffer_wid, window.parameters().clone());
+                }
                 self.window_buffer_positions.remove(&minibuffer_wid);
                 self.window_use_times.remove(&minibuffer_wid);
             }
@@ -1145,9 +1172,14 @@ impl FrameManager {
             return false; // Can't delete last window
         }
 
+        let deleted_parameters = frame
+            .find_window(window_id)
+            .map(|window| window.parameters().clone());
         let removed = delete_window_in_tree(&mut frame.root_window, window_id);
         if removed {
             self.deleted_windows.insert(window_id);
+            self.deleted_window_parameters
+                .insert(window_id, deleted_parameters.unwrap_or_default());
             self.window_buffer_positions.remove(&window_id);
             self.window_use_times.remove(&window_id);
             frame.recalculate_minibuffer_bounds();
@@ -1167,6 +1199,7 @@ impl FrameManager {
         let id = WindowId(self.next_window_id);
         self.next_window_id += 1;
         self.deleted_windows.remove(&id);
+        self.deleted_window_parameters.remove(&id);
         id
     }
 
@@ -1219,42 +1252,6 @@ impl FrameManager {
     /// Return true when WINDOW-ID designates a live or stale window object.
     pub fn is_window_object_id(&self, window_id: WindowId) -> bool {
         self.is_valid_window_id(window_id) || self.deleted_windows.contains(&window_id)
-    }
-
-    /// Return window parameter KEY for WINDOW-ID, or nil when unset.
-    pub fn window_parameter(&self, window_id: WindowId, key: &Value) -> Option<Value> {
-        self.window_parameters.get(&window_id).and_then(|pairs| {
-            pairs
-                .iter()
-                .find(|(k, _)| eq_value(k, key))
-                .map(|(_, v)| *v)
-        })
-    }
-
-    /// Set window parameter KEY on WINDOW-ID to VALUE.
-    pub fn set_window_parameter(&mut self, window_id: WindowId, key: Value, value: Value) {
-        let params = self.window_parameters.entry(window_id).or_default();
-        if let Some((_, existing)) = params.iter_mut().find(|(k, _)| eq_value(k, &key)) {
-            *existing = value;
-        } else {
-            params.push((key, value));
-        }
-    }
-
-    /// Return window parameters alist for WINDOW-ID.
-    pub fn window_parameters_alist(&self, window_id: WindowId) -> Value {
-        let Some(params) = self.window_parameters.get(&window_id) else {
-            return Value::Nil;
-        };
-        if params.is_empty() {
-            return Value::Nil;
-        }
-        let alist = params
-            .iter()
-            .rev()
-            .map(|(k, v)| Value::cons(*k, *v))
-            .collect::<Vec<_>>();
-        Value::list(alist)
     }
 }
 
@@ -1321,6 +1318,7 @@ fn split_window_in_tree(
                 id,
                 buffer_id,
                 bounds,
+                parameters,
                 window_start,
                 window_end_pos,
                 window_end_bytepos,
@@ -1333,6 +1331,7 @@ fn split_window_in_tree(
                 *id = new_id;
                 *buffer_id = new_buffer_id;
                 *bounds = right_bounds;
+                parameters.clear();
                 *window_start = 1;
                 *window_end_pos = 0;
                 *window_end_bytepos = 0;
@@ -1346,6 +1345,7 @@ fn split_window_in_tree(
                 direction,
                 children: vec![old_leaf, new_leaf],
                 bounds: old_bounds,
+                parameters: Vec::new(),
                 combination_limit: false,
             };
 
@@ -1751,8 +1751,8 @@ fn resize_window_subtree(window: &mut Window, bounds: Rect) {
 
 impl GcTrace for FrameManager {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
-        // Window-level parameter maps
-        for params in self.window_parameters.values() {
+        // Deleted window parameter maps
+        for params in self.deleted_window_parameters.values() {
             for (k, v) in params {
                 roots.push(*k);
                 roots.push(*v);
@@ -1780,13 +1780,10 @@ impl GcTrace for FrameManager {
 
 fn trace_window(window: &Window, roots: &mut Vec<Value>) {
     match window {
-        Window::Leaf {
-            parameters,
-            display,
-            ..
-        } => {
-            for v in parameters.values() {
-                roots.push(*v);
+        Window::Leaf { display, .. } => {
+            for (key, value) in window.parameters() {
+                roots.push(*key);
+                roots.push(*value);
             }
             roots.push(display.display_table);
             roots.push(display.cursor_type);
@@ -1794,6 +1791,10 @@ fn trace_window(window: &Window, roots: &mut Vec<Value>) {
             roots.push(display.horizontal_scroll_bar_type);
         }
         Window::Internal { children, .. } => {
+            for (key, value) in window.parameters() {
+                roots.push(*key);
+                roots.push(*value);
+            }
             for child in children {
                 trace_window(child, roots);
             }
@@ -2045,6 +2046,37 @@ mod tests {
 
         mgr.set_window_parameter(wid, key, val);
         assert_eq!(mgr.window_parameter(wid, &key), Some(Value::Int(42)));
+    }
+
+    #[test]
+    fn split_window_does_not_copy_window_parameters() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().window_list()[0];
+        let key = Value::symbol("my-param");
+
+        mgr.set_window_parameter(wid, key, Value::Int(42));
+        let new_wid = mgr
+            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2))
+            .expect("split");
+
+        assert_eq!(mgr.window_parameter(wid, &key), Some(Value::Int(42)));
+        assert_eq!(mgr.window_parameter(new_wid, &key), None);
+    }
+
+    #[test]
+    fn deleted_window_retains_window_parameters() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().window_list()[0];
+        let other = mgr
+            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2))
+            .expect("split");
+        let key = Value::symbol("deleted-param");
+
+        mgr.set_window_parameter(other, key, Value::Int(7));
+        assert!(mgr.delete_window(fid, other));
+        assert_eq!(mgr.window_parameter(other, &key), Some(Value::Int(7)));
     }
 
     #[test]
