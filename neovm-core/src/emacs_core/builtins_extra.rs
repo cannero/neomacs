@@ -751,7 +751,7 @@ fn gc_bucket(name: &str, counts: &[i64]) -> Value {
 }
 
 /// `(garbage-collect)` -> GC stats list.
-pub(crate) fn builtin_garbage_collect(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_garbage_collect_inner(args: Vec<Value>) -> EvalResult {
     expect_args("garbage-collect", &args, 0)?;
     let counts = Value::memory_use_counts_snapshot();
     let conses = counts[0].max(0);

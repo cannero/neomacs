@@ -215,7 +215,7 @@ pub(crate) fn builtin_case_table_p(args: Vec<Value>) -> EvalResult {
 /// `(current-case-table)` -- return the current case table.
 ///
 /// Pure fallback returns the standard case table object.
-pub(crate) fn builtin_current_case_table(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_current_case_table_inner(args: Vec<Value>) -> EvalResult {
     expect_args("current-case-table", &args, 0)?;
     ensure_standard_case_table_object()
 }
@@ -223,7 +223,7 @@ pub(crate) fn builtin_current_case_table(args: Vec<Value>) -> EvalResult {
 /// `(standard-case-table)` -- return the standard case table.
 ///
 /// Returns the process-wide standard case table object.
-pub(crate) fn builtin_standard_case_table(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_standard_case_table_inner(args: Vec<Value>) -> EvalResult {
     expect_args("standard-case-table", &args, 0)?;
     ensure_standard_case_table_object()
 }
@@ -231,7 +231,7 @@ pub(crate) fn builtin_standard_case_table(args: Vec<Value>) -> EvalResult {
 /// `(set-case-table TABLE)` -- set the current case table.
 ///
 /// Pure fallback: validate TABLE and return it.
-pub(crate) fn builtin_set_case_table(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_case_table_inner(args: Vec<Value>) -> EvalResult {
     expect_args("set-case-table", &args, 1)?;
     if !is_case_table(&args[0]) {
         return Err(signal(
@@ -245,7 +245,7 @@ pub(crate) fn builtin_set_case_table(args: Vec<Value>) -> EvalResult {
 /// `(set-standard-case-table TABLE)` -- set the standard case table.
 ///
 /// Pure fallback: validate TABLE and return it.
-pub(crate) fn builtin_set_standard_case_table(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_standard_case_table_inner(args: Vec<Value>) -> EvalResult {
     expect_args("set-standard-case-table", &args, 1)?;
     if !is_case_table(&args[0]) {
         return Err(signal(
@@ -385,7 +385,7 @@ fn ensure_standard_case_table_object() -> EvalResult {
 }
 
 /// `(current-case-table)` -- evaluator-backed current buffer case table object.
-pub(crate) fn builtin_current_case_table_eval(
+pub(crate) fn builtin_current_case_table(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -394,7 +394,7 @@ pub(crate) fn builtin_current_case_table_eval(
 }
 
 /// `(standard-case-table)` -- evaluator-backed standard case table object.
-pub(crate) fn builtin_standard_case_table_eval(
+pub(crate) fn builtin_standard_case_table(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -403,7 +403,7 @@ pub(crate) fn builtin_standard_case_table_eval(
 }
 
 /// `(set-case-table TABLE)` -- evaluator-backed current buffer case table set.
-pub(crate) fn builtin_set_case_table_eval(
+pub(crate) fn builtin_set_case_table(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -421,11 +421,11 @@ pub(crate) fn builtin_set_case_table_eval(
 }
 
 /// `(set-standard-case-table TABLE)` -- evaluator-backed standard table set.
-pub(crate) fn builtin_set_standard_case_table_eval(
+pub(crate) fn builtin_set_standard_case_table(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let table = builtin_set_standard_case_table(args)?;
+    let table = builtin_set_standard_case_table_inner(args)?;
     &mut ctx.obarray.set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
     Ok(table)
 }

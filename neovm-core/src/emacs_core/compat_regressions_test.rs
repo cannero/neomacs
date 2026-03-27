@@ -111,7 +111,7 @@ fn frame_face_hash_table_uses_eq_test() {
     let mut heap = crate::gc::heap::LispHeap::new();
     crate::emacs_core::value::set_current_heap(&mut heap);
 
-    let out = crate::emacs_core::builtins::builtin_frame_face_hash_table(vec![]).unwrap();
+    let out = crate::emacs_core::builtins::builtin_frame_face_hash_table_inner(vec![]).unwrap();
     let Value::HashTable(table) = out else {
         panic!("expected hash table");
     };
@@ -323,7 +323,7 @@ fn handle_switch_frame_requires_frame_object() {
 
 #[test]
 fn interactive_form_for_ignore_returns_interactive_list() {
-    let out = crate::emacs_core::builtins::builtin_interactive_form(vec![Value::symbol("ignore")])
+    let out = crate::emacs_core::builtins::builtin_interactive_form_inner(vec![Value::symbol("ignore")])
         .unwrap();
     assert_eq!(
         out,
@@ -442,7 +442,7 @@ fn internal_stack_stats_returns_nil() {
 
 #[test]
 fn internal_labeled_narrow_to_region_validates_arity() {
-    let err = crate::emacs_core::builtins::builtin_internal_labeled_narrow_to_region(vec![
+    let err = crate::emacs_core::builtins::builtin_internal_labeled_narrow_to_region_inner(vec![
         Value::Nil,
         Value::Nil,
     ])

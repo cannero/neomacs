@@ -1,9 +1,9 @@
 use super::*;
 use crate::emacs_core::dispnew::pure::{
-    builtin_internal_show_cursor, builtin_internal_show_cursor_eval,
-    builtin_internal_show_cursor_p, builtin_internal_show_cursor_p_eval, builtin_open_termscript,
-    builtin_redraw_frame, builtin_redraw_frame_eval, builtin_send_string_to_terminal,
-    builtin_send_string_to_terminal_eval, reset_dispnew_thread_locals,
+    builtin_internal_show_cursor_inner, builtin_internal_show_cursor,
+    builtin_internal_show_cursor_p_inner, builtin_internal_show_cursor_p, builtin_open_termscript,
+    builtin_redraw_frame_inner, builtin_redraw_frame, builtin_send_string_to_terminal_inner,
+    builtin_send_string_to_terminal, reset_dispnew_thread_locals,
 };
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::terminal::pure::{
@@ -322,7 +322,7 @@ fn eval_frame_terminal_accepts_live_frame_designator() {
 
 #[test]
 fn redraw_frame_rejects_non_frame_designator() {
-    let result = builtin_redraw_frame(vec![Value::string("not-a-frame")]);
+    let result = builtin_redraw_frame_inner(vec![Value::string("not-a-frame")]);
     assert!(result.is_err());
 }
 
@@ -330,7 +330,7 @@ fn redraw_frame_rejects_non_frame_designator() {
 fn eval_redraw_frame_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_redraw_frame_eval(&mut eval, vec![Value::Int(frame_id)]).unwrap();
+    let result = builtin_redraw_frame(&mut eval, vec![Value::Int(frame_id)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -398,14 +398,14 @@ fn open_termscript_uses_batch_tty_error_payload() {
 
 #[test]
 fn send_string_to_terminal_rejects_invalid_terminal_designator() {
-    let result = builtin_send_string_to_terminal(vec![Value::string(""), Value::Int(1)]);
+    let result = builtin_send_string_to_terminal_inner(vec![Value::string(""), Value::Int(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn send_string_to_terminal_accepts_live_terminal_handle() {
     let handle = terminal_handle_value();
-    let result = builtin_send_string_to_terminal(vec![Value::string(""), handle]).unwrap();
+    let result = builtin_send_string_to_terminal_inner(vec![Value::string(""), handle]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -413,7 +413,7 @@ fn send_string_to_terminal_accepts_live_terminal_handle() {
 fn eval_send_string_to_terminal_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_send_string_to_terminal_eval(
+    let result = builtin_send_string_to_terminal(
         &mut eval,
         vec![Value::string(""), Value::Int(frame_id)],
     )
@@ -424,21 +424,21 @@ fn eval_send_string_to_terminal_accepts_live_frame_designator() {
 #[test]
 fn internal_show_cursor_tracks_visibility_state() {
     reset_dispnew_thread_locals();
-    let default_visible = builtin_internal_show_cursor_p(vec![]).unwrap();
+    let default_visible = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
     assert_eq!(default_visible, Value::True);
 
-    builtin_internal_show_cursor(vec![Value::Nil, Value::Nil]).unwrap();
-    let hidden = builtin_internal_show_cursor_p(vec![]).unwrap();
+    builtin_internal_show_cursor_inner(vec![Value::Nil, Value::Nil]).unwrap();
+    let hidden = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
     assert!(hidden.is_nil());
 
-    builtin_internal_show_cursor(vec![Value::Nil, Value::True]).unwrap();
-    let visible = builtin_internal_show_cursor_p(vec![]).unwrap();
+    builtin_internal_show_cursor_inner(vec![Value::Nil, Value::True]).unwrap();
+    let visible = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
     assert_eq!(visible, Value::True);
 }
 
 #[test]
 fn internal_show_cursor_rejects_non_window_designator() {
-    let result = builtin_internal_show_cursor(vec![Value::Int(1), Value::Nil]);
+    let result = builtin_internal_show_cursor_inner(vec![Value::Int(1), Value::Nil]);
     assert!(result.is_err());
 }
 
@@ -448,7 +448,7 @@ fn eval_internal_show_cursor_accepts_live_window_designator() {
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let window =
         crate::emacs_core::window_cmds::builtin_selected_window(&mut eval, vec![]).unwrap();
-    let result = builtin_internal_show_cursor_eval(&mut eval, vec![window, Value::True]).unwrap();
+    let result = builtin_internal_show_cursor(&mut eval, vec![window, Value::True]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -458,7 +458,7 @@ fn eval_internal_show_cursor_p_accepts_live_window_designator() {
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let window =
         crate::emacs_core::window_cmds::builtin_selected_window(&mut eval, vec![]).unwrap();
-    let result = builtin_internal_show_cursor_p_eval(&mut eval, vec![window]).unwrap();
+    let result = builtin_internal_show_cursor_p(&mut eval, vec![window]).unwrap();
     assert!(matches!(result, Value::True | Value::Nil));
 }
 
@@ -478,42 +478,42 @@ fn eval_internal_show_cursor_tracks_per_window_state() {
     .unwrap();
 
     assert_eq!(
-        builtin_internal_show_cursor_p_eval(&mut eval, vec![selected]).unwrap(),
+        builtin_internal_show_cursor_p(&mut eval, vec![selected]).unwrap(),
         Value::True
     );
     assert_eq!(
-        builtin_internal_show_cursor_p_eval(&mut eval, vec![other]).unwrap(),
+        builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
         Value::True
     );
 
-    builtin_internal_show_cursor_eval(&mut eval, vec![Value::Nil, Value::Nil]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::Nil]).unwrap();
     assert!(
-        builtin_internal_show_cursor_p_eval(&mut eval, vec![selected])
+        builtin_internal_show_cursor_p(&mut eval, vec![selected])
             .unwrap()
             .is_nil()
     );
     assert_eq!(
-        builtin_internal_show_cursor_p_eval(&mut eval, vec![other]).unwrap(),
+        builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
         Value::True
     );
     assert!(
-        builtin_internal_show_cursor_p_eval(&mut eval, vec![])
+        builtin_internal_show_cursor_p(&mut eval, vec![])
             .unwrap()
             .is_nil()
     );
 
-    builtin_internal_show_cursor_eval(&mut eval, vec![other, Value::True]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![other, Value::True]).unwrap();
     assert!(
-        builtin_internal_show_cursor_p_eval(&mut eval, vec![selected])
+        builtin_internal_show_cursor_p(&mut eval, vec![selected])
             .unwrap()
             .is_nil()
     );
     assert_eq!(
-        builtin_internal_show_cursor_p_eval(&mut eval, vec![other]).unwrap(),
+        builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
         Value::True
     );
     assert!(
-        builtin_internal_show_cursor_p_eval(&mut eval, vec![])
+        builtin_internal_show_cursor_p(&mut eval, vec![])
             .unwrap()
             .is_nil()
     );

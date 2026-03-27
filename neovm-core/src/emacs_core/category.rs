@@ -370,7 +370,7 @@ fn set_current_buffer_category_table(
 /// Define category CHAR (a single letter) with the given DOCSTRING.
 /// TABLE is currently ignored (uses the standard table).
 /// Returns nil.
-pub(crate) fn builtin_define_category(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_define_category_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("define-category", &args, 2)?;
     expect_max_args("define-category", &args, 3)?;
 
@@ -409,7 +409,7 @@ pub(crate) fn builtin_define_category(args: Vec<Value>) -> EvalResult {
 /// `(category-docstring CATEGORY &optional TABLE)`
 ///
 /// Return the docstring of CATEGORY from the pure category manager.
-pub(crate) fn builtin_category_docstring(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_category_docstring_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("category-docstring", &args, 1)?;
     expect_max_args("category-docstring", &args, 2)?;
 
@@ -429,7 +429,7 @@ pub(crate) fn builtin_category_docstring(args: Vec<Value>) -> EvalResult {
 /// `(get-unused-category &optional TABLE)`
 ///
 /// Return an unused category letter, or nil if all 52 are used.
-pub(crate) fn builtin_get_unused_category(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_get_unused_category_inner(args: Vec<Value>) -> EvalResult {
     expect_max_args("get-unused-category", &args, 1)?;
     // TABLE (arg 0) is currently ignored; category tables are not first-class.
     let _ = args.first();
@@ -452,7 +452,7 @@ pub(crate) fn builtin_category_table_p(args: Vec<Value>) -> EvalResult {
 /// `(category-table)`
 ///
 /// Return the standard category table in pure mode.
-pub(crate) fn builtin_category_table(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_category_table_inner(args: Vec<Value>) -> EvalResult {
     expect_max_args("category-table", &args, 0)?;
     ensure_standard_category_table()
 }
@@ -460,7 +460,7 @@ pub(crate) fn builtin_category_table(args: Vec<Value>) -> EvalResult {
 /// `(standard-category-table)`
 ///
 /// Return the standard category table.
-pub(crate) fn builtin_standard_category_table(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_standard_category_table_inner(args: Vec<Value>) -> EvalResult {
     expect_max_args("standard-category-table", &args, 0)?;
     ensure_standard_category_table()
 }
@@ -499,7 +499,7 @@ pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
 /// `(set-category-table TABLE)`
 ///
 /// Pure-mode fallback: validate TABLE and return it.
-pub(crate) fn builtin_set_category_table(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_category_table_inner(args: Vec<Value>) -> EvalResult {
     expect_args("set-category-table", &args, 1)?;
     if args[0].is_nil() {
         return ensure_standard_category_table();
@@ -679,7 +679,7 @@ pub(crate) fn modify_category_entry_in_manager(
 ///
 /// Stores the category docstring in the active category manager table and
 /// returns nil.
-pub(crate) fn builtin_define_category_eval(
+pub(crate) fn builtin_define_category(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -720,7 +720,7 @@ pub(crate) fn builtin_define_category_eval(
 /// `(category-docstring CATEGORY &optional TABLE)` (evaluator-backed).
 ///
 /// Returns the category docstring from the active table, or nil when absent.
-pub(crate) fn builtin_category_docstring_eval(
+pub(crate) fn builtin_category_docstring(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -740,7 +740,7 @@ pub(crate) fn builtin_category_docstring_eval(
 /// `(get-unused-category &optional TABLE)` (evaluator-backed).
 ///
 /// Returns the first unused category letter in the active table, or nil.
-pub(crate) fn builtin_get_unused_category_eval(
+pub(crate) fn builtin_get_unused_category(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -787,7 +787,7 @@ pub(crate) fn builtin_char_category_set(
 /// `(category-table)` (evaluator-backed).
 ///
 /// Return the current buffer's category table object.
-pub(crate) fn builtin_category_table_eval(
+pub(crate) fn builtin_category_table(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -805,7 +805,7 @@ pub(crate) fn builtin_category_table_in_buffers(
 /// `(standard-category-table)` (evaluator-backed).
 ///
 /// Return the process-wide standard category table object.
-pub(crate) fn builtin_standard_category_table_eval(
+pub(crate) fn builtin_standard_category_table(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -816,7 +816,7 @@ pub(crate) fn builtin_standard_category_table_eval(
 /// `(set-category-table TABLE)` (evaluator-backed).
 ///
 /// Install TABLE in the current buffer and return the installed table.
-pub(crate) fn builtin_set_category_table_eval(
+pub(crate) fn builtin_set_category_table(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

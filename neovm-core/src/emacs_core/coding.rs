@@ -2065,7 +2065,7 @@ fn marker_or_integer_position(value: &Value) -> Result<i64, Flow> {
     }
 }
 
-pub(crate) fn builtin_find_coding_systems_region_internal_eval(
+pub(crate) fn builtin_find_coding_systems_region_internal(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {

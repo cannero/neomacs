@@ -2253,7 +2253,7 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
     builtin_insert(&mut eval, vec![Value::string("dest-text")]).unwrap();
 
     assert_eq!(
-        builtin_replace_buffer_contents_eval(&mut eval, vec![Value::Buffer(source_id)]).unwrap(),
+        builtin_replace_buffer_contents(&mut eval, vec![Value::Buffer(source_id)]).unwrap(),
         Value::True
     );
     assert_eq!(
@@ -2265,13 +2265,13 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
     );
 
     assert_eq!(
-        builtin_set_buffer_multibyte_eval(&mut eval, vec![Value::Nil]).unwrap(),
+        builtin_set_buffer_multibyte(&mut eval, vec![Value::Nil]).unwrap(),
         Value::Nil
     );
     assert!(!eval.buffers.current_buffer().unwrap().multibyte);
 
     assert_eq!(
-        builtin_set_buffer_multibyte_eval(&mut eval, vec![Value::symbol("foo")]).unwrap(),
+        builtin_set_buffer_multibyte(&mut eval, vec![Value::symbol("foo")]).unwrap(),
         Value::symbol("foo")
     );
     assert!(eval.buffers.current_buffer().unwrap().multibyte);
@@ -2372,7 +2372,7 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
     builtin_insert(&mut eval, vec![Value::string("abXXef")]).unwrap();
 
     assert_eq!(
-        builtin_replace_region_contents_eval(
+        builtin_replace_region_contents(
             &mut eval,
             vec![
                 Value::Int(3),
@@ -2398,7 +2398,7 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
     builtin_insert(&mut eval, vec![Value::string("abYYef")]).unwrap();
 
     assert_eq!(
-        builtin_replace_region_contents_eval(
+        builtin_replace_region_contents(
             &mut eval,
             vec![Value::Int(3), Value::Int(5), Value::Buffer(source_id)]
         )
@@ -2423,7 +2423,7 @@ fn replace_region_contents_accepts_vector_buffer_slices() {
     builtin_insert(&mut eval, vec![Value::string("abZZef")]).unwrap();
 
     assert_eq!(
-        builtin_replace_region_contents_eval(
+        builtin_replace_region_contents(
             &mut eval,
             vec![
                 Value::Int(3),
@@ -4802,17 +4802,17 @@ fn interactive_form_eval_resolves_symbol_lambda_and_alias() {
 
     let expected = Value::list(vec![Value::symbol("interactive"), Value::string("p")]);
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("vm-interactive-form-lambda")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-lambda")])
             .expect("interactive-form should read lambda interactive spec"),
         expected
     );
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("vm-interactive-form-alias")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-alias")])
             .expect("interactive-form should follow function aliases"),
         expected
     );
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![lambda])
+        builtin_interactive_form(&mut eval, vec![lambda])
             .expect("interactive-form should parse quoted lambda designators"),
         expected
     );
@@ -4839,7 +4839,7 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
     .expect("put should install interactive-form symbol property");
 
     assert_eq!(
-        builtin_interactive_form_eval(
+        builtin_interactive_form(
             &mut eval,
             vec![Value::symbol("vm-interactive-form-property-alias")]
         )
@@ -4847,7 +4847,7 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
         Value::list(vec![Value::symbol("interactive"), Value::string("P")])
     );
     assert!(
-        builtin_interactive_form_eval(
+        builtin_interactive_form(
             &mut eval,
             vec![Value::symbol("vm-interactive-form-property-target")]
         )
@@ -4855,12 +4855,12 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
         .is_nil()
     );
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("forward-char")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("forward-char")])
             .expect("interactive-form should expose builtin subr spec"),
         Value::list(vec![Value::symbol("interactive"), Value::string("^p")])
     );
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("goto-char")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("goto-char")])
             .expect("interactive-form should expose computed builtin form"),
         Value::list(vec![
             Value::symbol("interactive"),
@@ -4871,7 +4871,7 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
         ])
     );
     assert!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("car")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("car")])
             .expect("interactive-form should evaluate")
             .is_nil()
     );
@@ -4891,7 +4891,7 @@ fn interactive_form_eval_skips_docstring_before_interactive_spec() {
         .set_symbol_function("vm-interactive-form-doc", lambda_with_doc);
 
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("vm-interactive-form-doc")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-doc")])
             .expect("interactive-form should inspect lambda body after docstring"),
         Value::list(vec![Value::symbol("interactive"), Value::string("P")])
     );
@@ -4905,17 +4905,17 @@ fn interactive_form_eval_returns_nil_for_non_interactive_lambda() {
         .set_symbol_function("vm-interactive-form-plain", lambda);
 
     assert!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("vm-interactive-form-plain")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-plain")])
             .expect("interactive-form should evaluate")
             .is_nil()
     );
     assert!(
-        builtin_interactive_form_eval(&mut eval, vec![lambda])
+        builtin_interactive_form(&mut eval, vec![lambda])
             .expect("interactive-form should evaluate")
             .is_nil()
     );
     assert!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::Int(0)])
+        builtin_interactive_form(&mut eval, vec![Value::Int(0)])
             .expect("interactive-form should evaluate")
             .is_nil()
     );
@@ -4942,22 +4942,22 @@ fn interactive_form_eval_preserves_noarg_and_explicit_nil_shapes() {
         .set_symbol_function("vm-interactive-form-nil", nil_lambda);
 
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![noarg_lambda])
+        builtin_interactive_form(&mut eval, vec![noarg_lambda])
             .expect("interactive-form should evaluate"),
         Value::list(vec![Value::symbol("interactive"), Value::Nil])
     );
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("vm-interactive-form-noarg")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-noarg")])
             .expect("interactive-form should evaluate"),
         Value::list(vec![Value::symbol("interactive"), Value::Nil])
     );
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![nil_lambda])
+        builtin_interactive_form(&mut eval, vec![nil_lambda])
             .expect("interactive-form should evaluate"),
         Value::list(vec![Value::symbol("interactive"), Value::Nil])
     );
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("vm-interactive-form-nil")])
+        builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-nil")])
             .expect("interactive-form should evaluate"),
         Value::list(vec![Value::symbol("interactive"), Value::Nil])
     );
@@ -4996,7 +4996,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
     );
 
     let dotted_interactive_err =
-        builtin_interactive_form_eval(&mut eval, vec![dotted_interactive]).unwrap_err();
+        builtin_interactive_form(&mut eval, vec![dotted_interactive]).unwrap_err();
     match dotted_interactive_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -5005,7 +5005,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let dotted_body_err = builtin_interactive_form_eval(&mut eval, vec![dotted_body]).unwrap_err();
+    let dotted_body_err = builtin_interactive_form(&mut eval, vec![dotted_body]).unwrap_err();
     match dotted_body_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -5021,7 +5021,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
     }
 
     let doc_dotted_body_err =
-        builtin_interactive_form_eval(&mut eval, vec![doc_dotted_body]).unwrap_err();
+        builtin_interactive_form(&mut eval, vec![doc_dotted_body]).unwrap_err();
     match doc_dotted_body_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -5037,7 +5037,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
     }
 
     assert_eq!(
-        builtin_interactive_form_eval(&mut eval, vec![doc_interactive_dotted_tail])
+        builtin_interactive_form(&mut eval, vec![doc_interactive_dotted_tail])
             .expect("interactive-form should stop at first interactive form"),
         Value::list(vec![Value::symbol("interactive"), Value::Nil])
     );
@@ -5330,7 +5330,7 @@ fn pure_dispatch_def_keymap_placeholder_cluster_matches_compat_contracts() {
 fn defvar_1_binds_only_when_default_is_unbound() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let result = builtin_defvar_1_eval(
+    let result = builtin_defvar_1(
         &mut eval,
         vec![
             Value::symbol("vm-defvar-1"),
@@ -5348,7 +5348,7 @@ fn defvar_1_binds_only_when_default_is_unbound() {
     );
 
     let result =
-        builtin_defvar_1_eval(&mut eval, vec![Value::symbol("vm-defvar-1"), Value::Int(9)])
+        builtin_defvar_1(&mut eval, vec![Value::symbol("vm-defvar-1"), Value::Int(9)])
             .expect("second defvar-1 should succeed");
     assert_eq!(result, Value::symbol("vm-defvar-1"));
     assert_eq!(
@@ -5363,7 +5363,7 @@ fn defvar_1_binds_only_when_default_is_unbound() {
 fn defconst_1_sets_constant_value_and_risky_local_property() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let result = builtin_defconst_1_eval(
+    let result = builtin_defconst_1(
         &mut eval,
         vec![
             Value::symbol("vm-defconst-1"),
@@ -5424,7 +5424,7 @@ fn kill_emacs_eval_requests_shutdown_and_stops_command_loop() {
     let mut eval = crate::emacs_core::eval::Context::new();
     eval.command_loop.running = true;
 
-    let result = super::symbols::builtin_kill_emacs_eval(&mut eval, vec![Value::Int(7)])
+    let result = super::symbols::builtin_kill_emacs(&mut eval, vec![Value::Int(7)])
         .expect("kill-emacs eval dispatch");
     assert!(result.is_nil());
     assert_eq!(
@@ -5715,7 +5715,7 @@ fn pure_dispatch_typed_ignore_accepts_any_arity() {
 fn match_data_round_trip_with_nil_groups() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    builtin_set_match_data_eval(
+    builtin_set_match_data(
         &mut eval,
         vec![Value::list(vec![
             Value::Int(0),
@@ -5728,7 +5728,7 @@ fn match_data_round_trip_with_nil_groups() {
     )
     .expect("set-match-data should succeed");
 
-    let md = builtin_match_data_eval(&mut eval, vec![]).expect("match-data should succeed");
+    let md = builtin_match_data(&mut eval, vec![]).expect("match-data should succeed");
     assert_eq!(
         md,
         Value::list(vec![
@@ -5766,7 +5766,7 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
 #[test]
 fn match_beginning_end_return_nil_without_match_data() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_set_match_data_eval(&mut eval, vec![Value::Nil]).expect("set-match-data nil");
+    builtin_set_match_data(&mut eval, vec![Value::Nil]).expect("set-match-data nil");
 
     let beg = builtin_match_beginning(&mut eval, vec![Value::Int(0)])
         .expect("match-beginning should not error");
@@ -5872,21 +5872,21 @@ fn delete_region_normalizes_reversed_bounds() {
 #[test]
 fn string_match_start_handles_nil_and_negative_offsets() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let with_nil = builtin_string_match_eval(
+    let with_nil = builtin_string_match(
         &mut eval,
         vec![Value::string("a"), Value::string("ba"), Value::Nil],
     )
     .expect("string-match with nil start");
     assert_eq!(with_nil, Value::Int(1));
 
-    let with_negative = builtin_string_match_eval(
+    let with_negative = builtin_string_match(
         &mut eval,
         vec![Value::string("a"), Value::string("ba"), Value::Int(-1)],
     )
     .expect("string-match with negative start");
     assert_eq!(with_negative, Value::Int(1));
 
-    let out_of_range = builtin_string_match_eval(
+    let out_of_range = builtin_string_match(
         &mut eval,
         vec![Value::string("a"), Value::string("ba"), Value::Int(3)],
     );
@@ -5976,7 +5976,7 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 
-    let string_match_over_arity = builtin_string_match_eval(
+    let string_match_over_arity = builtin_string_match(
         &mut eval,
         vec![
             Value::string("a"),
@@ -5991,7 +5991,7 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 
-    let string_match_p_over_arity = builtin_string_match_p_eval(
+    let string_match_p_over_arity = builtin_string_match_p(
         &mut eval,
         vec![
             Value::string("a"),
@@ -6009,7 +6009,7 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
 #[test]
 fn set_match_data_rejects_non_list() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let result = builtin_set_match_data_eval(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_set_match_data(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 
@@ -6025,11 +6025,11 @@ fn looking_at_inhibit_modify_preserves_match_data() {
     }
 
     let baseline = Value::list(vec![Value::Int(10), Value::Int(11)]);
-    builtin_set_match_data_eval(&mut eval, vec![baseline]).expect("setting baseline match-data");
+    builtin_set_match_data(&mut eval, vec![baseline]).expect("setting baseline match-data");
     let result = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::True]);
     assert!(result.is_ok());
 
-    let observed = builtin_match_data_eval(&mut eval, vec![]).expect("read match-data");
+    let observed = builtin_match_data(&mut eval, vec![]).expect("read match-data");
     assert_eq!(observed, baseline);
 }
 
@@ -6044,11 +6044,11 @@ fn looking_at_updates_match_data_when_allowed() {
         buffer.goto_char(0);
     }
 
-    builtin_set_match_data_eval(&mut eval, vec![Value::Nil]).expect("clear match-data");
+    builtin_set_match_data(&mut eval, vec![Value::Nil]).expect("clear match-data");
     let result = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::Nil]);
     assert!(result.is_ok());
 
-    let observed = builtin_match_data_eval(&mut eval, vec![]).expect("read match-data");
+    let observed = builtin_match_data(&mut eval, vec![]).expect("read match-data");
     // GNU returns markers for buffer matches. Verify match-data is non-nil
     // and contains correct position information.
     assert!(
@@ -6057,7 +6057,7 @@ fn looking_at_updates_match_data_when_allowed() {
     );
     // Check with INTEGERS flag to get integer positions.
     let int_md =
-        builtin_match_data_eval(&mut eval, vec![Value::True]).expect("read match-data integers");
+        builtin_match_data(&mut eval, vec![Value::True]).expect("read match-data integers");
     // Compare structurally: extract the integer values
     let items =
         crate::emacs_core::value::list_to_vec(&int_md).expect("match-data should be a proper list");
@@ -6088,10 +6088,10 @@ fn looking_at_p_preserves_match_data() {
     }
 
     let baseline = Value::list(vec![Value::Int(1), Value::Int(2)]);
-    builtin_set_match_data_eval(&mut eval, vec![baseline]).expect("seed baseline");
+    builtin_set_match_data(&mut eval, vec![baseline]).expect("seed baseline");
     let _ = builtin_looking_at_p(&mut eval, vec![Value::string("z")])
         .expect("looking-at-p handles non-match");
-    let observed = builtin_match_data_eval(&mut eval, vec![]).expect("read match-data");
+    let observed = builtin_match_data(&mut eval, vec![]).expect("read match-data");
     assert_eq!(observed, baseline);
 }
 
@@ -6101,9 +6101,9 @@ fn string_match_inhibit_modify_preserves_match_data() {
 
     let mut eval = Context::new();
     let baseline = Value::list(vec![Value::Int(10), Value::Int(11)]);
-    builtin_set_match_data_eval(&mut eval, vec![baseline]).expect("seed baseline");
+    builtin_set_match_data(&mut eval, vec![baseline]).expect("seed baseline");
 
-    let result = builtin_string_match_eval(
+    let result = builtin_string_match(
         &mut eval,
         vec![
             Value::string("\\(foo\\)\\(bar\\)"),
@@ -6115,7 +6115,7 @@ fn string_match_inhibit_modify_preserves_match_data() {
     .expect("string-match with inhibit-modify");
     assert_eq!(result, Value::Int(0));
 
-    let observed = builtin_match_data_eval(&mut eval, vec![]).expect("read match-data");
+    let observed = builtin_match_data(&mut eval, vec![]).expect("read match-data");
     assert_eq!(observed, baseline);
 }
 
@@ -6124,7 +6124,7 @@ fn replace_match_missing_subexp_signals_error() {
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
-    builtin_string_match_eval(
+    builtin_string_match(
         &mut eval,
         vec![Value::string("\\(foo\\)"), Value::string("foo")],
     )
@@ -6157,7 +6157,7 @@ fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
-    builtin_set_match_data_eval(&mut eval, vec![Value::Nil]).expect("clear match data");
+    builtin_set_match_data(&mut eval, vec![Value::Nil]).expect("clear match data");
 
     let result = builtin_replace_match(&mut eval, vec![Value::string("bar")]);
     assert!(matches!(
@@ -6222,7 +6222,7 @@ fn match_data_translate_shifts_groups_in_shared_eval_state() {
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
-    builtin_set_match_data_eval(
+    builtin_set_match_data(
         &mut eval,
         vec![Value::list(vec![
             Value::Int(1),
@@ -6233,11 +6233,11 @@ fn match_data_translate_shifts_groups_in_shared_eval_state() {
     )
     .expect("seed match data");
 
-    builtin_match_data_translate_eval(&mut eval, vec![Value::Int(5)])
+    builtin_match_data_translate(&mut eval, vec![Value::Int(5)])
         .expect("translate match data");
 
     assert_eq!(
-        builtin_match_data_eval(&mut eval, vec![]).expect("read translated match data"),
+        builtin_match_data(&mut eval, vec![]).expect("read translated match data"),
         Value::list(vec![
             Value::Int(6),
             Value::Int(9),
@@ -7774,25 +7774,25 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
 fn message_nil_returns_nil() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let raw = builtin_message(vec![Value::Nil]).expect("message should accept nil");
+    let raw = builtin_message_inner(vec![Value::Nil]).expect("message should accept nil");
     assert!(raw.is_nil());
 
     let eval_result =
-        builtin_message_eval(&mut eval, vec![Value::Nil]).expect("message eval should accept nil");
+        builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should accept nil");
     assert!(eval_result.is_nil());
 
-    let displayed = builtin_message_eval(&mut eval, vec![Value::string("hello echo")])
+    let displayed = builtin_message(&mut eval, vec![Value::string("hello echo")])
         .expect("message eval should store echo text");
     assert_eq!(displayed, Value::string("hello echo"));
-    let current = builtin_current_message_eval(&mut eval, vec![])
+    let current = builtin_current_message(&mut eval, vec![])
         .expect("current-message should read stored echo text");
     assert_eq!(current, Value::string("hello echo"));
 
     let cleared =
-        builtin_message_eval(&mut eval, vec![Value::Nil]).expect("message eval should clear");
+        builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should clear");
     assert!(cleared.is_nil());
     let current_after_clear =
-        builtin_current_message_eval(&mut eval, vec![]).expect("current-message should clear");
+        builtin_current_message(&mut eval, vec![]).expect("current-message should clear");
     assert!(current_after_clear.is_nil());
 }
 
@@ -7809,9 +7809,9 @@ fn message_eval_triggers_redisplay_with_current_echo_state() {
             .push(ev.current_message_text().map(str::to_owned));
     }));
 
-    builtin_message_eval(&mut eval, vec![Value::string("hello echo")])
+    builtin_message(&mut eval, vec![Value::string("hello echo")])
         .expect("message eval should store echo text");
-    builtin_message_eval(&mut eval, vec![Value::Nil]).expect("message eval should clear");
+    builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should clear");
 
     let redisplays = redisplays.lock().expect("captured redisplays");
     assert_eq!(*redisplays, vec![Some("hello echo".to_string()), None]);
@@ -8226,7 +8226,7 @@ fn internal_save_selected_window_helpers_restore_selected_window() {
 fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let builtin_symbol = builtin_functionp_eval(&mut eval, vec![Value::symbol("message")])
+    let builtin_symbol = builtin_functionp(&mut eval, vec![Value::symbol("message")])
         .expect("functionp should accept builtin symbol");
     assert!(builtin_symbol.is_truthy());
 
@@ -8235,7 +8235,7 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         Value::list(vec![Value::symbol("x")]),
         Value::symbol("x"),
     ]);
-    let lambda_result = builtin_functionp_eval(&mut eval, vec![quoted_lambda])
+    let lambda_result = builtin_functionp(&mut eval, vec![quoted_lambda])
         .expect("functionp should accept quoted lambda list");
     assert!(lambda_result.is_truthy());
 
@@ -8244,12 +8244,12 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         vec![Value::symbol("vm-functionp-alias"), quoted_lambda],
     )
     .expect("fset should accept lambda definition");
-    let alias_result = builtin_functionp_eval(&mut eval, vec![Value::symbol("vm-functionp-alias")])
+    let alias_result = builtin_functionp(&mut eval, vec![Value::symbol("vm-functionp-alias")])
         .expect("functionp should resolve symbol alias to lambda list");
     assert!(alias_result.is_truthy());
 
     let improper_lambda = Value::cons(Value::symbol("lambda"), Value::Int(1));
-    let improper_result = builtin_functionp_eval(&mut eval, vec![improper_lambda])
+    let improper_result = builtin_functionp(&mut eval, vec![improper_lambda])
         .expect("functionp should accept improper lambda forms");
     assert!(improper_result.is_truthy());
 
@@ -8260,77 +8260,77 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         Value::list(vec![Value::symbol("x")]),
         Value::symbol("x"),
     ]);
-    let closure_result = builtin_functionp_eval(&mut eval, vec![quoted_closure])
+    let closure_result = builtin_functionp(&mut eval, vec![quoted_closure])
         .expect("functionp should accept quoted closure lists");
     assert!(closure_result.is_truthy());
 
-    let special_symbol = builtin_functionp_eval(&mut eval, vec![Value::symbol("if")])
+    let special_symbol = builtin_functionp(&mut eval, vec![Value::symbol("if")])
         .expect("functionp should reject special-form symbols");
     assert!(special_symbol.is_nil());
 
-    let macro_symbol = builtin_functionp_eval(&mut eval, vec![Value::symbol("when")])
+    let macro_symbol = builtin_functionp(&mut eval, vec![Value::symbol("when")])
         .expect("functionp should reject macro symbols");
     assert!(macro_symbol.is_nil());
     let save_match_data_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("save-match-data")])
+        builtin_functionp(&mut eval, vec![Value::symbol("save-match-data")])
             .expect("functionp should reject save-match-data macro symbol");
     assert!(save_match_data_symbol.is_nil());
     let save_mark_and_excursion_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("save-mark-and-excursion")])
+        builtin_functionp(&mut eval, vec![Value::symbol("save-mark-and-excursion")])
             .expect("functionp should reject save-mark-and-excursion macro symbol");
     assert!(save_mark_and_excursion_symbol.is_nil());
     let save_window_excursion_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("save-window-excursion")])
+        builtin_functionp(&mut eval, vec![Value::symbol("save-window-excursion")])
             .expect("functionp should reject save-window-excursion macro symbol");
     assert!(save_window_excursion_symbol.is_nil());
     let save_selected_window_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("save-selected-window")])
+        builtin_functionp(&mut eval, vec![Value::symbol("save-selected-window")])
             .expect("functionp should reject save-selected-window macro symbol");
     assert!(save_selected_window_symbol.is_nil());
     let with_local_quit_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("with-local-quit")])
+        builtin_functionp(&mut eval, vec![Value::symbol("with-local-quit")])
             .expect("functionp should reject with-local-quit macro symbol");
     assert!(with_local_quit_symbol.is_nil());
     let with_temp_message_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("with-temp-message")])
+        builtin_functionp(&mut eval, vec![Value::symbol("with-temp-message")])
             .expect("functionp should reject with-temp-message macro symbol");
     assert!(with_temp_message_symbol.is_nil());
     let with_demoted_errors_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("with-demoted-errors")])
+        builtin_functionp(&mut eval, vec![Value::symbol("with-demoted-errors")])
             .expect("functionp should reject with-demoted-errors macro symbol");
     assert!(with_demoted_errors_symbol.is_nil());
     let bound_and_true_p_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("bound-and-true-p")])
+        builtin_functionp(&mut eval, vec![Value::symbol("bound-and-true-p")])
             .expect("functionp should reject bound-and-true-p macro symbol");
     assert!(bound_and_true_p_symbol.is_nil());
-    let declare_symbol = builtin_functionp_eval(&mut eval, vec![Value::symbol("declare")])
+    let declare_symbol = builtin_functionp(&mut eval, vec![Value::symbol("declare")])
         .expect("functionp should reject declare symbol");
     assert!(declare_symbol.is_nil());
-    let inline_symbol = builtin_functionp_eval(&mut eval, vec![Value::symbol("inline")])
+    let inline_symbol = builtin_functionp(&mut eval, vec![Value::symbol("inline")])
         .expect("functionp should reject inline symbol");
     assert!(inline_symbol.is_nil());
-    let throw_symbol = builtin_functionp_eval(&mut eval, vec![Value::symbol("throw")])
+    let throw_symbol = builtin_functionp(&mut eval, vec![Value::symbol("throw")])
         .expect("functionp should accept throw symbol");
     assert!(throw_symbol.is_truthy());
     for name in ["funcall", "defalias", "provide", "require"] {
-        let result = builtin_functionp_eval(&mut eval, vec![Value::symbol(name)])
+        let result = builtin_functionp(&mut eval, vec![Value::symbol(name)])
             .unwrap_or_else(|_| panic!("functionp should accept {name} symbol"));
         assert!(result.is_truthy(), "expected {name} to satisfy functionp");
     }
-    let macro_marker_cons = builtin_functionp_eval(
+    let macro_marker_cons = builtin_functionp(
         &mut eval,
         vec![Value::cons(Value::symbol("macro"), Value::True)],
     )
     .expect("functionp should reject dotted macro marker cons");
     assert!(macro_marker_cons.is_nil());
-    let macro_marker_list = builtin_functionp_eval(
+    let macro_marker_list = builtin_functionp(
         &mut eval,
         vec![Value::list(vec![Value::symbol("macro"), Value::True])],
     )
     .expect("functionp should reject macro marker lists");
     assert!(macro_marker_list.is_nil());
 
-    let special_subr = builtin_functionp_eval(&mut eval, vec![Value::Subr(intern("if"))])
+    let special_subr = builtin_functionp(&mut eval, vec![Value::Subr(intern("if"))])
         .expect("functionp should reject special-form subr objects");
     assert!(special_subr.is_nil());
 
@@ -8342,14 +8342,14 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         eval.eval(form).expect("autoload function should register");
     }
     let autoload_function_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("vm-test-auto-fn")])
+        builtin_functionp(&mut eval, vec![Value::symbol("vm-test-auto-fn")])
             .expect("functionp should recognize autoload function symbol");
     assert!(autoload_function_symbol.is_truthy());
     let autoload_function_cell = *eval
         .obarray()
         .symbol_function("vm-test-auto-fn")
         .expect("autoload function cell exists");
-    let autoload_function_cell = builtin_functionp_eval(&mut eval, vec![autoload_function_cell])
+    let autoload_function_cell = builtin_functionp(&mut eval, vec![autoload_function_cell])
         .expect("functionp should reject raw autoload function cell object");
     assert!(autoload_function_cell.is_nil());
 
@@ -8361,7 +8361,7 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         eval.eval(form).expect("autoload macro should register");
     }
     let autoload_macro_symbol =
-        builtin_functionp_eval(&mut eval, vec![Value::symbol("vm-test-auto-macro")])
+        builtin_functionp(&mut eval, vec![Value::symbol("vm-test-auto-macro")])
             .expect("functionp should reject autoload macro symbol");
     assert!(autoload_macro_symbol.is_nil());
 }
@@ -8382,9 +8382,9 @@ fn functionp_eval_resolves_t_and_keyword_symbol_designators() {
         .expect("fset should bind keyword function cell");
 
     let t_result =
-        builtin_functionp_eval(&mut eval, vec![Value::True]).expect("functionp should accept t");
+        builtin_functionp(&mut eval, vec![Value::True]).expect("functionp should accept t");
     assert!(t_result.is_truthy());
-    let keyword_result = builtin_functionp_eval(&mut eval, vec![keyword])
+    let keyword_result = builtin_functionp(&mut eval, vec![keyword])
         .expect("functionp should accept keyword designator");
     assert!(keyword_result.is_truthy());
 
@@ -8404,7 +8404,7 @@ fn fmakunbound_masks_builtin_special_and_evaluator_callables() {
     let car_fn = builtin_symbol_function(&mut eval, vec![Value::symbol("car")])
         .expect("symbol-function should return nil after fmakunbound");
     assert!(car_fn.is_nil());
-    let car_functionp = builtin_functionp_eval(&mut eval, vec![Value::symbol("car")])
+    let car_functionp = builtin_functionp(&mut eval, vec![Value::symbol("car")])
         .expect("functionp should accept symbol");
     assert!(car_functionp.is_nil());
 
@@ -8425,7 +8425,7 @@ fn fmakunbound_masks_builtin_special_and_evaluator_callables() {
     let throw_fn = builtin_symbol_function(&mut eval, vec![Value::symbol("throw")])
         .expect("symbol-function should return nil after fmakunbound evaluator callable");
     assert!(throw_fn.is_nil());
-    let throw_functionp = builtin_functionp_eval(&mut eval, vec![Value::symbol("throw")])
+    let throw_functionp = builtin_functionp(&mut eval, vec![Value::symbol("throw")])
         .expect("functionp should accept symbol");
     assert!(throw_functionp.is_nil());
     for name in ["funcall", "defalias", "provide", "require"] {
@@ -8443,7 +8443,7 @@ fn fmakunbound_masks_builtin_special_and_evaluator_callables() {
             fn_cell.is_nil(),
             "expected symbol-function {name} to be nil"
         );
-        let functionp = builtin_functionp_eval(&mut eval, vec![Value::symbol(name)])
+        let functionp = builtin_functionp(&mut eval, vec![Value::symbol(name)])
             .unwrap_or_else(|_| panic!("functionp should accept {name}"));
         assert!(
             functionp.is_nil(),
@@ -8616,7 +8616,7 @@ fn macrop_eval_resolves_keyword_designators() {
 
     builtin_fset(&mut eval, vec![keyword, test_macro])
         .expect("fset should bind keyword function cell");
-    let keyword_result = builtin_macrop_eval(&mut eval, vec![keyword])
+    let keyword_result = builtin_macrop(&mut eval, vec![keyword])
         .expect("macrop should resolve keyword designator");
     assert!(keyword_result.is_truthy());
 
@@ -8645,7 +8645,7 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
             Value::Int(1),
         ]),
     ])]);
-    let expanded = builtin_macroexpand_eval(
+    let expanded = builtin_macroexpand(
         &mut eval,
         vec![
             Value::list(vec![Value::symbol("vm-env"), Value::True]),
@@ -8665,7 +8665,7 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
     // Part 2: shadow entry for vm-env-result suppresses expansion (trivially,
     // since vm-env-result is not a macro).  Use with-temp-buffer instead to
     // test genuine shadowing of a global macro.
-    let shadow = builtin_macroexpand_eval(
+    let shadow = builtin_macroexpand(
         &mut eval,
         vec![
             Value::list(vec![Value::symbol("with-temp-buffer"), Value::Int(1)]),
@@ -8684,11 +8684,11 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let atom_ignores_bad_env =
-        builtin_macroexpand_eval(&mut eval, vec![Value::symbol("x"), Value::Int(1)])
+        builtin_macroexpand(&mut eval, vec![Value::symbol("x"), Value::Int(1)])
             .expect("non-list forms should ignore non-list environments");
     assert_eq!(atom_ignores_bad_env, Value::symbol("x"));
 
-    let nonsymbol_head_ignores_bad_env = builtin_macroexpand_eval(
+    let nonsymbol_head_ignores_bad_env = builtin_macroexpand(
         &mut eval,
         vec![
             Value::list(vec![
@@ -8707,7 +8707,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
         ])
     );
 
-    let env_type_err = builtin_macroexpand_eval(
+    let env_type_err = builtin_macroexpand(
         &mut eval,
         vec![
             Value::list(vec![Value::symbol("foo"), Value::Int(1)]),
@@ -8723,7 +8723,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let invalid_env_function = builtin_macroexpand_eval(
+    let invalid_env_function = builtin_macroexpand(
         &mut eval,
         vec![
             Value::list(vec![Value::symbol("vm-f"), Value::Int(1)]),
@@ -8744,7 +8744,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
 fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let not_macro = builtin_macroexpand_eval(
+    let not_macro = builtin_macroexpand(
         &mut eval,
         vec![Value::cons(Value::symbol("foo"), Value::Int(1))],
     )
@@ -8752,7 +8752,7 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
     assert_eq!(not_macro, Value::cons(Value::symbol("foo"), Value::Int(1)));
 
     // Use with-temp-buffer (a real fallback macro) instead of when
-    let improper_macro = builtin_macroexpand_eval(
+    let improper_macro = builtin_macroexpand(
         &mut eval,
         vec![Value::cons(
             Value::symbol("with-temp-buffer"),

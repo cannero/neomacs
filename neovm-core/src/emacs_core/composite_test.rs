@@ -2,14 +2,14 @@ use super::*;
 
 #[test]
 fn compose_region_internal_min_args() {
-    let result = builtin_compose_region_internal(vec![Value::Int(1), Value::Int(10)]);
+    let result = builtin_compose_region_internal_inner(vec![Value::Int(1), Value::Int(10)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn compose_region_internal_max_args() {
-    let result = builtin_compose_region_internal(vec![
+    let result = builtin_compose_region_internal_inner(vec![
         Value::Int(1),
         Value::Int(10),
         Value::Nil,
@@ -21,13 +21,13 @@ fn compose_region_internal_max_args() {
 
 #[test]
 fn compose_region_internal_too_few_args() {
-    let result = builtin_compose_region_internal(vec![Value::Int(1)]);
+    let result = builtin_compose_region_internal_inner(vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn compose_region_internal_too_many_args() {
-    let result = builtin_compose_region_internal(vec![
+    let result = builtin_compose_region_internal_inner(vec![
         Value::Int(1),
         Value::Int(10),
         Value::Nil,
@@ -39,9 +39,9 @@ fn compose_region_internal_too_many_args() {
 
 #[test]
 fn compose_region_internal_rejects_non_integer_positions() {
-    let result = builtin_compose_region_internal(vec![Value::symbol("x"), Value::Int(10)]);
+    let result = builtin_compose_region_internal_inner(vec![Value::symbol("x"), Value::Int(10)]);
     assert!(result.is_err());
-    let result = builtin_compose_region_internal(vec![Value::Int(1), Value::symbol("y")]);
+    let result = builtin_compose_region_internal_inner(vec![Value::Int(1), Value::symbol("y")]);
     assert!(result.is_err());
 }
 
@@ -52,11 +52,11 @@ fn compose_region_internal_eval_range_checks() {
         let buffer = eval.buffers.current_buffer_mut().expect("current buffer");
         buffer.insert("abc");
     }
-    let ok = builtin_compose_region_internal_eval(&mut eval, vec![Value::Int(1), Value::Int(3)]);
+    let ok = builtin_compose_region_internal(&mut eval, vec![Value::Int(1), Value::Int(3)]);
     assert!(ok.is_ok());
 
     let out_of_range =
-        builtin_compose_region_internal_eval(&mut eval, vec![Value::Int(0), Value::Int(0)]);
+        builtin_compose_region_internal(&mut eval, vec![Value::Int(0), Value::Int(0)]);
     assert!(out_of_range.is_err());
 }
 

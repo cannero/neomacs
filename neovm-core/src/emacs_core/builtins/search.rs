@@ -643,7 +643,7 @@ pub(crate) fn builtin_string_match_with_state(
 }
 
 /// Context-dependent `string-match`: updates match data on the evaluator.
-pub(crate) fn builtin_string_match_eval(
+pub(crate) fn builtin_string_match(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -705,7 +705,7 @@ pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Val
     }
 }
 
-pub(crate) fn builtin_string_match_p_eval(
+pub(crate) fn builtin_string_match_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1053,7 +1053,7 @@ fn expect_match_data_item_in_manager(
     }
 }
 
-pub(crate) fn builtin_match_data_eval(
+pub(crate) fn builtin_match_data(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1146,7 +1146,7 @@ pub(crate) fn builtin_set_match_data_with_state(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_set_match_data_eval(
+pub(crate) fn builtin_set_match_data(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1174,7 +1174,7 @@ pub(crate) fn builtin_match_data_translate_with_state(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_match_data_translate_eval(
+pub(crate) fn builtin_match_data_translate(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

@@ -27,13 +27,13 @@ fn assert_str(val: Value, expected: &str) {
 
 #[test]
 fn string_match_basic() {
-    let result = builtin_string_match(vec![Value::string("he..o"), Value::string("hello world")]);
+    let result = builtin_string_match_inner(vec![Value::string("he..o"), Value::string("hello world")]);
     assert_int(result.unwrap(), 0);
 }
 
 #[test]
 fn string_match_with_start() {
-    let result = builtin_string_match(vec![
+    let result = builtin_string_match_inner(vec![
         Value::string("world"),
         Value::string("hello world"),
         Value::Int(6),
@@ -43,26 +43,26 @@ fn string_match_with_start() {
 
 #[test]
 fn string_match_no_match() {
-    let result = builtin_string_match(vec![Value::string("xyz"), Value::string("hello world")]);
+    let result = builtin_string_match_inner(vec![Value::string("xyz"), Value::string("hello world")]);
     assert_nil(result.unwrap());
 }
 
 #[test]
 fn string_match_defaults_to_case_fold() {
-    let result = builtin_string_match(vec![Value::string("a"), Value::string("A")]);
+    let result = builtin_string_match_inner(vec![Value::string("a"), Value::string("A")]);
     assert_int(result.unwrap(), 0);
 }
 
 #[test]
 fn string_match_p_basic() {
     let result =
-        builtin_string_match_p(vec![Value::string("[0-9]+"), Value::string("abc 123 def")]);
+        builtin_string_match_p_inner(vec![Value::string("[0-9]+"), Value::string("abc 123 def")]);
     assert_int(result.unwrap(), 4);
 }
 
 #[test]
 fn string_match_p_no_match() {
-    let result = builtin_string_match_p(vec![
+    let result = builtin_string_match_p_inner(vec![
         Value::string("[0-9]+"),
         Value::string("no digits here"),
     ]);
@@ -71,7 +71,7 @@ fn string_match_p_no_match() {
 
 #[test]
 fn string_match_p_defaults_to_case_fold() {
-    let result = builtin_string_match_p(vec![Value::string("a"), Value::string("A")]);
+    let result = builtin_string_match_p_inner(vec![Value::string("a"), Value::string("A")]);
     assert_int(result.unwrap(), 0);
 }
 
@@ -96,37 +96,37 @@ fn regexp_quote_all_specials() {
 
 #[test]
 fn match_beginning_nil_without_match_data() {
-    builtin_set_match_data(vec![Value::Nil]).unwrap();
+    builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
     let result = builtin_match_beginning(vec![Value::Int(0)]);
     assert_nil(result.unwrap());
 }
 
 #[test]
 fn match_end_nil_without_match_data() {
-    builtin_set_match_data(vec![Value::Nil]).unwrap();
+    builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
     let result = builtin_match_end(vec![Value::Int(0)]);
     assert_nil(result.unwrap());
 }
 
 #[test]
 fn match_data_nil_without_match_data() {
-    builtin_set_match_data(vec![Value::Nil]).unwrap();
-    let result = builtin_match_data(vec![]);
+    builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
+    let result = builtin_match_data_inner(vec![]);
     assert_nil(result.unwrap());
 }
 
 #[test]
 fn set_match_data_nil_clears_state() {
-    builtin_set_match_data(vec![Value::list(vec![Value::Int(1), Value::Int(2)])]).unwrap();
-    let result = builtin_set_match_data(vec![Value::Nil]);
+    builtin_set_match_data_inner(vec![Value::list(vec![Value::Int(1), Value::Int(2)])]).unwrap();
+    let result = builtin_set_match_data_inner(vec![Value::Nil]);
     assert_nil(result.unwrap());
-    let md = builtin_match_data(vec![]).unwrap();
+    let md = builtin_match_data_inner(vec![]).unwrap();
     assert_nil(md);
 }
 
 #[test]
 fn set_match_data_round_trip() {
-    builtin_set_match_data(vec![Value::list(vec![
+    builtin_set_match_data_inner(vec![Value::list(vec![
         Value::Int(1),
         Value::Int(2),
         Value::Nil,
@@ -135,7 +135,7 @@ fn set_match_data_round_trip() {
         Value::Int(7),
     ])])
     .unwrap();
-    let md = builtin_match_data(vec![]).unwrap();
+    let md = builtin_match_data_inner(vec![]).unwrap();
     assert_eq!(
         md,
         Value::list(vec![
@@ -151,8 +151,8 @@ fn set_match_data_round_trip() {
 
 #[test]
 fn string_match_updates_match_data() {
-    builtin_set_match_data(vec![Value::Nil]).unwrap();
-    let result = builtin_string_match(vec![
+    builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
+    let result = builtin_string_match_inner(vec![
         Value::string("\\(foo\\|bar\\)"),
         Value::string("test bar"),
     ]);
@@ -167,10 +167,10 @@ fn string_match_updates_match_data() {
 #[test]
 fn string_match_start_nil_and_negative() {
     let with_nil =
-        builtin_string_match(vec![Value::string("a"), Value::string("ba"), Value::Nil]).unwrap();
+        builtin_string_match_inner(vec![Value::string("a"), Value::string("ba"), Value::Nil]).unwrap();
     assert_int(with_nil, 1);
 
-    let with_negative = builtin_string_match(vec![
+    let with_negative = builtin_string_match_inner(vec![
         Value::string("a"),
         Value::string("ba"),
         Value::Int(-1),
@@ -179,7 +179,7 @@ fn string_match_start_nil_and_negative() {
     assert_int(with_negative, 1);
 
     let out_of_range =
-        builtin_string_match(vec![Value::string("a"), Value::string("ba"), Value::Int(3)]);
+        builtin_string_match_inner(vec![Value::string("a"), Value::string("ba"), Value::Int(3)]);
     assert!(out_of_range.is_err());
 }
 
@@ -256,10 +256,10 @@ fn looking_at_with_limit_marker_like_char() {
 #[test]
 fn looking_at_p_preserves_match_data() {
     let _ = builtin_looking_at(vec![Value::string("foo"), Value::string("foobar")]);
-    let before = builtin_match_data(vec![]).unwrap();
+    let before = builtin_match_data_inner(vec![]).unwrap();
     let result = builtin_looking_at_p(vec![Value::string("foo")]);
     assert_nil(result.unwrap());
-    let after = builtin_match_data(vec![]).unwrap();
+    let after = builtin_match_data_inner(vec![]).unwrap();
     assert_eq!(before, after);
 }
 
@@ -286,7 +286,7 @@ fn looking_at_p_wrong_number_of_arguments() {
 
 #[test]
 fn replace_regexp_basic() {
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("[0-9]+"),
         Value::string("NUM"),
         Value::string("abc 123 def 456"),
@@ -296,7 +296,7 @@ fn replace_regexp_basic() {
 
 #[test]
 fn replace_regexp_literal() {
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("[0-9]+"),
         Value::string("$0"),
         Value::string("abc 123 def"),
@@ -309,7 +309,7 @@ fn replace_regexp_literal() {
 #[test]
 fn replace_regexp_with_backref() {
     // Use Emacs-style group: \(\w+\) and back-reference \1
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("\\(\\w+\\)"),
         Value::string("[\\1]"),
         Value::string("hello world"),
@@ -320,7 +320,7 @@ fn replace_regexp_with_backref() {
 #[test]
 fn replace_regexp_with_start() {
     // Emacs: START omits the first START chars from the result.
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("[0-9]+"),
         Value::string("X"),
         Value::string("111 222 333"),
@@ -336,7 +336,7 @@ fn replace_regexp_with_start() {
 fn replace_regexp_with_start_no_subexp() {
     // In Emacs, arg 6 is SUBEXP and arg 7 is START.
     // To pass START without SUBEXP, use nil for SUBEXP.
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("[0-9]+"),
         Value::string("X"),
         Value::string("111 222 333"),
@@ -350,7 +350,7 @@ fn replace_regexp_with_start_no_subexp() {
 
 #[test]
 fn replace_regexp_subexp() {
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("\\([a-z]+\\)-\\([0-9]+\\)"),
         Value::string("N"),
         Value::string("aaa-111 bbb-222"),
@@ -364,7 +364,7 @@ fn replace_regexp_subexp() {
 
 #[test]
 fn replace_regexp_subexp_unmatched_errors() {
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("\\(a\\)?b"),
         Value::string("N"),
         Value::string("b"),
@@ -378,7 +378,7 @@ fn replace_regexp_subexp_unmatched_errors() {
 
 #[test]
 fn replace_regexp_preserves_case_when_fixedcase_nil() {
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("a"),
         Value::string("x"),
         Value::string("A a"),
@@ -388,7 +388,7 @@ fn replace_regexp_preserves_case_when_fixedcase_nil() {
 
 #[test]
 fn replace_regexp_fixedcase_disables_case_preserve() {
-    let result = builtin_replace_regexp_in_string(vec![
+    let result = builtin_replace_regexp_in_string_inner(vec![
         Value::string("a"),
         Value::string("x"),
         Value::string("A a"),
@@ -399,13 +399,13 @@ fn replace_regexp_fixedcase_disables_case_preserve() {
 
 #[test]
 fn string_match_wrong_type() {
-    let result = builtin_string_match(vec![Value::Int(42), Value::string("hello")]);
+    let result = builtin_string_match_inner(vec![Value::Int(42), Value::string("hello")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn string_match_too_few_args() {
-    let result = builtin_string_match(vec![Value::string("foo")]);
+    let result = builtin_string_match_inner(vec![Value::string("foo")]);
     assert!(result.is_err());
 }
 
@@ -426,7 +426,7 @@ fn regexp_quote_right_bracket_not_escaped() {
 #[test]
 fn string_match_emacs_groups() {
     // Emacs regex with groups: \(foo\|bar\) matching "test bar"
-    let result = builtin_string_match(vec![
+    let result = builtin_string_match_inner(vec![
         Value::string("\\(foo\\|bar\\)"),
         Value::string("test bar"),
     ]);

@@ -160,82 +160,82 @@ fn builtin_case_table_p_wrong_arg_count() {
 
 #[test]
 fn builtin_current_case_table_returns_case_table() {
-    let result = builtin_current_case_table(vec![]).unwrap();
+    let result = builtin_current_case_table_inner(vec![]).unwrap();
     assert!(is_case_table(&result));
 }
 
 #[test]
 fn builtin_current_case_table_wrong_args() {
-    assert!(builtin_current_case_table(vec![Value::Nil]).is_err());
+    assert!(builtin_current_case_table_inner(vec![Value::Nil]).is_err());
 }
 
 #[test]
 fn builtin_standard_case_table_returns_case_table() {
-    let result = builtin_standard_case_table(vec![]).unwrap();
+    let result = builtin_standard_case_table_inner(vec![]).unwrap();
     assert!(is_case_table(&result));
 }
 
 #[test]
 fn builtin_standard_case_table_wrong_args() {
-    assert!(builtin_standard_case_table(vec![Value::Nil]).is_err());
+    assert!(builtin_standard_case_table_inner(vec![Value::Nil]).is_err());
 }
 
 #[test]
 fn builtin_set_case_table_returns_arg() {
     let table = make_case_table_value();
-    let result = builtin_set_case_table(vec![table]).unwrap();
+    let result = builtin_set_case_table_inner(vec![table]).unwrap();
     assert_eq!(result, table);
 }
 
 #[test]
 fn builtin_set_case_table_rejects_non_table() {
-    assert!(builtin_set_case_table(vec![Value::Int(1)]).is_err());
+    assert!(builtin_set_case_table_inner(vec![Value::Int(1)]).is_err());
 }
 
 #[test]
 fn builtin_set_case_table_wrong_args() {
-    assert!(builtin_set_case_table(vec![]).is_err());
-    assert!(builtin_set_case_table(vec![Value::Nil, Value::Nil]).is_err());
+    assert!(builtin_set_case_table_inner(vec![]).is_err());
+    assert!(builtin_set_case_table_inner(vec![Value::Nil, Value::Nil]).is_err());
 }
 
 #[test]
 fn builtin_set_standard_case_table_returns_arg() {
     let table = make_case_table_value();
-    let result = builtin_set_standard_case_table(vec![table]).unwrap();
+    let result = builtin_set_standard_case_table_inner(vec![table]).unwrap();
     assert_eq!(result, table);
 }
 
 #[test]
 fn builtin_set_standard_case_table_rejects_non_table() {
-    assert!(builtin_set_standard_case_table(vec![Value::Int(1)]).is_err());
+    assert!(builtin_set_standard_case_table_inner(vec![Value::Int(1)]).is_err());
 }
 
 #[test]
 fn builtin_set_standard_case_table_wrong_args() {
-    assert!(builtin_set_standard_case_table(vec![]).is_err());
+    assert!(builtin_set_standard_case_table_inner(vec![]).is_err());
 }
 
 #[test]
 fn evaluator_case_table_roundtrip_and_isolation() {
     let mut eval = super::super::eval::Context::new();
-    let standard = builtin_standard_case_table_eval(&mut eval, vec![]).unwrap();
-    let current = builtin_current_case_table_eval(&mut eval, vec![]).unwrap();
+    let standard = builtin_standard_case_table(&mut eval, vec![]).unwrap();
+    let current = builtin_current_case_table(&mut eval, vec![]).unwrap();
     assert_eq!(standard, current);
 
     let current_id = eval.buffers.current_buffer().expect("current buffer").id;
     let other_id = eval.buffers.create_buffer("*case-other*");
 
     let custom = make_case_table_value();
-    builtin_set_case_table_eval(&mut eval, vec![custom]).unwrap();
-    let after_set = builtin_current_case_table_eval(&mut eval, vec![]).unwrap();
+    builtin_set_case_table(&mut eval, vec![custom]).unwrap();
+    let after_set = builtin_current_case_table(&mut eval, vec![]).unwrap();
     assert_eq!(after_set, custom);
 
     eval.buffers.set_current(other_id);
-    let other_current = builtin_current_case_table_eval(&mut eval, vec![]).unwrap();
+    let other_current = builtin_current_case_table(&mut eval, vec![]).unwrap();
     assert_eq!(other_current, standard);
 
     eval.buffers.set_current(current_id);
-    let restored = builtin_current_case_table_eval(&mut eval, vec![]).unwrap();
+    let restored = builtin_current_case_table(&mut eval, vec![]).unwrap();
     assert_eq!(restored, custom);
 }
 

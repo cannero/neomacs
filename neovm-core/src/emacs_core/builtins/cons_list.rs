@@ -718,7 +718,7 @@ pub(crate) fn builtin_memql(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_assoc(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_assoc_inner(args: Vec<Value>) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Assoc, || {
         expect_args("assoc", &args, 2)?;
         let key = &args[0];
@@ -748,7 +748,7 @@ pub(crate) fn builtin_assoc(args: Vec<Value>) -> EvalResult {
     })
 }
 
-pub(crate) fn builtin_assoc_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Assoc, || {
         expect_range_args("assoc", &args, 2, 3)?;
         let key = &args[0];
@@ -776,7 +776,7 @@ fn builtin_assoc_eval_inner(
     test_fn: &Option<Value>,
 ) -> EvalResult {
     // key, list, and test_fn are already rooted by the caller
-    // (builtin_assoc_eval).  Root cursor too since it traverses
+    // (builtin_assoc).  Root cursor too since it traverses
     // the list and may become the only reference to a cons cell
     // if the predicate mutates the list.
     let saved_roots = eval.save_temp_roots();

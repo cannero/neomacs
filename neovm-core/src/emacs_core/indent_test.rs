@@ -204,7 +204,7 @@ fn eval_column_and_indentation_subset() {
 #[test]
 fn eval_move_to_column_wholenump_validation() {
     let mut ev = super::super::eval::Context::new();
-    let err = builtin_move_to_column_eval(&mut ev, vec![Value::string("x")]).unwrap_err();
+    let err = builtin_move_to_column(&mut ev, vec![Value::string("x")]).unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -514,22 +514,22 @@ fn reindent_then_newline_and_indent_normalizes_split_whitespace() {
 fn wrong_arg_count_errors() {
     let mut eval = super::super::eval::Context::new();
     // current-indentation takes no args
-    assert!(builtin_current_indentation_eval(&mut eval, vec![Value::Int(1)]).is_err());
+    assert!(builtin_current_indentation(&mut eval, vec![Value::Int(1)]).is_err());
     // indent-to requires at least 1 arg
-    assert!(builtin_indent_to_eval(&mut eval, vec![]).is_err());
+    assert!(builtin_indent_to(&mut eval, vec![]).is_err());
     // indent-to accepts at most 2 args
     assert!(
-        builtin_indent_to_eval(&mut eval, vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        builtin_indent_to(&mut eval, vec![Value::Int(1), Value::Int(2), Value::Int(3)])
             .is_err()
     );
     // current-column takes no args
-    assert!(builtin_current_column_eval(&mut eval, vec![Value::Int(1)]).is_err());
+    assert!(builtin_current_column(&mut eval, vec![Value::Int(1)]).is_err());
 }
 
 #[test]
 fn indent_to_rejects_non_integer() {
     let mut eval = super::super::eval::Context::new();
-    assert!(builtin_indent_to_eval(&mut eval, vec![Value::string("foo")]).is_err());
+    assert!(builtin_indent_to(&mut eval, vec![Value::string("foo")]).is_err());
 }
 
 #[test]

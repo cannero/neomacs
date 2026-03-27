@@ -38,21 +38,21 @@ fn builtin_markerp_works() {
 #[test]
 fn builtin_marker_position_returns_position() {
     let m = make_marker_value(Some("buf"), Some(10), false);
-    let pos = builtin_marker_position(vec![m]).unwrap();
+    let pos = builtin_marker_position_inner(vec![m]).unwrap();
     assert!(matches!(pos, Value::Int(10)));
 }
 
 #[test]
 fn builtin_marker_position_returns_nil_when_unset() {
     let m = make_marker_value(None, None, false);
-    let pos = builtin_marker_position(vec![m]).unwrap();
+    let pos = builtin_marker_position_inner(vec![m]).unwrap();
     assert!(pos.is_nil());
 }
 
 #[test]
 fn builtin_marker_buffer_returns_name() {
     let m = make_marker_value(Some("*scratch*"), Some(1), false);
-    let buf = builtin_marker_buffer(vec![m]).unwrap();
+    let buf = builtin_marker_buffer_inner(vec![m]).unwrap();
     assert_eq!(buf.as_str(), Some("*scratch*"));
 }
 
@@ -61,21 +61,21 @@ fn builtin_marker_insertion_type_roundtrip() {
     let m = make_marker_value(None, None, false);
     assert!(builtin_marker_insertion_type(vec![m]).unwrap().is_nil());
 
-    builtin_set_marker_insertion_type(vec![m, Value::True]).unwrap();
+    builtin_set_marker_insertion_type_inner(vec![m, Value::True]).unwrap();
     assert!(builtin_marker_insertion_type(vec![m]).unwrap().is_truthy());
 }
 
 #[test]
 fn builtin_copy_marker_from_marker() {
     let m = make_marker_value(Some("buf"), Some(5), true);
-    let copy = builtin_copy_marker(vec![m]).unwrap();
+    let copy = builtin_copy_marker_inner(vec![m]).unwrap();
     assert!(is_marker(&copy));
     assert!(matches!(marker_position_value(&copy), Value::Int(5)));
 }
 
 #[test]
 fn builtin_copy_marker_from_integer() {
-    let copy = builtin_copy_marker(vec![Value::Int(99)]).unwrap();
+    let copy = builtin_copy_marker_inner(vec![Value::Int(99)]).unwrap();
     assert!(is_marker(&copy));
     assert!(matches!(marker_position_value(&copy), Value::Int(99)));
     assert!(marker_buffer_value(&copy).is_nil());
@@ -95,9 +95,9 @@ fn builtin_move_marker_matches_set_marker_behavior() {
     )
     .expect("move marker");
     assert!(is_marker(&moved));
-    assert_eq!(builtin_marker_position(vec![moved]).unwrap(), Value::Int(3));
+    assert_eq!(builtin_marker_position_inner(vec![moved]).unwrap(), Value::Int(3));
     assert_eq!(
-        builtin_marker_buffer(vec![moved]).unwrap().as_str(),
+        builtin_marker_buffer_inner(vec![moved]).unwrap().as_str(),
         Some("*scratch*")
     );
 }
@@ -113,7 +113,7 @@ fn builtin_make_marker_returns_empty() {
 
 #[test]
 fn wrong_type_signals_error() {
-    let result = builtin_marker_position(vec![Value::Int(5)]);
+    let result = builtin_marker_position_inner(vec![Value::Int(5)]);
     assert!(result.is_err());
 }
 
@@ -167,11 +167,11 @@ fn point_min_and_max_markers_follow_narrowing() {
     let max_marker = builtin_point_max_marker(&mut eval, vec![]).expect("point-max-marker");
 
     assert!(matches!(
-        builtin_marker_position(vec![min_marker]),
+        builtin_marker_position_inner(vec![min_marker]),
         Ok(Value::Int(2))
     ));
     assert!(matches!(
-        builtin_marker_position(vec![max_marker]),
+        builtin_marker_position_inner(vec![max_marker]),
         Ok(Value::Int(4))
     ));
 }
@@ -185,7 +185,7 @@ fn mark_marker_follows_cached_mark_char_position() {
 
     let marker = builtin_mark_marker(&mut eval, vec![]).expect("mark-marker");
     assert!(matches!(
-        builtin_marker_position(vec![marker]),
+        builtin_marker_position_inner(vec![marker]),
         Ok(Value::Int(2))
     ));
 }

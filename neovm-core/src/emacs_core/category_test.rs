@@ -177,7 +177,7 @@ fn manager_standard_and_current_are_same_initially() {
 #[test]
 fn builtin_define_category_basic() {
     reset_pure_category_manager_for_tests();
-    let result = builtin_define_category(vec![Value::Char('a'), Value::string("ASCII letters")]);
+    let result = builtin_define_category_inner(vec![Value::Char('a'), Value::string("ASCII letters")]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -185,10 +185,10 @@ fn builtin_define_category_basic() {
 #[test]
 fn builtin_define_category_wrong_args() {
     // Too few.
-    assert!(builtin_define_category(vec![Value::Char('a')]).is_err());
+    assert!(builtin_define_category_inner(vec![Value::Char('a')]).is_err());
     // Too many.
     assert!(
-        builtin_define_category(vec![
+        builtin_define_category_inner(vec![
             Value::Char('a'),
             Value::string("doc"),
             Value::Nil,
@@ -201,41 +201,41 @@ fn builtin_define_category_wrong_args() {
 #[test]
 fn builtin_define_category_invalid_char() {
     // Control chars are rejected; space (0x20) is valid per official Emacs.
-    let result = builtin_define_category(vec![Value::Char('\n'), Value::string("newline")]);
+    let result = builtin_define_category_inner(vec![Value::Char('\n'), Value::string("newline")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn builtin_define_category_wrong_type_docstring() {
-    let result = builtin_define_category(vec![Value::Char('a'), Value::Int(42)]);
+    let result = builtin_define_category_inner(vec![Value::Char('a'), Value::Int(42)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn builtin_category_docstring_basic() {
     reset_pure_category_manager_for_tests();
-    builtin_define_category(vec![Value::Char('a'), Value::string("ASCII letters")]).unwrap();
-    let result = builtin_category_docstring(vec![Value::Char('a')]);
+    builtin_define_category_inner(vec![Value::Char('a'), Value::string("ASCII letters")]).unwrap();
+    let result = builtin_category_docstring_inner(vec![Value::Char('a')]);
     assert!(result.is_ok());
     assert_eq!(result.unwrap().as_str(), Some("ASCII letters"));
 }
 
 #[test]
 fn builtin_category_docstring_wrong_args() {
-    assert!(builtin_category_docstring(vec![]).is_err());
-    assert!(builtin_category_docstring(vec![Value::Char('a'), Value::Nil, Value::Nil,]).is_err());
+    assert!(builtin_category_docstring_inner(vec![]).is_err());
+    assert!(builtin_category_docstring_inner(vec![Value::Char('a'), Value::Nil, Value::Nil,]).is_err());
 }
 
 #[test]
 fn builtin_get_unused_category_returns_char() {
     reset_pure_category_manager_for_tests();
-    let result = builtin_get_unused_category(vec![]).unwrap();
+    let result = builtin_get_unused_category_inner(vec![]).unwrap();
     assert!(matches!(result, Value::Char(_)));
 }
 
 #[test]
 fn builtin_get_unused_category_wrong_args() {
-    assert!(builtin_get_unused_category(vec![Value::Nil, Value::Nil]).is_err());
+    assert!(builtin_get_unused_category_inner(vec![Value::Nil, Value::Nil]).is_err());
 }
 
 #[test]
@@ -265,24 +265,24 @@ fn builtin_category_table_p_wrong_args() {
 
 #[test]
 fn builtin_category_table_returns_category_table() {
-    let result = builtin_category_table(vec![]).unwrap();
+    let result = builtin_category_table_inner(vec![]).unwrap();
     assert!(builtin_category_table_p(vec![result]).unwrap().is_truthy());
 }
 
 #[test]
 fn builtin_category_table_wrong_args() {
-    assert!(builtin_category_table(vec![Value::Nil]).is_err());
+    assert!(builtin_category_table_inner(vec![Value::Nil]).is_err());
 }
 
 #[test]
 fn builtin_standard_category_table_returns_category_table() {
-    let result = builtin_standard_category_table(vec![]).unwrap();
+    let result = builtin_standard_category_table_inner(vec![]).unwrap();
     assert!(builtin_category_table_p(vec![result]).unwrap().is_truthy());
 }
 
 #[test]
 fn builtin_standard_category_table_wrong_args() {
-    assert!(builtin_standard_category_table(vec![Value::Nil]).is_err());
+    assert!(builtin_standard_category_table_inner(vec![Value::Nil]).is_err());
 }
 
 #[test]
@@ -299,21 +299,21 @@ fn builtin_make_category_table_wrong_args() {
 #[test]
 fn builtin_set_category_table_returns_arg() {
     let table = builtin_make_category_table(vec![]).unwrap();
-    let result = builtin_set_category_table(vec![table]).unwrap();
+    let result = builtin_set_category_table_inner(vec![table]).unwrap();
     assert!(equal_value(&result, &table, 0));
 }
 
 #[test]
 fn builtin_set_category_table_nil_returns_standard() {
-    let result = builtin_set_category_table(vec![Value::Nil]).unwrap();
-    let standard = builtin_standard_category_table(vec![]).unwrap();
+    let result = builtin_set_category_table_inner(vec![Value::Nil]).unwrap();
+    let standard = builtin_standard_category_table_inner(vec![]).unwrap();
     assert!(equal_value(&result, &standard, 0));
 }
 
 #[test]
 fn builtin_set_category_table_wrong_args() {
-    assert!(builtin_set_category_table(vec![]).is_err());
-    assert!(builtin_set_category_table(vec![Value::Nil, Value::Nil]).is_err());
+    assert!(builtin_set_category_table_inner(vec![]).is_err());
+    assert!(builtin_set_category_table_inner(vec![Value::Nil, Value::Nil]).is_err());
 }
 
 #[test]
@@ -441,33 +441,33 @@ fn builtin_category_set_mnemonics_wrong_args() {
 #[test]
 fn builtin_define_category_eval_sets_docstring() {
     let mut eval = super::super::eval::Context::new();
-    let result = builtin_define_category_eval(
+    let result = builtin_define_category(
         &mut eval,
         vec![Value::Char('Z'), Value::string("neovm-category-doc")],
     )
     .unwrap();
     assert!(result.is_nil());
 
-    let doc = builtin_category_docstring_eval(&mut eval, vec![Value::Char('Z')]).unwrap();
+    let doc = builtin_category_docstring(&mut eval, vec![Value::Char('Z')]).unwrap();
     assert_eq!(doc.as_str(), Some("neovm-category-doc"));
 }
 
 #[test]
 fn builtin_get_unused_category_eval_tracks_defined_values() {
     let mut eval = super::super::eval::Context::new();
-    let first = builtin_get_unused_category_eval(&mut eval, vec![]).unwrap();
+    let first = builtin_get_unused_category(&mut eval, vec![]).unwrap();
     assert!(matches!(first, Value::Char('a')));
 
-    builtin_define_category_eval(&mut eval, vec![Value::Char('a'), Value::string("used")]).unwrap();
-    let second = builtin_get_unused_category_eval(&mut eval, vec![]).unwrap();
+    builtin_define_category(&mut eval, vec![Value::Char('a'), Value::string("used")]).unwrap();
+    let second = builtin_get_unused_category(&mut eval, vec![]).unwrap();
     assert!(matches!(second, Value::Char('b')));
 }
 
 #[test]
 fn builtin_category_table_eval_defaults_to_standard() {
     let mut eval = super::super::eval::Context::new();
-    let current = builtin_category_table_eval(&mut eval, vec![]).unwrap();
-    let standard = builtin_standard_category_table_eval(&mut eval, vec![]).unwrap();
+    let current = builtin_category_table(&mut eval, vec![]).unwrap();
+    let standard = builtin_standard_category_table(&mut eval, vec![]).unwrap();
     assert!(equal_value(&current, &standard, 0));
 }
 
@@ -476,21 +476,21 @@ fn builtin_set_category_table_eval_roundtrip() {
     let mut eval = super::super::eval::Context::new();
     let custom = builtin_make_category_table(vec![]).unwrap();
 
-    let out = builtin_set_category_table_eval(&mut eval, vec![custom]).unwrap();
+    let out = builtin_set_category_table(&mut eval, vec![custom]).unwrap();
     assert!(equal_value(&out, &custom, 0));
 
-    let current = builtin_category_table_eval(&mut eval, vec![]).unwrap();
+    let current = builtin_category_table(&mut eval, vec![]).unwrap();
     assert!(equal_value(&current, &custom, 0));
 }
 
 #[test]
 fn builtin_set_category_table_eval_nil_after_custom_clones_standard() {
     let mut eval = super::super::eval::Context::new();
-    let standard = builtin_standard_category_table_eval(&mut eval, vec![]).unwrap();
+    let standard = builtin_standard_category_table(&mut eval, vec![]).unwrap();
     let custom = builtin_make_category_table(vec![]).unwrap();
 
-    builtin_set_category_table_eval(&mut eval, vec![custom]).unwrap();
-    let restored = builtin_set_category_table_eval(&mut eval, vec![Value::Nil]).unwrap();
+    builtin_set_category_table(&mut eval, vec![custom]).unwrap();
+    let restored = builtin_set_category_table(&mut eval, vec![Value::Nil]).unwrap();
 
     assert!(
         builtin_category_table_p(vec![restored])
@@ -503,7 +503,7 @@ fn builtin_set_category_table_eval_nil_after_custom_clones_standard() {
 #[test]
 fn builtin_set_category_table_eval_rejects_non_tables() {
     let mut eval = super::super::eval::Context::new();
-    let result = builtin_set_category_table_eval(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_set_category_table(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 

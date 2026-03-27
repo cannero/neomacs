@@ -29,7 +29,7 @@ fn test_directory_files_and_attributes_basic() {
     let (dir, dir_str) = make_test_dir("dfa_basic");
     create_file(&dir, "test.txt", "hello");
 
-    let result = builtin_directory_files_and_attributes(vec![Value::string(&dir_str)]).unwrap();
+    let result = builtin_directory_files_and_attributes_inner(vec![Value::string(&dir_str)]).unwrap();
     let items = list_to_vec(&result).unwrap();
 
     // Find our file.
@@ -56,7 +56,7 @@ fn test_directory_files_and_attributes_order_and_count() {
     create_file(&dir, "beta.txt", "");
     create_file(&dir, "z.txt", "");
 
-    let unsorted = builtin_directory_files_and_attributes(vec![
+    let unsorted = builtin_directory_files_and_attributes_inner(vec![
         Value::string(&dir_str),
         Value::Nil,
         Value::Nil,
@@ -77,7 +77,7 @@ fn test_directory_files_and_attributes_order_and_count() {
     assert!(unsorted_names.contains(&".".to_string()));
     assert!(unsorted_names.contains(&"..".to_string()));
 
-    let unsorted_limited = builtin_directory_files_and_attributes(vec![
+    let unsorted_limited = builtin_directory_files_and_attributes_inner(vec![
         Value::string(&dir_str),
         Value::Nil,
         Value::Nil,
@@ -100,7 +100,7 @@ fn test_directory_files_and_attributes_order_and_count() {
     let tail = &unsorted_names[unsorted_names.len() - 2..];
     assert_eq!(unsorted_limited_names.as_slice(), tail);
 
-    let sorted_limited = builtin_directory_files_and_attributes(vec![
+    let sorted_limited = builtin_directory_files_and_attributes_inner(vec![
         Value::string(&dir_str),
         Value::Nil,
         Value::Nil,
@@ -132,7 +132,7 @@ fn test_directory_files_and_attributes_count_and_id_format() {
     let (dir, dir_str) = make_test_dir("dfa_types");
     create_file(&dir, "alpha.txt", "");
 
-    let result = builtin_directory_files_and_attributes(vec![
+    let result = builtin_directory_files_and_attributes_inner(vec![
         Value::string(&dir_str),
         Value::Nil,
         Value::Nil,
@@ -142,7 +142,7 @@ fn test_directory_files_and_attributes_count_and_id_format() {
     ]);
     assert!(result.is_err());
 
-    let result = builtin_directory_files_and_attributes(vec![
+    let result = builtin_directory_files_and_attributes_inner(vec![
         Value::string(&dir_str),
         Value::Nil,
         Value::Nil,
@@ -152,7 +152,7 @@ fn test_directory_files_and_attributes_count_and_id_format() {
     ]);
     assert!(result.is_err());
 
-    let result = builtin_directory_files_and_attributes(vec![
+    let result = builtin_directory_files_and_attributes_inner(vec![
         Value::string(&dir_str),
         Value::Nil,
         Value::Nil,
@@ -189,7 +189,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
 
-    let result = builtin_directory_files_and_attributes_eval(
+    let result = builtin_directory_files_and_attributes(
         &mut eval,
         vec![
             Value::string("fixtures"),
@@ -227,7 +227,7 @@ fn test_file_name_completion_basic() {
     create_file(&dir, "foobaz.txt", "");
 
     // "foo" should complete to "fooba" (longest common prefix).
-    let result = builtin_file_name_completion(
+    let result = builtin_file_name_completion_inner(
         &mut ctx,
         vec![Value::string("foo"), Value::string(&dir_str)],
     )
@@ -243,7 +243,7 @@ fn test_file_name_completion_exact() {
     let (dir, dir_str) = make_test_dir("fnc_exact");
     create_file(&dir, "unique.txt", "");
 
-    let result = builtin_file_name_completion(
+    let result = builtin_file_name_completion_inner(
         &mut ctx,
         vec![Value::string("unique.txt"), Value::string(&dir_str)],
     )
@@ -265,7 +265,7 @@ fn test_file_name_completion_no_match() {
     let (dir, dir_str) = make_test_dir("fnc_none");
     create_file(&dir, "hello.txt", "");
 
-    let result = builtin_file_name_completion(
+    let result = builtin_file_name_completion_inner(
         &mut ctx,
         vec![Value::string("xyz"), Value::string(&dir_str)],
     )
@@ -283,28 +283,28 @@ fn test_file_name_completion_dot_and_slash_behavior() {
     fs::create_dir(dir.join("subdir")).unwrap();
 
     let dot =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("."), Value::string(&dir_str)])
+        builtin_file_name_completion_inner(&mut ctx, vec![Value::string("."), Value::string(&dir_str)])
             .unwrap();
     assert_eq!(dot.as_str(), Some(".hidden"));
 
     let dotdot =
-        builtin_file_name_completion(&mut ctx, vec![Value::string(".."), Value::string(&dir_str)])
+        builtin_file_name_completion_inner(&mut ctx, vec![Value::string(".."), Value::string(&dir_str)])
             .unwrap();
     assert_eq!(dotdot.as_str(), Some("../"));
 
     let slash =
-        builtin_file_name_completion(&mut ctx, vec![Value::string("./"), Value::string(&dir_str)])
+        builtin_file_name_completion_inner(&mut ctx, vec![Value::string("./"), Value::string(&dir_str)])
             .unwrap();
     assert!(slash.is_nil());
 
-    let subdir_prefix = builtin_file_name_completion(
+    let subdir_prefix = builtin_file_name_completion_inner(
         &mut ctx,
         vec![Value::string("sub"), Value::string(&dir_str)],
     )
     .unwrap();
     assert_eq!(subdir_prefix.as_str(), Some("subdir/"));
 
-    let subdir_with_slash = builtin_file_name_completion(
+    let subdir_with_slash = builtin_file_name_completion_inner(
         &mut ctx,
         vec![Value::string("subdir/"), Value::string(&dir_str)],
     )
@@ -324,7 +324,7 @@ fn test_file_name_completion_predicate_with_eval() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/"));
 
-    let dirs_only_none = builtin_file_name_completion_eval(
+    let dirs_only_none = builtin_file_name_completion(
         &mut eval,
         vec![
             Value::string("a"),
@@ -335,7 +335,7 @@ fn test_file_name_completion_predicate_with_eval() {
     .unwrap();
     assert!(dirs_only_none.is_nil());
 
-    let dirs_only_match = builtin_file_name_completion_eval(
+    let dirs_only_match = builtin_file_name_completion(
         &mut eval,
         vec![
             Value::string("s"),
@@ -346,7 +346,7 @@ fn test_file_name_completion_predicate_with_eval() {
     .unwrap();
     assert_eq!(dirs_only_match.as_str(), Some("subdir/"));
 
-    let bad_pred = builtin_file_name_completion_eval(
+    let bad_pred = builtin_file_name_completion(
         &mut eval,
         vec![Value::string("a"), Value::string(&dir_str), Value::Int(123)],
     );
@@ -369,7 +369,7 @@ fn test_file_name_completion_eval_relative_directory() {
         Value::string(ensure_trailing_slash(&base_str)),
     );
 
-    let result = builtin_file_name_completion_eval(
+    let result = builtin_file_name_completion(
         &mut eval,
         vec![Value::string("sub"), Value::string("fixtures/")],
     )
@@ -391,7 +391,7 @@ fn test_file_name_all_completions() {
     create_file(&dir, "xyz.txt", "");
 
     let result =
-        builtin_file_name_all_completions(vec![Value::string("ab"), Value::string(&dir_str)])
+        builtin_file_name_all_completions_inner(vec![Value::string("ab"), Value::string(&dir_str)])
             .unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 2);
@@ -408,7 +408,7 @@ fn test_file_name_all_completions_empty() {
     create_file(&dir, "hello.txt", "");
 
     let result =
-        builtin_file_name_all_completions(vec![Value::string("zzz"), Value::string(&dir_str)])
+        builtin_file_name_all_completions_inner(vec![Value::string("zzz"), Value::string(&dir_str)])
             .unwrap();
     assert!(result.is_nil());
 
@@ -421,7 +421,7 @@ fn test_file_name_all_completions_special_entries() {
     create_file(&dir, ".hidden", "");
     fs::create_dir(dir.join("subdir")).unwrap();
 
-    let dot = builtin_file_name_all_completions(vec![Value::string("."), Value::string(&dir_str)])
+    let dot = builtin_file_name_all_completions_inner(vec![Value::string("."), Value::string(&dir_str)])
         .unwrap();
     let dot_items = list_to_vec(&dot).unwrap();
     let dot_names: Vec<&str> = dot_items.iter().map(|v| v.as_str().unwrap()).collect();
@@ -430,14 +430,14 @@ fn test_file_name_all_completions_special_entries() {
     assert!(dot_names.contains(&".hidden"));
 
     let dotdot =
-        builtin_file_name_all_completions(vec![Value::string(".."), Value::string(&dir_str)])
+        builtin_file_name_all_completions_inner(vec![Value::string(".."), Value::string(&dir_str)])
             .unwrap();
     let dotdot_items = list_to_vec(&dotdot).unwrap();
     assert_eq!(dotdot_items.len(), 1);
     assert_eq!(dotdot_items[0].as_str(), Some("../"));
 
     let slash =
-        builtin_file_name_all_completions(vec![Value::string("./"), Value::string(&dir_str)])
+        builtin_file_name_all_completions_inner(vec![Value::string("./"), Value::string(&dir_str)])
             .unwrap();
     assert!(slash.is_nil());
 
@@ -458,7 +458,7 @@ fn test_file_name_all_completions_eval_relative_directory() {
         Value::string(ensure_trailing_slash(&base_str)),
     );
 
-    let result = builtin_file_name_all_completions_eval(
+    let result = builtin_file_name_all_completions(
         &mut eval,
         vec![Value::string("sub"), Value::string("fixtures/")],
     )
@@ -481,7 +481,7 @@ fn test_file_attributes_regular_file() {
     let path_str = path.to_string_lossy().to_string();
     create_file(&dir, "test.txt", "hello");
 
-    let result = builtin_file_attributes(vec![Value::string(&path_str)]).unwrap();
+    let result = builtin_file_attributes_inner(vec![Value::string(&path_str)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 12);
 
@@ -500,7 +500,7 @@ fn test_file_attributes_directory() {
     fs::create_dir_all(&sub).unwrap();
     let sub_str = sub.to_string_lossy().to_string();
 
-    let result = builtin_file_attributes(vec![Value::string(&sub_str)]).unwrap();
+    let result = builtin_file_attributes_inner(vec![Value::string(&sub_str)]).unwrap();
     let items = list_to_vec(&result).unwrap();
 
     // TYPE should be t for directory.
@@ -512,7 +512,7 @@ fn test_file_attributes_directory() {
 #[test]
 fn test_file_attributes_nonexistent() {
     let result =
-        builtin_file_attributes(vec![Value::string("/nonexistent_file_xyz_99999")]).unwrap();
+        builtin_file_attributes_inner(vec![Value::string("/nonexistent_file_xyz_99999")]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -523,7 +523,7 @@ fn test_file_attributes_time_tuple_shape_and_gid_changep() {
     let path_str = path.to_string_lossy().to_string();
     create_file(&dir, "time.txt", "hello");
 
-    let result = builtin_file_attributes(vec![Value::string(&path_str)]).unwrap();
+    let result = builtin_file_attributes_inner(vec![Value::string(&path_str)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 12);
 
@@ -548,7 +548,7 @@ fn test_file_attributes_id_format_string() {
     create_file(&dir, "idtest.txt", "x");
 
     let result =
-        builtin_file_attributes(vec![Value::string(&path_str), Value::symbol("string")]).unwrap();
+        builtin_file_attributes_inner(vec![Value::string(&path_str), Value::symbol("string")]).unwrap();
     let items = list_to_vec(&result).unwrap();
     // UID (index 2) should be a string.
     assert!(items[2].is_string());
@@ -569,7 +569,7 @@ fn test_file_attributes_eval_respects_default_directory() {
         Value::string(ensure_trailing_slash(&dir_str)),
     );
 
-    let result = builtin_file_attributes_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
+    let result = builtin_file_attributes(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 12);
     assert!(items[0].is_nil());
@@ -724,10 +724,10 @@ fn test_read_colon_file_names_missing_file_returns_empty() {
 #[test]
 fn test_directory_files_and_attributes_wrong_args() {
     // No args.
-    assert!(builtin_directory_files_and_attributes(vec![]).is_err());
+    assert!(builtin_directory_files_and_attributes_inner(vec![]).is_err());
     // Too many args.
     assert!(
-        builtin_directory_files_and_attributes(vec![
+        builtin_directory_files_and_attributes_inner(vec![
             Value::string("/tmp"),
             Value::Nil,
             Value::Nil,
@@ -742,8 +742,8 @@ fn test_directory_files_and_attributes_wrong_args() {
 
 #[test]
 fn test_file_attributes_wrong_args() {
-    assert!(builtin_file_attributes(vec![]).is_err());
-    assert!(builtin_file_attributes(vec![Value::string("/tmp"), Value::Nil, Value::Nil,]).is_err());
+    assert!(builtin_file_attributes_inner(vec![]).is_err());
+    assert!(builtin_file_attributes_inner(vec![Value::string("/tmp"), Value::Nil, Value::Nil,]).is_err());
 }
 
 #[test]

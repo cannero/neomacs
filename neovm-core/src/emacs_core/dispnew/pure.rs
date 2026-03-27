@@ -207,7 +207,7 @@ fn window_cursor_visible(window_id: WindowId) -> bool {
 // ---------------------------------------------------------------------------
 
 /// (redraw-frame &optional FRAME) -> nil
-pub(crate) fn builtin_redraw_frame(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_redraw_frame_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("redraw-frame", &args, 0, 1)?;
     if let Some(frame) = args.first() {
         expect_frame_designator(frame)?;
@@ -218,7 +218,7 @@ pub(crate) fn builtin_redraw_frame(args: Vec<Value>) -> EvalResult {
 /// Context-aware variant of `redraw-frame`.
 ///
 /// Accepts live frame designators in addition to nil.
-pub(crate) fn builtin_redraw_frame_eval(
+pub(crate) fn builtin_redraw_frame(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -258,7 +258,7 @@ pub(crate) fn builtin_ding(args: Vec<Value>) -> EvalResult {
 }
 
 /// (send-string-to-terminal STRING &optional TERMINAL) -> nil
-pub(crate) fn builtin_send_string_to_terminal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_send_string_to_terminal_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("send-string-to-terminal", &args, 1, 2)?;
     match &args[0] {
         Value::Str(_) => {
@@ -277,7 +277,7 @@ pub(crate) fn builtin_send_string_to_terminal(args: Vec<Value>) -> EvalResult {
 /// Context-aware variant of `send-string-to-terminal`.
 ///
 /// Accepts live frame designators for the optional TERMINAL argument.
-pub(crate) fn builtin_send_string_to_terminal_eval(
+pub(crate) fn builtin_send_string_to_terminal(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -297,7 +297,7 @@ pub(crate) fn builtin_send_string_to_terminal_eval(
 }
 
 /// (internal-show-cursor WINDOW SHOW) -> nil
-pub(crate) fn builtin_internal_show_cursor(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_internal_show_cursor_inner(args: Vec<Value>) -> EvalResult {
     expect_args("internal-show-cursor", &args, 2)?;
     expect_window_designator(&args[0])?;
     CURSOR_VISIBLE.with(|slot| slot.set(!args[1].is_nil()));
@@ -307,7 +307,7 @@ pub(crate) fn builtin_internal_show_cursor(args: Vec<Value>) -> EvalResult {
 /// Context-aware variant of `internal-show-cursor`.
 ///
 /// Accepts live window designators in addition to nil.
-pub(crate) fn builtin_internal_show_cursor_eval(
+pub(crate) fn builtin_internal_show_cursor(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -323,7 +323,7 @@ pub(crate) fn builtin_internal_show_cursor_eval(
 }
 
 /// (internal-show-cursor-p &optional WINDOW) -> t/nil
-pub(crate) fn builtin_internal_show_cursor_p(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_internal_show_cursor_p_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("internal-show-cursor-p", &args, 0, 1)?;
     if let Some(window) = args.first() {
         expect_window_designator(window)?;
@@ -334,7 +334,7 @@ pub(crate) fn builtin_internal_show_cursor_p(args: Vec<Value>) -> EvalResult {
 /// Context-aware variant of `internal-show-cursor-p`.
 ///
 /// Accepts live window designators in addition to nil.
-pub(crate) fn builtin_internal_show_cursor_p_eval(
+pub(crate) fn builtin_internal_show_cursor_p(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

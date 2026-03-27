@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_undo_boundary_no_args() {
-    let result = builtin_undo_boundary(vec![]);
+    let result = builtin_undo_boundary_inner(vec![]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -16,7 +16,7 @@ fn test_undo_boundary_eval_inserts_boundary_marker() {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");
     }
-    let result = builtin_undo_boundary_eval(&mut eval, vec![]);
+    let result = builtin_undo_boundary(&mut eval, vec![]);
     assert!(result.is_ok());
     let buffer = eval.buffers.current_buffer().expect("scratch buffer");
     let ul = buffer.get_undo_list();
@@ -25,7 +25,7 @@ fn test_undo_boundary_eval_inserts_boundary_marker() {
 
 #[test]
 fn test_undo_boundary_wrong_args() {
-    let result = builtin_undo_boundary(vec![Value::Int(1)]);
+    let result = builtin_undo_boundary_inner(vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 

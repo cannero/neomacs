@@ -86,7 +86,7 @@ fn integer_value(arg: &Value) -> i64 {
 /// MODIFICATION-FUNC, if non-nil, is called when the composition is modified.
 ///
 /// Stub: composition is handled by the display/layout engine; return nil.
-pub(crate) fn builtin_compose_region_internal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_compose_region_internal_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("compose-region-internal", &args, 2, 4)?;
     expect_integer_or_marker_p(&args[0])?;
     expect_integer_or_marker_p(&args[1])?;
@@ -99,7 +99,7 @@ pub(crate) fn builtin_compose_region_internal(args: Vec<Value>) -> EvalResult {
 /// - validates START/END type (`integer-or-marker-p`)
 /// - validates range against the current buffer's accessible positions
 /// - returns nil on success
-pub(crate) fn builtin_compose_region_internal_eval(
+pub(crate) fn builtin_compose_region_internal(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

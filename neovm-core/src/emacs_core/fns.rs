@@ -381,7 +381,7 @@ fn replace_buffer_region(
 }
 
 /// (base64-encode-region START END &optional NO-LINE-BREAK)
-pub(crate) fn builtin_base64_encode_region_eval(
+pub(crate) fn builtin_base64_encode_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -396,7 +396,7 @@ pub(crate) fn builtin_base64_encode_region_eval(
 }
 
 /// (base64url-encode-region START END &optional NO-PAD)
-pub(crate) fn builtin_base64url_encode_region_eval(
+pub(crate) fn builtin_base64url_encode_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -411,7 +411,7 @@ pub(crate) fn builtin_base64url_encode_region_eval(
 }
 
 /// (base64-decode-region START END &optional BASE64URL NOERROR)
-pub(crate) fn builtin_base64_decode_region_eval(
+pub(crate) fn builtin_base64_decode_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -449,7 +449,7 @@ pub(crate) fn builtin_base64_decode_region_eval(
 ///
 /// Pure fallback used when evaluator access is unavailable.
 /// Supports string objects and Emacs-compatible range/error semantics.
-pub(crate) fn builtin_md5(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_md5_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("md5", &args, 1, 5)?;
     validate_md5_coding_system_arg(&args)?;
     let object = &args[0];
@@ -472,7 +472,7 @@ pub(crate) fn builtin_md5(args: Vec<Value>) -> EvalResult {
 /// (md5 OBJECT &optional START END CODING-SYSTEM NOERROR)
 ///
 /// Context-aware implementation that also supports buffer objects.
-pub(crate) fn builtin_md5_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_md5(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("md5", &args, 1, 5)?;
     validate_md5_coding_system_arg(&args)?;
     let object = &args[0];
@@ -807,7 +807,7 @@ fn secure_hash_digest_bytes(algo_name: &str, input: &str) -> Result<Vec<u8>, Flo
 
 /// (secure-hash ALGORITHM OBJECT &optional START END BINARY)
 /// Returns a digest string for supported hash algorithms.
-pub(crate) fn builtin_secure_hash(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_secure_hash_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("secure-hash", &args, 2, 5)?;
     let algo_name = secure_hash_algorithm_name(&args[0])?;
 
@@ -838,7 +838,7 @@ pub(crate) fn builtin_secure_hash(args: Vec<Value>) -> EvalResult {
 /// (secure-hash ALGORITHM OBJECT &optional START END BINARY)
 ///
 /// Context-aware implementation that also supports buffer objects.
-pub(crate) fn builtin_secure_hash_eval(
+pub(crate) fn builtin_secure_hash(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -873,7 +873,7 @@ pub(crate) fn builtin_secure_hash_eval(
 
 /// (buffer-hash &optional BUFFER-OR-NAME)
 /// Context-aware implementation used at runtime.
-pub(crate) fn builtin_buffer_hash_eval(
+pub(crate) fn builtin_buffer_hash(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

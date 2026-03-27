@@ -438,7 +438,7 @@ fn sf_define_error_too_many_args() {
 #[test]
 fn builtin_signal_basic() {
     let args = vec![Value::symbol("void-variable"), Value::Nil];
-    let result = builtin_signal(args);
+    let result = builtin_signal_inner(args);
     assert!(result.is_err());
     match result {
         Err(Flow::Signal(sig)) => {
@@ -453,7 +453,7 @@ fn builtin_signal_basic() {
 fn builtin_signal_with_data() {
     let data_list = Value::list(vec![Value::symbol("x")]);
     let args = vec![Value::symbol("void-variable"), data_list];
-    let result = builtin_signal(args);
+    let result = builtin_signal_inner(args);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "void-variable");
@@ -465,13 +465,13 @@ fn builtin_signal_with_data() {
 
 #[test]
 fn builtin_signal_wrong_arity() {
-    let result = builtin_signal(vec![Value::symbol("error")]);
+    let result = builtin_signal_inner(vec![Value::symbol("error")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn builtin_signal_non_symbol() {
-    let result = builtin_signal(vec![Value::Int(42), Value::Nil]);
+    let result = builtin_signal_inner(vec![Value::Int(42), Value::Nil]);
     assert!(result.is_err());
 }
 

@@ -499,7 +499,7 @@ pub(crate) fn builtin_autoload(eval: &mut super::eval::Context, args: Vec<Value>
 
 /// `(symbol-file SYMBOL &optional TYPE)` — return the file that defined SYMBOL.
 /// Stub: always returns nil for now.
-pub(crate) fn builtin_symbol_file(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_symbol_file_inner(args: Vec<Value>) -> EvalResult {
     if args.is_empty() || args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -517,7 +517,7 @@ pub(crate) fn builtin_symbol_file(args: Vec<Value>) -> EvalResult {
 /// - non-symbol SYMBOL returns nil
 /// - TYPE nil/missing/`defun` queries function definition origin
 /// - other TYPE values return nil
-pub(crate) fn builtin_symbol_file_eval(
+pub(crate) fn builtin_symbol_file(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

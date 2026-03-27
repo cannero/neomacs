@@ -1127,7 +1127,7 @@ pub(crate) fn builtin_ntake(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(replace-buffer-contents SOURCE &optional MAX-SECS MAX-COSTS)` -> t
-pub(crate) fn builtin_replace_buffer_contents_eval(
+pub(crate) fn builtin_replace_buffer_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1161,7 +1161,7 @@ pub(crate) fn builtin_replace_buffer_contents_eval(
     Ok(Value::True)
 }
 
-pub(crate) fn builtin_replace_region_contents_eval(
+pub(crate) fn builtin_replace_region_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1205,7 +1205,7 @@ pub(crate) fn builtin_replace_region_contents_eval(
     Ok(Value::True)
 }
 
-pub(crate) fn builtin_set_buffer_multibyte_eval(
+pub(crate) fn builtin_set_buffer_multibyte(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

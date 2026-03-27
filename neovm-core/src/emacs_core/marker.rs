@@ -327,16 +327,16 @@ pub(crate) fn builtin_markerp(args: Vec<Value>) -> EvalResult {
 /// (marker-position MARKER) -> integer position or nil if marker is not set
 ///
 /// Pure version — reads position from the marker vector directly.
-/// The eval-dependent version `builtin_marker_position_eval` reads from the
+/// The eval-dependent version `builtin_marker_position` reads from the
 /// buffer's marker list for automatic position tracking.
-pub(crate) fn builtin_marker_position(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_marker_position_inner(args: Vec<Value>) -> EvalResult {
     expect_args("marker-position", &args, 1)?;
     expect_marker("marker-position", &args[0])?;
     Ok(marker_position_value(&args[0]))
 }
 
 /// Eval-dependent marker-position that reads adjusted positions from the buffer.
-pub(crate) fn builtin_marker_position_eval(
+pub(crate) fn builtin_marker_position(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -370,7 +370,7 @@ pub(crate) fn builtin_marker_position_in_buffers(
 }
 
 /// (marker-buffer MARKER) -> buffer name (string) or nil
-pub(crate) fn builtin_marker_buffer(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_marker_buffer_inner(args: Vec<Value>) -> EvalResult {
     expect_args("marker-buffer", &args, 1)?;
     expect_marker("marker-buffer", &args[0])?;
     Ok(marker_buffer_value(&args[0]))
@@ -378,7 +378,7 @@ pub(crate) fn builtin_marker_buffer(args: Vec<Value>) -> EvalResult {
 
 /// Context-aware marker-buffer that returns nil for killed buffers.
 /// GNU returns nil when the marker's buffer has been killed.
-pub(crate) fn builtin_marker_buffer_eval(
+pub(crate) fn builtin_marker_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -418,7 +418,7 @@ pub(crate) fn builtin_marker_insertion_type(args: Vec<Value>) -> EvalResult {
 }
 
 /// (set-marker-insertion-type MARKER TYPE) -> TYPE
-pub(crate) fn builtin_set_marker_insertion_type(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_marker_insertion_type_inner(args: Vec<Value>) -> EvalResult {
     expect_args("set-marker-insertion-type", &args, 2)?;
     expect_marker("set-marker-insertion-type", &args[0])?;
     let new_type = args[1].is_truthy();
@@ -433,7 +433,7 @@ pub(crate) fn builtin_set_marker_insertion_type(args: Vec<Value>) -> EvalResult 
 
 /// Eval-dependent set-marker-insertion-type that also updates the buffer's
 /// marker entry so insertion behavior changes immediately.
-pub(crate) fn builtin_set_marker_insertion_type_eval(
+pub(crate) fn builtin_set_marker_insertion_type(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -472,7 +472,7 @@ pub(crate) fn builtin_set_marker_insertion_type_in_buffers(
 /// If MARKER-OR-INTEGER is a marker, copy its position (and buffer).
 /// If it is an integer, create a marker with that position and no buffer.
 /// TYPE, if non-nil, sets the insertion type of the new marker.
-pub(crate) fn builtin_copy_marker(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_copy_marker_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("copy-marker", &args, 1, 2)?;
     let insertion_type = if args.len() > 1 {
         args[1].is_truthy()
@@ -510,7 +510,7 @@ pub(crate) fn builtin_make_marker(args: Vec<Value>) -> EvalResult {
 }
 
 /// Eval-dependent copy-marker that registers the new marker in the buffer.
-pub(crate) fn builtin_copy_marker_eval(
+pub(crate) fn builtin_copy_marker(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

@@ -6099,7 +6099,7 @@ pub(crate) fn builtin_getenv(args: Vec<Value>) -> EvalResult {
 /// GNU-compatible: checks process-environment first, then falls back
 /// to the real OS environment (matching callproc.c:getenv_internal).
 /// When ENV is a list, searches that list instead.
-pub(crate) fn builtin_getenv_internal_eval(
+pub(crate) fn builtin_getenv_internal(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -6163,7 +6163,7 @@ fn getenv_from_list(varname: &str, env_list: Value) -> EvalResult {
 
 /// (getenv-internal VARIABLE &optional FRAME) -> string or nil
 /// Pure fallback for non-evaluator contexts.
-pub(crate) fn builtin_getenv_internal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_getenv_internal_inner(args: Vec<Value>) -> EvalResult {
     getenv_impl("getenv-internal", &args)
 }
 

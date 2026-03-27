@@ -342,7 +342,7 @@ pub(crate) fn builtin_commandp_impl(
 /// `(command-modes COMMAND)` -- return COMMAND's mode list.
 ///
 /// Current compatibility behavior returns nil.
-pub(crate) fn builtin_command_modes(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_command_modes_inner(args: Vec<Value>) -> EvalResult {
     expect_args("command-modes", &args, 1)?;
     Ok(Value::Nil)
 }
@@ -501,7 +501,7 @@ pub(crate) fn builtin_command_modes_impl(obarray: &Obarray, args: &[Value]) -> E
     }
 }
 
-pub(crate) fn builtin_command_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_command_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_command_modes_impl(&eval.obarray, &args)
 }
 

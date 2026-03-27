@@ -483,7 +483,7 @@ fn extract_parent_symbols(value: &Value) -> Result<Vec<String>, Flow> {
 ///
 /// This is a wrapper that can be registered as a builtin.  It extracts the
 /// error symbol name and signals with the provided data.
-pub(crate) fn builtin_signal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_signal_inner(args: Vec<Value>) -> EvalResult {
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -514,7 +514,7 @@ pub(crate) fn builtin_signal(args: Vec<Value>) -> EvalResult {
 /// Eval-aware `signal` — checks error hierarchy and converts
 /// unregistered error symbols to `(error "Invalid error symbol" SYM)`,
 /// matching GNU eval.c:1949-1951.
-pub(crate) fn builtin_signal_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_signal(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",

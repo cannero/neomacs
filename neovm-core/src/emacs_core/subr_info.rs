@@ -1606,7 +1606,7 @@ pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(macrop OBJECT)` -- return t if OBJECT is a macro.
-pub(crate) fn builtin_macrop(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_macrop_inner(args: Vec<Value>) -> EvalResult {
     expect_args("macrop", &args, 1)?;
     if let Some(marker) = autoload_macro_marker(&args[0]) {
         return Ok(marker);

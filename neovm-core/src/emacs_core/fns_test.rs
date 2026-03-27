@@ -131,7 +131,7 @@ fn base64_region_eval_encode_decode_roundtrip() {
         buf.insert("Hi");
     }
 
-    let encoded = builtin_base64_encode_region_eval(&mut eval, vec![Value::Int(1), Value::Int(3)])
+    let encoded = builtin_base64_encode_region(&mut eval, vec![Value::Int(1), Value::Int(3)])
         .expect("encode region should succeed");
     assert_eq!(encoded, Value::Int(4));
     let encoded_text = eval
@@ -141,7 +141,7 @@ fn base64_region_eval_encode_decode_roundtrip() {
         .buffer_string();
     assert_eq!(encoded_text, "SGk=");
 
-    let decoded = builtin_base64_decode_region_eval(&mut eval, vec![Value::Int(1), Value::Int(5)])
+    let decoded = builtin_base64_decode_region(&mut eval, vec![Value::Int(1), Value::Int(5)])
         .expect("decode region should succeed");
     assert_eq!(decoded, Value::Int(2));
     let decoded_text = eval
@@ -161,7 +161,7 @@ fn base64_region_eval_swapped_bounds_and_url_encoding() {
         buf.insert("ab");
     }
 
-    let encoded = builtin_base64url_encode_region_eval(
+    let encoded = builtin_base64url_encode_region(
         &mut eval,
         vec![Value::Int(3), Value::Int(1), Value::True],
     )
@@ -184,7 +184,7 @@ fn base64_decode_region_noerror_semantics() {
         buf.insert("%%");
     }
 
-    let ignored = builtin_base64_decode_region_eval(
+    let ignored = builtin_base64_decode_region(
         &mut eval,
         vec![Value::Int(1), Value::Int(3), Value::Nil, Value::True],
     )
@@ -201,7 +201,7 @@ fn base64_decode_region_noerror_semantics() {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("%%");
     }
-    let strict = builtin_base64_decode_region_eval(&mut eval, vec![Value::Int(1), Value::Int(3)]);
+    let strict = builtin_base64_decode_region(&mut eval, vec![Value::Int(1), Value::Int(3)]);
     match strict {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -226,7 +226,7 @@ fn base64_region_eval_error_shapes() {
         buf.insert("Hi");
     }
 
-    let type_error = builtin_base64_encode_region_eval(
+    let type_error = builtin_base64_encode_region(
         &mut eval,
         vec![Value::symbol("x"), Value::Int(2), Value::True],
     );
@@ -242,7 +242,7 @@ fn base64_region_eval_error_shapes() {
     }
 
     let range_error =
-        builtin_base64_encode_region_eval(&mut eval, vec![Value::Int(0), Value::Int(2)]);
+        builtin_base64_encode_region(&mut eval, vec![Value::Int(0), Value::Int(2)]);
     match range_error {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
@@ -259,26 +259,26 @@ fn base64_region_eval_error_shapes() {
 
 #[test]
 fn md5_empty() {
-    let r = builtin_md5(vec![Value::string("")]).unwrap();
+    let r = builtin_md5_inner(vec![Value::string("")]).unwrap();
     assert_eq!(r.as_str(), Some("d41d8cd98f00b204e9800998ecf8427e"));
 }
 
 #[test]
 fn md5_hello() {
     // md5("Hello") = 8b1a9953c4611296a827abf8c47804d7
-    let r = builtin_md5(vec![Value::string("Hello")]).unwrap();
+    let r = builtin_md5_inner(vec![Value::string("Hello")]).unwrap();
     assert_eq!(r.as_str(), Some("8b1a9953c4611296a827abf8c47804d7"));
 }
 
 #[test]
 fn md5_abc() {
-    let r = builtin_md5(vec![Value::string("abc")]).unwrap();
+    let r = builtin_md5_inner(vec![Value::string("abc")]).unwrap();
     assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
 fn md5_fox() {
-    let r = builtin_md5(vec![Value::string(
+    let r = builtin_md5_inner(vec![Value::string(
         "The quick brown fox jumps over the lazy dog",
     )])
     .unwrap();
@@ -287,7 +287,7 @@ fn md5_fox() {
 
 #[test]
 fn md5_string_range_errors() {
-    match builtin_md5(vec![Value::string("abc"), Value::Int(2), Value::Int(1)]) {
+    match builtin_md5_inner(vec![Value::string("abc"), Value::Int(2), Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(
@@ -301,7 +301,7 @@ fn md5_string_range_errors() {
 
 #[test]
 fn md5_string_index_type_error() {
-    match builtin_md5(vec![Value::string("abc"), Value::True, Value::Int(1)]) {
+    match builtin_md5_inner(vec![Value::string("abc"), Value::True, Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("integerp")));
@@ -312,7 +312,7 @@ fn md5_string_index_type_error() {
 
 #[test]
 fn md5_invalid_object_errors() {
-    match builtin_md5(vec![Value::Nil]) {
+    match builtin_md5_inner(vec![Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -327,7 +327,7 @@ fn md5_invalid_object_errors() {
 
 #[test]
 fn md5_unknown_coding_system_errors() {
-    match builtin_md5(vec![
+    match builtin_md5_inner(vec![
         Value::string("abc"),
         Value::Nil,
         Value::Nil,
@@ -343,7 +343,7 @@ fn md5_unknown_coding_system_errors() {
 
 #[test]
 fn md5_unknown_coding_system_ignored_with_noerror() {
-    let r = builtin_md5(vec![
+    let r = builtin_md5_inner(vec![
         Value::string("abc"),
         Value::Nil,
         Value::Nil,
@@ -356,7 +356,7 @@ fn md5_unknown_coding_system_ignored_with_noerror() {
 
 #[test]
 fn md5_accepts_iso_8859_15_alias() {
-    let r = builtin_md5(vec![
+    let r = builtin_md5_inner(vec![
         Value::string("abc"),
         Value::Nil,
         Value::Nil,
@@ -368,7 +368,7 @@ fn md5_accepts_iso_8859_15_alias() {
 
 #[test]
 fn md5_accepts_iso_8859_9_alias() {
-    let r = builtin_md5(vec![
+    let r = builtin_md5_inner(vec![
         Value::string("abc"),
         Value::Nil,
         Value::Nil,
@@ -380,7 +380,7 @@ fn md5_accepts_iso_8859_9_alias() {
 
 #[test]
 fn md5_non_symbol_coding_system_errors() {
-    match builtin_md5(vec![
+    match builtin_md5_inner(vec![
         Value::string("abc"),
         Value::Nil,
         Value::Nil,
@@ -404,10 +404,10 @@ fn md5_eval_buffer_core_semantics() {
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
-    let full = builtin_md5_eval(&mut eval, vec![Value::Buffer(id)]).unwrap();
+    let full = builtin_md5(&mut eval, vec![Value::Buffer(id)]).unwrap();
     assert_eq!(full.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 
-    let swapped = builtin_md5_eval(
+    let swapped = builtin_md5(
         &mut eval,
         vec![Value::Buffer(id), Value::Int(4), Value::Int(3)],
     )
@@ -425,7 +425,7 @@ fn md5_eval_buffer_range_errors() {
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
-    match builtin_md5_eval(&mut eval, vec![Value::Buffer(id), Value::Int(5)]) {
+    match builtin_md5(&mut eval, vec![Value::Buffer(id), Value::Int(5)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(sig.data, vec![Value::Int(5), Value::Nil]);
@@ -439,7 +439,7 @@ fn md5_eval_buffer_index_type_error() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
-    match builtin_md5_eval(
+    match builtin_md5(
         &mut eval,
         vec![Value::Buffer(id), Value::True, Value::Int(3)],
     ) {
@@ -460,7 +460,7 @@ fn md5_eval_deleted_buffer_errors() {
     let id = eval.buffers.create_buffer("*md5-doomed*");
     assert!(eval.buffers.kill_buffer(id));
 
-    match builtin_md5_eval(&mut eval, vec![Value::Buffer(id)]) {
+    match builtin_md5(&mut eval, vec![Value::Buffer(id)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -476,7 +476,7 @@ fn md5_eval_deleted_buffer_errors() {
 
 #[test]
 fn secure_hash_sha256_known() {
-    let r = builtin_secure_hash(vec![Value::symbol("sha256"), Value::string("abc")]).unwrap();
+    let r = builtin_secure_hash_inner(vec![Value::symbol("sha256"), Value::string("abc")]).unwrap();
     assert_eq!(
         r.as_str(),
         Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
@@ -485,19 +485,19 @@ fn secure_hash_sha256_known() {
 
 #[test]
 fn secure_hash_sha1_known() {
-    let r = builtin_secure_hash(vec![Value::symbol("sha1"), Value::string("abc")]).unwrap();
+    let r = builtin_secure_hash_inner(vec![Value::symbol("sha1"), Value::string("abc")]).unwrap();
     assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
 #[test]
 fn secure_hash_md5_known() {
-    let r = builtin_secure_hash(vec![Value::symbol("md5"), Value::string("abc")]).unwrap();
+    let r = builtin_secure_hash_inner(vec![Value::symbol("md5"), Value::string("abc")]).unwrap();
     assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
 fn secure_hash_binary_string_uses_unibyte_storage() {
-    let r = builtin_secure_hash(vec![
+    let r = builtin_secure_hash_inner(vec![
         Value::symbol("sha1"),
         Value::string("abc"),
         Value::Nil,
@@ -522,7 +522,7 @@ fn secure_hash_binary_string_uses_unibyte_storage() {
 
 #[test]
 fn secure_hash_subrange_semantics() {
-    let r = builtin_secure_hash(vec![
+    let r = builtin_secure_hash_inner(vec![
         Value::symbol("sha256"),
         Value::string("abcdef"),
         Value::Int(1),
@@ -537,7 +537,7 @@ fn secure_hash_subrange_semantics() {
 
 #[test]
 fn secure_hash_invalid_algorithm_errors() {
-    match builtin_secure_hash(vec![Value::symbol("no-such"), Value::string("abc")]) {
+    match builtin_secure_hash_inner(vec![Value::symbol("no-such"), Value::string("abc")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -551,7 +551,7 @@ fn secure_hash_invalid_algorithm_errors() {
 
 #[test]
 fn secure_hash_invalid_algorithm_type_errors() {
-    match builtin_secure_hash(vec![Value::Int(1), Value::string("abc")]) {
+    match builtin_secure_hash_inner(vec![Value::Int(1), Value::string("abc")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("symbolp")));
@@ -562,7 +562,7 @@ fn secure_hash_invalid_algorithm_type_errors() {
 
 #[test]
 fn secure_hash_invalid_object_errors() {
-    match builtin_secure_hash(vec![Value::symbol("sha256"), Value::Int(123)]) {
+    match builtin_secure_hash_inner(vec![Value::symbol("sha256"), Value::Int(123)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -584,7 +584,7 @@ fn secure_hash_eval_buffer_sha1() {
         buf.insert("abc");
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
-    let r = builtin_secure_hash_eval(&mut eval, vec![Value::symbol("sha1"), Value::Buffer(id)])
+    let r = builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), Value::Buffer(id)])
         .unwrap();
     assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
@@ -599,7 +599,7 @@ fn secure_hash_eval_buffer_range_errors() {
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
-    match builtin_secure_hash_eval(
+    match builtin_secure_hash(
         &mut eval,
         vec![Value::symbol("sha1"), Value::Buffer(id), Value::Int(5)],
     ) {
@@ -616,7 +616,7 @@ fn secure_hash_eval_buffer_index_type_error() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
-    match builtin_secure_hash_eval(
+    match builtin_secure_hash(
         &mut eval,
         vec![
             Value::symbol("sha1"),
@@ -646,7 +646,7 @@ fn secure_hash_eval_buffer_marker_range() {
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(2), false);
-    let r = builtin_secure_hash_eval(
+    let r = builtin_secure_hash(
         &mut eval,
         vec![
             Value::symbol("sha1"),
@@ -665,7 +665,7 @@ fn secure_hash_eval_deleted_buffer_errors() {
     let id = eval.buffers.create_buffer("*secure-doomed*");
     assert!(eval.buffers.kill_buffer(id));
 
-    match builtin_secure_hash_eval(&mut eval, vec![Value::symbol("sha1"), Value::Buffer(id)]) {
+    match builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), Value::Buffer(id)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -683,7 +683,7 @@ fn buffer_hash_eval_current_buffer_sha1() {
     let buf = eval.buffers.current_buffer_mut().expect("current buffer");
     buf.delete_region(buf.point_min(), buf.point_max());
     buf.insert("abc");
-    let r = builtin_buffer_hash_eval(&mut eval, vec![]).unwrap();
+    let r = builtin_buffer_hash(&mut eval, vec![]).unwrap();
     assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
@@ -699,14 +699,14 @@ fn buffer_hash_eval_by_name_sha1() {
         .expect("current buffer")
         .name
         .clone();
-    let r = builtin_buffer_hash_eval(&mut eval, vec![Value::string(name)]).unwrap();
+    let r = builtin_buffer_hash(&mut eval, vec![Value::string(name)]).unwrap();
     assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
 #[test]
 fn buffer_hash_eval_missing_name_errors() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    match builtin_buffer_hash_eval(&mut eval, vec![Value::string("*missing*")]) {
+    match builtin_buffer_hash(&mut eval, vec![Value::string("*missing*")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(

@@ -10520,7 +10520,7 @@ fn startup_doc_quote_style_raw(doc: &str) -> String {
 /// - non-integer values are evaluated as Lisp and returned
 /// - unless RAW is non-nil, string results are passed through
 ///   `substitute-command-keys`
-pub(crate) fn builtin_documentation_property_eval(
+pub(crate) fn builtin_documentation_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -10613,7 +10613,7 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
 /// Stub implementation: always returns nil.  In real Emacs this reads
 /// properties like `variable-documentation` and `function-documentation`
 /// from the symbol's plist, potentially loading from the DOC file.
-pub(crate) fn builtin_documentation_property(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_documentation_property_inner(args: Vec<Value>) -> EvalResult {
     expect_min_max_args("documentation-property", &args, 2, 3)?;
     // Validate that the first argument is a symbol.
     if args[0].as_symbol_name().is_none() {

@@ -630,19 +630,19 @@ fn syntax_class_to_char_basics_and_errors() {
 #[test]
 fn matching_paren_basics_and_errors() {
     assert_eq!(
-        builtin_matching_paren(vec![Value::Int('(' as i64)]).unwrap(),
+        builtin_matching_paren_inner(vec![Value::Int('(' as i64)]).unwrap(),
         Value::Char(')')
     );
     assert_eq!(
-        builtin_matching_paren(vec![Value::Int(']' as i64)]).unwrap(),
+        builtin_matching_paren_inner(vec![Value::Int(']' as i64)]).unwrap(),
         Value::Char('[')
     );
     assert_eq!(
-        builtin_matching_paren(vec![Value::Int('a' as i64)]).unwrap(),
+        builtin_matching_paren_inner(vec![Value::Int('a' as i64)]).unwrap(),
         Value::Nil
     );
 
-    match builtin_matching_paren(vec![Value::string("(")]) {
+    match builtin_matching_paren_inner(vec![Value::string("(")]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("characterp")));
@@ -650,7 +650,7 @@ fn matching_paren_basics_and_errors() {
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
 
-    match builtin_matching_paren(vec![]) {
+    match builtin_matching_paren_inner(vec![]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(sig.data.first(), Some(&Value::symbol("matching-paren")));

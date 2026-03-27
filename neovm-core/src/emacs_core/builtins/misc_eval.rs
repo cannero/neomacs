@@ -485,14 +485,14 @@ fn eval_error_to_flow(e: super::error::EvalError) -> Flow {
 }
 
 /// `(garbage-collect)` — run a full GC cycle and return memory statistics.
-pub(super) fn builtin_garbage_collect_eval(
+pub(super) fn builtin_garbage_collect(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("garbage-collect", &args, 0)?;
     eval.gc_collect();
     // Return the same stats format as the old stub for compatibility.
-    super::builtins_extra::builtin_garbage_collect(vec![])
+    super::builtins_extra::builtin_garbage_collect_inner(vec![])
 }
 
 pub(crate) fn builtin_load(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -1153,18 +1153,18 @@ pub(crate) fn prin1_to_string_value_in_state(
     }
 }
 
-pub(crate) fn builtin_princ(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_princ_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("princ", &args, 1)?;
     // In real Emacs this prints to standard output; here just return the value
     Ok(args[0])
 }
 
-pub(crate) fn builtin_prin1(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_prin1_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("prin1", &args, 1)?;
     Ok(args[0])
 }
 
-pub(crate) fn builtin_princ_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_princ(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("princ", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
@@ -1191,7 +1191,7 @@ pub(crate) fn builtin_princ_impl(
     Ok(args[0])
 }
 
-pub(crate) fn builtin_prin1_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_prin1(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("prin1", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
@@ -1221,13 +1221,13 @@ pub(crate) fn builtin_prin1_impl(
     Ok(args[0])
 }
 
-pub(crate) fn builtin_prin1_to_string(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_prin1_to_string_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("prin1-to-string", &args, 1)?;
     let noescape = args.get(1).is_some_and(|v| v.is_truthy());
     Ok(Value::string(prin1_to_string_value(&args[0], noescape)))
 }
 
-pub(crate) fn builtin_prin1_to_string_eval(
+pub(crate) fn builtin_prin1_to_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1245,17 +1245,17 @@ pub(crate) fn builtin_prin1_to_string_impl(
     )))
 }
 
-pub(crate) fn builtin_print(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_print_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("print", &args, 1)?;
     Ok(args[0])
 }
 
-pub(crate) fn builtin_terpri(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_terpri_inner(args: Vec<Value>) -> EvalResult {
     expect_max_args("terpri", &args, 2)?;
     Ok(Value::True)
 }
 
-pub(crate) fn builtin_print_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_print(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("print", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
@@ -1291,7 +1291,7 @@ pub(crate) fn builtin_print_impl(
     Ok(args[0])
 }
 
-pub(crate) fn builtin_terpri_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_terpri(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = builtin_terpri_impl(eval, args.clone())? {
         return Ok(result);
     }
@@ -1328,13 +1328,13 @@ pub(super) fn write_char_rendered_text(char_code: i64) -> Option<String> {
         .or_else(|| encode_nonunicode_char_for_storage(code))
 }
 
-pub(crate) fn builtin_write_char(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_write_char_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("write-char", &args, 1, 2)?;
     let char_code = expect_fixnum(&args[0])?;
     Ok(Value::Int(char_code))
 }
 
-pub(crate) fn builtin_write_char_eval(
+pub(crate) fn builtin_write_char(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1493,13 +1493,13 @@ pub(crate) fn builtin_current_cpu_time(args: Vec<Value>) -> EvalResult {
     Ok(Value::cons(Value::Int(ticks), Value::Int(1_000_000)))
 }
 
-pub(crate) fn builtin_current_idle_time(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_current_idle_time_inner(args: Vec<Value>) -> EvalResult {
     expect_args("current-idle-time", &args, 0)?;
     // Batch mode does not track UI idle duration; Oracle returns nil here.
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_current_idle_time_eval(
+pub(crate) fn builtin_current_idle_time(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

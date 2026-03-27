@@ -676,8 +676,8 @@ fn preserve_emacs_downcase_string_payload(code: i64) -> bool {
     )
 }
 
-pub(crate) fn builtin_format(args: Vec<Value>) -> EvalResult {
-    builtin_format_wrapper_strict(args)
+pub(crate) fn builtin_format_inner(args: Vec<Value>) -> EvalResult {
+    builtin_format_wrapper_strict_inner(args)
 }
 
 pub(crate) fn builtin_ngettext(args: Vec<Value>) -> EvalResult {
@@ -692,10 +692,10 @@ pub(crate) fn builtin_ngettext(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_format_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_format(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     // With specbind, dynamic let-bindings are written directly to the obarray,
     // so print_options_from_state correctly resolves print-* variables.
-    builtin_format_wrapper_strict_eval(eval, args)
+    builtin_format_wrapper_strict(eval, args)
 }
 
 fn format_percent_s_in_state(
@@ -1078,7 +1078,7 @@ fn do_format(
     Ok(result)
 }
 
-pub(super) fn builtin_format_wrapper_strict(args: Vec<Value>) -> EvalResult {
+pub(super) fn builtin_format_wrapper_strict_inner(args: Vec<Value>) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
         expect_min_args("format", &args, 1)?;
         let s = do_format(&args, &format_value_princ, &|v| {
@@ -1088,7 +1088,7 @@ pub(super) fn builtin_format_wrapper_strict(args: Vec<Value>) -> EvalResult {
     })
 }
 
-pub(crate) fn builtin_format_wrapper_strict_eval(
+pub(crate) fn builtin_format_wrapper_strict(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1123,9 +1123,9 @@ fn apply_text_quoting(s: &str) -> String {
     out
 }
 
-pub(crate) fn builtin_format_message(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_format_message_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("format-message", &args, 1)?;
-    let formatted = builtin_format(args)?;
+    let formatted = builtin_format_inner(args)?;
     match formatted {
         Value::Str(id) => {
             let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());
@@ -1135,12 +1135,12 @@ pub(crate) fn builtin_format_message(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_format_message_eval(
+pub(crate) fn builtin_format_message(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("format-message", &args, 1)?;
-    let formatted = builtin_format_wrapper_strict_eval(ctx, args)?;
+    let formatted = builtin_format_wrapper_strict(ctx, args)?;
     match formatted {
         Value::Str(id) => {
             let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());

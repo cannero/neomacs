@@ -1167,7 +1167,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
 
 /// `(find-charset-region BEG END &optional TABLE)` -- returns a list of charsets
 /// present in the buffer slice.
-pub(crate) fn builtin_find_charset_region(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_find_charset_region_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("find-charset-region", &args, 2)?;
     expect_max_args("find-charset-region", &args, 3)?;
     Ok(Value::list(vec![Value::symbol("ascii")]))
@@ -1177,7 +1177,7 @@ pub(crate) fn builtin_find_charset_region(args: Vec<Value>) -> EvalResult {
 ///
 /// Returns charset symbols present in the region `[BEG, END)` where BEG/END are
 /// Emacs 1-based character positions inside the accessible region.
-pub(crate) fn builtin_find_charset_region_eval(
+pub(crate) fn builtin_find_charset_region(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1380,7 +1380,7 @@ pub(crate) fn builtin_clear_charset_maps(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(charset-after &optional POS)` -- currently returns 'unicode for compatibility.
-pub(crate) fn builtin_charset_after(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_charset_after_inner(args: Vec<Value>) -> EvalResult {
     expect_max_args("charset-after", &args, 1)?;
     Ok(Value::symbol("unicode"))
 }
@@ -1390,7 +1390,7 @@ pub(crate) fn builtin_charset_after(args: Vec<Value>) -> EvalResult {
 /// Returns the charset of the character at POS (1-based), or the character
 /// after point when POS is omitted. Returns nil at end-of-buffer or for
 /// out-of-range numeric positions.
-pub(crate) fn builtin_charset_after_eval(
+pub(crate) fn builtin_charset_after(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

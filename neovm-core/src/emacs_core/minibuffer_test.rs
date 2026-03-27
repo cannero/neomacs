@@ -504,28 +504,28 @@ fn alist_completion() {
 fn builtin_try_completion_unique_exact() {
     // Exact unique match should return t.
     let coll = Value::list(vec![Value::string("unique"), Value::string("other")]);
-    let result = builtin_try_completion(vec![Value::string("unique"), coll]).unwrap();
+    let result = builtin_try_completion_inner(vec![Value::string("unique"), coll]).unwrap();
     assert!(matches!(result, Value::True));
 }
 
 #[test]
 fn builtin_try_completion_common_prefix() {
     let coll = Value::list(vec![Value::string("application"), Value::string("apple")]);
-    let result = builtin_try_completion(vec![Value::string("app"), coll]).unwrap();
+    let result = builtin_try_completion_inner(vec![Value::string("app"), coll]).unwrap();
     assert!(result.as_str().unwrap() == "appl");
 }
 
 #[test]
 fn builtin_try_completion_no_match() {
     let coll = Value::list(vec![Value::string("foo"), Value::string("bar")]);
-    let result = builtin_try_completion(vec![Value::string("zzz"), coll]).unwrap();
+    let result = builtin_try_completion_inner(vec![Value::string("zzz"), coll]).unwrap();
     assert!(matches!(result, Value::Nil));
 }
 
 #[test]
 fn builtin_try_completion_rejects_more_than_three_args() {
     let coll = Value::list(vec![Value::string("a")]);
-    let result = builtin_try_completion(vec![Value::string(""), coll, Value::Nil, Value::Nil]);
+    let result = builtin_try_completion_inner(vec![Value::string(""), coll, Value::Nil, Value::Nil]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -539,7 +539,7 @@ fn builtin_all_completions_returns_list() {
         Value::string("application"),
         Value::string("banana"),
     ]);
-    let result = builtin_all_completions(vec![Value::string("app"), coll]).unwrap();
+    let result = builtin_all_completions_inner(vec![Value::string("app"), coll]).unwrap();
     let items = super::super::value::list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 2);
 }
@@ -547,7 +547,7 @@ fn builtin_all_completions_returns_list() {
 #[test]
 fn builtin_all_completions_rejects_more_than_four_args() {
     let coll = Value::list(vec![Value::string("a")]);
-    let result = builtin_all_completions(vec![
+    let result = builtin_all_completions_inner(vec![
         Value::string(""),
         coll,
         Value::Nil,
@@ -563,21 +563,21 @@ fn builtin_all_completions_rejects_more_than_four_args() {
 #[test]
 fn builtin_test_completion_match() {
     let coll = Value::list(vec![Value::string("alpha"), Value::string("beta")]);
-    let result = builtin_test_completion(vec![Value::string("alpha"), coll]).unwrap();
+    let result = builtin_test_completion_inner(vec![Value::string("alpha"), coll]).unwrap();
     assert!(matches!(result, Value::True));
 }
 
 #[test]
 fn builtin_test_completion_no_match() {
     let coll = Value::list(vec![Value::string("alpha"), Value::string("beta")]);
-    let result = builtin_test_completion(vec![Value::string("alp"), coll]).unwrap();
+    let result = builtin_test_completion_inner(vec![Value::string("alp"), coll]).unwrap();
     assert!(matches!(result, Value::Nil));
 }
 
 #[test]
 fn builtin_test_completion_rejects_more_than_three_args() {
     let coll = Value::list(vec![Value::string("a")]);
-    let result = builtin_test_completion(vec![Value::string(""), coll, Value::Nil, Value::Nil]);
+    let result = builtin_test_completion_inner(vec![Value::string(""), coll, Value::Nil, Value::Nil]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -666,13 +666,13 @@ fn builtin_minibufferp_rejects_more_than_two_args() {
 
 #[test]
 fn builtin_recursive_edit_returns_nil() {
-    let result = builtin_recursive_edit(vec![]).unwrap();
+    let result = builtin_recursive_edit_inner(vec![]).unwrap();
     assert!(matches!(result, Value::Nil));
 }
 
 #[test]
 fn builtin_recursive_edit_rejects_args() {
-    let result = builtin_recursive_edit(vec![Value::Nil]);
+    let result = builtin_recursive_edit_inner(vec![Value::Nil]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"

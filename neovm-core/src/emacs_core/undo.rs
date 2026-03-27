@@ -75,7 +75,7 @@ fn expect_list_like(value: &Value) -> Result<(), Flow> {
 /// Insert an undo boundary marker in the current buffer's undo list.
 /// This separates consecutive edits into distinct undoable actions.
 ///
-pub(crate) fn builtin_undo_boundary(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_undo_boundary_inner(args: Vec<Value>) -> EvalResult {
     expect_args("undo-boundary", &args, 0)?;
     Ok(Value::Nil)
 }
@@ -84,7 +84,7 @@ pub(crate) fn builtin_undo_boundary(args: Vec<Value>) -> EvalResult {
 ///
 /// Context-dependent variant used during normal execution: inserts an
 /// undo boundary into the current buffer's undo list.
-pub(crate) fn builtin_undo_boundary_eval(
+pub(crate) fn builtin_undo_boundary(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

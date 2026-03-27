@@ -452,7 +452,7 @@ fn format_mode_string(mode: u32, meta: &fs::Metadata) -> String {
 ///
 /// Like `directory-files` but each element is (NAME . ATTRIBUTES) where
 /// ATTRIBUTES is the result of `file-attributes`.
-pub(crate) fn builtin_directory_files_and_attributes(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_directory_files_and_attributes_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("directory-files-and-attributes", &args, 1, 6)?;
     let dir = expect_string("directory-files-and-attributes", &args[0])?;
     directory_files_and_attributes_with_dir(&args, dir)
@@ -460,7 +460,7 @@ pub(crate) fn builtin_directory_files_and_attributes(args: Vec<Value>) -> EvalRe
 
 /// Context-backed variant of `directory-files-and-attributes`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
-pub(crate) fn builtin_directory_files_and_attributes_eval(
+pub(crate) fn builtin_directory_files_and_attributes(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -554,7 +554,7 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
 /// Complete file name FILE in DIRECTORY.
 /// Returns the longest common completion prefix, or t if FILE is an exact
 /// and unique match, or nil if no completions exist.
-pub(crate) fn builtin_file_name_completion(
+pub(crate) fn builtin_file_name_completion_inner(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -568,7 +568,7 @@ pub(crate) fn builtin_file_name_completion(
 /// Context-backed variant of `file-name-completion`.
 /// This supports arbitrary callable predicates and matches Emacs behavior of
 /// binding `default-directory` to DIRECTORY while predicate is invoked.
-pub(crate) fn builtin_file_name_completion_eval(
+pub(crate) fn builtin_file_name_completion(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -587,7 +587,7 @@ pub(crate) fn builtin_file_name_completion_eval(
 ///
 /// Return a list of all completions of FILE in DIRECTORY.
 /// Each entry that is a directory has a trailing '/'.
-pub(crate) fn builtin_file_name_all_completions(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_name_all_completions_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("file-name-all-completions", &args, 2, 2)?;
 
     let file = expect_string("file-name-all-completions", &args[0])?;
@@ -603,7 +603,7 @@ pub(crate) fn builtin_file_name_all_completions(args: Vec<Value>) -> EvalResult 
 
 /// Context-backed variant of `file-name-all-completions`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_name_all_completions_eval(
+pub(crate) fn builtin_file_name_all_completions(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -921,7 +921,7 @@ fn predicate_callable_name(predicate: &Value) -> Option<&str> {
 ///   9. GID-CHANGEP (always nil)
 ///  10. Inode number
 ///  11. Device number
-pub(crate) fn builtin_file_attributes(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_attributes_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("file-attributes", &args, 1, 2)?;
 
     let filename = expect_string("file-attributes", &args[0])?;
@@ -938,7 +938,7 @@ pub(crate) fn builtin_file_attributes(args: Vec<Value>) -> EvalResult {
 
 /// Context-backed variant of `file-attributes`.
 /// Resolves relative FILENAME against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_attributes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_attributes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("file-attributes", &args, 1, 2)?;
 
     let filename = super::fileio::resolve_filename_in_state(

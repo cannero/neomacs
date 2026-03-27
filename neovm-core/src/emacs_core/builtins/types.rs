@@ -141,7 +141,7 @@ pub(crate) fn builtin_char_uppercase_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(downcase_char_code_emacs_compat(code) != code))
 }
 
-pub(crate) fn builtin_functionp(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_functionp_inner(args: Vec<Value>) -> EvalResult {
     expect_args("functionp", &args, 1)?;
     let is_function = match &args[0] {
         Value::Symbol(_) => false,
@@ -189,7 +189,7 @@ fn autoload_type_of(value: &Value) -> Option<super::autoload::AutoloadType> {
     Some(super::autoload::AutoloadType::from_value(&type_value))
 }
 
-pub(crate) fn builtin_functionp_eval(
+pub(crate) fn builtin_functionp(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

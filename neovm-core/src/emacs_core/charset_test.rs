@@ -466,7 +466,7 @@ fn charset_superset_supports_offsets_membership_and_ranges() {
 
 #[test]
 fn find_charset_region_ascii_default() {
-    let r = builtin_find_charset_region(vec![Value::Int(1), Value::Int(100)]).unwrap();
+    let r = builtin_find_charset_region_inner(vec![Value::Int(1), Value::Int(100)]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
     assert!(matches!(&items[0], Value::Symbol(id) if resolve_sym(*id) == "ascii"));
@@ -474,16 +474,16 @@ fn find_charset_region_ascii_default() {
 
 #[test]
 fn find_charset_region_with_table() {
-    let r = builtin_find_charset_region(vec![Value::Int(1), Value::Int(100), Value::Nil]).unwrap();
+    let r = builtin_find_charset_region_inner(vec![Value::Int(1), Value::Int(100), Value::Nil]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
 }
 
 #[test]
 fn find_charset_region_wrong_arg_count() {
-    assert!(builtin_find_charset_region(vec![Value::Int(1)]).is_err());
+    assert!(builtin_find_charset_region_inner(vec![Value::Int(1)]).is_err());
     assert!(
-        builtin_find_charset_region(vec![Value::Int(1), Value::Int(2), Value::Nil, Value::Nil,])
+        builtin_find_charset_region_inner(vec![Value::Int(1), Value::Int(2), Value::Nil, Value::Nil,])
             .is_err()
     );
 }
@@ -499,7 +499,7 @@ fn find_charset_region_eval_semantics() {
         buf.insert("aé😀");
     }
 
-    let all = builtin_find_charset_region_eval(&mut eval, vec![Value::Int(1), Value::Int(4)])
+    let all = builtin_find_charset_region(&mut eval, vec![Value::Int(1), Value::Int(4)])
         .expect("find-charset-region all");
     assert_eq!(
         all,
@@ -510,11 +510,11 @@ fn find_charset_region_eval_semantics() {
         ])
     );
 
-    let bmp = builtin_find_charset_region_eval(&mut eval, vec![Value::Int(2), Value::Int(3)])
+    let bmp = builtin_find_charset_region(&mut eval, vec![Value::Int(2), Value::Int(3)])
         .expect("find-charset-region bmp");
     assert_eq!(bmp, Value::list(vec![Value::symbol("unicode-bmp")]));
 
-    let empty = builtin_find_charset_region_eval(&mut eval, vec![Value::Int(4), Value::Int(4)])
+    let empty = builtin_find_charset_region(&mut eval, vec![Value::Int(4), Value::Int(4)])
         .expect("find-charset-region empty");
     assert_eq!(empty, Value::list(vec![Value::symbol("ascii")]));
 }
@@ -530,10 +530,10 @@ fn find_charset_region_eval_out_of_range_errors() {
         buf.insert("abc");
     }
     assert!(
-        builtin_find_charset_region_eval(&mut eval, vec![Value::Int(0), Value::Int(2)]).is_err()
+        builtin_find_charset_region(&mut eval, vec![Value::Int(0), Value::Int(2)]).is_err()
     );
     assert!(
-        builtin_find_charset_region_eval(&mut eval, vec![Value::Int(1), Value::Int(5)]).is_err()
+        builtin_find_charset_region(&mut eval, vec![Value::Int(1), Value::Int(5)]).is_err()
     );
 }
 
@@ -907,19 +907,19 @@ fn clear_charset_maps_wrong_arg_count() {
 
 #[test]
 fn charset_after_default_returns_unicode() {
-    let r = builtin_charset_after(vec![]).unwrap();
+    let r = builtin_charset_after_inner(vec![]).unwrap();
     assert!(matches!(r, Value::Symbol(id) if resolve_sym(id) == "unicode"));
 }
 
 #[test]
 fn charset_after_with_pos() {
-    let r = builtin_charset_after(vec![Value::Int(42)]).unwrap();
+    let r = builtin_charset_after_inner(vec![Value::Int(42)]).unwrap();
     assert!(matches!(r, Value::Symbol(id) if resolve_sym(id) == "unicode"));
 }
 
 #[test]
 fn charset_after_wrong_arg_count() {
-    assert!(builtin_charset_after(vec![Value::Int(1), Value::Int(2)]).is_err());
+    assert!(builtin_charset_after_inner(vec![Value::Int(1), Value::Int(2)]).is_err());
 }
 
 #[test]
@@ -935,39 +935,39 @@ fn charset_after_eval_semantics() {
 
     // No arg uses char after point; after insert point is at EOB.
     assert!(
-        builtin_charset_after_eval(&mut eval, vec![])
+        builtin_charset_after(&mut eval, vec![])
             .expect("charset-after no arg")
             .is_nil()
     );
 
     assert_eq!(
-        builtin_charset_after_eval(&mut eval, vec![Value::Int(1)]).expect("pos 1"),
+        builtin_charset_after(&mut eval, vec![Value::Int(1)]).expect("pos 1"),
         Value::symbol("ascii")
     );
     assert_eq!(
-        builtin_charset_after_eval(&mut eval, vec![Value::Int(2)]).expect("pos 2"),
+        builtin_charset_after(&mut eval, vec![Value::Int(2)]).expect("pos 2"),
         Value::symbol("unicode-bmp")
     );
     assert_eq!(
-        builtin_charset_after_eval(&mut eval, vec![Value::Int(3)]).expect("pos 3"),
+        builtin_charset_after(&mut eval, vec![Value::Int(3)]).expect("pos 3"),
         Value::symbol("unicode")
     );
     assert!(
-        builtin_charset_after_eval(&mut eval, vec![Value::Int(4)])
+        builtin_charset_after(&mut eval, vec![Value::Int(4)])
             .expect("pos 4")
             .is_nil()
     );
     assert!(
-        builtin_charset_after_eval(&mut eval, vec![Value::Int(0)])
+        builtin_charset_after(&mut eval, vec![Value::Int(0)])
             .expect("pos 0")
             .is_nil()
     );
     assert!(
-        builtin_charset_after_eval(&mut eval, vec![Value::Int(10)])
+        builtin_charset_after(&mut eval, vec![Value::Int(10)])
             .expect("pos 10")
             .is_nil()
     );
-    assert!(builtin_charset_after_eval(&mut eval, vec![Value::string("x")]).is_err());
+    assert!(builtin_charset_after(&mut eval, vec![Value::string("x")]).is_err());
 }
 
 // -----------------------------------------------------------------------

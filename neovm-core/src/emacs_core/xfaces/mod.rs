@@ -52,7 +52,7 @@ pub(crate) fn ensure_startup_compat_variables(eval: &mut crate::emacs_core::eval
     }
 }
 
-pub(crate) fn builtin_frame_face_hash_table_eval(
+pub(crate) fn builtin_frame_face_hash_table(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn frame_face_hash_table_eval_is_empty_before_any_face_realization() {
         let mut eval = crate::emacs_core::eval::Context::new();
-        let out = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
+        let out = builtin_frame_face_hash_table(&mut eval, vec![Value::Nil])
             .expect("live frame face hash table");
         let Value::HashTable(id) = out else {
             panic!("expected hash table");
@@ -204,9 +204,9 @@ mod tests {
     #[test]
     fn frame_face_hash_table_eval_returns_stable_frame_owned_table() {
         let mut eval = crate::emacs_core::eval::Context::new();
-        let first = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
+        let first = builtin_frame_face_hash_table(&mut eval, vec![Value::Nil])
             .expect("first face hash table");
-        let second = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
+        let second = builtin_frame_face_hash_table(&mut eval, vec![Value::Nil])
             .expect("second face hash table");
         assert_eq!(first, second);
     }

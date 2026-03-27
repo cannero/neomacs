@@ -107,7 +107,7 @@ fn substitute_command_keys_startup_is_autoloaded() {
 
 #[test]
 fn documentation_property_returns_nil() {
-    let result = builtin_documentation_property(vec![
+    let result = builtin_documentation_property_inner(vec![
         Value::symbol("foo"),
         Value::symbol("variable-documentation"),
     ]);
@@ -117,7 +117,7 @@ fn documentation_property_returns_nil() {
 
 #[test]
 fn documentation_property_with_raw() {
-    let result = builtin_documentation_property(vec![
+    let result = builtin_documentation_property_inner(vec![
         Value::symbol("foo"),
         Value::symbol("variable-documentation"),
         Value::True,
@@ -128,7 +128,7 @@ fn documentation_property_with_raw() {
 
 #[test]
 fn documentation_property_wrong_type() {
-    let result = builtin_documentation_property(vec![
+    let result = builtin_documentation_property_inner(vec![
         Value::Int(42),
         Value::symbol("variable-documentation"),
     ]);
@@ -137,7 +137,7 @@ fn documentation_property_wrong_type() {
 
 #[test]
 fn documentation_property_wrong_arity() {
-    let result = builtin_documentation_property(vec![Value::symbol("foo")]);
+    let result = builtin_documentation_property_inner(vec![Value::symbol("foo")]);
     assert!(result.is_err());
 }
 
@@ -711,7 +711,7 @@ fn documentation_property_eval_returns_string_property() {
         .obarray
         .put_property("doc-sym", "variable-documentation", Value::string("doc"));
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -731,7 +731,7 @@ fn documentation_property_eval_substitutes_command_keys_unless_raw() {
         Value::string("Press \\[save-buffer] to save."),
     );
 
-    let display = builtin_documentation_property_eval(
+    let display = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -739,7 +739,7 @@ fn documentation_property_eval_substitutes_command_keys_unless_raw() {
         ],
     )
     .unwrap();
-    let raw = builtin_documentation_property_eval(
+    let raw = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -765,7 +765,7 @@ fn documentation_property_eval_integer_property_returns_nil() {
         .obarray
         .put_property("doc-sym", "variable-documentation", Value::Int(7));
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -806,7 +806,7 @@ fn documentation_property_eval_reads_compiled_doc_ref() {
         ),
     );
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -823,7 +823,7 @@ fn documentation_property_eval_reads_compiled_doc_ref() {
 #[test]
 fn documentation_property_eval_load_path_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("load-path"),
@@ -841,7 +841,7 @@ fn documentation_property_eval_load_path_integer_property_returns_string() {
 #[test]
 fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
     let mut evaluator = super::super::eval::Context::new();
-    let display = builtin_documentation_property_eval(
+    let display = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("load-path"),
@@ -850,7 +850,7 @@ fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
         ],
     )
     .unwrap();
-    let raw = builtin_documentation_property_eval(
+    let raw = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("load-path"),
@@ -874,7 +874,7 @@ fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
 #[test]
 fn documentation_property_eval_ctl_x_4_map_raw_matches_display_when_no_markup() {
     let mut evaluator = super::super::eval::Context::new();
-    let display = builtin_documentation_property_eval(
+    let display = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("ctl-x-4-map"),
@@ -883,7 +883,7 @@ fn documentation_property_eval_ctl_x_4_map_raw_matches_display_when_no_markup() 
         ],
     )
     .unwrap();
-    let raw = builtin_documentation_property_eval(
+    let raw = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("ctl-x-4-map"),
@@ -907,7 +907,7 @@ fn documentation_property_eval_ctl_x_4_map_raw_matches_display_when_no_markup() 
 #[test]
 fn documentation_property_eval_case_fold_search_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("case-fold-search"),
@@ -925,7 +925,7 @@ fn documentation_property_eval_case_fold_search_integer_property_returns_string(
 #[test]
 fn documentation_property_eval_unread_command_events_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("unread-command-events"),
@@ -943,7 +943,7 @@ fn documentation_property_eval_unread_command_events_integer_property_returns_st
 #[test]
 fn documentation_property_eval_auto_hscroll_mode_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("auto-hscroll-mode"),
@@ -961,7 +961,7 @@ fn documentation_property_eval_auto_hscroll_mode_integer_property_returns_string
 #[test]
 fn documentation_property_eval_auto_composition_mode_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("auto-composition-mode"),
@@ -979,7 +979,7 @@ fn documentation_property_eval_auto_composition_mode_integer_property_returns_st
 #[test]
 fn documentation_property_eval_coding_system_alist_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("coding-system-alist"),
@@ -997,7 +997,7 @@ fn documentation_property_eval_coding_system_alist_integer_property_returns_stri
 #[test]
 fn documentation_property_eval_debug_on_message_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("debug-on-message"),
@@ -1015,7 +1015,7 @@ fn documentation_property_eval_debug_on_message_integer_property_returns_string(
 #[test]
 fn documentation_property_eval_display_hourglass_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("display-hourglass"),
@@ -1033,7 +1033,7 @@ fn documentation_property_eval_display_hourglass_integer_property_returns_string
 #[test]
 fn documentation_property_eval_exec_directory_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("exec-directory"),
@@ -1051,7 +1051,7 @@ fn documentation_property_eval_exec_directory_integer_property_returns_string() 
 #[test]
 fn documentation_property_eval_frame_title_format_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("frame-title-format"),
@@ -1069,7 +1069,7 @@ fn documentation_property_eval_frame_title_format_integer_property_returns_strin
 #[test]
 fn documentation_property_eval_header_line_format_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("header-line-format"),
@@ -1087,7 +1087,7 @@ fn documentation_property_eval_header_line_format_integer_property_returns_strin
 #[test]
 fn documentation_property_eval_input_method_function_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("input-method-function"),
@@ -1105,7 +1105,7 @@ fn documentation_property_eval_input_method_function_integer_property_returns_st
 #[test]
 fn documentation_property_eval_load_suffixes_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("load-suffixes"),
@@ -1123,7 +1123,7 @@ fn documentation_property_eval_load_suffixes_integer_property_returns_string() {
 #[test]
 fn documentation_property_eval_native_comp_eln_load_path_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("native-comp-eln-load-path"),
@@ -1141,7 +1141,7 @@ fn documentation_property_eval_native_comp_eln_load_path_integer_property_return
 #[test]
 fn documentation_property_eval_process_environment_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("process-environment"),
@@ -1159,7 +1159,7 @@ fn documentation_property_eval_process_environment_integer_property_returns_stri
 #[test]
 fn documentation_property_eval_scroll_margin_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("scroll-margin"),
@@ -1177,7 +1177,7 @@ fn documentation_property_eval_scroll_margin_integer_property_returns_string() {
 #[test]
 fn documentation_property_eval_truncate_partial_width_windows_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("truncate-partial-width-windows"),
@@ -1195,7 +1195,7 @@ fn documentation_property_eval_truncate_partial_width_windows_integer_property_r
 #[test]
 fn documentation_property_eval_yes_or_no_prompt_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("yes-or-no-prompt"),
@@ -1209,7 +1209,7 @@ fn documentation_property_eval_yes_or_no_prompt_integer_property_returns_string(
 #[test]
 fn documentation_property_eval_debug_on_error_integer_property_returns_string() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("debug-on-error"),
@@ -1233,7 +1233,7 @@ fn documentation_property_eval_list_property_is_evaluated() {
         Value::list(vec![Value::symbol("identity"), Value::string("doc")]),
     );
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -1251,7 +1251,7 @@ fn documentation_property_eval_symbol_property_is_evaluated() {
         .obarray
         .put_property("doc-sym", "variable-documentation", Value::symbol("t"));
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -1271,7 +1271,7 @@ fn documentation_property_eval_vector_property_is_evaluated() {
         Value::vector(vec![Value::Int(1), Value::Int(2)]),
     );
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -1291,7 +1291,7 @@ fn documentation_property_eval_unbound_symbol_property_errors() {
         Value::symbol("doc-sym-unbound"),
     );
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -1313,7 +1313,7 @@ fn documentation_property_eval_invalid_form_property_errors() {
         Value::list(vec![Value::Int(1), Value::Int(2)]),
     );
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![
             Value::symbol("doc-sym"),
@@ -1333,7 +1333,7 @@ fn documentation_property_eval_non_symbol_prop_returns_nil() {
         .obarray
         .put_property("doc-sym", "x", Value::string("v"));
 
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![Value::symbol("doc-sym"), Value::Int(1)],
     )
@@ -1344,7 +1344,7 @@ fn documentation_property_eval_non_symbol_prop_returns_nil() {
 #[test]
 fn documentation_property_eval_non_symbol_target_errors() {
     let mut evaluator = super::super::eval::Context::new();
-    let result = builtin_documentation_property_eval(
+    let result = builtin_documentation_property(
         &mut evaluator,
         vec![Value::Int(1), Value::symbol("variable-documentation")],
     );

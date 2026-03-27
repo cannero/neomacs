@@ -936,7 +936,7 @@ pub(crate) fn finish_read_variable_in_vm_runtime(
 /// - `t` if STRING is an exact and unique match
 /// - a string (the longest common prefix) if there are matches
 /// - `nil` if no matches
-pub(crate) fn builtin_try_completion(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_try_completion_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("try-completion", &args, 2)?;
     expect_max_args("try-completion", &args, 3)?;
     let string = expect_string(&args[0])?;
@@ -967,7 +967,7 @@ pub(crate) fn builtin_try_completion(args: Vec<Value>) -> EvalResult {
 /// `(all-completions STRING COLLECTION &optional PREDICATE)`
 ///
 /// Returns a list of all completions of STRING in COLLECTION.
-pub(crate) fn builtin_all_completions(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_all_completions_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("all-completions", &args, 2)?;
     expect_max_args("all-completions", &args, 4)?;
     let string = expect_string(&args[0])?;
@@ -985,7 +985,7 @@ pub(crate) fn builtin_all_completions(args: Vec<Value>) -> EvalResult {
 /// `(test-completion STRING COLLECTION &optional PREDICATE)`
 ///
 /// Returns t if STRING is an exact match in COLLECTION, nil otherwise.
-pub(crate) fn builtin_test_completion(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_test_completion_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("test-completion", &args, 2)?;
     expect_max_args("test-completion", &args, 3)?;
     let string = expect_string(&args[0])?;
@@ -1163,7 +1163,7 @@ fn validate_minibufferp_args(args: &[Value]) -> Result<(), Flow> {
 /// Mirrors GNU Emacs keyboard.c:772 `Frecursive_edit`.
 /// In interactive mode, enters the command loop (read → execute → redisplay).
 /// In batch mode, returns nil.
-pub(crate) fn builtin_recursive_edit(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_recursive_edit_inner(args: Vec<Value>) -> EvalResult {
     expect_args("recursive-edit", &args, 0)?;
     // The actual implementation is in Context::recursive_edit() which needs
     // &mut self access.  The builtin dispatch calls this stub for the
@@ -1174,7 +1174,7 @@ pub(crate) fn builtin_recursive_edit(args: Vec<Value>) -> EvalResult {
 /// Eval-aware `(recursive-edit)` — enters the command loop.
 ///
 /// Mirrors GNU Emacs keyboard.c:772 `Frecursive_edit`.
-pub(crate) fn builtin_recursive_edit_eval(
+pub(crate) fn builtin_recursive_edit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1624,7 +1624,7 @@ fn completion_matches_prefix(prefix: &str, completion: &str) -> bool {
     completion.starts_with(prefix)
 }
 
-pub(crate) fn builtin_try_completion_eval(
+pub(crate) fn builtin_try_completion(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1634,7 +1634,7 @@ pub(crate) fn builtin_try_completion_eval(
     })
 }
 
-pub(crate) fn builtin_all_completions_eval(
+pub(crate) fn builtin_all_completions(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1644,7 +1644,7 @@ pub(crate) fn builtin_all_completions_eval(
     })
 }
 
-pub(crate) fn builtin_test_completion_eval(
+pub(crate) fn builtin_test_completion(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

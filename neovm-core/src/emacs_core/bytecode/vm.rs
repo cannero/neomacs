@@ -2903,21 +2903,21 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_current_indentation_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::indent::builtin_current_indentation_eval(
+        crate::emacs_core::indent::builtin_current_indentation(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_indent_to_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::indent::builtin_indent_to_eval(
+        crate::emacs_core::indent::builtin_indent_to(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_current_column_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::indent::builtin_current_column_eval(
+        crate::emacs_core::indent::builtin_current_column(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3202,7 +3202,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_set_buffer_multibyte_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_set_buffer_multibyte_eval(
+        crate::emacs_core::builtins::builtin_set_buffer_multibyte(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3392,7 +3392,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_replace_region_contents_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_replace_region_contents_eval(
+        crate::emacs_core::builtins::builtin_replace_region_contents(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3463,7 +3463,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_undo_boundary_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::undo::builtin_undo_boundary_eval(
+        crate::emacs_core::undo::builtin_undo_boundary(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3512,7 +3512,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_move_to_column_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::indent::builtin_move_to_column_eval(
+        crate::emacs_core::indent::builtin_move_to_column(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -3628,21 +3628,21 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_find_charset_region_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::charset::builtin_find_charset_region_eval(
+        crate::emacs_core::charset::builtin_find_charset_region(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_charset_after_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::charset::builtin_charset_after_eval(
+        crate::emacs_core::charset::builtin_charset_after(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_compose_region_internal_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::composite::builtin_compose_region_internal_eval(
+        crate::emacs_core::composite::builtin_compose_region_internal(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -4113,7 +4113,7 @@ impl<'a> Vm<'a> {
                 }
             });
         }
-        crate::emacs_core::builtins::builtin_assoc(vec![args[0], args[1]])
+        crate::emacs_core::builtins::builtin_assoc_inner(vec![args[0], args[1]])
     }
 
     fn builtin_plist_member_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4167,7 +4167,7 @@ impl<'a> Vm<'a> {
     fn builtin_garbage_collect_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("garbage-collect", args, 0)?;
         self.ctx.gc_collect();
-        crate::emacs_core::builtins_extra::builtin_garbage_collect(vec![])
+        crate::emacs_core::builtins_extra::builtin_garbage_collect_inner(vec![])
     }
 
     fn builtin_kill_emacs_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4272,7 +4272,7 @@ impl<'a> Vm<'a> {
                 },
             );
         }
-        crate::emacs_core::dired::builtin_file_name_completion(
+        crate::emacs_core::dired::builtin_file_name_completion_inner(
             &mut self.ctx,
             args.to_vec(),
         )
@@ -4401,70 +4401,70 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_current_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_current_message_eval(
+        crate::emacs_core::builtins::builtin_current_message(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_current_case_table_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::casetab::builtin_current_case_table_eval(
+        crate::emacs_core::casetab::builtin_current_case_table(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_standard_case_table_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::casetab::builtin_standard_case_table_eval(
+        crate::emacs_core::casetab::builtin_standard_case_table(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_set_case_table_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::casetab::builtin_set_case_table_eval(
+        crate::emacs_core::casetab::builtin_set_case_table(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_set_standard_case_table_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::casetab::builtin_set_standard_case_table_eval(
+        crate::emacs_core::casetab::builtin_set_standard_case_table(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_format_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_format_wrapper_strict_eval(
+        crate::emacs_core::builtins::builtin_format_wrapper_strict(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_format_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_format_message_eval(
+        crate::emacs_core::builtins::builtin_format_message(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_message_eval(
+        crate::emacs_core::builtins::builtin_message(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_box_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_message_box_eval(
+        crate::emacs_core::builtins::builtin_message_box(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_message_or_box_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::builtin_message_or_box_eval(
+        crate::emacs_core::builtins::builtin_message_or_box(
             &mut *self.ctx,
             args.to_vec(),
         )
@@ -4692,7 +4692,7 @@ impl<'a> Vm<'a> {
             return Ok(result);
         }
         let target = crate::emacs_core::builtins::resolve_print_target_in_state(&*self.ctx, args.get(1));
-        let char_code = match crate::emacs_core::builtins::builtin_write_char(args.to_vec())? {
+        let char_code = match crate::emacs_core::builtins::builtin_write_char_inner(args.to_vec())? {
             Value::Int(n) => n,
             _ => unreachable!("write-char returns character"),
         };
@@ -4701,7 +4701,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_redraw_frame_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::dispnew::pure::builtin_redraw_frame(args.to_vec())
+        crate::emacs_core::dispnew::pure::builtin_redraw_frame_inner(args.to_vec())
     }
 
     fn builtin_x_get_resource_shared(&mut self, args: &[Value]) -> EvalResult {

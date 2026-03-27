@@ -241,7 +241,7 @@ fn delete_horizontal_space_at_point(
 /// (current-indentation) -> integer
 ///
 /// Return indentation columns for the current line.
-pub(crate) fn builtin_current_indentation_eval(
+pub(crate) fn builtin_current_indentation(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -269,7 +269,7 @@ pub(crate) fn builtin_current_indentation_eval(
 /// (current-column) -> integer
 ///
 /// Return the display column at point on the current line.
-pub(crate) fn builtin_current_column_eval(
+pub(crate) fn builtin_current_column(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -290,7 +290,7 @@ pub(crate) fn builtin_current_column_eval(
 /// (move-to-column COLUMN &optional FORCE) -> COLUMN-REACHED
 ///
 /// Move point on the current line according to display columns.
-pub(crate) fn builtin_move_to_column_eval(
+pub(crate) fn builtin_move_to_column(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -377,7 +377,7 @@ pub(crate) fn builtin_move_to_column_eval(
 /// (indent-to COLUMN &optional MINIMUM) -> COLUMN
 ///
 /// GNU Emacs `Findent_to` primitive from `src/indent.c`.
-pub(crate) fn builtin_indent_to_eval(
+pub(crate) fn builtin_indent_to(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

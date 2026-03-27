@@ -786,17 +786,17 @@ pub(crate) fn builtin_internal_define_uninitialized_variable(args: Vec<Value>) -
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_internal_labeled_narrow_to_region(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_internal_labeled_narrow_to_region_inner(args: Vec<Value>) -> EvalResult {
     expect_args("internal--labeled-narrow-to-region", &args, 3)?;
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_internal_labeled_widen(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_internal_labeled_widen_inner(args: Vec<Value>) -> EvalResult {
     expect_args("internal--labeled-widen", &args, 1)?;
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_internal_labeled_narrow_to_region_eval(
+pub(crate) fn builtin_internal_labeled_narrow_to_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -820,7 +820,7 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_in_buffers(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_internal_labeled_widen_eval(
+pub(crate) fn builtin_internal_labeled_widen(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -943,7 +943,7 @@ pub(crate) fn builtin_describe_vector(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_frame_face_hash_table(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_frame_face_hash_table_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("frame--face-hash-table", &args, 0, 1)?;
     if let Some(frame) = args.first() {
         if !frame.is_nil() {
@@ -1099,7 +1099,7 @@ pub(crate) fn builtin_frame_window_state_change(args: Vec<Value>) -> EvalResult 
 // --- frame.c missing builtins ---
 
 /// `(frame-id &optional FRAME)` — return frame identifier as integer, or nil.
-pub(crate) fn builtin_frame_id(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_frame_id_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("frame-id", &args, 0, 1)?;
     if let Some(frame) = args.first() {
         match frame {
@@ -1118,7 +1118,7 @@ pub(crate) fn builtin_frame_id(args: Vec<Value>) -> EvalResult {
 }
 
 /// Eval-dependent variant: defaults to selected frame.
-pub(crate) fn builtin_frame_id_eval(
+pub(crate) fn builtin_frame_id(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1139,7 +1139,7 @@ pub(crate) fn builtin_frame_id_eval(
 
 /// `(frame-root-frame &optional FRAME)` — walk parent chain to root frame.
 /// Since `frame-parent` always returns nil in NeoVM, just returns FRAME itself.
-pub(crate) fn builtin_frame_root_frame(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_frame_root_frame_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("frame-root-frame", &args, 0, 1)?;
     if let Some(frame) = args.first() {
         match frame {
@@ -1158,7 +1158,7 @@ pub(crate) fn builtin_frame_root_frame(args: Vec<Value>) -> EvalResult {
 }
 
 /// Eval-dependent variant: defaults to selected frame.
-pub(crate) fn builtin_frame_root_frame_eval(
+pub(crate) fn builtin_frame_root_frame(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

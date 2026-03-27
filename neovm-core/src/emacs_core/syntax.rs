@@ -1336,7 +1336,7 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
 /// This is an evaluator-dependent version that uses the current buffer's
 /// syntax table. For backwards compatibility, also works as a pure function
 /// with standard bracket pairs.
-pub(crate) fn builtin_matching_paren_eval(
+pub(crate) fn builtin_matching_paren(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1399,9 +1399,9 @@ pub(crate) fn builtin_matching_paren_in_buffers(
 }
 
 /// Pure (no-eval) version of `matching-paren` using standard hardcoded pairs.
-/// Kept for unit tests; dispatch uses `builtin_matching_paren_eval` instead.
+/// Kept for unit tests; dispatch uses `builtin_matching_paren` instead.
 #[allow(dead_code)]
-pub(crate) fn builtin_matching_paren(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_matching_paren_inner(args: Vec<Value>) -> EvalResult {
     if args.len() != 1 {
         return Err(signal(
             "wrong-number-of-arguments",

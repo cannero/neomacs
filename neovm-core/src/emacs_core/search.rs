@@ -250,7 +250,7 @@ fn flatten_match_data(md: &super::regex::MatchData) -> Value {
 /// `(string-match REGEXP STRING &optional START)` -- search for REGEXP in
 /// STRING starting at START (default 0).  Returns the index of the match
 /// or nil.  Updates match data.
-pub(crate) fn builtin_string_match(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_string_match_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("string-match", &args, 2, 4)?;
     let pattern = expect_string(&args[0])?;
     let s = expect_string(&args[1])?;
@@ -279,7 +279,7 @@ pub(crate) fn builtin_string_match(args: Vec<Value>) -> EvalResult {
 
 /// `(string-match-p REGEXP STRING &optional START)` -- like `string-match`
 /// but does not modify match data.
-pub(crate) fn builtin_string_match_p(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_string_match_p_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("string-match-p", &args, 2, 3)?;
     let pattern = expect_string(&args[0])?;
     let s = expect_string(&args[1])?;
@@ -365,7 +365,7 @@ pub(crate) fn builtin_match_end(args: Vec<Value>) -> EvalResult {
 
 /// `(match-data &optional INTEGERS REUSE RESEAT)` -- return the match data
 /// as a list.
-pub(crate) fn builtin_match_data(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_match_data_inner(args: Vec<Value>) -> EvalResult {
     if args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -382,7 +382,7 @@ pub(crate) fn builtin_match_data(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(set-match-data LIST &optional RESEAT)` -- set match data from LIST.
-pub(crate) fn builtin_set_match_data(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_match_data_inner(args: Vec<Value>) -> EvalResult {
     expect_min_args("set-match-data", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -498,7 +498,7 @@ pub(crate) fn builtin_looking_at_p(args: Vec<Value>) -> EvalResult {
 /// -- replace all matches of REGEXP in STRING with REP.
 /// REP is a string (with `\&` and `\N` back-references) or, in the pure
 /// variant, only a string.
-pub(crate) fn builtin_replace_regexp_in_string(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_replace_regexp_in_string_inner(args: Vec<Value>) -> EvalResult {
     expect_range_args("replace-regexp-in-string", &args, 3, 7)?;
     // Pure variant: REP must be a string.
     let rep = expect_string(&args[1])?;
@@ -612,7 +612,7 @@ fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Op
     eval.obarray.symbol_value(name).cloned()
 }
 
-pub(crate) fn builtin_replace_regexp_in_string_eval(
+pub(crate) fn builtin_replace_regexp_in_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {

@@ -1897,27 +1897,27 @@ fn special_form_p_false_for_int() {
 #[test]
 fn macrop_true_for_macro() {
     let m = make_macro(vec!["form"]);
-    let result = builtin_macrop(vec![m]).unwrap();
+    let result = builtin_macrop_inner(vec![m]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn macrop_false_for_lambda() {
     let lam = make_lambda(vec!["x"], vec![], None);
-    let result = builtin_macrop(vec![lam]).unwrap();
+    let result = builtin_macrop_inner(vec![lam]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn macrop_false_for_nil() {
-    let result = builtin_macrop(vec![Value::Nil]).unwrap();
+    let result = builtin_macrop_inner(vec![Value::Nil]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn macrop_true_for_macro_cons_marker() {
     let marker = Value::cons(Value::symbol("macro"), Value::Int(1));
-    let result = builtin_macrop(vec![marker]).unwrap();
+    let result = builtin_macrop_inner(vec![marker]).unwrap();
     assert!(result.is_truthy());
 }
 
@@ -1930,7 +1930,7 @@ fn macrop_autoload_macro_returns_macro_marker_list() {
         Value::Nil,
         Value::symbol("macro"),
     ]);
-    let result = builtin_macrop(vec![autoload_macro]).unwrap();
+    let result = builtin_macrop_inner(vec![autoload_macro]).unwrap();
     assert_eq!(
         result,
         Value::list(vec![Value::symbol("macro"), Value::True])
@@ -1946,7 +1946,7 @@ fn macrop_autoload_function_is_nil() {
         Value::True,
         Value::Nil,
     ]);
-    let result = builtin_macrop(vec![autoload_function]).unwrap();
+    let result = builtin_macrop_inner(vec![autoload_function]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -1959,7 +1959,7 @@ fn macrop_autoload_t_marker_returns_single_t_list() {
         Value::Nil,
         Value::True,
     ]);
-    let result = builtin_macrop(vec![autoload_t_marker]).unwrap();
+    let result = builtin_macrop_inner(vec![autoload_t_marker]).unwrap();
     assert_eq!(result, Value::list(vec![Value::True]));
 }
 
