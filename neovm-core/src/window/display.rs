@@ -1,8 +1,21 @@
 use super::{Frame, FrameManager, Window, WindowDisplayState, WindowId};
-use crate::emacs_core::value::Value;
+use crate::emacs_core::value::{Value, next_float_id};
 
 fn symbol_name(value: &Value) -> Option<&str> {
     value.as_symbol_name()
+}
+
+fn frame_line_height(frame: &Frame) -> i64 {
+    frame.char_height.max(1.0).round() as i64
+}
+
+fn canon_y_from_pixel_y(frame: &Frame, y: i64) -> Value {
+    let unit = frame_line_height(frame).max(1);
+    if y % unit != 0 {
+        Value::Float(y as f64 / unit as f64, next_float_id())
+    } else {
+        Value::Int(y / unit)
+    }
 }
 
 fn frame_default_left_fringe_width(frame: &Frame) -> i32 {
@@ -190,6 +203,79 @@ impl FrameManager {
         let frame_id = self.find_window_frame_id(window_id)?;
         let frame = self.get(frame_id)?;
         Some((frame_id, frame.minibuffer_window == Some(window_id)))
+    }
+
+    /// Return WINDOW-ID's Lisp-visible vertical scroll amount.
+    pub fn window_vscroll(&self, window_id: WindowId, pixelwise: bool) -> Option<Value> {
+        let frame_id = self.find_window_frame_id(window_id)?;
+        let frame = self.get(frame_id)?;
+        let Window::Leaf { vscroll, .. } = frame.find_window(window_id)? else {
+            return None;
+        };
+        if frame.effective_window_system().is_none() {
+            return Some(Value::Int(0));
+        }
+        let pixels = -i64::from(*vscroll);
+        Some(if pixelwise {
+            Value::Int(pixels)
+        } else {
+            canon_y_from_pixel_y(frame, pixels)
+        })
+    }
+
+    /// Set WINDOW-ID's vertical scroll amount and return the Lisp-visible value.
+    pub fn set_window_vscroll(
+        &mut self,
+        window_id: WindowId,
+        vscroll: f64,
+        pixelwise: bool,
+        preserve_vscroll_p: bool,
+    ) -> Option<Value> {
+        let frame_id = self.find_window_frame_id(window_id)?;
+        let line_height = self
+            .get(frame_id)
+            .map(frame_line_height)
+            .unwrap_or(1)
+            .max(1);
+        if self
+            .get(frame_id)
+            .is_none_or(|frame| frame.effective_window_system().is_none())
+        {
+            return Some(Value::Int(0));
+        }
+
+        let next_pixels = if pixelwise {
+            vscroll.trunc() as i64
+        } else {
+            (vscroll * line_height as f64).trunc() as i64
+        };
+        let next_raw = std::cmp::min(-next_pixels, 0).clamp(i64::from(i32::MIN), 0) as i32;
+
+        let frame = self.get_mut(frame_id)?;
+        if let Some(Window::Leaf {
+            vscroll,
+            preserve_vscroll_p: preserve,
+            ..
+        }) = frame.find_window_mut(window_id)
+        {
+            *vscroll = next_raw;
+            *preserve = preserve_vscroll_p;
+            frame.display_snapshots.remove(&window_id);
+        }
+
+        let frame = self.get(frame_id)?;
+        if frame.effective_window_system().is_none() {
+            return Some(Value::Int(0));
+        }
+        let Window::Leaf { vscroll, .. } = frame.find_window(window_id)? else {
+            return None;
+        };
+        let pixels = -i64::from(*vscroll);
+        Some(if pixelwise {
+            Value::Int(pixels)
+        } else {
+            canon_y_from_pixel_y(frame, pixels)
+        })
     }
 
     /// Return window display table object for WINDOW-ID, or nil when unset.

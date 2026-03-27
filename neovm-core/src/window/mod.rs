@@ -186,6 +186,13 @@ pub enum Window {
         fixed_width: usize,
         /// Horizontal scroll offset (columns).
         hscroll: usize,
+        /// Raw GNU `w->vscroll` value in pixels: zero or negative.
+        ///
+        /// Lisp-visible `window-vscroll` reports `-vscroll`, either in pixels
+        /// or in canonical line units depending on the call site.
+        vscroll: i32,
+        /// Mirrors GNU `w->preserve_vscroll_p`.
+        preserve_vscroll_p: bool,
         /// Window margins (left, right) in columns.
         margins: (usize, usize),
         /// Window-local display settings mirrored from GNU `struct window`.
@@ -225,6 +232,8 @@ impl Window {
             fixed_height: 0,
             fixed_width: 0,
             hscroll: 0,
+            vscroll: 0,
+            preserve_vscroll_p: false,
             margins: (0, 0),
             display: WindowDisplayState::default(),
         }
@@ -1349,6 +1358,8 @@ fn split_window_in_tree(
                 window_end_vpos,
                 window_end_valid,
                 point,
+                vscroll,
+                preserve_vscroll_p,
                 ..
             } = &mut new_leaf
             {
@@ -1363,6 +1374,8 @@ fn split_window_in_tree(
                 *window_end_vpos = 0;
                 *window_end_valid = false;
                 *point = 1;
+                *vscroll = 0;
+                *preserve_vscroll_p = false;
             }
 
             *tree = Window::Internal {
@@ -1934,6 +1947,52 @@ mod tests {
         assert_eq!(new_display.horizontal_scroll_bar_type, Value::Nil);
         assert!(original_display.scroll_bars_persistent);
         assert!(new_display.scroll_bars_persistent);
+    }
+
+    #[test]
+    fn split_window_resets_new_leaf_vscroll_state() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let original_wid = mgr.get(fid).unwrap().window_list()[0];
+
+        if let Some(Window::Leaf {
+            vscroll,
+            preserve_vscroll_p,
+            ..
+        }) = mgr
+            .get_mut(fid)
+            .and_then(|frame| frame.find_window_mut(original_wid))
+        {
+            *vscroll = -19;
+            *preserve_vscroll_p = true;
+        }
+
+        let new_wid = mgr
+            .split_window(fid, original_wid, SplitDirection::Horizontal, BufferId(2))
+            .expect("split");
+
+        let frame = mgr.get(fid).unwrap();
+        let Window::Leaf {
+            vscroll: original_vscroll,
+            preserve_vscroll_p: original_preserve,
+            ..
+        } = frame.find_window(original_wid).unwrap()
+        else {
+            panic!("expected original leaf");
+        };
+        let Window::Leaf {
+            vscroll: new_vscroll,
+            preserve_vscroll_p: new_preserve,
+            ..
+        } = frame.find_window(new_wid).unwrap()
+        else {
+            panic!("expected new leaf");
+        };
+
+        assert_eq!(*original_vscroll, -19);
+        assert!(*original_preserve);
+        assert_eq!(*new_vscroll, 0);
+        assert!(!*new_preserve);
     }
 
     #[test]

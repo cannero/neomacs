@@ -3015,7 +3015,10 @@ fn lookup_minor_mode_binding_in_alist_in_state(
         } else if map_value.as_symbol_name().is_some() {
             // Note: symbol_value still uses name (value cells aren't affected
             // by the interned/uninterned distinction the same way).
-            match map_value.as_symbol_name().and_then(|n| obarray.symbol_value(n).copied()) {
+            match map_value
+                .as_symbol_name()
+                .and_then(|n| obarray.symbol_value(n).copied())
+            {
                 Some(v) if is_list_keymap(&v) => v,
                 _ => match obarray.symbol_function_of_value(&map_value).copied() {
                     Some(v) if is_list_keymap(&v) => v,

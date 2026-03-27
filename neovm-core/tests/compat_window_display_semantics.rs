@@ -40,6 +40,23 @@ fn compat_gui_window_scroll_bars_round_trip() {
 }
 
 #[test]
+fn compat_gui_window_vscroll_round_trip() {
+    let actual = run_neovm_gui_eval(
+        "(let ((w (selected-window)))
+           (list (window-vscroll w)
+                 (set-window-vscroll w 3)
+                 (window-vscroll w)
+                 (set-window-vscroll w 25 t)
+                 (window-vscroll w t)
+                 (set-window-vscroll w 1.5)
+                 (window-vscroll w)
+                 (set-window-vscroll w -4)
+                 (window-vscroll w)))",
+    );
+    assert_eq!(actual, "OK (0 3 3 25 25 1.5 1.5 0 0)");
+}
+
+#[test]
 fn compat_gui_window_body_geometry_excludes_scroll_bar_area() {
     let actual = run_neovm_gui_eval(
         "(let ((w (selected-window)))
@@ -48,6 +65,34 @@ fn compat_gui_window_body_geometry_excludes_scroll_bar_area() {
                  (window-text-width w t)))",
     );
     assert_eq!(actual, "OK (771 771)");
+}
+
+#[test]
+fn compat_gui_set_window_buffer_resets_vscroll_except_same_buffer_keep_margins() {
+    let actual = run_neovm_gui_eval(
+        "(let* ((w (selected-window))
+                (b1 (get-buffer-create \" *gui-vscroll-a*\"))
+                (b2 (get-buffer-create \" *gui-vscroll-b*\")))
+           (unwind-protect
+               (progn
+                 (set-window-buffer w b1)
+                 (set-window-vscroll w 25 t t)
+                 (list
+                  (window-vscroll w t)
+                  (progn
+                    (set-window-buffer w b1 t)
+                    (window-vscroll w t))
+                  (progn
+                    (set-window-buffer w b2)
+                    (window-vscroll w t))
+                  (progn
+                    (set-window-vscroll w 33 t t)
+                    (set-window-buffer w b2 t)
+                    (window-vscroll w t))))
+             (kill-buffer b1)
+             (kill-buffer b2)))",
+    );
+    assert_eq!(actual, "OK (25 25 0 33)");
 }
 
 #[test]

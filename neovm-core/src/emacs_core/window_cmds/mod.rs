@@ -2208,10 +2208,10 @@ pub(crate) fn builtin_scroll_right(
     }
     Ok(Value::Int(next))
 }
-/// `(window-vscroll &optional WINDOW PIXELWISE)` -> integer.
+/// `(window-vscroll &optional WINDOW PIXELWISE)` -> number.
 ///
-/// Batch-mode GNU Emacs reports zero vertical scroll, including for minibuffer
-/// windows; `PIXELWISE` is accepted but ignored.
+/// GNU stores vertical scroll on each window in pixels. Batch-mode windows
+/// report zero; GUI windows report either pixels or canonical line units.
 pub(crate) fn builtin_window_vscroll(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -2219,15 +2219,14 @@ pub(crate) fn builtin_window_vscroll(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-vscroll", &args, 2)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (_fid, _wid) =
+    let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Int(0))
+    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    Ok(frames
+        .window_vscroll(wid, pixelwise)
+        .unwrap_or(Value::Int(0)))
 }
-/// `(set-window-vscroll WINDOW VSCROLL &optional PIXELWISE PRESERVE)` -> integer.
-///
-/// We currently model batch semantics where visible vertical scrolling remains
-/// zero; argument validation follows GNU Emacs (`WINDOW` live predicate and
-/// `VSCROLL` as `numberp`).
+/// `(set-window-vscroll WINDOW VSCROLL &optional PIXELWISE PRESERVE)` -> number.
 pub(crate) fn builtin_set_window_vscroll(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -2235,15 +2234,14 @@ pub(crate) fn builtin_set_window_vscroll(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("set-window-vscroll", &args, 2)?;
     expect_max_args("set-window-vscroll", &args, 4)?;
-    let (_fid, _wid) =
+    let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    match &args[1] {
-        Value::Int(_) | Value::Float(_, _) | Value::Char(_) => Ok(Value::Int(0)),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
-        )),
-    }
+    let next_vscroll = expect_number(&args[1])?;
+    let pixelwise = args.get(2).is_some_and(Value::is_truthy);
+    let preserve = args.get(3).is_some_and(Value::is_truthy);
+    Ok(frames
+        .set_window_vscroll(wid, next_vscroll, pixelwise, preserve)
+        .unwrap_or(Value::Int(0)))
 }
 /// `(set-window-margins WINDOW LEFT-WIDTH &optional RIGHT-WIDTH)` -> changed-p.
 pub(crate) fn builtin_set_window_margins(
@@ -3799,6 +3797,8 @@ pub(crate) fn builtin_set_window_buffer(
         window_start,
         point,
         hscroll,
+        vscroll,
+        preserve_vscroll_p,
         margins,
         ..
     }) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid))
@@ -3808,6 +3808,8 @@ pub(crate) fn builtin_set_window_buffer(
         *point = next_point.max(1);
         if !(same_buffer && keep_margins) {
             *hscroll = 0;
+            *vscroll = 0;
+            *preserve_vscroll_p = false;
         }
         if let Some(next_margins) = next_margins {
             *margins = next_margins;
