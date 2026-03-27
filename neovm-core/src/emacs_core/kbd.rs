@@ -33,11 +33,13 @@ struct Modifiers {
     meta: bool,
     shift: bool,
     super_: bool,
+    hyper: bool,
+    alt: bool,
 }
 
 impl Modifiers {
     fn any(self) -> bool {
-        self.ctrl || self.meta || self.shift || self.super_
+        self.ctrl || self.meta || self.shift || self.super_ || self.hyper || self.alt
     }
 }
 
@@ -114,6 +116,8 @@ pub(crate) fn key_events_from_designator(
                                 meta: true,
                                 shift: false,
                                 super_: false,
+                                hyper: false,
+                                alt: false,
                             }
                         } else {
                             let base = char::from_u32(byte as u32).unwrap_or(ch);
@@ -123,6 +127,8 @@ pub(crate) fn key_events_from_designator(
                                 meta: false,
                                 shift: false,
                                 super_: false,
+                                hyper: false,
+                                alt: false,
                             }
                         }
                     } else if (0x80..=0xFF).contains(&code_u32) {
@@ -134,6 +140,8 @@ pub(crate) fn key_events_from_designator(
                             meta: true,
                             shift: false,
                             super_: false,
+                            hyper: false,
+                            alt: false,
                         }
                     } else {
                         KeyEvent::Char {
@@ -142,6 +150,8 @@ pub(crate) fn key_events_from_designator(
                             meta: false,
                             shift: false,
                             super_: false,
+                            hyper: false,
+                            alt: false,
                         }
                     }
                 })
@@ -178,6 +188,8 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                                 meta: true,
                                 shift: false,
                                 super_: false,
+                                hyper: false,
+                                alt: false,
                             }
                         } else {
                             let base_char = char::from_u32(byte as u32).unwrap_or(ch);
@@ -187,6 +199,8 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                                 meta: false,
                                 shift: false,
                                 super_: false,
+                                hyper: false,
+                                alt: false,
                             }
                         }
                     } else if (0x80..=0xFF).contains(&code_u32) {
@@ -199,6 +213,8 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                             meta: true,
                             shift: false,
                             super_: false,
+                            hyper: false,
+                            alt: false,
                         }
                     } else {
                         KeyEvent::Char {
@@ -207,6 +223,8 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                             meta: false,
                             shift: false,
                             super_: false,
+                            hyper: false,
+                            alt: false,
                         }
                     }
                 })
@@ -232,6 +250,8 @@ fn decode_vector_event(item: &Value) -> Result<KeyEvent, String> {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }),
         Value::Symbol(id) => decode_symbol_event(resolve_sym(*id)),
         Value::Nil => decode_symbol_event("nil"),
@@ -266,10 +286,8 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                             "meta" => mods.meta = true,
                             "shift" => mods.shift = true,
                             "super" => mods.super_ = true,
-                            "hyper" | "alt" => {
-                                // Hyper/alt mapped to super for simplicity
-                                mods.super_ = true;
-                            }
+                            "hyper" => mods.hyper = true,
+                            "alt" => mods.alt = true,
                             _ => {
                                 // Not a modifier — this symbol IS the base event
                                 // and cdr should be nil
@@ -296,6 +314,8 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                             meta: mods.meta,
                             shift: mods.shift,
                             super_: mods.super_,
+                            hyper: mods.hyper,
+                            alt: mods.alt,
                         });
                     }
                     other => {
@@ -321,6 +341,8 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                     meta: mods.meta,
                     shift: mods.shift,
                     super_: mods.super_,
+                    hyper: mods.hyper,
+                    alt: mods.alt,
                 });
             }
             Value::Symbol(id) => {
@@ -348,12 +370,16 @@ fn apply_mods_to_event(event: KeyEvent, mods: Modifiers) -> KeyEvent {
             meta,
             shift,
             super_,
+            hyper,
+            alt,
         } => KeyEvent::Char {
             code,
             ctrl: ctrl || mods.ctrl,
             meta: meta || mods.meta,
             shift: shift || mods.shift,
             super_: super_ || mods.super_,
+            hyper: hyper || mods.hyper,
+            alt: alt || mods.alt,
         },
         KeyEvent::Function {
             name,
@@ -361,12 +387,16 @@ fn apply_mods_to_event(event: KeyEvent, mods: Modifiers) -> KeyEvent {
             meta,
             shift,
             super_,
+            hyper,
+            alt,
         } => KeyEvent::Function {
             name,
             ctrl: ctrl || mods.ctrl,
             meta: meta || mods.meta,
             shift: shift || mods.shift,
             super_: super_ || mods.super_,
+            hyper: hyper || mods.hyper,
+            alt: alt || mods.alt,
         },
     }
 }
@@ -385,6 +415,8 @@ fn decode_int_event(code: i64) -> Result<KeyEvent, String> {
         meta: (mods & CHAR_META) != 0,
         shift: (mods & CHAR_SHIFT) != 0,
         super_: (mods & CHAR_SUPER) != 0,
+        hyper: (mods & CHAR_HYPER) != 0,
+        alt: (mods & CHAR_ALT) != 0,
     })
 }
 
@@ -399,6 +431,8 @@ fn decode_symbol_event(symbol: &str) -> Result<KeyEvent, String> {
         meta: mods.meta,
         shift: mods.shift,
         super_: mods.super_,
+        hyper: mods.hyper,
+        alt: mods.alt,
     })
 }
 
@@ -471,6 +505,24 @@ fn parse_modifiers(mut token: &str) -> (Modifiers, String, &str) {
             token = rest;
             continue;
         }
+        if let Some(rest) = token.strip_prefix("H-") {
+            if rest.is_empty() {
+                break;
+            }
+            mods.hyper = true;
+            prefix.push_str("H-");
+            token = rest;
+            continue;
+        }
+        if let Some(rest) = token.strip_prefix("A-") {
+            if rest.is_empty() {
+                break;
+            }
+            mods.alt = true;
+            prefix.push_str("A-");
+            token = rest;
+            continue;
+        }
         break;
     }
 
@@ -518,7 +570,7 @@ fn encode_char(ch: char, mods: Modifiers, allow_ctrl_resolution: bool) -> Encode
         }
     }
 
-    if !mods.meta && !mods.shift && !mods.super_ && !ctrl {
+    if !mods.meta && !mods.shift && !mods.super_ && !mods.hyper && !mods.alt && !ctrl {
         if let Some(resolved) = char::from_u32(base as u32) {
             return EncodedEvent::Char(resolved);
         }
@@ -537,6 +589,12 @@ fn encode_char(ch: char, mods: Modifiers, allow_ctrl_resolution: bool) -> Encode
     }
     if mods.super_ {
         code |= CHAR_SUPER;
+    }
+    if mods.hyper {
+        code |= CHAR_HYPER;
+    }
+    if mods.alt {
+        code |= CHAR_ALT;
     }
     EncodedEvent::Int(code)
 }

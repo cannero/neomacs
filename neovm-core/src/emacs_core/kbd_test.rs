@@ -157,6 +157,8 @@ fn key_events_from_designator_accepts_kbd_string_and_vector() {
             meta: true,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }]
     );
 
@@ -180,6 +182,8 @@ fn key_events_from_designator_decodes_symbol_events() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }]
     );
 }
@@ -201,6 +205,8 @@ fn key_events_from_designator_decodes_event_modifier_list() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }]
     );
 
@@ -220,6 +226,8 @@ fn key_events_from_designator_decodes_event_modifier_list() {
             meta: true,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }]
     );
 }

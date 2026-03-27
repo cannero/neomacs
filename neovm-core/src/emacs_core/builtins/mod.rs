@@ -1030,6 +1030,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("copy-keymap", builtin_copy_keymap, 0, None);
     ctx.defsubr("define-key", builtin_define_key, 0, None);
     ctx.defsubr("lookup-key", builtin_lookup_key, 0, None);
+    ctx.defsubr("global-set-key", builtin_global_set_key, 0, None);
+    ctx.defsubr("local-set-key", builtin_local_set_key, 0, None);
     ctx.defsubr("use-local-map", builtin_use_local_map, 0, None);
     ctx.defsubr("use-global-map", builtin_use_global_map, 0, None);
     ctx.defsubr("current-local-map", builtin_current_local_map, 0, None);

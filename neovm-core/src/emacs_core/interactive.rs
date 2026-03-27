@@ -3332,6 +3332,8 @@ fn is_plain_printable_char_event(event: &KeyEvent) -> bool {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         } if !code.is_control() && *code != '\u{7f}'
     )
 }

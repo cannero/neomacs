@@ -7,8 +7,8 @@ use crate::emacs_core::symbol::Obarray;
 use super::keymap::{
     KeyEvent, expand_meta_prefix_char_events_in_obarray, is_list_keymap, key_event_to_emacs_event,
     list_keymap_accessible, list_keymap_copy, list_keymap_define_seq_in_obarray,
-    list_keymap_lookup_one, list_keymap_parent, list_keymap_set_parent, make_list_keymap,
-    make_sparse_list_keymap,
+    list_keymap_define_seq_in_obarray_ex, list_keymap_lookup_one, list_keymap_lookup_one_t_ok,
+    list_keymap_parent, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
 };
 
 /// Validate that a value is a keymap, returning it if so.
@@ -259,18 +259,21 @@ pub(super) fn builtin_define_key(eval: &mut super::eval::Context, args: Vec<Valu
     let keymap = expect_keymap(eval, &args[0])?;
     let mut events = expect_key_events(&args[1])?;
     let def = args[2];
+    let remove = args.get(3).is_some_and(Value::is_truthy);
     // Expand meta-prefixed events to ESC + base, matching GNU Emacs
     // Fdefine_key's metized handling.
     if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(eval.obarray(), &events) {
         events = expanded;
     }
-    if let Err(msg) = list_keymap_define_seq_in_obarray(eval.obarray(), keymap, &events, def) {
+    if let Err(msg) =
+        list_keymap_define_seq_in_obarray_ex(eval.obarray(), keymap, &events, def, remove)
+    {
         return Err(signal("error", vec![Value::string(msg)]));
     }
     Ok(def)
 }
 
-/// (lookup-key KEYMAP KEY) -> binding or nil
+/// (lookup-key KEYMAP KEY &optional ACCEPT-DEFAULTS) -> binding or nil
 pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_lookup_key_impl(eval.obarray(), &args)
 }
@@ -278,37 +281,106 @@ pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Valu
 pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_min_args("lookup-key", &args, 2)?;
     expect_max_args("lookup-key", &args, 3)?;
-    // Optional 3rd arg ACCEPT-DEFAULTS is accepted but ignored.
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    // 3rd arg ACCEPT-DEFAULTS: when non-nil, accept (t . COMMAND) default bindings.
+    // GNU keymap.c:1248: bool t_ok = !NILP (accept_default);
+    let t_ok = args.get(2).is_some_and(Value::is_truthy);
+
     let events = expect_key_events(&args[1])?;
 
+    // KEYMAP can also be a list of keymaps (gap #8).
+    // GNU keymap.c:1304: "KEYMAP can also be a list of keymaps."
+    // Check if first arg is a list of keymaps (a cons whose car is itself a keymap).
+    let keymaps: Vec<Value> = if is_list_keymap(&args[0]) {
+        vec![args[0]]
+    } else if let Some(sym_name) = args[0].as_symbol_name() {
+        // Symbol whose function cell is a keymap
+        if let Some(func) = obarray.symbol_function(sym_name).copied() {
+            if is_list_keymap(&func) {
+                vec![func]
+            } else {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("keymapp"), args[0]],
+                ));
+            }
+        } else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("keymapp"), args[0]],
+            ));
+        }
+    } else if let Value::Cons(_) = args[0] {
+        // Could be a list of keymaps
+        if let Some(items) = list_to_vec(&args[0]) {
+            if !items.is_empty() && items.iter().all(|v| {
+                is_list_keymap(v) || v.as_symbol_name().is_some_and(|n| {
+                    obarray.symbol_function(n).is_some_and(|f| is_list_keymap(f))
+                })
+            }) {
+                // It's a list of keymaps — resolve each one
+                items.iter().map(|v| {
+                    if is_list_keymap(v) {
+                        *v
+                    } else if let Some(sym_name) = v.as_symbol_name() {
+                        obarray.symbol_function(sym_name).copied().unwrap_or(*v)
+                    } else {
+                        *v
+                    }
+                }).collect()
+            } else {
+                // Not a list of keymaps — try as a single keymap
+                vec![expect_keymap_in_obarray(obarray, &args[0])?]
+            }
+        } else {
+            vec![expect_keymap_in_obarray(obarray, &args[0])?]
+        }
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("keymapp"), args[0]],
+        ));
+    };
+
     if events.is_empty() {
-        return Ok(keymap);
+        return Ok(keymaps.first().copied().unwrap_or(Value::Nil));
     }
 
-    let direct = lookup_key_in_obarray(obarray, &keymap, &events);
-    if direct.is_nil() || matches!(direct, Value::Int(_)) {
+    // Try each keymap, returning the first non-nil/non-number result
+    let mut best = Value::Nil;
+    for keymap in &keymaps {
+        let direct = lookup_key_in_obarray(obarray, keymap, &events, t_ok);
+        if !direct.is_nil() && !matches!(direct, Value::Int(_)) {
+            return Ok(direct);
+        }
+        // Also try meta-expanded form
         if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(obarray, &events) {
-            let expanded_result = lookup_key_in_obarray(obarray, &keymap, &expanded);
-            // Only use the expanded result if it found an actual binding
-            // (not nil and not a "too long" integer).
+            let expanded_result = lookup_key_in_obarray(obarray, keymap, &expanded, t_ok);
             if !expanded_result.is_nil() && !matches!(expanded_result, Value::Int(_)) {
                 return Ok(expanded_result);
             }
         }
+        // Track the "best" result (prefer the first direct result)
+        if best.is_nil() {
+            best = direct;
+        }
     }
 
-    Ok(direct)
+    Ok(best)
 }
 
-fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value]) -> Value {
+fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value], t_ok: bool) -> Value {
     if events.is_empty() {
         return *keymap;
     }
 
     let mut current_map = *keymap;
     for (i, event) in events.iter().enumerate() {
-        let binding = list_keymap_lookup_one(&current_map, event);
+        // GNU keymap.c lookup_key_1:1276: access_keymap(keymap, c, t_ok, 0, 1)
+        let binding = if t_ok {
+            list_keymap_lookup_one_t_ok(&current_map, event)
+        } else {
+            list_keymap_lookup_one(&current_map, event)
+        };
         let is_last = i == events.len() - 1;
 
         // For the last key in the sequence, return the binding directly

@@ -14,6 +14,8 @@ fn parse_plain_char() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -30,6 +32,8 @@ fn parse_ctrl_x() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -46,6 +50,8 @@ fn parse_meta_x() {
             meta: true,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -72,6 +78,8 @@ fn parse_ctrl_x_ctrl_f_sequence() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -88,6 +96,8 @@ fn parse_ret() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -104,6 +114,8 @@ fn parse_tab() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -120,6 +132,8 @@ fn parse_esc_as_literal_escape_char() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -136,6 +150,8 @@ fn parse_spc() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -152,6 +168,8 @@ fn parse_combined_modifiers() {
             meta: true,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -168,6 +186,8 @@ fn parse_function_key() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -184,6 +204,8 @@ fn parse_ctrl_function_key() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -274,6 +296,8 @@ fn format_key_event_renders_gnu_control_char_names() {
             meta: true,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }),
         "M-RET"
     );
@@ -284,6 +308,8 @@ fn format_key_event_renders_gnu_control_char_names() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }),
         "TAB"
     );
@@ -294,6 +320,8 @@ fn format_key_event_renders_gnu_control_char_names() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }),
         "DEL"
     );
@@ -331,6 +359,8 @@ fn parse_modifier_with_named_key() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
 }
@@ -486,6 +516,8 @@ fn list_keymap_event_conversion_roundtrip() {
         meta: false,
         shift: false,
         super_: false,
+        hyper: false,
+        alt: false,
     };
     let emacs_event = key_event_to_emacs_event(&key);
     let roundtrip = emacs_event_to_key_event(&emacs_event).unwrap();

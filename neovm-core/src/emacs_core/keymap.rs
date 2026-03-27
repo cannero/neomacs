@@ -11,8 +11,8 @@ use super::chartable::{
 };
 use super::intern::resolve_sym;
 use super::keyboard::pure::{
-    KEY_CHAR_CODE_MASK, KEY_CHAR_CTRL, KEY_CHAR_META, KEY_CHAR_MOD_MASK, KEY_CHAR_SHIFT,
-    KEY_CHAR_SUPER,
+    KEY_CHAR_ALT, KEY_CHAR_CODE_MASK, KEY_CHAR_CTRL, KEY_CHAR_HYPER, KEY_CHAR_META,
+    KEY_CHAR_MOD_MASK, KEY_CHAR_SHIFT, KEY_CHAR_SUPER,
 };
 use super::symbol::Obarray;
 use super::value::{Value, read_cons, with_heap, with_heap_mut};
@@ -31,6 +31,8 @@ pub enum KeyEvent {
         meta: bool,
         shift: bool,
         super_: bool,
+        hyper: bool,
+        alt: bool,
     },
     /// A named function/special key (e.g. "return", "backspace", "f1").
     Function {
@@ -39,6 +41,8 @@ pub enum KeyEvent {
         meta: bool,
         shift: bool,
         super_: bool,
+        hyper: bool,
+        alt: bool,
     },
 }
 
@@ -56,6 +60,8 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                 meta: ke.modifiers.meta,
                 shift: ke.modifiers.shift,
                 super_: ke.modifiers.super_,
+                hyper: false,
+                alt: false,
             },
             Key::Named(named) => {
                 if matches!(named, NamedKey::Escape) {
@@ -65,6 +71,8 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                         meta: ke.modifiers.meta,
                         shift: false,
                         super_: ke.modifiers.super_,
+                        hyper: false,
+                        alt: false,
                     };
                 }
                 let name = match named {
@@ -91,6 +99,8 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                             meta: ke.modifiers.meta,
                             shift: ke.modifiers.shift,
                             super_: ke.modifiers.super_,
+                            hyper: false,
+                            alt: false,
                         };
                     }
                 };
@@ -100,6 +110,8 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                     meta: ke.modifiers.meta,
                     shift: ke.modifiers.shift,
                     super_: ke.modifiers.super_,
+                    hyper: false,
+                    alt: false,
                 }
             }
         }
@@ -141,10 +153,12 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
     let mut meta = false;
     let mut shift = false;
     let mut super_ = false;
+    let mut hyper = false;
+    let mut alt = false;
 
     let mut remainder = token;
 
-    // Parse modifier prefixes: "C-", "M-", "S-", "s-"
+    // Parse modifier prefixes: "C-", "M-", "S-", "s-", "H-", "A-"
     loop {
         if let Some(rest) = remainder.strip_prefix("C-") {
             ctrl = true;
@@ -160,6 +174,14 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
             let rest = &remainder[2..];
             super_ = true;
             remainder = rest;
+        } else if remainder.starts_with("H-") && remainder.len() > 2 {
+            let rest = &remainder[2..];
+            hyper = true;
+            remainder = rest;
+        } else if remainder.starts_with("A-") && remainder.len() > 2 {
+            let rest = &remainder[2..];
+            alt = true;
+            remainder = rest;
         } else {
             break;
         }
@@ -169,28 +191,31 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
         return Err(format!("incomplete key description: {}", token));
     }
 
+    // Helper to build a Function event with current modifiers
+    let mk_func = |name: &str| -> KeyEvent {
+        KeyEvent::Function {
+            name: name.to_string(),
+            ctrl,
+            meta,
+            shift,
+            super_,
+            hyper,
+            alt,
+        }
+    };
+
     // Check for named special keys
     match remainder {
-        "RET" | "return" => Ok(KeyEvent::Function {
-            name: "return".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "TAB" | "tab" => Ok(KeyEvent::Function {
-            name: "tab".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
+        "RET" | "return" => Ok(mk_func("return")),
+        "TAB" | "tab" => Ok(mk_func("tab")),
         "SPC" | "space" => Ok(KeyEvent::Char {
             code: ' ',
             ctrl,
             meta,
             shift,
             super_,
+            hyper,
+            alt,
         }),
         "ESC" | "escape" => Ok(KeyEvent::Char {
             code: '\u{1b}',
@@ -198,96 +223,26 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
             meta,
             shift,
             super_,
+            hyper,
+            alt,
         }),
-        "DEL" | "delete" => Ok(KeyEvent::Function {
-            name: "delete".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "BS" | "backspace" => Ok(KeyEvent::Function {
-            name: "backspace".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "up" => Ok(KeyEvent::Function {
-            name: "up".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "down" => Ok(KeyEvent::Function {
-            name: "down".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "left" => Ok(KeyEvent::Function {
-            name: "left".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "right" => Ok(KeyEvent::Function {
-            name: "right".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "home" => Ok(KeyEvent::Function {
-            name: "home".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "end" => Ok(KeyEvent::Function {
-            name: "end".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "prior" | "page-up" => Ok(KeyEvent::Function {
-            name: "prior".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "next" | "page-down" => Ok(KeyEvent::Function {
-            name: "next".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
-        "insert" => Ok(KeyEvent::Function {
-            name: "insert".to_string(),
-            ctrl,
-            meta,
-            shift,
-            super_,
-        }),
+        "DEL" | "delete" => Ok(mk_func("delete")),
+        "BS" | "backspace" => Ok(mk_func("backspace")),
+        "up" => Ok(mk_func("up")),
+        "down" => Ok(mk_func("down")),
+        "left" => Ok(mk_func("left")),
+        "right" => Ok(mk_func("right")),
+        "home" => Ok(mk_func("home")),
+        "end" => Ok(mk_func("end")),
+        "prior" | "page-up" => Ok(mk_func("prior")),
+        "next" | "page-down" => Ok(mk_func("next")),
+        "insert" => Ok(mk_func("insert")),
         other => {
             // Check for function keys: f1 .. f20
             if let Some(stripped) = other.strip_prefix('f') {
                 if let Ok(n) = stripped.parse::<u32>() {
                     if (1..=20).contains(&n) {
-                        return Ok(KeyEvent::Function {
-                            name: format!("f{}", n),
-                            ctrl,
-                            meta,
-                            shift,
-                            super_,
-                        });
+                        return Ok(mk_func(&format!("f{}", n)));
                     }
                 }
             }
@@ -306,6 +261,8 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
                 meta,
                 shift,
                 super_,
+                hyper,
+                alt,
             })
         }
     }
@@ -314,24 +271,34 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
 /// Format a key event back to a human-readable description string.
 pub fn format_key_event(event: &KeyEvent) -> String {
     let mut parts = String::new();
-    let (ctrl, meta, shift, super_) = match event {
+    let (ctrl, meta, shift, super_, hyper, alt) = match event {
         KeyEvent::Char {
             ctrl,
             meta,
             shift,
             super_,
+            hyper,
+            alt,
             ..
-        } => (*ctrl, *meta, *shift, *super_),
+        } => (*ctrl, *meta, *shift, *super_, *hyper, *alt),
         KeyEvent::Function {
             ctrl,
             meta,
             shift,
             super_,
+            hyper,
+            alt,
             ..
-        } => (*ctrl, *meta, *shift, *super_),
+        } => (*ctrl, *meta, *shift, *super_, *hyper, *alt),
     };
+    if alt {
+        parts.push_str("A-");
+    }
     if ctrl {
         parts.push_str("C-");
+    }
+    if hyper {
+        parts.push_str("H-");
     }
     if meta {
         parts.push_str("M-");
@@ -462,14 +429,22 @@ fn get_keyelt(binding: Value) -> Value {
 
 /// Look up a single event in a keymap, following the parent chain.
 ///
-/// This mirrors GNU Emacs `access_keymap` with `noinherit=false`.
+/// This mirrors GNU Emacs `access_keymap` with `noinherit=false, t_ok=false`.
 /// When a prefix keymap is found, it is composed with parent prefix
 /// keymaps to create a merged keymap that includes all bindings from
 /// the entire inheritance chain.
 ///
 /// Returns the binding or `Value::Nil` if not found.
 pub fn list_keymap_lookup_one(keymap: &Value, event: &Value) -> Value {
-    list_keymap_access(keymap, event, false)
+    list_keymap_access(keymap, event, false, false)
+}
+
+/// Look up a single event in a keymap, following the parent chain,
+/// accepting `(t . COMMAND)` default bindings.
+///
+/// This mirrors GNU Emacs `access_keymap` with `noinherit=false, t_ok=true`.
+pub fn list_keymap_lookup_one_t_ok(keymap: &Value, event: &Value) -> Value {
+    list_keymap_access(keymap, event, false, true)
 }
 
 /// Look up a single event in a keymap without following the parent chain.
@@ -477,7 +452,7 @@ pub fn list_keymap_lookup_one(keymap: &Value, event: &Value) -> Value {
 /// This mirrors GNU Emacs `access_keymap` with `noinherit=true`.
 /// Used by `define-key` to only check the current keymap level.
 pub fn list_keymap_lookup_one_noinherit(keymap: &Value, event: &Value) -> Value {
-    list_keymap_access(keymap, event, true)
+    list_keymap_access(keymap, event, true, false)
 }
 
 /// Look up a single event in one level of a keymap (no parent following).
@@ -486,7 +461,10 @@ pub fn list_keymap_lookup_one_noinherit(keymap: &Value, event: &Value) -> Value 
 /// Returns `Some(binding)` if found (even if binding is nil), or
 /// `None` if not found. This distinction is critical: an explicit
 /// nil binding shadows parent bindings, while "not found" falls through.
-fn lookup_in_keymap_level(keymap: &Value, event: &Value) -> Option<Value> {
+///
+/// When `t_ok` is true, a `(t . COMMAND)` entry is accepted as a
+/// default binding, matching GNU `access_keymap_1`'s `t_ok` parameter.
+fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<Value> {
     let Value::Cons(cell) = keymap else {
         return None;
     };
@@ -497,17 +475,20 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value) -> Option<Value> {
 
     let mut cursor = pair.cdr;
     let mut entries = 0;
+    let mut t_binding: Option<Value> = None;
     while let Value::Cons(entry_cell) = cursor {
         if is_list_keymap(&cursor) {
             break; // parent boundary
         }
         entries += 1;
         if entries > 100_000 {
-            return None;
+            break;
         }
         let entry = read_cons(entry_cell);
 
-        // Char-table: only look up characters WITHOUT modifier bits
+        // Char-table: only look up characters WITHOUT modifier bits.
+        // GNU keymap.c:441-450: nil in char-table means unbound;
+        // Qt means explicitly nil binding.
         if is_char_table(&entry.car) {
             if let Value::Int(code) = event {
                 if (*code & KEY_CHAR_MOD_MASK) == 0 {
@@ -516,10 +497,35 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value) -> Option<Value> {
                         let result =
                             builtin_char_table_range(vec![entry.car, *event]).unwrap_or(Value::Nil);
                         if !result.is_nil() {
-                            return Some(get_keyelt(result));
+                            // Qt in char-table means explicitly nil binding
+                            // (shadows parent), matching GNU keymap.c:455-459
+                            let val = if result == Value::True {
+                                Value::Nil
+                            } else {
+                                result
+                            };
+                            return Some(get_keyelt(val));
                         }
-                        // nil in char-table means unbound (char-tables use Qt
-                        // for explicitly-nil, but we don't implement that yet)
+                        // nil in char-table means unbound — fall through
+                    }
+                }
+            }
+            cursor = entry.cdr;
+            continue;
+        }
+
+        // Vector element in keymap spine: maps char codes 0..len to
+        // bindings by index. Matches GNU keymap.c:431-434.
+        if let Value::Vector(vec_id) = entry.car {
+            if let Value::Int(code) = *event {
+                if code >= 0 {
+                    let idx = code as usize;
+                    let items = with_heap(|h| h.get_vector(vec_id).clone());
+                    if idx < items.len() {
+                        let val = items[idx];
+                        if !val.is_nil() {
+                            return Some(get_keyelt(val));
+                        }
                     }
                 }
             }
@@ -533,12 +539,20 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value) -> Option<Value> {
             if events_match(&binding.car, event) {
                 return Some(get_keyelt(binding.cdr));
             }
+            // Check for (t . COMMAND) default binding.
+            // GNU keymap.c:425-429: when t_ok, record the first t binding
+            // but keep scanning for a specific match.
+            if t_ok && t_binding.is_none() && binding.car == Value::True {
+                t_binding = Some(get_keyelt(binding.cdr));
+            }
         }
 
         cursor = entry.cdr;
     }
 
-    None
+    // If no specific binding found but we have a t default binding, use it.
+    // Matches GNU keymap.c:486-487.
+    t_binding
 }
 
 /// Get the parent keymap from a keymap (the tail after all alist entries).
@@ -569,10 +583,11 @@ fn get_keymap_tail_parent(keymap: &Value) -> Value {
 ///   keymap is found, it composes it with prefix keymaps from parent
 ///   levels to create a proper inheritance chain
 /// - When `noinherit` is true: stops at the first parent boundary
+/// - When `t_ok` is true: accepts `(t . COMMAND)` default bindings
 ///
 /// An explicit nil binding (e.g. from `define-key m [?b] nil`) shadows
 /// parent bindings, matching GNU Emacs behavior where nil != unbound.
-fn list_keymap_access(keymap: &Value, event: &Value, noinherit: bool) -> Value {
+fn list_keymap_access(keymap: &Value, event: &Value, noinherit: bool, t_ok: bool) -> Value {
     let mut current = *keymap;
     let mut depth = 0;
     const MAX_KEYMAP_DEPTH: usize = 50;
@@ -587,7 +602,7 @@ fn list_keymap_access(keymap: &Value, event: &Value, noinherit: bool) -> Value {
         // Look up the event in the current keymap level only.
         // Some(val) means "found" (val may be nil for explicit nil binding).
         // None means "not found at this level".
-        match lookup_in_keymap_level(&current, event) {
+        match lookup_in_keymap_level(&current, event, t_ok) {
             Some(binding) => {
                 if !noinherit && is_list_keymap(&binding) {
                     // Found a prefix keymap at this level. Check if parent
@@ -595,7 +610,8 @@ fn list_keymap_access(keymap: &Value, event: &Value, noinherit: bool) -> Value {
                     // create a composed keymap: (keymap child-sub . parent-sub)
                     let parent = get_keymap_tail_parent(&current);
                     if !parent.is_nil() {
-                        let parent_binding = list_keymap_access(&parent, event, false);
+                        let parent_binding =
+                            list_keymap_access(&parent, event, false, t_ok);
                         if is_list_keymap(&parent_binding) {
                             return compose_keymaps(&binding, &parent_binding);
                         }
@@ -704,8 +720,22 @@ fn resolve_prefix_keymap_binding_in_obarray(obarray: &Obarray, binding: &Value) 
 /// Define a binding in a keymap.
 ///
 /// For integer events without modifier bits in full keymaps: stores in char-table.
-/// Otherwise: prepends `(event . def)` to the alist portion.
+/// Otherwise: updates existing alist entry in-place or prepends `(event . def)`.
+///
+/// When `remove` is true, removes the binding entry from the alist (or
+/// stores nil in char-table), matching GNU keymap.c `store_in_keymap` with
+/// `remove=true`.
 pub fn list_keymap_define(keymap: Value, event: Value, def: Value) {
+    store_in_keymap(keymap, event, def, false);
+}
+
+/// Remove a binding from a keymap, matching GNU `define-key` with REMOVE arg.
+pub fn list_keymap_remove(keymap: Value, event: Value) {
+    store_in_keymap(keymap, event, Value::Nil, true);
+}
+
+/// Core store/remove implementation matching GNU `store_in_keymap`.
+fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
     let Value::Cons(root_cell) = keymap else {
         return;
     };
@@ -714,32 +744,101 @@ pub fn list_keymap_define(keymap: Value, event: Value, def: Value) {
         return;
     }
 
-    // Check if full keymap (second element is char-table) and event is plain char
-    let cdr = root.cdr;
-    if let Value::Cons(second_cell) = cdr {
-        let second = read_cons(second_cell);
-        if is_char_table(&second.car) {
-            // For plain character events (no modifier bits), use char-table
+    // Scan the keymap for existing bindings, tracking insertion point.
+    // GNU keymap.c: insertion_point starts at keymap; if a char-table or
+    // vector is found, insertion_point is updated to point after it.
+    let mut insertion_point = Value::Cons(root_cell);
+    let mut cursor = root.cdr;
+    while let Value::Cons(entry_cell) = cursor {
+        if is_list_keymap(&cursor) {
+            // Hit a parent keymap boundary — stop scanning
+            break;
+        }
+        let entry = read_cons(entry_cell);
+
+        // Char-table: handle plain character events (no modifier bits).
+        // GNU keymap.c:805-829
+        if is_char_table(&entry.car) {
             if let Value::Int(code) = event {
-                let base = code & KEY_CHAR_CODE_MASK;
-                let mods = code & !KEY_CHAR_CODE_MASK;
-                if mods == 0 && base >= 0 && base <= 0x3FFFFF {
-                    let _ = builtin_set_char_table_range(vec![second.car, event, def]);
+                let mods = code & KEY_CHAR_MOD_MASK;
+                if mods == 0 {
+                    let base = code & KEY_CHAR_CODE_MASK;
+                    if base >= 0 && base <= 0x3FFFFF {
+                        let store_val = if remove {
+                            Value::Nil
+                        } else if def.is_nil() {
+                            // nil has special meaning for char-tables (unbound),
+                            // so use Qt (Value::True) for explicitly nil binding.
+                            // GNU keymap.c:813-814
+                            Value::True
+                        } else {
+                            def
+                        };
+                        let _ = builtin_set_char_table_range(vec![entry.car, event, store_val]);
+                        return;
+                    }
+                }
+            }
+            insertion_point = Value::Cons(entry_cell);
+            cursor = entry.cdr;
+            continue;
+        }
+
+        // Vector element: check for matching index.
+        // GNU keymap.c:783-803
+        if let Value::Vector(vec_id) = entry.car {
+            if let Value::Int(code) = event {
+                let idx = code as usize;
+                let len = with_heap(|h| h.get_vector(vec_id).len());
+                if idx < len {
+                    with_heap_mut(|h| {
+                        h.get_vector_mut(vec_id)[idx] = def;
+                    });
                     return;
                 }
             }
-            // For non-char events: prepend after char-table
-            let binding = Value::cons(event, def);
-            let new_cdr = Value::cons(binding, second.cdr);
-            Value::Cons(second_cell).set_cdr(new_cdr);
-            return;
+            insertion_point = Value::Cons(entry_cell);
+            cursor = entry.cdr;
+            continue;
         }
+
+        // Alist entry: (EVENT . DEF) — check for existing binding to update in-place.
+        // GNU keymap.c:842-849
+        if let Value::Cons(binding_cell) = entry.car {
+            let binding = read_cons(binding_cell);
+            if events_match(&binding.car, &event) {
+                if remove {
+                    // Remove the entry: splice it out of the list.
+                    // Set insertion_point's cdr to skip this entry.
+                    insertion_point.set_cdr(entry.cdr);
+                } else {
+                    // Update in-place: set the cdr of the binding cons.
+                    Value::Cons(binding_cell).set_cdr(def);
+                }
+                return;
+            }
+        }
+
+        // Check for 'keymap symbol in spine (start of inherited keymap)
+        // GNU keymap.c:871-876
+        if entry.car.is_symbol_named("keymap") {
+            break;
+        }
+
+        insertion_point = Value::Cons(entry_cell);
+        cursor = entry.cdr;
     }
 
-    // Sparse keymap: prepend (event . def) right after 'keymap symbol
-    let binding = Value::cons(event, def);
-    let new_cdr = Value::cons(binding, cdr);
-    Value::Cons(root_cell).set_cdr(new_cdr);
+    // No existing binding found. Append new entry after insertion_point.
+    if !remove {
+        let binding = Value::cons(event, def);
+        let old_cdr = match insertion_point {
+            Value::Cons(cell) => read_cons(cell).cdr,
+            _ => Value::Nil,
+        };
+        let new_cdr = Value::cons(binding, old_cdr);
+        insertion_point.set_cdr(new_cdr);
+    }
 }
 
 /// Get the parent keymap (last CDR that is itself a keymap).
@@ -820,6 +919,8 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
             meta,
             shift,
             super_,
+            hyper,
+            alt,
         } => {
             let mut bits: i64;
             if *ctrl {
@@ -866,6 +967,12 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
             if *super_ {
                 bits |= KEY_CHAR_SUPER;
             }
+            if *hyper {
+                bits |= KEY_CHAR_HYPER;
+            }
+            if *alt {
+                bits |= KEY_CHAR_ALT;
+            }
             Value::Int(bits)
         }
         KeyEvent::Function {
@@ -874,6 +981,8 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
             meta,
             shift,
             super_,
+            hyper,
+            alt,
         } => {
             if let Some(base) = match name.as_str() {
                 "return" => Some('\r' as i64),
@@ -893,11 +1002,23 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
                 if *super_ {
                     bits |= KEY_CHAR_SUPER;
                 }
+                if *hyper {
+                    bits |= KEY_CHAR_HYPER;
+                }
+                if *alt {
+                    bits |= KEY_CHAR_ALT;
+                }
                 return Value::Int(bits);
             }
             let mut prefix = String::new();
+            if *alt {
+                prefix.push_str("A-");
+            }
             if *ctrl {
                 prefix.push_str("C-");
+            }
+            if *hyper {
+                prefix.push_str("H-");
             }
             if *meta {
                 prefix.push_str("M-");
@@ -925,6 +1046,8 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
             let meta = (*code & KEY_CHAR_META) != 0;
             let shift = (*code & KEY_CHAR_SHIFT) != 0;
             let super_ = (*code & KEY_CHAR_SUPER) != 0;
+            let hyper = (*code & KEY_CHAR_HYPER) != 0;
+            let alt = (*code & KEY_CHAR_ALT) != 0;
 
             // Decompose control characters (0-31) back to letter + ctrl
             if !has_ctrl_bit && (0..=31).contains(&base) {
@@ -948,6 +1071,8 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
                     meta,
                     shift,
                     super_,
+                    hyper,
+                    alt,
                 })
             } else {
                 let ch = char::from_u32(base as u32)?;
@@ -957,6 +1082,8 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
                     meta,
                     shift,
                     super_,
+                    hyper,
+                    alt,
                 })
             }
         }
@@ -966,6 +1093,8 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }),
         Value::Symbol(id) => {
             let name = resolve_sym(*id);
@@ -975,6 +1104,8 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
             let mut meta = false;
             let mut shift = false;
             let mut super_ = false;
+            let mut hyper = false;
+            let mut alt = false;
             loop {
                 if let Some(r) = rest.strip_prefix("C-") {
                     ctrl = true;
@@ -996,6 +1127,16 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
                     rest = r;
                     continue;
                 }
+                if let Some(r) = rest.strip_prefix("H-") {
+                    hyper = true;
+                    rest = r;
+                    continue;
+                }
+                if let Some(r) = rest.strip_prefix("A-") {
+                    alt = true;
+                    rest = r;
+                    continue;
+                }
                 break;
             }
             // If single char, return Char event
@@ -1008,6 +1149,8 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
                         meta,
                         shift,
                         super_,
+                        hyper,
+                        alt,
                     });
                 }
             }
@@ -1018,6 +1161,8 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
                 meta,
                 shift,
                 super_,
+                hyper,
+                alt,
             })
         }
         _ => None,
@@ -1114,18 +1259,37 @@ pub fn list_keymap_define_seq_in_obarray(
     events: &[Value],
     def: Value,
 ) -> Result<(), String> {
+    list_keymap_define_seq_in_obarray_ex(obarray, keymap, events, def, false)
+}
+
+/// Extended version of define-seq that supports the REMOVE flag.
+pub fn list_keymap_define_seq_in_obarray_ex(
+    obarray: &Obarray,
+    keymap: Value,
+    events: &[Value],
+    def: Value,
+    remove: bool,
+) -> Result<(), String> {
     if events.is_empty() {
         return Ok(());
     }
     if events.len() == 1 {
-        list_keymap_define(keymap, events[0], def);
+        if remove {
+            list_keymap_remove(keymap, events[0]);
+        } else {
+            list_keymap_define(keymap, events[0], def);
+        }
         return Ok(());
     }
 
     let mut current_map = keymap;
     for (i, event) in events.iter().enumerate() {
         if i == events.len() - 1 {
-            list_keymap_define(current_map, *event, def);
+            if remove {
+                list_keymap_remove(current_map, *event);
+            } else {
+                list_keymap_define(current_map, *event, def);
+            }
             return Ok(());
         }
         // Use noinherit: only look in current keymap level for prefix,
@@ -1134,19 +1298,18 @@ pub fn list_keymap_define_seq_in_obarray(
         if let Some(prefix_map) = resolve_prefix_keymap_binding_in_obarray(obarray, &binding) {
             current_map = prefix_map;
         } else if binding.is_nil() {
-            // No binding, create a new prefix keymap
+            // No binding, create a new prefix keymap.
+            // Matches GNU `define_as_prefix` (keymap.c:1446-1452).
             let prefix_map = make_sparse_list_keymap();
             list_keymap_define(current_map, *event, prefix_map);
             current_map = prefix_map;
         } else {
-            // Non-prefix binding found — error (matching GNU Emacs).
-            // Generate key descriptions for the error message.
-            let full_key = describe_event_sequence(events);
-            let prefix_key = describe_event_sequence(&events[..=i]);
-            return Err(format!(
-                "Key sequence {} starts with non-prefix key {}",
-                full_key, prefix_key
-            ));
+            // Non-prefix binding found. GNU Emacs `define_as_prefix` creates
+            // a new prefix keymap even when a non-keymap binding exists at
+            // this intermediate position. Match that behavior (gap #10).
+            let prefix_map = make_sparse_list_keymap();
+            list_keymap_define(current_map, *event, prefix_map);
+            current_map = prefix_map;
         }
     }
     Ok(())
