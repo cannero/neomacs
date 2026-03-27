@@ -1,4 +1,4 @@
-; NeoVM policy behavior: source-only load path, explicit `.elc` rejection, safe `.neoc` fallback.
+; NeoVM policy behavior: source-only load path, `.elc` support.
 (progn
   (setq vm-policy-dir (expand-file-name "load-policy-fixtures" (file-name-directory (getenv "NEOVM_FORMS_FILE"))))
   (setq load-path (cons vm-policy-dir load-path))

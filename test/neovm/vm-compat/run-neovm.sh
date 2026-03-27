@@ -54,6 +54,5 @@ if [[ "$needs_build" -eq 1 ]]; then
 fi
 
 NEOVM_FORMS_FILE="$forms_file_abs" \
-NEOVM_DISABLE_LOAD_CACHE_WRITE=1 \
 "$worker_binary" "$forms_file_abs" \
   | LC_ALL=C awk -f "$script_dir/filter-case-lines.awk"

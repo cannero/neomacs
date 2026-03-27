@@ -715,12 +715,6 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("featurep", builtin_featurep, 0, None);
     ctx.defsubr("garbage-collect", builtin_garbage_collect, 0, None);
-    ctx.defsubr(
-        "neovm-precompile-file",
-        builtin_neovm_precompile_file,
-        0,
-        None,
-    );
     ctx.defsubr("eval", builtin_eval, 0, None);
     ctx.defsubr("get-buffer-create", builtin_get_buffer_create, 0, None);
     ctx.defsubr("get-buffer", builtin_get_buffer, 0, None);

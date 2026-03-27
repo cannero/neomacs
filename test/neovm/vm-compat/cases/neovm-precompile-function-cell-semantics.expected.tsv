@@ -1,5 +1,0 @@
-1	(fboundp 'neovm-precompile-file)	OK t
-2	(subrp (symbol-function 'neovm-precompile-file))	OK t
-3	(subr-name (symbol-function 'neovm-precompile-file))	OK "neovm-precompile-file"
-4	(subr-arity (symbol-function 'neovm-precompile-file))	OK (0 . many)
-5	(functionp (symbol-function 'neovm-precompile-file))	OK t

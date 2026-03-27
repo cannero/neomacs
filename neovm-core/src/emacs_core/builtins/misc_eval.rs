@@ -518,24 +518,6 @@ pub(crate) fn builtin_load_file(eval: &mut super::eval::Context, args: Vec<Value
     super::load::load_file(eval, path).map_err(eval_error_to_flow)
 }
 
-/// `(neovm-precompile-file FILE)` -> cache path string
-///
-/// NeoVM extension: parse source `.el` and emit internal `.neoc` cache sidecar.
-pub(crate) fn builtin_neovm_precompile_file(
-    _eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    builtin_neovm_precompile_file_impl(args)
-}
-
-pub(crate) fn builtin_neovm_precompile_file_impl(args: Vec<Value>) -> EvalResult {
-    expect_args("neovm-precompile-file", &args, 1)?;
-    let file = expect_string(&args[0])?;
-    let path = std::path::Path::new(&file);
-    let cache = super::load::precompile_source_file(path).map_err(eval_error_to_flow)?;
-    Ok(Value::string(cache.to_string_lossy()))
-}
-
 pub(crate) fn builtin_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("eval", &args, 1)?;
     expect_max_args("eval", &args, 2)?;

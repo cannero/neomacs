@@ -1,5 +1,0 @@
-(fboundp 'neovm-precompile-file)
-(subrp (symbol-function 'neovm-precompile-file))
-(subr-name (symbol-function 'neovm-precompile-file))
-(subr-arity (symbol-function 'neovm-precompile-file))
-(functionp (symbol-function 'neovm-precompile-file))

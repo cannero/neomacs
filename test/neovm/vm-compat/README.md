@@ -361,9 +361,7 @@ The default fixture uses:
 
 You can override all three via `ERT_ALLOWLIST`, `ERT_LOAD_FILES`, and `ERT_EXPECTED`.
 
-`run-neovm.sh` sets `NEOVM_DISABLE_LOAD_CACHE_WRITE=1` so compatibility runs do
-not mutate fixture directories with `.neoc` sidecars.
-It also executes the built `elisp_compat_runner` binary directly and rebuilds it
+`run-neovm.sh` executes the built `elisp_compat_runner` binary directly and rebuilds it
 only when relevant Rust sources are newer than the binary. Set
 `NEOVM_WORKER_CARGO_FEATURES` to compile/run opt-in worker features, e.g.
 `NEOVM_WORKER_CARGO_FEATURES=legacy-elc-literal`.
@@ -397,20 +395,13 @@ Current NeoVM-only policy cases include source-only loading behavior (`.elc`
 rejection and `.neoc` fallback safety) plus NeoVM extension behavior
 (`neovm-precompile-file` cache warming, argument/error contracts, and compiled
 artifact rejection, directory-input rejection, parse-error/no-cache semantics,
-and stable return-path semantics, no-eval precompile semantics (side effects
-only on `load-file`), and cache-rewrite semantics when source/lexical mode
-changes,
-plus load-cache-write-disable runner policy semantics
-(`load-file` no `.neoc` writes while explicit precompile still writes), and
-runtime env-toggle semantics for `NEOVM_DISABLE_LOAD_CACHE_WRITE`, and
-default-build `#[...]` literal non-callability policy
+and default-build `#[...]` literal non-callability policy
 (`cases/bytecode-literal-default-policy`).
 
 ### Extension policy notes
 
 The extension policy currently includes:
 
-- `neovm-precompile-file`
 - `string-chop-newline`
 - `string-fill`
 - `string-limit`

@@ -6,7 +6,6 @@
 # - these names must be present (`fboundp => t`) in NeoVM runs
 # - each symbol should also have an explicit vm-compat behavioral corpus entry
 #   in `cases/neovm-only.list`
-neovm-precompile-file
 string-chop-newline
 string-fill
 string-limit

@@ -1,14 +1,2 @@
-cases/neovm-precompile-function-cell-semantics
-cases/neovm-precompile-arg-errors-semantics
-cases/neovm-precompile-directory-input-semantics
-cases/neovm-precompile-compiled-artifact-rejection
-cases/neovm-precompile-parse-error-semantics
-cases/neovm-precompile-return-path-semantics
-cases/neovm-precompile-no-eval-semantics
-cases/neovm-precompile-cache-rewrite-semantics
-cases/neovm-precompile-reader-prefix-semantics
-cases/neovm-load-cache-write-policy-semantics
-cases/neovm-load-cache-write-env-toggle-semantics
-cases/precompile
 cases/bytecode-literal-default-policy
 cases/subr-x-string-helper-availability

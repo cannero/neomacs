@@ -1,8 +1,0 @@
-1	(condition-case err (neovm-precompile-file) (error err))	OK (wrong-number-of-arguments neovm-precompile-file 0)
-2	(condition-case err (neovm-precompile-file "a" "b") (error err))	OK (wrong-number-of-arguments neovm-precompile-file 2)
-3	(condition-case err (neovm-precompile-file 42) (error err))	OK (wrong-type-argument stringp 42)
-4	(condition-case err (neovm-precompile-file "/tmp/neovm-precompile-missing-source.el") (error (car err)))	OK file-error
-5	(let ((err (condition-case err (neovm-precompile-file) (error err)))) (and (eq (car err) 'wrong-number-of-arguments) (eq (nth 1 err) 'neovm-precompile-file) (= (nth 2 err) 0)))	OK t
-6	(let ((err (condition-case err (neovm-precompile-file "a" "b") (error err)))) (and (eq (car err) 'wrong-number-of-arguments) (eq (nth 1 err) 'neovm-precompile-file) (= (nth 2 err) 2)))	OK t
-7	(let ((err (condition-case err (neovm-precompile-file 42) (error err)))) (and (eq (car err) 'wrong-type-argument) (eq (nth 1 err) 'stringp) (= (nth 2 err) 42)))	OK t
-8	(let ((err (condition-case err (neovm-precompile-file "/tmp/neovm-precompile-missing-source.el") (error err)))) (and (eq (car err) 'file-error) (stringp (cadr err)) (not (null (string-match-p "Cannot read source file for precompile" (cadr err)))) (not (null (string-match-p "neovm-precompile-missing-source\\.el" (cadr err))))))	OK t

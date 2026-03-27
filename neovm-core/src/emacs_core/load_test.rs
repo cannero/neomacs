@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::eval::{Context, value_to_expr};
+use crate::emacs_core::eval::{Context, quote_to_value, value_to_expr};
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::fontset::{
     DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
@@ -142,8 +142,6 @@ const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
     "emacs-lisp/rmc",
 ];
 
-struct CacheWriteFailGuard;
-
 static TEST_TRACING_INIT: Once = Once::new();
 
 fn init_test_tracing() {
@@ -156,19 +154,6 @@ fn init_test_tracing() {
             )
             .try_init();
     });
-}
-
-impl CacheWriteFailGuard {
-    fn set(phase: u8) -> Self {
-        set_cache_write_fail_phase_for_test(phase);
-        Self
-    }
-}
-
-impl Drop for CacheWriteFailGuard {
-    fn drop(&mut self) {
-        clear_cache_write_fail_phase_for_test();
-    }
 }
 
 fn bootstrap_fixture_path(
@@ -926,21 +911,6 @@ fn bootstrap_runtime_require_cl_lib_works_under_fresh_gui_features() {
              (error err))"#,
     );
     assert_eq!(rendered, "OK (t t t t t)");
-}
-
-#[test]
-fn icons_v2_cache_preserves_top_level_require_cl_lib() {
-    let path = compile_time_project_root().join("lisp/emacs-lisp/icons.el");
-    let source = fs::read_to_string(&path).expect("read icons.el");
-    let forms =
-        maybe_load_expanded_cache(&path, &source, lexical_binding_enabled_for_source(&source))
-            .expect("load V2 cache for icons");
-    let rendered = forms.iter().map(print_expr).collect::<Vec<_>>();
-    assert!(
-        rendered.first() == Some(&"(require 'cl-lib)".to_string()),
-        "expected cached icons replay to start with require cl-lib, got first forms: {:?}",
-        rendered.iter().take(5).collect::<Vec<_>>()
-    );
 }
 
 #[test]
@@ -2147,23 +2117,6 @@ fn profile_single_bootstrap_file_load() {
 }
 
 #[test]
-fn cache_write_disable_env_value_matrix() {
-    for value in ["1", "true", "TRUE", " yes ", "On", "\tyEs\n"] {
-        assert!(
-            cache_write_disabled_env_value(value),
-            "expected '{value}' to disable load cache writes",
-        );
-    }
-
-    for value in ["0", "false", "FALSE", "no", "off", "", "   ", "maybe"] {
-        assert!(
-            !cache_write_disabled_env_value(value),
-            "expected '{value}' to leave load cache writes enabled",
-        );
-    }
-}
-
-#[test]
 fn strip_reader_prefix_handles_bom_and_shebang() {
     let source = "#!/usr/bin/env emacs --script\n(setq vm-shebang-strip 1)\n";
     assert_eq!(
@@ -2690,157 +2643,6 @@ fn load_file_single_line_shebang_signals_end_of_file() {
 }
 
 #[test]
-fn load_file_writes_and_invalidates_neoc_cache() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-load-neoc-cache-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    let source_v1 = "(setq vm-load-cache-probe 'v1)\n";
-    fs::write(&file, source_v1).expect("write source fixture");
-
-    let mut eval = super::super::eval::Context::new();
-    let loaded = load_file(&mut eval, &file).expect("load source file");
-    assert_eq!(loaded, Value::True);
-    assert_eq!(
-        eval.obarray().symbol_value("vm-load-cache-probe").cloned(),
-        Some(Value::symbol("v1"))
-    );
-
-    let cache = cache_sidecar_path(&file);
-    assert!(
-        cache.exists(),
-        "source load should create .neoc sidecar cache"
-    );
-    let cache_v1 = fs::read_to_string(&cache).expect("read cache v1");
-    assert!(
-        cache_v1.contains(&format!("key={}", cache_key(false))),
-        "cache key should include lexical-binding dimension",
-    );
-    assert!(
-        cache_v1.contains(&format!("source-hash={:016x}", source_hash(source_v1))),
-        "cache should carry source hash invalidation key",
-    );
-
-    let source_v2 = ";;; -*- lexical-binding: t; -*-\n(setq vm-load-cache-probe 'v2)\n";
-    fs::write(&file, source_v2).expect("write source fixture v2");
-
-    let loaded = load_file(&mut eval, &file).expect("reload source file");
-    assert_eq!(loaded, Value::True);
-    assert_eq!(
-        eval.obarray().symbol_value("vm-load-cache-probe").cloned(),
-        Some(Value::symbol("v2"))
-    );
-    let cache_v2 = fs::read_to_string(&cache).expect("read cache v2");
-    assert_ne!(cache_v1, cache_v2, "cache must refresh when source changes");
-    assert!(
-        cache_v2.contains(&format!("key={}", cache_key(true))),
-        "cache key should update when lexical-binding dimension changes",
-    );
-    assert!(
-        cache_v2.contains(&format!("source-hash={:016x}", source_hash(source_v2))),
-        "cache hash should update when source text changes",
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn load_file_ignores_corrupt_neoc_cache_and_loads_source() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-load-neoc-corrupt-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    fs::write(&file, "(setq vm-load-corrupt-neoc 'ok)\n").expect("write source fixture");
-    let cache = cache_sidecar_path(&file);
-    fs::write(&cache, "corrupt-neoc-cache").expect("write corrupt cache");
-
-    let mut eval = super::super::eval::Context::new();
-    let loaded = load_file(&mut eval, &file).expect("load should ignore corrupt cache");
-    assert_eq!(loaded, Value::True);
-    assert_eq!(
-        eval.obarray().symbol_value("vm-load-corrupt-neoc").cloned(),
-        Some(Value::symbol("ok"))
-    );
-    let rewritten = fs::read_to_string(&cache).expect("cache should be rewritten");
-    assert!(
-        rewritten.starts_with(ELISP_CACHE_MAGIC),
-        "rewritten cache should have expected header",
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn load_file_ignores_cache_write_failures_before_write() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-load-neoc-write-fail-pre-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    fs::write(&file, "(setq vm-load-neoc-write-fail-pre 'ok)\n").expect("write source fixture");
-
-    let _guard = CacheWriteFailGuard::set(CACHE_WRITE_PHASE_BEFORE_WRITE);
-    let mut eval = super::super::eval::Context::new();
-    let loaded =
-        load_file(&mut eval, &file).expect("load should succeed despite cache write failure");
-    assert_eq!(loaded, Value::True);
-    assert_eq!(
-        eval.obarray()
-            .symbol_value("vm-load-neoc-write-fail-pre")
-            .cloned(),
-        Some(Value::symbol("ok"))
-    );
-    assert!(
-        !cache_sidecar_path(&file).exists(),
-        "cache should be absent when write fails before cache file creation",
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn load_file_cleans_tmp_after_cache_write_failure_before_rename() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-load-neoc-write-fail-post-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    fs::write(&file, "(setq vm-load-neoc-write-fail-post 'ok)\n").expect("write source fixture");
-
-    let _guard = CacheWriteFailGuard::set(CACHE_WRITE_PHASE_AFTER_WRITE);
-    let mut eval = super::super::eval::Context::new();
-    let loaded =
-        load_file(&mut eval, &file).expect("load should succeed despite cache rename failure");
-    assert_eq!(loaded, Value::True);
-    assert_eq!(
-        eval.obarray()
-            .symbol_value("vm-load-neoc-write-fail-post")
-            .cloned(),
-        Some(Value::symbol("ok"))
-    );
-    assert!(
-        !cache_sidecar_path(&file).exists(),
-        "cache should be absent when failure happens before rename",
-    );
-    assert!(
-        !cache_temp_path(&file).exists(),
-        "temporary cache file should be cleaned after write failure",
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
 fn load_elc_is_supported() {
     // .elc files are now supported. A valid .elc with a simple setq should work.
     let unique = SystemTime::now()
@@ -2926,59 +2728,6 @@ fn load_elc_gz_is_explicitly_unsupported() {
     let err = load_file(&mut eval, &compiled).expect_err("load should reject .elc.gz");
     match err {
         EvalError::Signal { symbol, .. } => assert_eq!(resolve_sym(symbol), "error"),
-        other => panic!("unexpected error: {other:?}"),
-    }
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn precompile_source_file_writes_deterministic_cache() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-precompile-deterministic-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let source = dir.join("probe.el");
-    fs::write(
-        &source,
-        ";;; -*- lexical-binding: t; -*-\n(setq vm-precompile-probe '(1 2 3))\n",
-    )
-    .expect("write source fixture");
-
-    let cache_path_1 = precompile_source_file(&source).expect("first precompile should succeed");
-    let cache_v1 = fs::read_to_string(&cache_path_1).expect("read cache v1");
-    let cache_path_2 = precompile_source_file(&source).expect("second precompile should succeed");
-    let cache_v2 = fs::read_to_string(&cache_path_2).expect("read cache v2");
-
-    assert_eq!(cache_path_1, cache_path_2, "cache path should be stable");
-    assert_eq!(
-        cache_v1, cache_v2,
-        "precompile output should be deterministic"
-    );
-    assert!(
-        cache_v1.contains("lexical=1"),
-        "lexical-binding should be reflected in cache key",
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn precompile_source_file_rejects_compiled_inputs() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-precompile-reject-elc-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let compiled = dir.join("probe.elc");
-    fs::write(&compiled, "compiled").expect("write compiled fixture");
-
-    let err = precompile_source_file(&compiled).expect_err("elc input should be rejected");
-    match err {
-        EvalError::Signal { symbol, .. } => assert_eq!(resolve_sym(symbol), "file-error"),
         other => panic!("unexpected error: {other:?}"),
     }
 
@@ -6186,224 +5935,6 @@ fn char_literal_roundtrip() {
             ),
         }
     }
-}
-
-#[test]
-fn expanded_cache_round_trip() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-v2-cache-rt-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    let source = "(defun foo () 42)\n(setq bar 'baz)\n";
-    fs::write(&file, source).expect("write fixture");
-
-    let forms = vec![
-        Expr::List(vec![
-            Expr::Symbol(intern("defun")),
-            Expr::Symbol(intern("foo")),
-            Expr::List(vec![]),
-            Expr::Int(42),
-        ]),
-        Expr::List(vec![
-            Expr::Symbol(intern("setq")),
-            Expr::Symbol(intern("bar")),
-            Expr::List(vec![
-                Expr::Symbol(intern("quote")),
-                Expr::Symbol(intern("baz")),
-            ]),
-        ]),
-    ];
-
-    write_expanded_cache(&file, source, true, &forms).expect("write V2 cache");
-    let loaded = maybe_load_expanded_cache(&file, source, true);
-    assert!(loaded.is_some(), "V2 cache should load successfully");
-    let loaded_forms = loaded.unwrap();
-    assert_eq!(
-        loaded_forms.len(),
-        forms.len(),
-        "should have same number of forms"
-    );
-
-    // Verify structural equality via print_expr round-trip
-    for (i, (orig, loaded)) in forms.iter().zip(loaded_forms.iter()).enumerate() {
-        assert_eq!(
-            print_expr(orig),
-            print_expr(loaded),
-            "form {i} should round-trip through V2 cache"
-        );
-    }
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn expanded_cache_preserves_uninterned_symbol_identity() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-v2-cache-uninterned-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    let source = "(let* ((#:exp 1) (x #:exp)) x)\n";
-    fs::write(&file, source).expect("write fixture");
-
-    let mut eval = Context::new();
-    let exp = crate::emacs_core::intern::intern_uninterned("exp");
-    let forms = vec![Expr::List(vec![
-        Expr::Symbol(intern("let*")),
-        Expr::List(vec![
-            Expr::List(vec![Expr::Symbol(exp), Expr::Int(1)]),
-            Expr::List(vec![Expr::Symbol(intern("x")), Expr::Symbol(exp)]),
-        ]),
-        Expr::Symbol(intern("x")),
-    ])];
-
-    write_expanded_cache(&file, source, true, &forms).expect("write V2 cache");
-    let loaded = maybe_load_expanded_cache(&file, source, true).expect("load V2 cache");
-    let value = eval.eval_expr(&loaded[0]).expect("evaluate cached form");
-    assert_eq!(
-        crate::emacs_core::print::print_value_with_buffers(&value, &eval.buffers),
-        "1"
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn expanded_cache_invalidated_by_source_change() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-v2-cache-inv-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-
-    let source_v1 = "(setq x 1)\n";
-    fs::write(&file, source_v1).expect("write fixture v1");
-
-    let forms = vec![Expr::List(vec![
-        Expr::Symbol(intern("setq")),
-        Expr::Symbol(intern("x")),
-        Expr::Int(1),
-    ])];
-
-    write_expanded_cache(&file, source_v1, true, &forms).expect("write V2 cache");
-
-    // Modify source — cache should be invalidated
-    let source_v2 = "(setq x 2)\n";
-    let loaded = maybe_load_expanded_cache(&file, source_v2, true);
-    assert!(
-        loaded.is_none(),
-        "V2 cache should be invalidated when source changes"
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn v3_cache_overwrites_v1() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-v2-overwrites-v1-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    let source = "(setq x 1)\n";
-    fs::write(&file, source).expect("write fixture");
-
-    let forms = vec![Expr::List(vec![
-        Expr::Symbol(intern("setq")),
-        Expr::Symbol(intern("x")),
-        Expr::Int(1),
-    ])];
-
-    // Write V1 cache first
-    write_forms_cache(&file, source, true, &forms).expect("write V1 cache");
-    assert!(
-        maybe_load_cached_forms(&file, source, true).is_some(),
-        "V1 cache should be readable"
-    );
-
-    // Write V3 cache — overwrites the same .neoc file
-    write_expanded_cache(&file, source, true, &forms).expect("write V2 cache");
-
-    // V1 reader should NOT match V3 cache (different magic)
-    assert!(
-        maybe_load_cached_forms(&file, source, true).is_none(),
-        "V1 reader should return None after V3 overwrites the cache file"
-    );
-
-    // V3 reader should still work
-    assert!(
-        maybe_load_expanded_cache(&file, source, true).is_some(),
-        "V3 reader should still work after overwrite"
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn v3_reader_rejects_legacy_textual_v2_cache() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-v3-rejects-v2-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    let source = "(let* ((#:exp 1) (x #:exp)) x)\n";
-    fs::write(&file, source).expect("write fixture");
-
-    let legacy_payload = format!(
-        "NEOVM-ELISP-CACHE-V2\nkey=schema=2;vm={};lexical=1\nsource-hash={:016x}\n\n{}",
-        ELISP_CACHE_VM_VERSION,
-        source_hash(source),
-        source.trim_end()
-    );
-    fs::write(cache_sidecar_path(&file), legacy_payload).expect("write legacy V2 cache");
-
-    assert!(
-        maybe_load_expanded_cache(&file, source, true).is_none(),
-        "V3 reader must reject legacy textual V2 caches"
-    );
-
-    let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn v3_reader_accepts_lossless_legacy_textual_v2_cache() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("neovm-v3-accepts-v2-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp fixture dir");
-    let file = dir.join("probe.el");
-    let source = "(setq x '(1 2 3))\n";
-    fs::write(&file, source).expect("write fixture");
-
-    let legacy_payload = format!(
-        "{ELISP_EXPANDED_CACHE_LEGACY_MAGIC}\nkey={}\nsource-hash={:016x}\n\n{}",
-        legacy_expanded_cache_key(true),
-        source_hash(source),
-        source.trim_end()
-    );
-    fs::write(cache_sidecar_path(&file), legacy_payload).expect("write legacy V2 cache");
-
-    let loaded = maybe_load_expanded_cache(&file, source, true).expect("load legacy V2 cache");
-    assert_eq!(
-        loaded,
-        crate::emacs_core::parser::parse_forms(source).expect("parse source"),
-        "lossless legacy V2 cache should still load"
-    );
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]

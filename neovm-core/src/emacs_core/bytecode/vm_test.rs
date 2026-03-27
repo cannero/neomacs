@@ -1980,30 +1980,9 @@ fn vm_assoc_and_plist_member_predicates_use_shared_runtime_callbacks() {
 fn vm_runtime_control_tail_uses_localized_shared_paths() {
     assert_eq!(vm_eval_str("(listp (garbage-collect))"), "OK t");
 
-    let dir = tempfile::tempdir().expect("tempdir");
-    let source = dir.path().join("vm-tail-precompile.el");
-    std::fs::write(
-        &source,
-        ";;; -*- lexical-binding: t; -*-\n(setq vm-tail-precompile t)\n",
-    )
-    .expect("write source");
-
-    let source_lisp = source
-        .to_string_lossy()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
     let mut eval = Context::new_vm_harness();
     let kill_only = parse_forms("(kill-emacs 7)").expect("parse");
-    let precompile_only =
-        parse_forms(&format!("(neovm-precompile-file \"{}\")", source_lisp)).expect("parse");
-    let src = format!(
-        "(progn (kill-emacs 7) (neovm-precompile-file \"{}\"))",
-        source_lisp
-    );
-    let forms = parse_forms(&src).expect("parse");
     let kill_func = Compiler::new(false).compile_toplevel(&kill_only[0]);
-    let precompile_func = Compiler::new(false).compile_toplevel(&precompile_only[0]);
-    let func = Compiler::new(false).compile_toplevel(&forms[0]);
 
     {
         let mut vm = new_vm(&mut eval);
@@ -2014,30 +1993,6 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
         );
     }
 
-    let standalone_cache = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&precompile_func, vec![])
-            .expect("compiled standalone precompile should succeed")
-    };
-    assert!(
-        standalone_cache
-            .as_str()
-            .is_some_and(|path| path.ends_with(".neoc")),
-        "compiled standalone precompile should return cache path, got {standalone_cache:?}"
-    );
-
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled runtime control tail should succeed")
-    };
-
-    let cache_path = result
-        .as_str()
-        .expect("cache path should be a string")
-        .to_string();
-    assert!(cache_path.ends_with(".neoc"));
-    assert!(std::path::Path::new(&cache_path).exists());
     assert_eq!(
         eval.shutdown_request(),
         Some(crate::emacs_core::eval::ShutdownRequest {
