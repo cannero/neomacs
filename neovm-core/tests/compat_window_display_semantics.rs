@@ -40,6 +40,17 @@ fn compat_gui_window_scroll_bars_round_trip() {
 }
 
 #[test]
+fn compat_gui_window_body_geometry_excludes_scroll_bar_area() {
+    let actual = run_neovm_gui_eval(
+        "(let ((w (selected-window)))
+           (set-window-scroll-bars w 13 'left)
+           (list (window-body-width w t)
+                 (window-text-width w t)))",
+    );
+    assert_eq!(actual, "OK (771 771)");
+}
+
+#[test]
 fn compat_gui_set_window_buffer_applies_display_defaults() {
     let mut eval = Context::new();
     let scratch = eval.buffer_manager_mut().create_buffer("*scratch*");

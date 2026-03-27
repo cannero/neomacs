@@ -114,6 +114,24 @@ fn vertical_scroll_bar_area_width(frame: &Frame, display: &WindowDisplayState) -
     }
 }
 
+fn left_scroll_bar_area_width(frame: &Frame, display: &WindowDisplayState) -> i64 {
+    if matches!(effective_vertical_scroll_bar_type(frame, display), Some(value) if symbol_name(&value) == Some("left"))
+    {
+        vertical_scroll_bar_area_width(frame, display)
+    } else {
+        0
+    }
+}
+
+fn right_scroll_bar_area_width(frame: &Frame, display: &WindowDisplayState) -> i64 {
+    if matches!(effective_vertical_scroll_bar_type(frame, display), Some(value) if symbol_name(&value) == Some("right"))
+    {
+        vertical_scroll_bar_area_width(frame, display)
+    } else {
+        0
+    }
+}
+
 fn horizontal_scroll_bar_area_height(
     frame: &Frame,
     display: &WindowDisplayState,
@@ -297,6 +315,20 @@ impl FrameManager {
     pub fn window_scroll_bar_area_width(&self, window_id: WindowId) -> i64 {
         self.window_display_state(window_id)
             .map(|(frame, display, _)| vertical_scroll_bar_area_width(frame, display))
+            .unwrap_or(0)
+    }
+
+    /// Return the effective left vertical scroll-bar area width in pixels.
+    pub fn window_left_scroll_bar_area_width(&self, window_id: WindowId) -> i64 {
+        self.window_display_state(window_id)
+            .map(|(frame, display, _)| left_scroll_bar_area_width(frame, display))
+            .unwrap_or(0)
+    }
+
+    /// Return the effective right vertical scroll-bar area width in pixels.
+    pub fn window_right_scroll_bar_area_width(&self, window_id: WindowId) -> i64 {
+        self.window_display_state(window_id)
+            .map(|(frame, display, _)| right_scroll_bar_area_width(frame, display))
             .unwrap_or(0)
     }
 

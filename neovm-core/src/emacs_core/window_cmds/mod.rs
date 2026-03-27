@@ -789,9 +789,15 @@ fn window_body_horizontal_offsets_pixels(
             let (left_fringe, right_fringe, _, _) = frames
                 .window_fringes(w.id())
                 .unwrap_or((0, 0, false, false));
+            let left_scroll_bar = frames.window_left_scroll_bar_area_width(w.id());
+            let right_scroll_bar = frames.window_right_scroll_bar_area_width(w.id());
             (
-                left_fringe.saturating_add(left_margin),
-                right_fringe.saturating_add(right_margin),
+                left_scroll_bar
+                    .saturating_add(left_fringe)
+                    .saturating_add(left_margin),
+                right_scroll_bar
+                    .saturating_add(right_fringe)
+                    .saturating_add(right_margin),
             )
         }
         Window::Internal { .. } => (0, 0),

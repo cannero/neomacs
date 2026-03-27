@@ -806,6 +806,17 @@ fn gui_window_scroll_bars_round_trip_explicit_state() {
 }
 
 #[test]
+fn gui_window_body_geometry_excludes_scroll_bar_area() {
+    let out = eval_with_gui_frame(
+        "(let ((w (selected-window)))
+           (set-window-scroll-bars w 13 'left)
+           (list (window-body-width w t)
+                 (window-text-width w t)))",
+    );
+    assert_eq!(out[0], "OK (771 771)");
+}
+
+#[test]
 fn gui_set_window_buffer_applies_buffer_local_display_defaults() {
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
