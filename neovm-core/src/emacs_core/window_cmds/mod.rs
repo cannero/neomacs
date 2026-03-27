@@ -24,9 +24,8 @@ pub(crate) use super::builtins::symbols::{
 };
 pub(crate) use super::builtins::{
     builtin_combine_windows, builtin_uncombine_window, builtin_window_bottom_divider_width,
-    builtin_window_cursor_info, builtin_window_discard_buffer_from_window,
-    builtin_window_lines_pixel_dimensions, builtin_window_new_normal, builtin_window_new_pixel,
-    builtin_window_new_total, builtin_window_old_body_pixel_height,
+    builtin_window_cursor_info, builtin_window_lines_pixel_dimensions, builtin_window_new_normal,
+    builtin_window_new_pixel, builtin_window_new_total, builtin_window_old_body_pixel_height,
     builtin_window_old_body_pixel_width, builtin_window_old_pixel_height,
     builtin_window_old_pixel_width, builtin_window_right_divider_width,
     builtin_window_scroll_bar_height, builtin_window_scroll_bar_width,
@@ -1913,6 +1912,27 @@ pub(crate) fn builtin_set_window_next_buffers(
     frames.set_window_next_buffers(wid, value);
     Ok(value)
 }
+
+/// `(window-discard-buffer-from-window BUFFER WINDOW &optional ALL)` -> nil.
+pub(crate) fn builtin_window_discard_buffer_from_window(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+    expect_min_args("window-discard-buffer-from-window", &args, 2)?;
+    expect_max_args("window-discard-buffer-from-window", &args, 3)?;
+    let buffer_id = match args.first() {
+        Some(Value::Buffer(id)) if buffers.get(*id).is_some() => *id,
+        _ => {
+            return Err(signal("error", vec![Value::string("Not a live buffer")]));
+        }
+    };
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.get(1), "window-live-p")?;
+    discard_buffers_from_window_history(frames, wid, &[Value::Buffer(buffer_id)])?;
+    Ok(Value::Nil)
+}
+
 /// `(window-left-column &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_left_column(
     eval: &mut super::eval::Context,

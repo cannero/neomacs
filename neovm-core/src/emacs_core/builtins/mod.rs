@@ -837,7 +837,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         None,
     );
     ctx.defsubr("buffer-swap-text", builtin_buffer_swap_text, 0, None);
-    ctx.defsubr("delete-region", super::editfns::builtin_delete_region, 0, None);
+    ctx.defsubr(
+        "delete-region",
+        super::editfns::builtin_delete_region,
+        0,
+        None,
+    );
     ctx.defsubr(
         "delete-and-extract-region",
         super::editfns::builtin_delete_and_extract_region,
@@ -852,7 +857,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("delete-field", builtin_delete_field, 0, None);
     ctx.defsubr("delete-all-overlays", builtin_delete_all_overlays, 0, None);
-    ctx.defsubr("erase-buffer", super::editfns::builtin_erase_buffer, 0, None);
+    ctx.defsubr(
+        "erase-buffer",
+        super::editfns::builtin_erase_buffer,
+        0,
+        None,
+    );
     ctx.defsubr("buffer-enable-undo", builtin_buffer_enable_undo, 0, None);
     ctx.defsubr("buffer-size", builtin_buffer_size, 0, None);
     ctx.defsubr("narrow-to-region", builtin_narrow_to_region, 0, None);
@@ -971,12 +981,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "posn-at-x-y",
-        super::xdisp::builtin_posn_at_x_y,
-        0,
-        None,
-    );
+    ctx.defsubr("posn-at-x-y", super::xdisp::builtin_posn_at_x_y, 0, None);
     ctx.defsubr(
         "coordinates-in-window-p",
         super::window_cmds::builtin_coordinates_in_window_p,
@@ -1730,12 +1735,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "symbol-file",
-        super::autoload::builtin_symbol_file,
-        0,
-        None,
-    );
+    ctx.defsubr("symbol-file", super::autoload::builtin_symbol_file, 0, None);
     ctx.defsubr(
         "downcase-region",
         super::casefiddle::builtin_downcase_region,
@@ -2173,12 +2173,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "old-selected-frame",
-        builtin_old_selected_frame,
-        0,
-        None,
-    );
+    ctx.defsubr("old-selected-frame", builtin_old_selected_frame, 0, None);
     ctx.defsubr(
         "selected-frame",
         super::window_cmds::builtin_selected_frame,
@@ -2775,12 +2770,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "undo-boundary",
-        super::undo::builtin_undo_boundary,
-        0,
-        None,
-    );
+    ctx.defsubr("undo-boundary", super::undo::builtin_undo_boundary, 0, None);
     ctx.defsubr("maphash", super::hashtab::builtin_maphash, 0, None);
     ctx.defsubr("mapatoms", super::hashtab::builtin_mapatoms, 0, None);
     ctx.defsubr("unintern", super::hashtab::builtin_unintern, 0, None);
@@ -2798,12 +2788,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "copy-marker",
-        super::marker::builtin_copy_marker,
-        0,
-        None,
-    );
+    ctx.defsubr("copy-marker", super::marker::builtin_copy_marker, 0, None);
     ctx.defsubr("point-marker", super::marker::builtin_point_marker, 0, None);
     ctx.defsubr(
         "point-min-marker",
@@ -2940,12 +2925,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("font-at", super::font::builtin_font_at, 0, None);
     ctx.defsubr("face-font", super::font::builtin_face_font, 0, None);
-    ctx.defsubr(
-        "access-file",
-        super::fileio::builtin_access_file,
-        0,
-        None,
-    );
+    ctx.defsubr("access-file", super::fileio::builtin_access_file, 0, None);
     ctx.defsubr(
         "expand-file-name",
         super::fileio::builtin_expand_file_name,
@@ -2958,12 +2938,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "rename-file",
-        super::fileio::builtin_rename_file,
-        0,
-        None,
-    );
+    ctx.defsubr("rename-file", super::fileio::builtin_rename_file, 0, None);
     ctx.defsubr("copy-file", super::fileio::builtin_copy_file, 0, None);
     ctx.defsubr(
         "add-name-to-file",
@@ -3050,12 +3025,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "file-modes",
-        super::fileio::builtin_file_modes,
-        0,
-        None,
-    );
+    ctx.defsubr("file-modes", super::fileio::builtin_file_modes, 0, None);
     ctx.defsubr(
         "set-file-modes",
         super::fileio::builtin_set_file_modes,
@@ -3075,12 +3045,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         None,
     );
     ctx.defsubr("char-equal", builtin_char_equal, 0, None);
-    ctx.defsubr(
-        "macrop",
-        super::builtins::symbols::builtin_macrop,
-        0,
-        None,
-    );
+    ctx.defsubr("macrop", super::builtins::symbols::builtin_macrop, 0, None);
     ctx.defsubr(
         "set-process-inherit-coding-system-flag",
         super::process::builtin_set_process_inherit_coding_system_flag,
@@ -3159,12 +3124,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "tty-type",
-        super::terminal::pure::builtin_tty_type,
-        0,
-        None,
-    );
+    ctx.defsubr("tty-type", super::terminal::pure::builtin_tty_type, 0, None);
     ctx.defsubr(
         "tty-top-frame",
         super::terminal::pure::builtin_tty_top_frame,
@@ -5771,9 +5731,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "window-discard-buffer-from-window",
-        |_ctx, args| super::window_cmds::builtin_window_discard_buffer_from_window(args),
-        0,
-        None,
+        super::window_cmds::builtin_window_discard_buffer_from_window,
+        2,
+        Some(3),
     );
     ctx.defsubr(
         "window-cursor-info",

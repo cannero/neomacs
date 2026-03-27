@@ -178,6 +178,38 @@ fn compat_window_semantics_matches_gnu_emacs() {
       (when (buffer-live-p b) (kill-buffer b)))))"#,
         },
         WindowCase {
+            name: "window_discard_buffer_from_window_updates_history",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((w (selected-window))
+         (b1 (get-buffer-create "wdbfw-a"))
+         (b2 (get-buffer-create "wdbfw-b")))
+    (unwind-protect
+        (progn
+          (with-current-buffer b1
+            (erase-buffer)
+            (insert "aaaa"))
+          (with-current-buffer b2
+            (erase-buffer)
+            (insert "bbbb"))
+          (set-window-prev-buffers
+           w
+           (list
+            (list b1
+                  (with-current-buffer b1 (copy-marker 2))
+                  (with-current-buffer b1 (copy-marker 3)))
+            (list b2
+                  (with-current-buffer b2 (copy-marker 2))
+                  (with-current-buffer b2 (copy-marker 4)))))
+          (set-window-next-buffers w (list b1 b2))
+          (window-discard-buffer-from-window b1 w)
+          (list
+           (mapcar (lambda (e) (buffer-name (car e))) (window-prev-buffers w))
+           (mapcar #'buffer-name (window-next-buffers w))))
+      (when (buffer-live-p b1) (kill-buffer b1))
+      (when (buffer-live-p b2) (kill-buffer b2)))))"#,
+        },
+        WindowCase {
             name: "other_window_cycles_across_split_windows",
             form: r#"(save-window-excursion
   (delete-other-windows)
