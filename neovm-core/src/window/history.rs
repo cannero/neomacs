@@ -1,53 +1,67 @@
-use super::{FrameManager, WindowId};
+use super::{FrameManager, Window, WindowId};
 use crate::buffer::BufferId;
 use crate::emacs_core::value::Value;
 
 impl FrameManager {
+    fn live_window_history(&self, window_id: WindowId) -> Option<&super::WindowHistoryState> {
+        self.frames
+            .values()
+            .find_map(|frame| frame.find_window(window_id).and_then(Window::history))
+    }
+
+    fn live_window_history_mut(
+        &mut self,
+        window_id: WindowId,
+    ) -> Option<&mut super::WindowHistoryState> {
+        let frame_id = self.find_window_frame_id(window_id)?;
+        self.get_mut(frame_id)
+            .and_then(|frame| frame.find_window_mut(window_id))
+            .and_then(Window::history_mut)
+    }
+
     /// Return previous-buffer list object for WINDOW-ID, or nil when unset.
     pub fn window_prev_buffers(&self, window_id: WindowId) -> Value {
-        self.window_prev_buffers
-            .get(&window_id)
-            .cloned()
+        self.live_window_history(window_id)
+            .map(|history| history.prev_buffers)
             .unwrap_or(Value::Nil)
     }
 
     /// Set previous-buffer list object for WINDOW-ID.
     pub fn set_window_prev_buffers(&mut self, window_id: WindowId, prev_buffers: Value) {
-        if prev_buffers.is_nil() {
-            self.window_prev_buffers.remove(&window_id);
-        } else {
-            self.window_prev_buffers.insert(window_id, prev_buffers);
+        if let Some(history) = self.live_window_history_mut(window_id) {
+            history.prev_buffers = prev_buffers;
         }
     }
 
     /// Return next-buffer list object for WINDOW-ID, or nil when unset.
     pub fn window_next_buffers(&self, window_id: WindowId) -> Value {
-        self.window_next_buffers
-            .get(&window_id)
-            .cloned()
+        self.live_window_history(window_id)
+            .map(|history| history.next_buffers)
             .unwrap_or(Value::Nil)
     }
 
     /// Set next-buffer list object for WINDOW-ID.
     pub fn set_window_next_buffers(&mut self, window_id: WindowId, next_buffers: Value) {
-        if next_buffers.is_nil() {
-            self.window_next_buffers.remove(&window_id);
-        } else {
-            self.window_next_buffers.insert(window_id, next_buffers);
+        if let Some(history) = self.live_window_history_mut(window_id) {
+            history.next_buffers = next_buffers;
         }
     }
 
     /// Return the use-time for WINDOW-ID.
     pub fn window_use_time(&self, window_id: WindowId) -> i64 {
-        self.window_use_times.get(&window_id).copied().unwrap_or(0)
+        self.live_window_history(window_id)
+            .map(|history| history.use_time)
+            .unwrap_or(0)
     }
 
     /// Mark WINDOW-ID as the most recently selected window.
     pub fn note_window_selected(&mut self, window_id: WindowId) -> i64 {
         self.window_select_count = self.window_select_count.saturating_add(1);
-        self.window_use_times
-            .insert(window_id, self.window_select_count);
-        self.window_select_count
+        let next_use_time = self.window_select_count;
+        if let Some(history) = self.live_window_history_mut(window_id) {
+            history.use_time = next_use_time;
+        }
+        next_use_time
     }
 
     /// Mark WINDOW-ID as second-most recently used.
@@ -67,10 +81,14 @@ impl FrameManager {
         }
 
         let bumped_use_time = self.window_select_count;
-        self.window_use_times.insert(window_id, bumped_use_time);
+        if let Some(history) = self.live_window_history_mut(window_id) {
+            history.use_time = bumped_use_time;
+        }
         self.window_select_count = self.window_select_count.saturating_add(1);
-        self.window_use_times
-            .insert(selected_window_id, self.window_select_count);
+        let selected_use_time = self.window_select_count;
+        if let Some(history) = self.live_window_history_mut(selected_window_id) {
+            history.use_time = selected_use_time;
+        }
         Some(bumped_use_time)
     }
 

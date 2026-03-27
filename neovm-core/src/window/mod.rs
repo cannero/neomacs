@@ -123,6 +123,24 @@ impl Default for WindowDisplayState {
     }
 }
 
+/// Live-window history state that GNU Emacs stores directly on `struct window`.
+#[derive(Clone, Debug)]
+pub struct WindowHistoryState {
+    pub prev_buffers: Value,
+    pub next_buffers: Value,
+    pub use_time: i64,
+}
+
+impl Default for WindowHistoryState {
+    fn default() -> Self {
+        Self {
+            prev_buffers: Value::Nil,
+            next_buffers: Value::Nil,
+            use_time: 0,
+        }
+    }
+}
+
 pub(crate) type WindowParameters = Vec<(Value, Value)>;
 
 // ---------------------------------------------------------------------------
@@ -160,6 +178,8 @@ pub enum Window {
         dedicated: bool,
         /// Lisp-visible per-window parameter alist, newest entries first.
         parameters: WindowParameters,
+        /// Live-window history state mirrored from GNU `struct window`.
+        history: WindowHistoryState,
         /// Desired height in lines (for fixed windows, 0 = flexible).
         fixed_height: usize,
         /// Desired width in columns (for fixed windows, 0 = flexible).
@@ -201,6 +221,7 @@ impl Window {
             point: 1,
             dedicated: false,
             parameters: Vec::new(),
+            history: WindowHistoryState::default(),
             fixed_height: 0,
             fixed_width: 0,
             hscroll: 0,
@@ -271,6 +292,22 @@ impl Window {
     pub fn parameters_mut(&mut self) -> &mut WindowParameters {
         match self {
             Window::Leaf { parameters, .. } | Window::Internal { parameters, .. } => parameters,
+        }
+    }
+
+    /// Return this live window's history state.
+    pub fn history(&self) -> Option<&WindowHistoryState> {
+        match self {
+            Window::Leaf { history, .. } => Some(history),
+            Window::Internal { .. } => None,
+        }
+    }
+
+    /// Return a mutable reference to this live window's history state.
+    pub fn history_mut(&mut self) -> Option<&mut WindowHistoryState> {
+        match self {
+            Window::Leaf { history, .. } => Some(history),
+            Window::Internal { .. } => None,
         }
     }
 
@@ -1010,10 +1047,7 @@ pub struct FrameManager {
     old_selected_window: Option<WindowId>,
     deleted_windows: HashSet<WindowId>,
     deleted_window_parameters: HashMap<WindowId, WindowParameters>,
-    window_prev_buffers: HashMap<WindowId, Value>,
-    window_next_buffers: HashMap<WindowId, Value>,
     window_buffer_positions: HashMap<WindowId, HashMap<BufferId, (usize, usize)>>,
-    window_use_times: HashMap<WindowId, i64>,
     window_select_count: i64,
 }
 
@@ -1027,10 +1061,7 @@ impl FrameManager {
             old_selected_window: None,
             deleted_windows: HashSet::new(),
             deleted_window_parameters: HashMap::new(),
-            window_prev_buffers: HashMap::new(),
-            window_next_buffers: HashMap::new(),
             window_buffer_positions: HashMap::new(),
-            window_use_times: HashMap::new(),
             window_select_count: 0,
         }
     }
@@ -1112,7 +1143,6 @@ impl FrameManager {
                         .insert(wid, window.parameters().clone());
                 }
                 self.window_buffer_positions.remove(&wid);
-                self.window_use_times.remove(&wid);
             }
             if let Some(minibuffer_wid) = frame.minibuffer_window {
                 self.deleted_windows.insert(minibuffer_wid);
@@ -1121,7 +1151,6 @@ impl FrameManager {
                         .insert(minibuffer_wid, window.parameters().clone());
                 }
                 self.window_buffer_positions.remove(&minibuffer_wid);
-                self.window_use_times.remove(&minibuffer_wid);
             }
             if self.selected == Some(id) {
                 self.selected = self.frames.keys().next().copied();
@@ -1181,7 +1210,6 @@ impl FrameManager {
             self.deleted_window_parameters
                 .insert(window_id, deleted_parameters.unwrap_or_default());
             self.window_buffer_positions.remove(&window_id);
-            self.window_use_times.remove(&window_id);
             frame.recalculate_minibuffer_bounds();
         }
 
@@ -1319,6 +1347,7 @@ fn split_window_in_tree(
                 buffer_id,
                 bounds,
                 parameters,
+                history,
                 window_start,
                 window_end_pos,
                 window_end_bytepos,
@@ -1332,6 +1361,7 @@ fn split_window_in_tree(
                 *buffer_id = new_buffer_id;
                 *bounds = right_bounds;
                 parameters.clear();
+                *history = WindowHistoryState::default();
                 *window_start = 1;
                 *window_end_pos = 0;
                 *window_end_bytepos = 0;
@@ -1758,12 +1788,6 @@ impl GcTrace for FrameManager {
                 roots.push(*v);
             }
         }
-        for v in self.window_prev_buffers.values() {
-            roots.push(*v);
-        }
-        for v in self.window_next_buffers.values() {
-            roots.push(*v);
-        }
         // Frame and window tree parameters
         for frame in self.frames.values() {
             for v in frame.parameters.values() {
@@ -1784,6 +1808,10 @@ fn trace_window(window: &Window, roots: &mut Vec<Value>) {
             for (key, value) in window.parameters() {
                 roots.push(*key);
                 roots.push(*value);
+            }
+            if let Some(history) = window.history() {
+                roots.push(history.prev_buffers);
+                roots.push(history.next_buffers);
             }
             roots.push(display.display_table);
             roots.push(display.cursor_type);
