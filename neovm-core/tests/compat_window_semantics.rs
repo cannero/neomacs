@@ -225,6 +225,51 @@ fn compat_window_semantics_matches_gnu_emacs() {
       (when (buffer-live-p b) (kill-buffer b)))))"#,
         },
         WindowCase {
+            name: "set_window_buffer_same_buffer_resets_selected_window_state",
+            form: r#"(save-window-excursion
+  (let* ((w (selected-window))
+         (b (get-buffer-create "swb-same-reset")))
+    (unwind-protect
+        (progn
+          (with-current-buffer b
+            (erase-buffer)
+            (insert (make-string 300 ?a))
+            (goto-char 40))
+          (set-window-buffer w b)
+          (set-window-start w 110)
+          (set-window-point w 120)
+          (with-current-buffer b
+            (goto-char 33))
+          (set-window-buffer w b)
+          (list (window-start w)
+                (window-point w)
+                (point)))
+      (when (buffer-live-p b) (kill-buffer b)))))"#,
+        },
+        WindowCase {
+            name: "set_window_buffer_same_buffer_resets_nonselected_window_state",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((w (split-window nil nil 'right))
+         (b (get-buffer-create "swb-other-reset")))
+    (unwind-protect
+        (progn
+          (with-current-buffer b
+            (erase-buffer)
+            (insert (make-string 300 ?a))
+            (goto-char 40))
+          (set-window-buffer w b)
+          (set-window-start w 110)
+          (set-window-point w 120)
+          (with-current-buffer b
+            (goto-char 33))
+          (set-window-buffer w b)
+          (list (window-start w)
+                (window-point w)
+                (with-current-buffer b (point))))
+      (when (buffer-live-p b) (kill-buffer b)))))"#,
+        },
+        WindowCase {
             name: "other_window_cycles_across_split_windows",
             form: r#"(save-window-excursion
   (delete-other-windows)

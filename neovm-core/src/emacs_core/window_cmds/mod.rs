@@ -3555,6 +3555,7 @@ pub(crate) fn builtin_set_window_buffer(
         }
     }
 
+    let selected_window = frames.get(fid).map(|frame| frame.selected_window);
     let (next_window_start, next_point) = frames
         .window_buffer_position(wid, buf_id)
         .unwrap_or((1, target_point));
@@ -3572,6 +3573,14 @@ pub(crate) fn builtin_set_window_buffer(
         if let Some(next_margins) = next_margins {
             *margins = next_margins;
         }
+    }
+    if old_state
+        .is_some_and(|(old_buffer_id, _, _, _)| old_buffer_id == buf_id)
+        && !keep_margins
+        && selected_window != Some(wid)
+        && let Some(buffer) = buffers.get_mut(buf_id)
+    {
+        buffer.goto_char(next_point.saturating_sub(1));
     }
     Ok(Value::Nil)
 }
