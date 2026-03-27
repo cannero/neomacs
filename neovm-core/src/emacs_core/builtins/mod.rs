@@ -3771,7 +3771,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "face-attributes-as-vector",
-        |_ctx, args| builtin_face_attributes_as_vector(args),
+        |_ctx, args| super::xfaces::builtin_face_attributes_as_vector(args),
         0,
         None,
     );

@@ -7,8 +7,11 @@
 
 use crate::emacs_core::error::{EvalResult, signal};
 use crate::emacs_core::symbol::Obarray;
-use crate::emacs_core::value::{HashKey, HashTableTest, Value, with_heap_mut};
+use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap_mut};
 use crate::face::Face as RuntimeFace;
+
+const FACE_ATTRIBUTES_VECTOR_LEN: usize = 20;
 
 /// Register bootstrap variables owned by the face subsystem.
 pub fn register_bootstrap_vars(obarray: &mut Obarray) {
@@ -69,6 +72,78 @@ pub(crate) fn builtin_frame_face_hash_table(
         .get(frame_id)
         .map(|frame| frame.face_hash_table())
         .unwrap_or(Value::hash_table(HashTableTest::Eq)))
+}
+
+fn unspecified_face_attributes_vector() -> Value {
+    Value::vector(vec![
+        Value::symbol("unspecified");
+        FACE_ATTRIBUTES_VECTOR_LEN
+    ])
+}
+
+fn face_attributes_vector_slot(attr_name: &str) -> Option<usize> {
+    match attr_name {
+        ":family" => Some(1),
+        ":foundry" => Some(2),
+        ":width" => Some(3),
+        ":height" => Some(4),
+        ":weight" => Some(5),
+        ":slant" => Some(6),
+        ":underline" => Some(7),
+        ":inverse-video" => Some(8),
+        ":foreground" => Some(9),
+        ":background" => Some(10),
+        ":stipple" => Some(11),
+        ":overline" => Some(12),
+        ":strike-through" => Some(13),
+        ":box" => Some(14),
+        ":font" => Some(15),
+        ":inherit" => Some(16),
+        ":fontset" => Some(17),
+        ":distant-foreground" => Some(18),
+        ":extend" => Some(19),
+        _ => None,
+    }
+}
+
+fn face_attr_key_name(value: &Value) -> Option<&str> {
+    match value {
+        Value::Keyword(id) | Value::Symbol(id) => Some(resolve_sym(*id)),
+        _ => None,
+    }
+}
+
+pub(crate) fn builtin_face_attributes_as_vector(args: Vec<Value>) -> EvalResult {
+    crate::emacs_core::display::expect_args("face-attributes-as-vector", &args, 1)?;
+
+    let mut attrs = vec![Value::symbol("unspecified"); FACE_ATTRIBUTES_VECTOR_LEN];
+    let Some(plist) = list_to_vec(&args[0]) else {
+        return Ok(Value::vector(attrs));
+    };
+
+    let mut i = 0;
+    while i + 1 < plist.len() {
+        let Some(attr_name) = face_attr_key_name(&plist[i]) else {
+            i += 2;
+            continue;
+        };
+        let Some(slot) = face_attributes_vector_slot(attr_name) else {
+            i += 2;
+            continue;
+        };
+
+        let value = plist[i + 1];
+        match attr_name {
+            ":foreground" | ":background" | ":distant-foreground" if value.is_nil() => {}
+            ":stipple" | ":font" | ":inherit" | ":fontset" => {}
+            ":box" if matches!(value, Value::True) => attrs[slot] = Value::Int(1),
+            _ => attrs[slot] = value,
+        }
+
+        i += 2;
+    }
+
+    Ok(Value::vector(attrs))
 }
 
 pub(crate) fn mirror_runtime_face_into_frame(
