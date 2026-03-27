@@ -93,6 +93,39 @@ fn compat_buffer_semantics_matches_gnu_emacs() {
                       (buffer-chars-modified-tick)))))
     (kill-buffer buf)))"#,
         },
+        BufferCase {
+            name: "indirect_buffer_text_properties_follow_shared_text_edits",
+            form: r#"(let ((base (get-buffer-create " *compat-buffer-text-props-base*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "abcdef")
+          (put-text-property 2 5 'face 'bold))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-buffer-text-props-indirect*" nil)))
+          (unwind-protect
+              (progn
+                (with-current-buffer indirect
+                  (delete-region 3 4))
+                (list
+                 (with-current-buffer base
+                   (list
+                    (buffer-string)
+                    (get-text-property 2 'face)
+                    (get-text-property 3 'face)
+                    (get-text-property 4 'face)
+                    (get-text-property 5 'face)))
+                 (with-current-buffer indirect
+                   (list
+                    (buffer-string)
+                    (get-text-property 2 'face)
+                    (get-text-property 3 'face)
+                    (get-text-property 4 'face)
+                    (get-text-property 5 'face)))))
+            (kill-buffer indirect))))
+    (kill-buffer base)))"#,
+        },
     ];
 
     for case in cases {

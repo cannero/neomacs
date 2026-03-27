@@ -53,6 +53,8 @@ Good:
 - `neovm-core/src/buffer/` is already a real semantic buffer subsystem.
 - Recent compatibility work improved modified/autosave state, buffer-local
   behavior, and indirect-buffer oracle coverage.
+- GNU oracle coverage now includes indirect-buffer text-property behavior after
+  shared-text mutation.
 - The deleted duplicate display-runtime text core was the right refactor:
   GNU does not split buffer semantics across a VM crate and a display crate,
   and Neomacs should not either.
@@ -102,8 +104,8 @@ buffer model.
 - Extend GNU differential coverage for:
   marker relocation, insertion-type, text property mutation, overlay ordering,
   narrowing, and undo boundary behavior.
-- Add explicit GNU oracle cases for indirect-buffer text-property sharing and
-  narrowing-marker behavior.
+- Add explicit GNU oracle cases for narrowing-marker behavior and interval/root
+  ownership transitions on indirect-buffer teardown.
 
 ## Exit criteria
 
