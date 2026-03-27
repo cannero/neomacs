@@ -860,7 +860,7 @@ pub(crate) fn builtin_require_in_vm_runtime(
             shared.require_stack.push(sym_id);
             let extra_roots = args.to_vec();
             let result =
-                shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+                shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
                     eval.load_file_internal(&path)
                 });
             let _ = shared.require_stack.pop();
@@ -887,7 +887,7 @@ pub(crate) fn builtin_provide_in_vm_runtime(
     let feature = args[0];
     let subfeatures = args.get(1).copied();
     let extra_roots = args.to_vec();
-    shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+    shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
         eval.provide_value(feature, subfeatures)
     })
 }
@@ -978,7 +978,7 @@ pub(crate) fn builtin_eval_in_vm_runtime(
     let lexical_arg = args.get(1).copied();
     let state = shared.begin_eval_with_lexical_arg(lexical_arg)?;
     let result = shared
-        .with_parent_evaluator_vm_roots(vm_gc_roots, args, move |eval| eval.eval_value(&form));
+        .with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval_value(&form));
     shared.finish_eval_with_lexical_arg(state);
     result
 }
@@ -989,7 +989,7 @@ pub(crate) fn eval_lambda_body_in_vm_runtime(
     extra_roots: &[Value],
     body: Rc<Vec<Expr>>,
 ) -> EvalResult {
-    shared.with_parent_evaluator_vm_roots(vm_gc_roots, extra_roots, move |eval| {
+    shared.with_extra_gc_roots(vm_gc_roots, extra_roots, move |eval| {
         eval.eval_lambda_body(&body)
     })
 }
@@ -8238,15 +8238,10 @@ impl Context {
     // Methods previously on VmSharedState, now on Context directly
     // -----------------------------------------------------------------------
 
-    /// `with_parent_evaluator` is no longer needed — the caller already has
-    /// `&mut Context`. This shim exists to minimize churn during the refactor;
-    /// callers can simply use `self` directly and this wrapper can be removed.
-    pub(crate) fn with_parent_evaluator<T>(&mut self, f: impl FnOnce(&mut Context) -> T) -> T {
-        f(self)
-    }
-
-    /// Same as `with_parent_evaluator` but also roots VM GC values.
-    pub(crate) fn with_parent_evaluator_vm_roots<T>(
+    /// Run a closure with extra GC roots pushed onto the temp root stack.
+    /// Used when crossing from the bytecode VM into evaluator code that may
+    /// trigger garbage collection.
+    pub(crate) fn with_extra_gc_roots<T>(
         &mut self,
         vm_gc_roots: &[Value],
         extra_roots: &[Value],

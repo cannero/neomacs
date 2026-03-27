@@ -135,7 +135,7 @@ fn vm_raw_parent_bridge_helper_is_gone() {
                 .to_path_buf();
             let source = std::fs::read_to_string(&path).expect("read Rust source");
             for (lineno, line) in source.lines().enumerate() {
-                if !line.contains("with_parent_evaluator_vm_roots_ptr(") {
+                if !line.contains("with_extra_gc_roots_ptr(") {
                     continue;
                 }
                 if rel == PathBuf::from("src/emacs_core/bytecode/vm_test.rs") {
@@ -177,7 +177,7 @@ fn vm_parent_evaluator_bridge_is_limited_to_semantic_boundaries() {
                 .to_path_buf();
             let source = std::fs::read_to_string(&path).expect("read Rust source");
             for (lineno, line) in source.lines().enumerate() {
-                if !line.contains("with_parent_evaluator_vm_roots(") {
+                if !line.contains("with_extra_gc_roots(") {
                     continue;
                 }
                 let allowed = rel == PathBuf::from("src/emacs_core/eval.rs")

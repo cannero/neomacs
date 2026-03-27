@@ -1279,7 +1279,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         .set_symbol_value("minibuffer-depth", Value::Int(minibuf_depth as i64));
 
     let extra_roots = args.to_vec();
-    let edit_result = shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, |eval| {
+    let edit_result = shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, |eval| {
         eval.minibuffer_command_loop_inner()
     });
 

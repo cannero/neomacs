@@ -209,7 +209,7 @@ pub(crate) fn builtin_eval_buffer_in_vm_runtime(
 ) -> EvalResult {
     let source = eval_buffer_source_text_in_state(&shared.buffers, args.first())?;
     eval_forms_from_source_in_runtime(&source, |form| {
-        shared.with_parent_evaluator_vm_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
+        shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
         shared.gc_safe_point();
         Ok(Value::Nil)
     })
@@ -226,7 +226,7 @@ pub(crate) fn builtin_eval_region_in_vm_runtime(
     }
 
     eval_forms_from_source_in_runtime(&source, |form| {
-        shared.with_parent_evaluator_vm_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
+        shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
         shared.gc_safe_point();
         Ok(Value::Nil)
     })

@@ -1424,7 +1424,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                     let form_val = cdr.cons_car();
                     let mut extra_roots = args_roots.to_vec();
                     extra_roots.push(form_val);
-                    let val = shared.with_parent_evaluator_vm_roots(
+                    let val = shared.with_extra_gc_roots(
                         vm_gc_roots,
                         &extra_roots,
                         move |eval| eval.eval_value(&form_val),

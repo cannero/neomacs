@@ -751,7 +751,7 @@ pub(crate) fn builtin_load_in_vm_runtime(
         LoadPlan::Return(value) => Ok(value),
         LoadPlan::Load { path } => {
             let extra_roots = args.to_vec();
-            shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+            shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
                 eval.load_file_internal(&path)
             })
         }

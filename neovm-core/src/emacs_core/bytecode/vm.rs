@@ -4705,15 +4705,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_x_get_resource_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.ctx.with_parent_evaluator(|eval| {
-            crate::emacs_core::display::builtin_x_get_resource(eval, args.to_vec())
-        })
+        crate::emacs_core::display::builtin_x_get_resource(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_x_list_fonts_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.ctx.with_parent_evaluator(|eval| {
-            crate::emacs_core::display::builtin_x_list_fonts(eval, args.to_vec())
-        })
+        crate::emacs_core::display::builtin_x_list_fonts(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_x_server_vendor_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4759,18 +4755,12 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_x_create_frame_shared(&mut self, args: &[Value]) -> EvalResult {
-        let args = args.to_vec();
-        tracing::debug!("builtin_x_create_frame_shared: delegating via parent evaluator");
-        self.ctx.with_parent_evaluator(|eval| {
-            crate::emacs_core::window_cmds::builtin_x_create_frame(eval, args)
-        })
+        tracing::debug!("builtin_x_create_frame_shared: delegating to Context");
+        crate::emacs_core::window_cmds::builtin_x_create_frame(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_make_frame_shared(&mut self, args: &[Value]) -> EvalResult {
-        let args = args.to_vec();
-        self.ctx.with_parent_evaluator(|eval| {
-            crate::emacs_core::window_cmds::builtin_make_frame(eval, args)
-        })
+        crate::emacs_core::window_cmds::builtin_make_frame(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_set_frame_height_shared(&mut self, args: &[Value]) -> EvalResult {

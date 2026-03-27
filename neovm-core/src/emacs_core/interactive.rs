@@ -1709,7 +1709,7 @@ fn interactive_eval_expression_arg_in_vm_runtime(
     vm_gc_roots: &[Value],
     prompt: String,
 ) -> Result<Value, Flow> {
-    shared.with_parent_evaluator_vm_roots(vm_gc_roots, &[], move |eval| {
+    shared.with_extra_gc_roots(vm_gc_roots, &[], move |eval| {
         let expr_value = interactive_read_expression_arg(eval, prompt)?;
         eval.eval_value(&expr_value)
     })
@@ -1728,7 +1728,7 @@ fn interactive_use_region_p_in_vm_runtime(
     vm_gc_roots: &[Value],
 ) -> Result<bool, Flow> {
     shared
-        .with_parent_evaluator_vm_roots(vm_gc_roots, &[], |eval| {
+        .with_extra_gc_roots(vm_gc_roots, &[], |eval| {
             eval.apply(Value::symbol("use-region-p"), vec![])
         })
         .map(|value| value.is_truthy())
@@ -2210,7 +2210,7 @@ fn eval_interactive_form_expr_in_vm_runtime(
     form: &Expr,
 ) -> Result<Vec<Value>, Flow> {
     let value =
-        shared.with_parent_evaluator_vm_roots(vm_gc_roots, &[], move |eval| eval.eval(form))?;
+        shared.with_extra_gc_roots(vm_gc_roots, &[], move |eval| eval.eval(form))?;
     interactive_form_value_to_args(value)
 }
 
@@ -2220,7 +2220,7 @@ fn eval_interactive_form_value_in_vm_runtime(
     form: Value,
 ) -> Result<Vec<Value>, Flow> {
     let value = shared
-        .with_parent_evaluator_vm_roots(vm_gc_roots, &[form], move |eval| eval.eval_value(&form))?;
+        .with_extra_gc_roots(vm_gc_roots, &[form], move |eval| eval.eval_value(&form))?;
     interactive_form_value_to_args(value)
 }
 
@@ -2537,7 +2537,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
         return Ok((function, call_args));
     }
 
-    shared.with_parent_evaluator_vm_roots(vm_gc_roots, extra_roots, move |eval| {
+    shared.with_extra_gc_roots(vm_gc_roots, extra_roots, move |eval| {
         resolve_call_interactively_target_and_args_in_eval(eval, plan)
     })
 }
