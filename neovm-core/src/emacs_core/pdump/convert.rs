@@ -552,6 +552,8 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         modified: buf.modified,
         modified_tick: buf.modified_tick,
         chars_modified_tick: buf.chars_modified_tick,
+        save_modified_tick: Some(buf.save_modified_tick),
+        autosave_modified_tick: Some(buf.autosave_modified_tick),
         read_only: buf.read_only,
         multibyte: buf.multibyte,
         file_name: buf.file_name.clone(),
@@ -1836,6 +1838,15 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         .map(|marker| load_marker(marker, &text))
         .collect();
 
+    let save_modified_tick = db.save_modified_tick.unwrap_or_else(|| {
+        if db.modified {
+            db.modified_tick.saturating_sub(1)
+        } else {
+            db.modified_tick
+        }
+    });
+    let autosave_modified_tick = db.autosave_modified_tick.unwrap_or(save_modified_tick);
+
     Buffer {
         id: BufferId(db.id.0),
         name: db.name.clone(),
@@ -1852,6 +1863,8 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         modified: db.modified,
         modified_tick: db.modified_tick,
         chars_modified_tick: db.chars_modified_tick,
+        save_modified_tick,
+        autosave_modified_tick,
         read_only: db.read_only,
         multibyte: db.multibyte,
         file_name: db.file_name.clone(),

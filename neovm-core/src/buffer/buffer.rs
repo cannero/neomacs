@@ -129,6 +129,11 @@ pub struct Buffer {
     pub modified_tick: i64,
     /// Monotonic character-content modification tick.
     pub chars_modified_tick: i64,
+    /// GNU `SAVE_MODIFF`: buffer-modified state is `save_modified_tick < modified_tick`.
+    pub save_modified_tick: i64,
+    /// GNU `BUF_AUTOSAVE_MODIFF`: recent auto-save state is
+    /// `save_modified_tick < autosave_modified_tick`.
+    pub autosave_modified_tick: i64,
     /// If true, insertions/deletions are forbidden.
     pub read_only: bool,
     /// Multi-byte encoding flag.  Always `true` for now.
@@ -252,6 +257,8 @@ impl Buffer {
             modified: false,
             modified_tick: 1,
             chars_modified_tick: 1,
+            save_modified_tick: 1,
+            autosave_modified_tick: 1,
             read_only: false,
             multibyte: true,
             file_name: None,
@@ -430,9 +437,9 @@ impl Buffer {
         );
         self.text_props.adjust_for_insert(insert_pos, byte_len);
         self.overlays.adjust_for_insert(insert_pos, byte_len);
-        self.modified = true;
         self.modified_tick += 1;
         self.chars_modified_tick += 1;
+        self.sync_modified_flag();
     }
 
     fn apply_byte_delete_side_effects(
@@ -497,19 +504,19 @@ impl Buffer {
 
         self.text_props.adjust_for_delete(start, end);
         self.overlays.adjust_for_delete(start, end);
-        self.modified = true;
         self.modified_tick += 1;
         self.chars_modified_tick += 1;
+        self.sync_modified_flag();
     }
 
     fn apply_same_len_edit_side_effects(&mut self, preserve_modified_state: bool) {
-        let old_modified = self.modified;
-        self.modified = true;
+        let old_state = self.modified_state_value();
         self.modified_tick += 1;
         self.chars_modified_tick += 1;
-        if preserve_modified_state {
-            self.modified = old_modified;
+        if preserve_modified_state && old_state.is_nil() {
+            self.save_modified_tick = self.modified_tick;
         }
+        self.sync_modified_flag();
     }
 
     // -- Undo helpers --------------------------------------------------------
@@ -776,8 +783,54 @@ impl Buffer {
         self.modified
     }
 
+    pub fn modified_state_value(&self) -> Value {
+        if self.save_modified_tick < self.modified_tick {
+            if self.autosave_modified_tick == self.modified_tick {
+                Value::symbol("autosaved")
+            } else {
+                Value::True
+            }
+        } else {
+            Value::Nil
+        }
+    }
+
+    pub fn recent_auto_save_p(&self) -> bool {
+        self.save_modified_tick < self.autosave_modified_tick
+    }
+
+    fn sync_modified_flag(&mut self) {
+        self.modified = self.save_modified_tick < self.modified_tick;
+    }
+
     pub fn set_modified(&mut self, flag: bool) {
-        self.modified = flag;
+        if flag {
+            if self.save_modified_tick >= self.modified_tick {
+                self.modified_tick += 1;
+            }
+        } else {
+            self.save_modified_tick = self.modified_tick;
+        }
+        self.sync_modified_flag();
+    }
+
+    pub fn restore_modified_state(&mut self, flag: Value) -> Value {
+        if flag.is_nil() {
+            self.save_modified_tick = self.modified_tick;
+        } else {
+            if self.save_modified_tick >= self.modified_tick {
+                self.modified_tick += 1;
+            }
+            if flag == Value::symbol("autosaved") {
+                self.autosave_modified_tick = self.modified_tick;
+            }
+        }
+        self.sync_modified_flag();
+        flag
+    }
+
+    pub fn mark_auto_saved(&mut self) {
+        self.autosave_modified_tick = self.modified_tick;
     }
 
     // -- Buffer-local variables ----------------------------------------------
@@ -962,6 +1015,8 @@ impl BufferManager {
         indirect.modified = root.modified;
         indirect.modified_tick = root.modified_tick;
         indirect.chars_modified_tick = root.chars_modified_tick;
+        indirect.save_modified_tick = root.save_modified_tick;
+        indirect.autosave_modified_tick = root.autosave_modified_tick;
         indirect.file_name = None;
         indirect.text_props = root.text_props.clone();
         if !clone {
@@ -1550,6 +1605,22 @@ impl BufferManager {
 
     pub fn set_buffer_modified_flag(&mut self, id: BufferId, flag: bool) -> Option<()> {
         self.buffers.get_mut(&id)?.set_modified(flag);
+        Some(())
+    }
+
+    pub fn restore_buffer_modified_state(&mut self, id: BufferId, flag: Value) -> Option<Value> {
+        Some(self.buffers.get_mut(&id)?.restore_modified_state(flag))
+    }
+
+    pub fn set_buffer_auto_saved(&mut self, id: BufferId) -> Option<()> {
+        self.buffers.get_mut(&id)?.mark_auto_saved();
+        Some(())
+    }
+
+    pub fn set_buffer_modified_tick(&mut self, id: BufferId, tick: i64) -> Option<()> {
+        let buf = self.buffers.get_mut(&id)?;
+        buf.modified_tick = tick;
+        buf.sync_modified_flag();
         Some(())
     }
 
@@ -2717,6 +2788,36 @@ mod tests {
     }
 
     #[test]
+    fn modified_state_tracks_autosaved_semantics() {
+        let mut buf = Buffer::new(BufferId(1), "test".into());
+        assert_eq!(buf.modified_state_value(), Value::Nil);
+        assert!(!buf.recent_auto_save_p());
+        assert_eq!(buf.modified_tick, 1);
+        assert_eq!(buf.chars_modified_tick, 1);
+
+        assert_eq!(buf.restore_modified_state(Value::True), Value::True);
+        assert_eq!(buf.modified_state_value(), Value::True);
+        assert_eq!(buf.modified_tick, 2);
+        assert_eq!(buf.chars_modified_tick, 1);
+        assert!(!buf.recent_auto_save_p());
+
+        assert_eq!(
+            buf.restore_modified_state(Value::symbol("autosaved")),
+            Value::symbol("autosaved")
+        );
+        assert_eq!(buf.modified_state_value(), Value::symbol("autosaved"));
+        assert_eq!(buf.modified_tick, 2);
+        assert_eq!(buf.chars_modified_tick, 1);
+        assert!(buf.recent_auto_save_p());
+
+        assert_eq!(buf.restore_modified_state(Value::Nil), Value::Nil);
+        assert_eq!(buf.modified_state_value(), Value::Nil);
+        assert_eq!(buf.modified_tick, 2);
+        assert_eq!(buf.chars_modified_tick, 1);
+        assert!(!buf.recent_auto_save_p());
+    }
+
+    #[test]
     fn modification_ticks_track_content_changes() {
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(buf.modified_tick, 1);
@@ -2729,10 +2830,12 @@ mod tests {
         buf.set_modified(false);
         assert_eq!(buf.modified_tick, 2);
         assert_eq!(buf.chars_modified_tick, 2);
+        assert_eq!(buf.modified_state_value(), Value::Nil);
 
         buf.delete_region(0, 1);
         assert_eq!(buf.modified_tick, 3);
         assert_eq!(buf.chars_modified_tick, 3);
+        assert_eq!(buf.modified_state_value(), Value::True);
     }
 
     // -----------------------------------------------------------------------

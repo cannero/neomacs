@@ -4613,7 +4613,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "recent-auto-save-p",
-        |_ctx, args| builtin_recent_auto_save_p(args),
+        buffers::builtin_recent_auto_save_p,
         0,
         None,
     );
@@ -4652,7 +4652,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "restore-buffer-modified-p",
-        |_ctx, args| builtin_restore_buffer_modified_p(args),
+        buffers::builtin_restore_buffer_modified_p,
         0,
         None,
     );
@@ -4664,7 +4664,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set-buffer-auto-saved",
-        |_ctx, args| builtin_set_buffer_auto_saved(args),
+        buffers::builtin_set_buffer_auto_saved,
         0,
         None,
     );

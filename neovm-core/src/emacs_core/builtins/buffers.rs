@@ -2632,12 +2632,12 @@ pub(crate) fn builtin_buffer_modified_p(
         let buf = eval.buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        return Ok(Value::bool(buf.is_modified()));
+        return Ok(buf.modified_state_value());
     }
 
     let id = expect_buffer_id(&args[0])?;
     if let Some(buf) = eval.buffers.get(id) {
-        Ok(Value::bool(buf.is_modified()))
+        Ok(buf.modified_state_value())
     } else {
         Ok(Value::Nil)
     }
@@ -2648,12 +2648,26 @@ pub(crate) fn builtin_set_buffer_modified_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-buffer-modified-p", &args, 1)?;
-    let flag = args[0].is_truthy();
     let current_id = eval.buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.set_buffer_modified_flag(current_id, flag);
+    let _ = eval
+        .buffers
+        .restore_buffer_modified_state(current_id, args[0]);
     Ok(args[0])
+}
+
+pub(crate) fn builtin_restore_buffer_modified_p(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("restore-buffer-modified-p", &args, 1)?;
+    let current_id = eval.buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    eval.buffers
+        .restore_buffer_modified_state(current_id, args[0])
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))
 }
 
 fn optional_buffer_tick_target_in_manager(
@@ -2694,6 +2708,31 @@ pub(crate) fn builtin_buffer_chars_modified_tick(
         return Ok(Value::Int(buf.chars_modified_tick));
     }
     Ok(Value::Int(1))
+}
+
+pub(crate) fn builtin_recent_auto_save_p(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("recent-auto-save-p", &args, 0)?;
+    let buf = eval.buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    Ok(Value::bool(buf.recent_auto_save_p()))
+}
+
+pub(crate) fn builtin_set_buffer_auto_saved(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-buffer-auto-saved", &args, 0)?;
+    let current_id = eval.buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    eval.buffers
+        .set_buffer_auto_saved(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_buffer_list(

@@ -504,6 +504,10 @@ pub struct DumpBuffer {
     pub modified: bool,
     pub modified_tick: i64,
     pub chars_modified_tick: i64,
+    #[serde(default)]
+    pub save_modified_tick: Option<i64>,
+    #[serde(default)]
+    pub autosave_modified_tick: Option<i64>,
     pub read_only: bool,
     pub multibyte: bool,
     pub file_name: Option<String>,
