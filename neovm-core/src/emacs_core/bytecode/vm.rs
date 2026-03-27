@@ -3916,11 +3916,9 @@ impl<'a> Vm<'a> {
                 restored_value,
                 specpdl_count,
             } => {
-                crate::emacs_core::eval::unbind_to_in_state(
-                    &mut self.ctx.obarray,
-                    &mut self.ctx.specpdl,
-                    specpdl_count,
-                );
+                // Use full unbind_to which handles LetLocal (buffer-local)
+                // and LetDefault bindings, not just plain Let bindings.
+                self.ctx.unbind_to(specpdl_count);
                 self.run_variable_watchers(&name, &restored_value, &Value::Nil, "unlet")?;
             }
             VmUnwindEntry::LexicalBinding {
@@ -4740,21 +4738,21 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_tty_type_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::terminal::pure::builtin_tty_type_eval(
+        crate::emacs_core::terminal::pure::builtin_tty_type(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_suspend_tty_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::terminal::pure::builtin_suspend_tty_eval(
+        crate::emacs_core::terminal::pure::builtin_suspend_tty(
             &mut *self.ctx,
             args.to_vec(),
         )
     }
 
     fn builtin_resume_tty_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::terminal::pure::builtin_resume_tty_eval(
+        crate::emacs_core::terminal::pure::builtin_resume_tty(
             &mut *self.ctx,
             args.to_vec(),
         )
