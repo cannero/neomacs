@@ -504,6 +504,7 @@ impl FrameManager {
             buffer_id: leaf_buffer_id,
             window_start: leaf_window_start,
             point: leaf_point,
+            old_point,
             hscroll,
             vscroll,
             preserve_vscroll_p,
@@ -517,6 +518,7 @@ impl FrameManager {
             *leaf_window_start = window_start.max(1);
             *leaf_point = point.max(1);
             if !preserve_display_state {
+                *old_point = point.max(1);
                 *hscroll = 0;
                 *vscroll = 0;
                 *preserve_vscroll_p = false;

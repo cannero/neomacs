@@ -176,6 +176,8 @@ pub enum Window {
         window_end_valid: bool,
         /// Cursor (point) position in this window.
         point: usize,
+        /// Previous point value mirrored from GNU `w->old_pointm`.
+        old_point: usize,
         /// Whether this is a dedicated window.
         dedicated: bool,
         /// Lisp-visible per-window parameter alist, newest entries first.
@@ -228,6 +230,7 @@ impl Window {
             window_end_vpos: 0,
             window_end_valid: false,
             point: 1,
+            old_point: 1,
             dedicated: false,
             parameters: Vec::new(),
             history: WindowHistoryState::default(),
@@ -1360,6 +1363,7 @@ fn split_window_in_tree(
                 window_end_vpos,
                 window_end_valid,
                 point,
+                old_point,
                 vscroll,
                 preserve_vscroll_p,
                 ..
@@ -1376,6 +1380,7 @@ fn split_window_in_tree(
                 *window_end_vpos = 0;
                 *window_end_valid = false;
                 *point = 1;
+                *old_point = 1;
                 *vscroll = 0;
                 *preserve_vscroll_p = false;
             }

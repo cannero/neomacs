@@ -122,6 +122,38 @@ fn compat_window_semantics_matches_gnu_emacs() {
       (when (buffer-live-p b2) (kill-buffer b2)))))"#,
         },
         WindowCase {
+            name: "window_old_point_tracks_gnu_set_window_buffer_resets",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((w (selected-window))
+         (b (get-buffer-create " *compat-window-old-point*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer b
+            (erase-buffer)
+            (insert (make-string 40 ?x))
+            (goto-char 7))
+          (set-window-buffer w b)
+          (list
+           (window-point w)
+           (window-old-point w)
+           (progn
+             (set-window-point w 13)
+             (list (window-point w)
+                   (window-old-point w)))
+           (progn
+             (set-window-buffer w b t)
+             (list (window-point w)
+                   (window-old-point w)))
+           (progn
+             (with-current-buffer b
+               (goto-char 21))
+             (set-window-buffer w b nil)
+             (list (window-point w)
+                   (window-old-point w)))))
+      (when (buffer-live-p b) (kill-buffer b)))))"#,
+        },
+        WindowCase {
             name: "set_window_buffer_updates_history_lists",
             form: r#"(save-window-excursion
   (delete-other-windows)

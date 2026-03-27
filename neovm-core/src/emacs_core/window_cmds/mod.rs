@@ -1897,7 +1897,7 @@ pub(crate) fn builtin_window_old_point(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
     match w {
-        Window::Leaf { point, .. } => Ok(Value::Int((*point).max(1) as i64)),
+        Window::Leaf { old_point, .. } => Ok(Value::Int((*old_point).max(1) as i64)),
         _ => Ok(Value::Int(1)),
     }
 }
