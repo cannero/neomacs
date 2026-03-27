@@ -18,13 +18,6 @@ use crate::window::{
 };
 use std::collections::HashSet;
 
-pub(crate) use super::builtins::{
-    builtin_coordinates_in_window_p, builtin_split_window_internal,
-    builtin_current_window_configuration, builtin_run_window_configuration_change_hook,
-    builtin_run_window_scroll_functions, builtin_set_window_configuration,
-    builtin_window_configuration_equal_p, builtin_window_configuration_frame,
-    builtin_window_configuration_p,
-};
 pub(crate) use super::builtins::symbols::{
     builtin_resize_mini_window_internal, builtin_set_window_new_normal,
     builtin_set_window_new_pixel, builtin_set_window_new_total,
@@ -37,6 +30,13 @@ pub(crate) use super::builtins::{
     builtin_window_old_body_pixel_width, builtin_window_old_pixel_height,
     builtin_window_old_pixel_width, builtin_window_right_divider_width,
     builtin_window_scroll_bar_height, builtin_window_scroll_bar_width,
+};
+pub(crate) use super::builtins::{
+    builtin_coordinates_in_window_p, builtin_current_window_configuration,
+    builtin_run_window_configuration_change_hook, builtin_run_window_scroll_functions,
+    builtin_set_window_configuration, builtin_split_window_internal,
+    builtin_window_configuration_equal_p, builtin_window_configuration_frame,
+    builtin_window_configuration_p,
 };
 
 // ---------------------------------------------------------------------------
@@ -930,7 +930,12 @@ pub(crate) fn builtin_set_frame_selected_window(
 ) -> EvalResult {
     expect_min_args("set-frame-selected-window", &args, 2)?;
     expect_max_args("set-frame-selected-window", &args, 3)?;
-    let fid = resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        args.first(),
+        "frame-live-p",
+    )?;
     let wid = match window_id_from_designator(&args[1]) {
         Some(wid) => {
             if eval.frames.find_window_frame_id(wid).is_none() {
@@ -948,7 +953,8 @@ pub(crate) fn builtin_set_frame_selected_window(
             ));
         }
     };
-    let window_fid = eval.frames
+    let window_fid = eval
+        .frames
         .find_window_frame_id(wid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     if window_fid != fid {
@@ -968,7 +974,8 @@ pub(crate) fn builtin_set_frame_selected_window(
         return builtin_select_window(eval, select_args);
     }
 
-    let frame = eval.frames
+    let frame = eval
+        .frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.selected_window = wid;
@@ -1421,10 +1428,7 @@ fn estimated_window_end_from_body_lines(
 }
 
 /// `(window-end &optional WINDOW UPDATE)` -> integer position.
-pub(crate) fn builtin_window_end(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_window_end(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-end", &args, 2)?;
     let (fid, wid) =
@@ -2000,10 +2004,7 @@ fn default_scroll_columns_in_state(frames: &FrameManager, fid: FrameId, wid: Win
     (window_cols - 2).max(1)
 }
 /// `(scroll-left &optional SET-MINIMUM ARG)` -> new horizontal scroll amount.
-pub(crate) fn builtin_scroll_left(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scroll_left(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("scroll-left", &args, 2)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
@@ -2629,10 +2630,7 @@ pub(crate) fn window_total_width_impl(
     Ok(Value::Int(window_width_cols(w, cw)))
 }
 /// `(window-list &optional FRAME MINIBUF ALL-FRAMES)` -> list of window objects.
-pub(crate) fn builtin_window_list(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_window_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-list", &args, 3)?;
     let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
@@ -2899,10 +2897,7 @@ pub(crate) fn builtin_set_window_dedicated_p(
     Ok(Value::bool(flag))
 }
 /// `(windowp OBJ)` -> t if OBJ is a window object/designator that exists.
-pub(crate) fn builtin_windowp(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_windowp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let frames = &eval.frames;
     expect_args("windowp", &args, 1)?;
     let wid = match window_id_from_designator(&args[0]) {
@@ -2938,10 +2933,7 @@ pub(crate) fn builtin_window_live_p(
     Ok(Value::bool(frames.is_live_window_id(wid)))
 }
 /// `(window-at X Y &optional FRAME)` -> window object or nil.
-pub(crate) fn builtin_window_at(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_window_at(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("window-at", &args, 2)?;
     expect_max_args("window-at", &args, 3)?;
@@ -3307,10 +3299,7 @@ pub(crate) fn builtin_other_window_for_scrolling(
     Ok(window_value(other))
 }
 /// `(next-window &optional WINDOW MINIBUF ALL-FRAMES)` -> window object.
-pub(crate) fn builtin_next_window(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_next_window(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("next-window", &args, 3)?;
     let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
@@ -3349,7 +3338,7 @@ pub(crate) fn builtin_set_window_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+    let (frames, buffers, minibuffers) = (&mut eval.frames, &mut eval.buffers, &eval.minibuffers);
     expect_min_args("set-window-buffer", &args, 2)?;
     expect_max_args("set-window-buffer", &args, 3)?;
     let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
@@ -3411,6 +3400,7 @@ pub(crate) fn builtin_set_window_buffer(
                 )
             })?;
             let old_buffer_value = Value::Buffer(old_buffer_id);
+            let new_buffer_value = Value::Buffer(buf_id);
             let marker_buffer_name = buffers.get(old_buffer_id).map(|buf| buf.name.clone());
             let old_window_start_pos = old_window_start.max(1) as i64;
             let old_point_pos = old_point.max(1) as i64;
@@ -3433,14 +3423,25 @@ pub(crate) fn builtin_set_window_buffer(
                     let Some(items) = list_to_vec(entry) else {
                         return true;
                     };
-                    !matches!(items.first(), Some(first) if *first == old_buffer_value)
+                    !matches!(items.first(), Some(first) if *first == old_buffer_value || *first == new_buffer_value)
                 })
                 .collect::<Vec<_>>();
-            let mut next_prev = Vec::with_capacity(filtered_prev.len() + 1);
-            next_prev.push(history_entry);
-            next_prev.extend(filtered_prev);
-            frames.set_window_prev_buffers(wid, Value::list(next_prev));
             frames.set_window_next_buffers(wid, Value::Nil);
+            let should_record_old_buffer = if is_minibuffer_window(frames, fid, wid) {
+                minibuffers.has_buffer(old_buffer_id)
+            } else {
+                marker_buffer_name
+                    .as_deref()
+                    .is_some_and(|name| !name.starts_with(' '))
+            };
+            if should_record_old_buffer {
+                let mut next_prev = Vec::with_capacity(filtered_prev.len() + 1);
+                next_prev.push(history_entry);
+                next_prev.extend(filtered_prev);
+                frames.set_window_prev_buffers(wid, Value::list(next_prev));
+            } else {
+                frames.set_window_prev_buffers(wid, Value::list(filtered_prev));
+            }
         }
     }
 
@@ -3883,10 +3884,7 @@ fn scroll_lines_in_state(
 ///
 /// Mirror GNU Emacs Fscroll_up (window.c): move point forward by ARG lines
 /// (or a windowful if nil).  Signals end-of-buffer if already at end.
-pub(crate) fn builtin_scroll_up(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scroll_up(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (obarray, frames, buffers) = (&eval.obarray, &mut eval.frames, &mut eval.buffers);
     expect_max_args("scroll-up", &args, 1)?;
     let arg = args.first().cloned();
@@ -3897,10 +3895,7 @@ pub(crate) fn builtin_scroll_up(
 ///
 /// Mirror GNU Emacs Fscroll_down (window.c): move point backward by ARG lines
 /// (or a windowful if nil).  Signals beginning-of-buffer if already at start.
-pub(crate) fn builtin_scroll_down(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_scroll_down(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (obarray, frames, buffers) = (&eval.obarray, &mut eval.frames, &mut eval.buffers);
     expect_max_args("scroll-down", &args, 1)?;
     let arg = args.first().cloned();
@@ -3999,10 +3994,7 @@ pub(crate) fn builtin_recenter_top_bottom(
 /// Mirror GNU Emacs Frecenter (window.c): adjust window-start so that
 /// point appears at the center of the window, or at line ARG from the
 /// top (or bottom if ARG is negative).
-pub(crate) fn builtin_recenter(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("recenter", &args, 2)?;
 
@@ -4230,10 +4222,7 @@ pub(crate) fn builtin_select_frame_set_input_focus(
     Ok(Value::Nil)
 }
 /// `(frame-list)` -> list of frame objects.
-pub(crate) fn builtin_frame_list(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_frame_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_args("frame-list", &args, 0)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
@@ -4453,11 +4442,17 @@ pub(crate) fn builtin_set_frame_height(
 ) -> EvalResult {
     expect_min_args("set-frame-height", &args, 2)?;
     expect_max_args("set-frame-height", &args, 4)?;
-    let fid = resolve_frame_id_in_state(&mut ctx.frames, &mut ctx.buffers, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(
+        &mut ctx.frames,
+        &mut ctx.buffers,
+        Some(&args[0]),
+        "frame-live-p",
+    )?;
     let pretend = args.get(2).is_some_and(Value::is_truthy);
     let pixelwise = args.get(3).is_some_and(Value::is_truthy);
     let (current_text_width_px, char_height, uses_window_system_pixels) = {
-        let frame = &mut ctx.frames
+        let frame = &mut ctx
+            .frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         (
@@ -4478,7 +4473,8 @@ pub(crate) fn builtin_set_frame_height(
         )?;
     } else {
         let cols = {
-            let frame = &mut ctx.frames
+            let frame = &mut ctx
+                .frames
                 .get(fid)
                 .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
             frame_total_cols(frame)
@@ -4486,7 +4482,8 @@ pub(crate) fn builtin_set_frame_height(
         let text_lines = ((text_height_px as f32) / char_height.max(1.0))
             .floor()
             .max(1.0) as i64;
-        let frame = &mut ctx.frames
+        let frame = &mut ctx
+            .frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         set_frame_text_size(frame, cols, text_lines);
@@ -4500,11 +4497,17 @@ pub(crate) fn builtin_set_frame_width(
 ) -> EvalResult {
     expect_min_args("set-frame-width", &args, 2)?;
     expect_max_args("set-frame-width", &args, 4)?;
-    let fid = resolve_frame_id_in_state(&mut ctx.frames, &mut ctx.buffers, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(
+        &mut ctx.frames,
+        &mut ctx.buffers,
+        Some(&args[0]),
+        "frame-live-p",
+    )?;
     let pretend = args.get(2).is_some_and(Value::is_truthy);
     let pixelwise = args.get(3).is_some_and(Value::is_truthy);
     let (current_text_height_px, char_width, uses_window_system_pixels) = {
-        let frame = &mut ctx.frames
+        let frame = &mut ctx
+            .frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         (
@@ -4525,7 +4528,8 @@ pub(crate) fn builtin_set_frame_width(
         )?;
     } else {
         let text_lines = {
-            let frame = &mut ctx.frames
+            let frame = &mut ctx
+                .frames
                 .get(fid)
                 .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
             frame_text_lines(frame)
@@ -4533,7 +4537,8 @@ pub(crate) fn builtin_set_frame_width(
         let cols = ((text_width_px as f32) / char_width.max(1.0))
             .floor()
             .max(1.0) as i64;
-        let frame = &mut ctx.frames
+        let frame = &mut ctx
+            .frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         set_frame_text_size(frame, cols, text_lines);
@@ -4547,10 +4552,16 @@ pub(crate) fn builtin_set_frame_size(
 ) -> EvalResult {
     expect_min_args("set-frame-size", &args, 3)?;
     expect_max_args("set-frame-size", &args, 4)?;
-    let fid = resolve_frame_id_in_state(&mut ctx.frames, &mut ctx.buffers, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(
+        &mut ctx.frames,
+        &mut ctx.buffers,
+        Some(&args[0]),
+        "frame-live-p",
+    )?;
     let pixelwise = args.get(3).is_some_and(Value::is_truthy);
     let (char_width, char_height, uses_window_system_pixels) = {
-        let frame = &mut ctx.frames
+        let frame = &mut ctx
+            .frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         (
@@ -4587,7 +4598,8 @@ pub(crate) fn builtin_set_frame_size(
         let text_lines = ((text_height_px as f32) / char_height.max(1.0))
             .floor()
             .max(1.0) as i64;
-        let frame = &mut ctx.frames
+        let frame = &mut ctx
+            .frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         tracing::debug!(

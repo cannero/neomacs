@@ -96,6 +96,41 @@ fn compat_window_semantics_matches_gnu_emacs() {
       (when (buffer-live-p b2) (kill-buffer b2)))))"#,
         },
         WindowCase {
+            name: "set_window_buffer_updates_history_lists",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((w (selected-window))
+         (b1 (get-buffer-create " *compat-swb-hist-a*"))
+         (b2 (get-buffer-create " *compat-swb-hist-b*"))
+         (n '((foo 1 2))))
+    (unwind-protect
+        (progn
+          (with-current-buffer b1
+            (erase-buffer)
+            (insert (make-string 300 ?a)))
+          (with-current-buffer b2
+            (erase-buffer)
+            (insert (make-string 300 ?b)))
+          (set-window-prev-buffers w nil)
+          (set-window-next-buffers w nil)
+          (set-window-buffer w b1)
+          (set-window-start w 7)
+          (set-window-point w 11)
+          (set-window-next-buffers w n)
+          (set-window-buffer w b2)
+          (list
+           (null (window-next-buffers w))
+           (mapcar (lambda (e) (buffer-name (car e))) (window-prev-buffers w))
+           (mapcar (lambda (e)
+                     (list (markerp (nth 1 e))
+                           (marker-position (nth 1 e))
+                           (markerp (nth 2 e))
+                           (marker-position (nth 2 e))))
+                   (window-prev-buffers w))))
+      (when (buffer-live-p b1) (kill-buffer b1))
+      (when (buffer-live-p b2) (kill-buffer b2)))))"#,
+        },
+        WindowCase {
             name: "other_window_cycles_across_split_windows",
             form: r#"(save-window-excursion
   (delete-other-windows)
