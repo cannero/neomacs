@@ -296,6 +296,26 @@ fn compat_window_semantics_matches_gnu_emacs() {
       (when (buffer-live-p b) (kill-buffer b)))))"#,
         },
         WindowCase {
+            name: "set_window_buffer_resets_hscroll_except_keep_margins_same_buffer",
+            form: r#"(save-window-excursion
+  (let* ((w (selected-window))
+         (b (get-buffer-create "swb-hscroll-reset")))
+    (unwind-protect
+        (progn
+          (set-window-buffer w b)
+          (set-window-hscroll w 7)
+          (list
+           (window-hscroll w)
+           (progn
+             (set-window-buffer w b)
+             (window-hscroll w))
+           (progn
+             (set-window-hscroll w 7)
+             (set-window-buffer w b t)
+             (window-hscroll w))))
+      (when (buffer-live-p b) (kill-buffer b)))))"#,
+        },
+        WindowCase {
             name: "other_window_cycles_across_split_windows",
             form: r#"(save-window-excursion
   (delete-other-windows)

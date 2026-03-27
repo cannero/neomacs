@@ -1047,7 +1047,6 @@ pub struct FrameManager {
     old_selected_window: Option<WindowId>,
     deleted_windows: HashSet<WindowId>,
     deleted_window_parameters: HashMap<WindowId, WindowParameters>,
-    window_buffer_positions: HashMap<WindowId, HashMap<BufferId, (usize, usize)>>,
     window_select_count: i64,
 }
 
@@ -1061,7 +1060,6 @@ impl FrameManager {
             old_selected_window: None,
             deleted_windows: HashSet::new(),
             deleted_window_parameters: HashMap::new(),
-            window_buffer_positions: HashMap::new(),
             window_select_count: 0,
         }
     }
@@ -1142,7 +1140,6 @@ impl FrameManager {
                     self.deleted_window_parameters
                         .insert(wid, window.parameters().clone());
                 }
-                self.window_buffer_positions.remove(&wid);
             }
             if let Some(minibuffer_wid) = frame.minibuffer_window {
                 self.deleted_windows.insert(minibuffer_wid);
@@ -1150,7 +1147,6 @@ impl FrameManager {
                     self.deleted_window_parameters
                         .insert(minibuffer_wid, window.parameters().clone());
                 }
-                self.window_buffer_positions.remove(&minibuffer_wid);
             }
             if self.selected == Some(id) {
                 self.selected = self.frames.keys().next().copied();
@@ -1209,7 +1205,6 @@ impl FrameManager {
             self.deleted_windows.insert(window_id);
             self.deleted_window_parameters
                 .insert(window_id, deleted_parameters.unwrap_or_default());
-            self.window_buffer_positions.remove(&window_id);
             frame.recalculate_minibuffer_bounds();
         }
 

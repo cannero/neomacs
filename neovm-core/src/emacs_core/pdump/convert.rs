@@ -554,6 +554,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         chars_modified_tick: buf.chars_modified_tick,
         save_modified_tick: Some(buf.save_modified_tick),
         autosave_modified_tick: Some(buf.autosave_modified_tick),
+        last_window_start: Some(buf.last_window_start),
         read_only: buf.read_only,
         multibyte: buf.multibyte,
         file_name: buf.file_name.clone(),
@@ -1847,6 +1848,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         }
     });
     let autosave_modified_tick = db.autosave_modified_tick.unwrap_or(save_modified_tick);
+    let last_window_start = db.last_window_start.unwrap_or(1).max(1);
 
     Buffer {
         id: BufferId(db.id.0),
@@ -1866,6 +1868,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         chars_modified_tick: db.chars_modified_tick,
         save_modified_tick,
         autosave_modified_tick,
+        last_window_start,
         read_only: db.read_only,
         multibyte: db.multibyte,
         file_name: db.file_name.clone(),

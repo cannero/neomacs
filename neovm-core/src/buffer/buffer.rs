@@ -134,6 +134,9 @@ pub struct Buffer {
     /// GNU `BUF_AUTOSAVE_MODIFF`: recent auto-save state is
     /// `save_modified_tick < autosave_modified_tick`.
     pub autosave_modified_tick: i64,
+    /// GNU `last_window_start`: start position of the most recently
+    /// disconnected window that showed this buffer.
+    pub last_window_start: usize,
     /// If true, insertions/deletions are forbidden.
     pub read_only: bool,
     /// Multi-byte encoding flag.  Always `true` for now.
@@ -288,6 +291,7 @@ impl Buffer {
             chars_modified_tick: 1,
             save_modified_tick: 1,
             autosave_modified_tick: 1,
+            last_window_start: 1,
             read_only: false,
             multibyte: true,
             file_name: None,

@@ -1,5 +1,4 @@
 use super::{FrameManager, Window, WindowId};
-use crate::buffer::BufferId;
 use crate::emacs_core::value::Value;
 
 impl FrameManager {
@@ -95,28 +94,5 @@ impl FrameManager {
     /// Return the old selected window, when tracked.
     pub fn old_selected_window(&self) -> Option<WindowId> {
         self.old_selected_window
-    }
-
-    /// Return saved window state (window-start, point) for BUFFER-ID in WINDOW-ID.
-    pub fn window_buffer_position(
-        &self,
-        window_id: WindowId,
-        buffer_id: BufferId,
-    ) -> Option<(usize, usize)> {
-        self.window_buffer_positions
-            .get(&window_id)
-            .and_then(|by_buffer| by_buffer.get(&buffer_id).copied())
-    }
-
-    /// Save per-window state (window-start, point) for BUFFER-ID in WINDOW-ID.
-    pub fn set_window_buffer_position(
-        &mut self,
-        window_id: WindowId,
-        buffer_id: BufferId,
-        window_start: usize,
-        point: usize,
-    ) {
-        let by_buffer = self.window_buffer_positions.entry(window_id).or_default();
-        by_buffer.insert(buffer_id, (window_start.max(1), point.max(1)));
     }
 }

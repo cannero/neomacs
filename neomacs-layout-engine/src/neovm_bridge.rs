@@ -39,6 +39,14 @@ fn effective_buffer_value(buffer: &Buffer, obarray: &Obarray, name: &str) -> Opt
         .or_else(|| obarray.symbol_value(name).copied())
 }
 
+fn frame_parameter_int(frame: &Frame, name: &str, default: i64) -> i64 {
+    frame
+        .parameters
+        .get(name)
+        .and_then(Value::as_int)
+        .unwrap_or(default)
+}
+
 /// Build `FrameParams` from a neovm-core `Frame`, reading default face
 /// colors from the face table.
 pub fn frame_params_from_neovm(frame: &Frame, face_table: &FaceTable) -> FrameParams {
@@ -314,7 +322,8 @@ pub fn window_params_from_neovm(
         point,
         hscroll,
         margins,
-        fringes,
+        left_fringe_width,
+        right_fringe_width,
     ) = match window {
         Window::Leaf {
             id,
@@ -326,7 +335,7 @@ pub fn window_params_from_neovm(
             point,
             hscroll,
             margins,
-            fringes,
+            display,
             ..
         } => (
             *id,
@@ -338,7 +347,16 @@ pub fn window_params_from_neovm(
             *point,
             *hscroll,
             *margins,
-            *fringes,
+            if display.left_fringe_width >= 0 {
+                display.left_fringe_width
+            } else {
+                frame_parameter_int(frame, "left-fringe", 8) as i32
+            },
+            if display.right_fringe_width >= 0 {
+                display.right_fringe_width
+            } else {
+                frame_parameter_int(frame, "right-fringe", 8) as i32
+            },
         ),
         Window::Internal { .. } => return None,
     };
@@ -361,8 +379,8 @@ pub fn window_params_from_neovm(
     let display_bounds = Rect::new(bounds.x, bounds.y, bounds.width, bounds.height);
 
     // Compute text bounds (bounds minus fringes and margins).
-    let left_fringe = fringes.0 as f32;
-    let right_fringe = fringes.1 as f32;
+    let left_fringe = left_fringe_width.max(0) as f32;
+    let right_fringe = right_fringe_width.max(0) as f32;
     let left_margin = margins.0 as f32 * char_width;
     let right_margin = margins.1 as f32 * char_width;
     let text_x = bounds.x + left_fringe + left_margin;

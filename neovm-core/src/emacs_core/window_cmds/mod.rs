@@ -3589,6 +3589,7 @@ pub(crate) fn builtin_set_window_buffer(
     };
 
     let keep_margins = args.get(2).is_some_and(|arg| !arg.is_nil());
+    let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
     let next_margins = if keep_margins {
         None
     } else {
@@ -3630,12 +3631,6 @@ pub(crate) fn builtin_set_window_buffer(
             horizontal_type,
         ))
     };
-    let target_point = buffers
-        .get(buf_id)
-        .map(|buf| buf.point_char().saturating_add(1))
-        .unwrap_or(1)
-        .max(1);
-
     let mut old_state = None;
     if let Some(Window::Leaf {
         buffer_id,
@@ -3660,7 +3655,18 @@ pub(crate) fn builtin_set_window_buffer(
                 ))],
             ));
         }
-        frames.set_window_buffer_position(wid, old_buffer_id, old_window_start, old_point);
+        if let Some(buffer) = buffers.get_mut(old_buffer_id) {
+            buffer.last_window_start = old_window_start.max(1);
+        }
+        let selected_buffer_id = frames
+            .get(selected_fid)
+            .and_then(|frame| frame.find_window(frame.selected_window))
+            .and_then(Window::buffer_id);
+        if selected_buffer_id != Some(old_buffer_id)
+            && let Some(buffer) = buffers.get_mut(old_buffer_id)
+        {
+            buffer.goto_char(old_point.saturating_sub(1));
+        }
         if old_buffer_id != buf_id {
             let old_buffer_value = Value::Buffer(old_buffer_id);
             let new_buffer_value = Value::Buffer(buf_id);
@@ -3706,9 +3712,22 @@ pub(crate) fn builtin_set_window_buffer(
     }
 
     let selected_window = frames.get(fid).map(|frame| frame.selected_window);
-    let (next_window_start, next_point) = frames
-        .window_buffer_position(wid, buf_id)
-        .unwrap_or((1, target_point));
+    let same_buffer = old_state.is_some_and(|(old_buffer_id, _, _, _)| old_buffer_id == buf_id);
+    let (next_window_start, next_point) = if same_buffer && keep_margins {
+        old_state
+            .map(|(_, window_start, point, _)| (window_start.max(1), point.max(1)))
+            .unwrap_or((1, 1))
+    } else {
+        buffers
+            .get(buf_id)
+            .map(|buf| {
+                (
+                    buf.last_window_start.max(1),
+                    buf.point_char().saturating_add(1).max(1),
+                )
+            })
+            .unwrap_or((1, 1))
+    };
     let (fringes_persistent, scroll_bars_persistent) = frames
         .get(fid)
         .and_then(|frame| frame.find_window(wid))
@@ -3719,6 +3738,7 @@ pub(crate) fn builtin_set_window_buffer(
         buffer_id,
         window_start,
         point,
+        hscroll,
         margins,
         ..
     }) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid))
@@ -3726,6 +3746,9 @@ pub(crate) fn builtin_set_window_buffer(
         *buffer_id = buf_id;
         *window_start = next_window_start.max(1);
         *point = next_point.max(1);
+        if !(same_buffer && keep_margins) {
+            *hscroll = 0;
+        }
         if let Some(next_margins) = next_margins {
             *margins = next_margins;
         }
@@ -3746,13 +3769,6 @@ pub(crate) fn builtin_set_window_buffer(
             horizontal_type,
             false,
         );
-    }
-    if old_state.is_some_and(|(old_buffer_id, _, _, _)| old_buffer_id == buf_id)
-        && !keep_margins
-        && selected_window != Some(wid)
-        && let Some(buffer) = buffers.get_mut(buf_id)
-    {
-        buffer.goto_char(next_point.saturating_sub(1));
     }
     Ok(Value::Nil)
 }
