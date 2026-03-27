@@ -1,0 +1,122 @@
+mod common;
+
+use common::{oracle_enabled, run_neovm_eval, run_oracle_eval};
+
+struct WindowCase {
+    name: &'static str,
+    form: &'static str,
+}
+
+#[test]
+fn compat_window_semantics_matches_gnu_emacs() {
+    if !oracle_enabled() {
+        eprintln!(
+            "skipping window semantics audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo"
+        );
+        return;
+    }
+
+    let cases = [
+        WindowCase {
+            name: "window_tree_navigation_and_normal_size",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((left (selected-window))
+         (right (split-window nil nil 'right))
+         (bottom (split-window right nil 'below))
+         (root (frame-root-window))
+         (vparent (window-parent right)))
+    (list (window-valid-p root)
+          (window-live-p root)
+          (eq (window-parent left) root)
+          (eq (window-next-sibling left) vparent)
+          (eq (window-left-child root) left)
+          (window-top-child root)
+          (eq (window-parent right) vparent)
+          (eq (window-parent bottom) vparent)
+          (eq (window-top-child vparent) right)
+          (window-left-child vparent)
+          (eq (window-next-sibling right) bottom)
+          (eq (window-prev-sibling bottom) right)
+          (window-normal-size left)
+          (window-normal-size left t)
+          (window-normal-size right)
+          (window-normal-size right t)
+          (window-normal-size vparent)
+          (window-normal-size vparent t))))"#,
+        },
+        WindowCase {
+            name: "set_window_buffer_restores_saved_window_state",
+            form: r#"(save-window-excursion
+  (let* ((w (selected-window))
+         (b1 (get-buffer-create " *compat-swb-a*"))
+         (b2 (get-buffer-create " *compat-swb-b*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer b1
+            (erase-buffer)
+            (insert (make-string 300 ?a))
+            (goto-char 120))
+          (with-current-buffer b2
+            (erase-buffer)
+            (insert (make-string 300 ?b))
+            (goto-char 150))
+          (set-window-buffer w b1)
+          (set-window-start w 110)
+          (set-window-point w 120)
+          (set-window-margins w 3 4)
+          (list
+           (list (window-start w)
+                 (window-point w)
+                 (window-margins w))
+           (progn
+             (set-window-buffer w b2)
+             (list (window-start w)
+                   (window-point w)
+                   (window-margins w)))
+           (progn
+             (set-window-margins w 7 8)
+             (set-window-buffer w b1 t)
+             (list (window-start w)
+                   (window-point w)
+                   (window-margins w)))
+           (progn
+             (set-window-margins w 9 10)
+             (set-window-buffer w b2 t)
+             (list (window-start w)
+                   (window-point w)
+                   (window-margins w)))
+           (progn
+             (set-window-margins w 11 12)
+             (set-window-buffer w b1 nil)
+             (list (window-start w)
+                   (window-point w)
+                   (window-margins w)))))
+      (when (buffer-live-p b1) (kill-buffer b1))
+      (when (buffer-live-p b2) (kill-buffer b2)))))"#,
+        },
+        WindowCase {
+            name: "other_window_cycles_across_split_windows",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((w1 (selected-window))
+         (w2 (split-window nil nil 'right)))
+    (list
+     (progn (other-window 1) (eq (selected-window) w2))
+     (progn (other-window 1) (eq (selected-window) w1))
+     (progn (other-window -1) (eq (selected-window) w2))
+     (progn (select-window w1) (other-window 0.4) (eq (selected-window) w1))
+     (progn (select-window w1) (other-window -0.4) (eq (selected-window) w2)))))"#,
+        },
+    ];
+
+    for case in cases {
+        let gnu = run_oracle_eval(case.form).expect("GNU Emacs evaluation");
+        let neovm = run_neovm_eval(case.form).expect("NeoVM evaluation");
+        assert_eq!(
+            neovm, gnu,
+            "window semantics mismatch for {}:\nGNU: {}\nNeoVM: {}",
+            case.name, gnu, neovm
+        );
+    }
+}
