@@ -15,11 +15,6 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
-use std::cell::RefCell;
-
-thread_local! {
-    static PURE_MATCH_DATA: RefCell<Option<super::regex::MatchData>> = const { RefCell::new(None) };
-}
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -272,107 +267,6 @@ pub(crate) fn builtin_regexp_quote(args: Vec<Value>) -> EvalResult {
     )
 }
 
-/// `(match-beginning SUBEXP)` -- return the start position of the SUBEXPth
-/// match group, or nil if unavailable.
-pub(crate) fn builtin_match_beginning(args: Vec<Value>) -> EvalResult {
-    expect_args("match-beginning", &args, 1)?;
-    let subexp = expect_int(&args[0])? as usize;
-    PURE_MATCH_DATA.with(|slot| {
-        let md = slot.borrow();
-        let Some(md) = md.as_ref() else {
-            return Ok(Value::Nil);
-        };
-        match md.groups.get(subexp) {
-            Some(Some((start, _end))) => {
-                if md.searched_string.is_some() {
-                    // String search: positions are already character positions
-                    Ok(Value::Int(*start as i64))
-                } else {
-                    Ok(Value::Int(*start as i64))
-                }
-            }
-            _ => Ok(Value::Nil),
-        }
-    })
-}
-
-/// `(match-end SUBEXP)` -- return the end position of the SUBEXPth
-/// match group, or nil if unavailable.
-pub(crate) fn builtin_match_end(args: Vec<Value>) -> EvalResult {
-    expect_args("match-end", &args, 1)?;
-    let subexp = expect_int(&args[0])? as usize;
-    PURE_MATCH_DATA.with(|slot| {
-        let md = slot.borrow();
-        let Some(md) = md.as_ref() else {
-            return Ok(Value::Nil);
-        };
-        match md.groups.get(subexp) {
-            Some(Some((_start, end))) => {
-                if md.searched_string.is_some() {
-                    // String search: positions are already character positions
-                    Ok(Value::Int(*end as i64))
-                } else {
-                    Ok(Value::Int(*end as i64))
-                }
-            }
-            _ => Ok(Value::Nil),
-        }
-    })
-}
-
-
-
-/// `(looking-at REGEXP)` -- test whether text after point matches REGEXP.
-/// In batch mode we support an optional second argument as a sample string.
-/// When absent, this returns nil after validating REGEXP.
-pub(crate) fn builtin_looking_at(args: Vec<Value>) -> EvalResult {
-    expect_range_args("looking-at", &args, 1, 2)?;
-    let pattern = expect_string(&args[0])?;
-
-    let text = args.get(1).and_then(|value| value.as_str());
-    match text {
-        Some(text) => {
-            let mut md = None;
-            match super::regex::looking_at_string(&pattern, text, true, &mut md) {
-                Ok(false) => Ok({
-                    PURE_MATCH_DATA.with(|slot| *slot.borrow_mut() = None);
-                    Value::Nil
-                }),
-                Ok(true) => Ok({
-                    PURE_MATCH_DATA.with(|slot| *slot.borrow_mut() = md);
-                    Value::True
-                }),
-                Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
-            }
-        }
-        None => {
-            let mut throwaway = None;
-            match super::regex::looking_at_string(&pattern, "", true, &mut throwaway) {
-                Ok(_) => {
-                    PURE_MATCH_DATA.with(|slot| *slot.borrow_mut() = None);
-                    Ok(Value::Nil)
-                }
-                Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
-            }
-        }
-    }
-}
-
-/// `(looking-at-p REGEXP)` -- same as `looking-at`, preserving match data.
-pub(crate) fn builtin_looking_at_p(args: Vec<Value>) -> EvalResult {
-    expect_args("looking-at-p", &args, 1)?;
-    let pattern = expect_string(&args[0])?;
-    PURE_MATCH_DATA.with(|slot| {
-        let snapshot = slot.borrow().clone();
-        let mut throwaway = None;
-        match super::regex::looking_at_string(&pattern, "", true, &mut throwaway) {
-            Ok(_) => Ok(Value::Nil),
-            Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
-        }?;
-        *slot.borrow_mut() = snapshot;
-        Ok(Value::Nil)
-    })
-}
 
 
 /// Parse SUBEXP and START args (positions 5 and 6) for replace-regexp-in-string.

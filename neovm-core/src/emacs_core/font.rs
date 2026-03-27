@@ -3647,7 +3647,7 @@ pub(crate) fn builtin_font_info(
         .get(frame_id)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
     if frame.window_system.is_none() {
-        return crate::emacs_core::builtins::builtin_font_info(args);
+        return Ok(Value::Nil);
     }
 
     match &args[0] {

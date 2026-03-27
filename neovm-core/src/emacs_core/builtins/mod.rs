@@ -843,10 +843,10 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         None,
     );
     ctx.defsubr("buffer-swap-text", builtin_buffer_swap_text, 0, None);
-    ctx.defsubr("delete-region", builtin_delete_region, 0, None);
+    ctx.defsubr("delete-region", super::editfns::builtin_delete_region, 0, None);
     ctx.defsubr(
         "delete-and-extract-region",
-        builtin_delete_and_extract_region,
+        super::editfns::builtin_delete_and_extract_region,
         0,
         None,
     );
@@ -858,7 +858,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("delete-field", builtin_delete_field, 0, None);
     ctx.defsubr("delete-all-overlays", builtin_delete_all_overlays, 0, None);
-    ctx.defsubr("erase-buffer", builtin_erase_buffer, 0, None);
+    ctx.defsubr("erase-buffer", super::editfns::builtin_erase_buffer, 0, None);
     ctx.defsubr("buffer-enable-undo", builtin_buffer_enable_undo, 0, None);
     ctx.defsubr("buffer-size", builtin_buffer_size, 0, None);
     ctx.defsubr("narrow-to-region", builtin_narrow_to_region, 0, None);
@@ -3476,7 +3476,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "string-to-syntax",
-        |_ctx, args| builtin_string_to_syntax(args),
+        |_ctx, args| super::syntax::builtin_string_to_syntax(args),
         0,
         None,
     );

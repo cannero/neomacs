@@ -94,19 +94,6 @@ fn regexp_quote_all_specials() {
     assert_str(result.unwrap(), "\\.\\*\\+\\?\\[]\\^\\$\\\\");
 }
 
-#[test]
-fn match_beginning_nil_without_match_data() {
-    builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
-    let result = builtin_match_beginning(vec![Value::Int(0)]);
-    assert_nil(result.unwrap());
-}
-
-#[test]
-fn match_end_nil_without_match_data() {
-    builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
-    let result = builtin_match_end(vec![Value::Int(0)]);
-    assert_nil(result.unwrap());
-}
 
 #[test]
 fn match_data_nil_without_match_data() {
@@ -149,20 +136,6 @@ fn set_match_data_round_trip() {
     );
 }
 
-#[test]
-fn string_match_updates_match_data() {
-    builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
-    let result = builtin_string_match_inner(vec![
-        Value::string("\\(foo\\|bar\\)"),
-        Value::string("test bar"),
-    ]);
-    assert_int(result.unwrap(), 5);
-
-    let begin = builtin_match_beginning(vec![Value::Int(0)]).unwrap();
-    let end = builtin_match_end(vec![Value::Int(0)]).unwrap();
-    assert_int(begin, 5);
-    assert_int(end, 8);
-}
 
 #[test]
 fn string_match_start_nil_and_negative() {
@@ -183,106 +156,6 @@ fn string_match_start_nil_and_negative() {
     assert!(out_of_range.is_err());
 }
 
-#[test]
-fn looking_at_default_at_point() {
-    let result = builtin_looking_at(vec![Value::string("foo")]);
-    assert_nil(result.unwrap());
-}
-
-#[test]
-fn looking_at_with_text() {
-    let result = builtin_looking_at(vec![Value::string("foo"), Value::string("foobar")]);
-    assert_true(result.unwrap());
-    let begin = builtin_match_beginning(vec![Value::Int(0)]).unwrap();
-    let end = builtin_match_end(vec![Value::Int(0)]).unwrap();
-    assert_int(begin, 0);
-    assert_int(end, 3);
-}
-
-#[test]
-fn looking_at_with_text_case_fold_default() {
-    let result = builtin_looking_at(vec![Value::string("foo"), Value::string("FOO BAR")]);
-    assert_true(result.unwrap());
-}
-
-#[test]
-fn looking_at_with_text_requires_start_position() {
-    let result = builtin_looking_at(vec![Value::string("foo"), Value::string("bar foo")]);
-    assert_nil(result.unwrap());
-}
-
-#[test]
-fn looking_at_with_text_no_match() {
-    let result = builtin_looking_at(vec![Value::string("foo"), Value::string("bar")]);
-    assert_nil(result.unwrap());
-
-    let begin = builtin_match_beginning(vec![Value::Int(0)]).unwrap();
-    assert_nil(begin);
-}
-
-#[test]
-fn looking_at_invalid_regexp_signals() {
-    let result = builtin_looking_at(vec![Value::string("[")]);
-    assert!(result.is_err());
-}
-
-#[test]
-fn looking_at_wrong_number_of_arguments() {
-    let result = builtin_looking_at(vec![]);
-    assert!(matches!(
-        result,
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
-    ));
-}
-
-#[test]
-fn looking_at_with_limit_any_value() {
-    let result = builtin_looking_at(vec![Value::string("foo"), Value::True]);
-    assert_nil(result.unwrap());
-}
-
-#[test]
-fn looking_at_with_limit_limit_nil() {
-    let result = builtin_looking_at(vec![Value::string("foo"), Value::Nil]);
-    assert_nil(result.unwrap());
-}
-
-#[test]
-fn looking_at_with_limit_marker_like_char() {
-    let result = builtin_looking_at(vec![Value::string("foo"), Value::Char('a')]);
-    assert_nil(result.unwrap());
-}
-
-#[test]
-fn looking_at_p_preserves_match_data() {
-    let _ = builtin_looking_at(vec![Value::string("foo"), Value::string("foobar")]);
-    let before = builtin_match_data_inner(vec![]).unwrap();
-    let result = builtin_looking_at_p(vec![Value::string("foo")]);
-    assert_nil(result.unwrap());
-    let after = builtin_match_data_inner(vec![]).unwrap();
-    assert_eq!(before, after);
-}
-
-#[test]
-fn looking_at_p_does_not_signal_without_text() {
-    let result = builtin_looking_at_p(vec![Value::string("foo")]);
-    assert_nil(result.unwrap());
-}
-
-#[test]
-fn looking_at_p_invalid_regexp_signals() {
-    let result = builtin_looking_at_p(vec![Value::string("[")]);
-    assert!(result.is_err());
-}
-
-#[test]
-fn looking_at_p_wrong_number_of_arguments() {
-    let result = builtin_looking_at_p(vec![]);
-    assert!(matches!(
-        result,
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
-    ));
-}
 
 #[test]
 fn replace_regexp_basic() {

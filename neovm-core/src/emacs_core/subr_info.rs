@@ -1629,7 +1629,7 @@ pub(crate) fn builtin_commandp(args: Vec<Value>) -> EvalResult {
 ///
 /// Works for lambdas (reads `LambdaParams`), byte-code (reads `params`),
 /// and subrs (returns `(0 . many)` as a conservative default).
-pub(crate) fn builtin_func_arity(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
     expect_args("func-arity", &args, 1)?;
     if super::autoload::is_autoload_value(&args[0]) {
         return Err(signal(

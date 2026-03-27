@@ -203,7 +203,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 /// (ccl-program-p OBJECT) -> nil
 /// This accepts program objects that match the minimum CCL header shape used by Emacs.
-pub(crate) fn builtin_ccl_program_p(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_ccl_program_p_impl(args: Vec<Value>) -> EvalResult {
     expect_args("ccl-program-p", &args, 1)?;
     let is_program = resolve_ccl_program_designator(&args[0])
         .map(|(program, _)| is_valid_ccl_program(&program))
@@ -213,7 +213,7 @@ pub(crate) fn builtin_ccl_program_p(args: Vec<Value>) -> EvalResult {
 
 /// (ccl-execute CCL-PROGRAM STATUS) -> nil
 /// Stub: doesn't actually execute CCL bytecode.
-pub(crate) fn builtin_ccl_execute(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_ccl_execute_impl(args: Vec<Value>) -> EvalResult {
     expect_args("ccl-execute", &args, 2)?;
     if !args[1].is_vector() {
         return Err(signal(
@@ -246,7 +246,7 @@ pub(crate) fn builtin_ccl_execute(args: Vec<Value>) -> EvalResult {
 
 /// (ccl-execute-on-string CCL-PROGRAM STATUS STRING &optional CONTINUE UNIBYTE-P) -> STRING
 /// Stub: returns STRING unchanged without processing.
-pub(crate) fn builtin_ccl_execute_on_string(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_ccl_execute_on_string_impl(args: Vec<Value>) -> EvalResult {
     expect_min_args("ccl-execute-on-string", &args, 3)?;
     expect_max_args("ccl-execute-on-string", &args, 5)?;
     if !args[1].is_vector() {
@@ -297,7 +297,7 @@ pub(crate) fn builtin_ccl_execute_on_string(args: Vec<Value>) -> EvalResult {
 
 /// (register-ccl-program NAME CCL-PROG) -> nil
 /// Stub: accepts and discards the CCL program registration.
-pub(crate) fn builtin_register_ccl_program(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_register_ccl_program_impl(args: Vec<Value>) -> EvalResult {
     expect_args("register-ccl-program", &args, 2)?;
     if !args[0].is_symbol() {
         return Err(signal(
@@ -331,7 +331,7 @@ pub(crate) fn builtin_register_ccl_program(args: Vec<Value>) -> EvalResult {
 
 /// (register-code-conversion-map SYMBOL MAP) -> nil
 /// Stub: accepts and discards the code conversion map.
-pub(crate) fn builtin_register_code_conversion_map(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_register_code_conversion_map_impl(args: Vec<Value>) -> EvalResult {
     expect_args("register-code-conversion-map", &args, 2)?;
     if !args[0].is_symbol() {
         return Err(signal(

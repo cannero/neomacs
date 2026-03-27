@@ -2388,21 +2388,6 @@ pub(crate) fn builtin_insert_byte(
     Ok(Value::Nil)
 }
 
-/// (delete-region START END) → nil
-pub(crate) fn builtin_delete_region(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    super::editfns::builtin_delete_region(eval, args)
-}
-
-/// `(delete-and-extract-region START END)` -> deleted text
-pub(crate) fn builtin_delete_and_extract_region(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    super::editfns::builtin_delete_and_extract_region(eval, args)
-}
 
 pub(crate) fn builtin_subst_char_in_region(
     eval: &mut super::eval::Context,
@@ -2483,13 +2468,6 @@ pub(crate) fn builtin_subst_char_in_region(
     Ok(Value::Nil)
 }
 
-/// (erase-buffer) → nil
-pub(crate) fn builtin_erase_buffer(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    super::editfns::builtin_erase_buffer(eval, args)
-}
 
 pub(crate) fn builtin_buffer_enable_undo(
     eval: &mut super::eval::Context,

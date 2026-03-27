@@ -211,15 +211,6 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
     Ok(text)
 }
 
-/// `(insert &rest ARGS)` — insert strings or characters at point.
-pub(crate) fn builtin_insert(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let text = collect_insert_text("insert", &args)?;
-    ensure_current_buffer_writable(eval)?;
-    if let Some(id) = eval.buffers.current_buffer_id() {
-        let _ = eval.buffers.insert_into_buffer(id, &text);
-    }
-    Ok(Value::Nil)
-}
 
 /// `(insert-before-markers &rest ARGS)` — insert at point, advancing ALL
 /// markers at that position past the inserted text (regardless of their
@@ -396,28 +387,6 @@ pub(crate) fn erase_buffer_impl(
     Ok(Value::Nil)
 }
 
-/// `(buffer-substring START END)` — return text between START and END.
-pub(crate) fn builtin_buffer_substring(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("buffer-substring", &args, 2)?;
-    let start_pos = expect_integer("buffer-substring", &args[0])?;
-    let end_pos = expect_integer("buffer-substring", &args[1])?;
-    match eval.buffers.current_buffer() {
-        Some(buf) => {
-            let start_byte = lisp_pos_to_byte(buf, start_pos);
-            let end_byte = lisp_pos_to_byte(buf, end_pos);
-            let (lo, hi) = if start_byte <= end_byte {
-                (start_byte, end_byte)
-            } else {
-                (end_byte, start_byte)
-            };
-            Ok(Value::string(buf.buffer_substring(lo, hi)))
-        }
-        None => Ok(Value::string("")),
-    }
-}
 
 /// `(buffer-substring-no-properties START END)` — same as buffer-substring
 /// (text properties not yet implemented at the Lisp value level).

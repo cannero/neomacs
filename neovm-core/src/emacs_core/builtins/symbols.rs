@@ -726,19 +726,19 @@ pub(crate) fn builtin_func_arity(
                 return Err(signal("void-function", vec![Value::symbol(name)]));
             }
             if super::subr_info::is_special_form(name) {
-                return super::subr_info::builtin_func_arity(vec![Value::Subr(intern(name))]);
+                return super::subr_info::builtin_func_arity_impl(vec![Value::Subr(intern(name))]);
             }
             if let Some(arity) =
                 dispatch_symbol_func_arity_override_in_obarray(obarray, name, &function)
             {
                 return Ok(arity);
             }
-            return super::subr_info::builtin_func_arity(vec![function]);
+            return super::subr_info::builtin_func_arity_impl(vec![function]);
         }
         return Err(signal("void-function", vec![Value::symbol(name)]));
     }
 
-    super::subr_info::builtin_func_arity(vec![args[0]])
+    super::subr_info::builtin_func_arity_impl(vec![args[0]])
 }
 
 fn has_startup_subr_wrapper_in_obarray(obarray: &Obarray, name: &str) -> bool {
@@ -980,7 +980,7 @@ pub(super) fn builtin_register_code_conversion_map(
             "code-conversion-map",
         )?;
     }
-    let map_id = super::ccl::builtin_register_code_conversion_map(args.clone())?;
+    let map_id = super::ccl::builtin_register_code_conversion_map_impl(args.clone())?;
 
     let _ = put_in_obarray(
         obarray,
@@ -1026,7 +1026,7 @@ pub(super) fn builtin_ccl_program_p(
             obarray, &args[0],
         )?));
     }
-    super::ccl::builtin_ccl_program_p(args)
+    super::ccl::builtin_ccl_program_p_impl(args)
 }
 
 pub(super) fn builtin_ccl_execute(
@@ -1039,9 +1039,9 @@ pub(super) fn builtin_ccl_execute(
     {
         let mut forced = args.clone();
         forced[0] = Value::Int(0);
-        return super::ccl::builtin_ccl_execute(forced);
+        return super::ccl::builtin_ccl_execute_impl(forced);
     }
-    super::ccl::builtin_ccl_execute(args)
+    super::ccl::builtin_ccl_execute_impl(args)
 }
 
 pub(super) fn builtin_ccl_execute_on_string(
@@ -1054,9 +1054,9 @@ pub(super) fn builtin_ccl_execute_on_string(
     {
         let mut forced = args.clone();
         forced[0] = Value::Int(0);
-        return super::ccl::builtin_ccl_execute_on_string(forced);
+        return super::ccl::builtin_ccl_execute_on_string_impl(forced);
     }
-    super::ccl::builtin_ccl_execute_on_string(args)
+    super::ccl::builtin_ccl_execute_on_string_impl(args)
 }
 
 pub(super) fn builtin_register_ccl_program(
@@ -1068,7 +1068,7 @@ pub(super) fn builtin_register_ccl_program(
         .first()
         .and_then(Value::as_symbol_name)
         .is_some_and(super::ccl::is_registered_ccl_program);
-    let program_id = super::ccl::builtin_register_ccl_program(args.clone())?;
+    let program_id = super::ccl::builtin_register_ccl_program_impl(args.clone())?;
 
     if was_registered {
         return Ok(program_id);
@@ -3093,15 +3093,6 @@ pub(crate) fn builtin_position_symbol(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_posn_at_point(args: Vec<Value>) -> EvalResult {
-    expect_range_args("posn-at-point", &args, 0, 2)?;
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_posn_at_x_y(args: Vec<Value>) -> EvalResult {
-    expect_range_args("posn-at-x-y", &args, 2, 4)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_play_sound_internal(args: Vec<Value>) -> EvalResult {
     expect_args("play-sound-internal", &args, 1)?;
@@ -3375,21 +3366,6 @@ pub(crate) fn builtin_set_mouse_position(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_set_window_combination_limit(args: Vec<Value>) -> EvalResult {
-    expect_args("set-window-combination-limit", &args, 2)?;
-    if !matches!(args[0], Value::Window(_)) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("window-valid-p"), args[0]],
-        ));
-    }
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Combination limit is meaningful for internal windows only",
-        )],
-    ))
-}
 
 pub(crate) fn builtin_set_window_new_normal(args: Vec<Value>) -> EvalResult {
     expect_range_args("set-window-new-normal", &args, 1, 2)?;
@@ -3506,15 +3482,6 @@ pub(crate) fn builtin_subr_type(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_this_single_command_keys(args: Vec<Value>) -> EvalResult {
-    expect_args("this-single-command-keys", &args, 0)?;
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_this_single_command_raw_keys(args: Vec<Value>) -> EvalResult {
-    expect_args("this-single-command-raw-keys", &args, 0)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_thread_blocker(args: Vec<Value>) -> EvalResult {
     expect_args("thread--blocker", &args, 1)?;

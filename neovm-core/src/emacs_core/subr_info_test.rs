@@ -2005,7 +2005,7 @@ fn commandp_rejects_overflow_arity() {
 #[test]
 fn func_arity_lambda_required_only() {
     let lam = make_lambda(vec!["a", "b"], vec![], None);
-    let result = builtin_func_arity(vec![lam]).unwrap();
+    let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(2));
@@ -2018,7 +2018,7 @@ fn func_arity_lambda_required_only() {
 #[test]
 fn func_arity_lambda_with_optional() {
     let lam = make_lambda(vec!["a"], vec!["b", "c"], None);
-    let result = builtin_func_arity(vec![lam]).unwrap();
+    let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(1));
@@ -2031,7 +2031,7 @@ fn func_arity_lambda_with_optional() {
 #[test]
 fn func_arity_lambda_with_rest() {
     let lam = make_lambda(vec!["a"], vec![], Some("rest"));
-    let result = builtin_func_arity(vec![lam]).unwrap();
+    let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(1));
@@ -2044,7 +2044,7 @@ fn func_arity_lambda_with_rest() {
 #[test]
 fn func_arity_bytecode() {
     let bc = make_bytecode(vec!["x", "y"], Some("rest"));
-    let result = builtin_func_arity(vec![bc]).unwrap();
+    let result = builtin_func_arity_impl(vec![bc]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(2));
@@ -2056,7 +2056,7 @@ fn func_arity_bytecode() {
 
 #[test]
 fn func_arity_subr() {
-    let result = builtin_func_arity(vec![Value::Subr(intern("+"))]).unwrap();
+    let result = builtin_func_arity_impl(vec![Value::Subr(intern("+"))]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(0));
@@ -2068,7 +2068,7 @@ fn func_arity_subr() {
 
 #[test]
 fn func_arity_subr_uses_compat_overrides() {
-    let message = builtin_func_arity(vec![Value::Subr(intern("message"))]).unwrap();
+    let message = builtin_func_arity_impl(vec![Value::Subr(intern("message"))]).unwrap();
     if let Value::Cons(cell) = &message {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(1));
@@ -2077,7 +2077,7 @@ fn func_arity_subr_uses_compat_overrides() {
         panic!("expected cons cell");
     }
 
-    let car = builtin_func_arity(vec![Value::Subr(intern("car"))]).unwrap();
+    let car = builtin_func_arity_impl(vec![Value::Subr(intern("car"))]).unwrap();
     if let Value::Cons(cell) = &car {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(1));
@@ -2090,7 +2090,7 @@ fn func_arity_subr_uses_compat_overrides() {
 #[test]
 fn func_arity_macro() {
     let m = make_macro(vec!["a", "b"]);
-    let result = builtin_func_arity(vec![m]).unwrap();
+    let result = builtin_func_arity_impl(vec![m]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(2));
@@ -2103,7 +2103,7 @@ fn func_arity_macro() {
 #[test]
 fn fallback_macro_defvar_local_preserves_optional_arity() {
     let macro_value = fallback_macro_value("defvar-local").expect("fallback macro exists");
-    let result = builtin_func_arity(vec![macro_value]).unwrap();
+    let result = builtin_func_arity_impl(vec![macro_value]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
         assert_eq!(pair.car.as_int(), Some(2));
@@ -2127,7 +2127,7 @@ fn fallback_macro_with_demoted_errors_no_longer_present() {
 
 #[test]
 fn func_arity_error_for_non_callable() {
-    let result = builtin_func_arity(vec![Value::Int(42)]);
+    let result = builtin_func_arity_impl(vec![Value::Int(42)]);
     assert!(result.is_err());
 }
 
@@ -2140,7 +2140,7 @@ fn func_arity_autoload_object_signals_wrong_type_argument_symbolp() {
         Value::True,
         Value::Nil,
     ]);
-    let result = builtin_func_arity(vec![autoload_fn])
+    let result = builtin_func_arity_impl(vec![autoload_fn])
         .expect_err("autoload forms should not satisfy func-arity");
     match result {
         Flow::Signal(sig) => {
@@ -2161,6 +2161,6 @@ fn subr_name_wrong_args() {
 
 #[test]
 fn func_arity_wrong_args() {
-    let result = builtin_func_arity(vec![]);
+    let result = builtin_func_arity_impl(vec![]);
     assert!(result.is_err());
 }

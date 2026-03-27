@@ -1451,9 +1451,6 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     Ok(new_str)
 }
 
-pub(crate) fn builtin_string_to_syntax(args: Vec<Value>) -> EvalResult {
-    super::syntax::builtin_string_to_syntax(args)
-}
 
 pub(crate) fn builtin_current_cpu_time(args: Vec<Value>) -> EvalResult {
     expect_args("current-cpu-time", &args, 0)?;

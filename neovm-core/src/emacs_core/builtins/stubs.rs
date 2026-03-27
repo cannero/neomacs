@@ -784,10 +784,6 @@ pub(crate) fn builtin_external_debugging_output(args: Vec<Value>) -> EvalResult 
     Ok(Value::Int(ch))
 }
 
-pub(crate) fn builtin_internal_define_uninitialized_variable(args: Vec<Value>) -> EvalResult {
-    expect_range_args("internal--define-uninitialized-variable", &args, 1, 2)?;
-    Ok(Value::Nil)
-}
 
 
 
@@ -1266,11 +1262,6 @@ pub(crate) fn builtin_gnutls_asynchronous_parameters(args: Vec<Value>) -> EvalRe
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_gnutls_boot(args: Vec<Value>) -> EvalResult {
-    expect_args("gnutls-boot", &args, 3)?;
-    expect_processp(&args[0])?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_gnutls_bye(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-bye", &args, 2)?;
@@ -1437,43 +1428,6 @@ fn expect_window_live_or_nil_in_state(frames: &FrameManager, value: &Value) -> R
     }
 }
 
-pub(crate) fn builtin_font_at(args: Vec<Value>) -> EvalResult {
-    expect_range_args("font-at", &args, 1, 3)?;
-
-    if let Some(window) = args.get(1) {
-        expect_window_live_or_nil(window)?;
-    }
-
-    if let Some(string_value) = args.get(2) {
-        if !string_value.is_nil() {
-            let Value::Str(s) = string_value else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *string_value],
-                ));
-            };
-            let pos = match args[0] {
-                Value::Int(n) => n,
-                Value::Char(c) => c as i64,
-                _ => 1,
-            };
-            return Err(signal(
-                "args-out-of-range",
-                vec![
-                    Value::string(with_heap(|h| h.get_string(*s).to_owned())),
-                    Value::Int(pos),
-                ],
-            ));
-        }
-    }
-
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Specified window is not displaying the current buffer",
-        )],
-    ))
-}
 
 pub(crate) fn builtin_font_face_attributes(args: Vec<Value>) -> EvalResult {
     expect_range_args("font-face-attributes", &args, 1, 2)?;
@@ -1508,11 +1462,6 @@ pub(crate) fn builtin_font_has_char_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_font_info(args: Vec<Value>) -> EvalResult {
-    expect_range_args("font-info", &args, 1, 2)?;
-    let _ = expect_strict_string(&args[0])?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_font_match_p(args: Vec<Value>) -> EvalResult {
     expect_args("font-match-p", &args, 2)?;
@@ -1621,34 +1570,8 @@ pub(crate) fn builtin_window_bottom_divider_width(args: Vec<Value>) -> EvalResul
     Ok(Value::Int(0))
 }
 
-pub(crate) fn builtin_window_combination_limit(args: Vec<Value>) -> EvalResult {
-    expect_args("window-combination-limit", &args, 1)?;
-    if matches!(args[0], Value::Window(_)) {
-        return Err(signal(
-            "error",
-            vec![Value::string(
-                "Combination limit is meaningful for internal windows only",
-            )],
-        ));
-    }
-    Err(signal(
-        "wrong-type-argument",
-        vec![Value::symbol("window-valid-p"), args[0]],
-    ))
-}
 
-pub(crate) fn builtin_window_left_child(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-left-child", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_valid_or_nil(window)?;
-    }
-    Ok(Value::Nil)
-}
 
-pub(crate) fn builtin_window_line_height(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-line-height", &args, 0, 2)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_window_lines_pixel_dimensions(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-lines-pixel-dimensions", &args, 0, 6)?;
@@ -1682,38 +1605,7 @@ pub(crate) fn builtin_window_new_total(args: Vec<Value>) -> EvalResult {
     Ok(window_new_total_value(args.first()))
 }
 
-fn compatibility_window_sibling_placeholder(window: Option<&Value>, next: bool) -> Value {
-    let root_window_id = 1_u64;
-    let minibuffer_window_id =
-        crate::window::MINIBUFFER_WINDOW_ID_BASE + crate::window::FRAME_ID_BASE;
-    let current_window_id = match window {
-        None | Some(Value::Nil) => root_window_id,
-        Some(Value::Window(id)) => *id,
-        Some(_) => return Value::Nil,
-    };
 
-    match (current_window_id, next) {
-        (id, true) if id == root_window_id => Value::Window(minibuffer_window_id),
-        (id, false) if id == minibuffer_window_id => Value::Window(root_window_id),
-        _ => Value::Nil,
-    }
-}
-
-pub(crate) fn builtin_window_next_sibling(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-next-sibling", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_valid_or_nil(window)?;
-    }
-    Ok(compatibility_window_sibling_placeholder(args.first(), true))
-}
-
-pub(crate) fn builtin_window_normal_size(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-normal-size", &args, 0, 2)?;
-    if let Some(window) = args.first() {
-        expect_window_valid_or_nil(window)?;
-    }
-    Ok(Value::Float(1.0, next_float_id()))
-}
 
 pub(crate) fn builtin_window_old_body_pixel_height(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-old-body-pixel-height", &args, 0, 1)?;
@@ -1747,56 +1639,7 @@ pub(crate) fn builtin_window_old_pixel_width(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int(0))
 }
 
-pub(crate) fn builtin_window_parent(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-parent", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_valid_or_nil(window)?;
-    }
-    Ok(Value::Nil)
-}
 
-pub(crate) fn builtin_window_pixel_left(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-pixel-left", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_valid_or_nil(window)?;
-    }
-    Ok(Value::Int(0))
-}
-
-pub(crate) fn builtin_window_pixel_top(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-pixel-top", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_valid_or_nil(window)?;
-    }
-    Ok(Value::Int(0))
-}
-
-pub(crate) fn builtin_window_prev_sibling(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-prev-sibling", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_valid_or_nil(window)?;
-    }
-    Ok(compatibility_window_sibling_placeholder(
-        args.first(),
-        false,
-    ))
-}
-
-pub(crate) fn builtin_window_resize_apply(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-resize-apply", &args, 0, 2)?;
-    if let Some(frame) = args.first() {
-        expect_frame_live_or_nil(frame)?;
-    }
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_window_resize_apply_total(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-resize-apply-total", &args, 0, 2)?;
-    if let Some(frame) = args.first() {
-        expect_frame_live_or_nil(frame)?;
-    }
-    Ok(Value::True)
-}
 
 pub(crate) fn builtin_window_right_divider_width(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-right-divider-width", &args, 0, 1)?;
@@ -1822,21 +1665,6 @@ pub(crate) fn builtin_window_scroll_bar_width(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int(0))
 }
 
-pub(crate) fn builtin_window_tab_line_height(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-tab-line-height", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_live_or_nil(window)?;
-    }
-    Ok(Value::Int(0))
-}
-
-pub(crate) fn builtin_window_top_child(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-top-child", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_valid_or_nil(window)?;
-    }
-    Ok(Value::Nil)
-}
 
 thread_local! {
     static INOTIFY_NEXT_WATCH_ID: RefCell<i64> = RefCell::new(0);

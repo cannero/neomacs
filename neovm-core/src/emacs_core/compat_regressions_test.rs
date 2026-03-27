@@ -363,47 +363,6 @@ fn inotify_add_watch_requires_string_path_argument() {
     }
 }
 
-#[test]
-fn window_combination_limit_requires_window_designator() {
-    let err = crate::emacs_core::builtins::builtin_window_combination_limit(vec![Value::Nil])
-        .unwrap_err();
-    match err {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data.first(), Some(&Value::symbol("window-valid-p")));
-        }
-        other => panic!("expected signal, got {other:?}"),
-    }
-}
-
-#[test]
-fn window_combination_limit_signals_internal_only_for_window_object() {
-    let err = crate::emacs_core::builtins::builtin_window_combination_limit(vec![Value::Window(1)])
-        .unwrap_err();
-    match err {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
-        other => panic!("expected signal, got {other:?}"),
-    }
-}
-
-#[test]
-fn window_resize_apply_rejects_non_frame_designator() {
-    let err = crate::emacs_core::builtins::builtin_window_resize_apply(vec![Value::Window(1)])
-        .unwrap_err();
-    match err {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data.first(), Some(&Value::symbol("frame-live-p")));
-        }
-        other => panic!("expected signal, got {other:?}"),
-    }
-}
-
-#[test]
-fn window_resize_apply_total_returns_true() {
-    let out = crate::emacs_core::builtins::builtin_window_resize_apply_total(vec![]).unwrap();
-    assert_eq!(out, Value::True);
-}
 
 #[test]
 fn window_bottom_divider_width_rejects_non_window_designator() {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::editfns::{builtin_delete_region, builtin_erase_buffer, builtin_delete_and_extract_region};
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::value::{LambdaData, LambdaParams};
