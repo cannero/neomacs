@@ -1,8 +1,0 @@
-1	(subr-arity (symbol-function 'event-basic-type))	OK (1 . 1)
-2	(subr-arity (symbol-function 'event-convert-list))	OK (1 . 1)
-3	(subr-arity (symbol-function 'event-modifiers))	OK (1 . 1)
-4	(subr-arity (symbol-function 'eventp))	OK (1 . 1)
-5	(subr-arity (symbol-function 'error-message-string))	OK (1 . 1)
-6	(subr-arity (symbol-function 'copysign))	OK (2 . 2)
-7	(subr-arity (symbol-function 'equal-including-properties))	OK (2 . 2)
-8	(subr-arity (symbol-function 'emacs-pid))	OK (0 . 0)

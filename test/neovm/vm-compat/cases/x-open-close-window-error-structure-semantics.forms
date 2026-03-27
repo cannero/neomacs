@@ -1,6 +1,0 @@
-(condition-case err
-    (x-open-connection (selected-window))
-  (error (list (car err) (cadr err) (windowp (nth 2 err)))))
-(condition-case err
-    (x-close-connection (selected-window))
-  (error (list (car err) (cadr err) (windowp (nth 2 err)))))

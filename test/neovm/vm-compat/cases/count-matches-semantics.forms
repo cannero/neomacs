@@ -1,8 +1,0 @@
-(fboundp 'count-matches)
-(with-temp-buffer (insert "a a a") (goto-char (point-min)) (count-matches "a"))
-(with-temp-buffer (insert "a a a") (goto-char (point-min)) (count-matches "a" 1 4))
-(with-temp-buffer (insert "a a a") (goto-char 3) (count-matches "a"))
-(with-temp-buffer (insert "abc") (goto-char (point-min)) (count-matches ""))
-(condition-case err (count-matches "[a-") (invalid-regexp (car err)))
-(condition-case err (count-matches 1) (error err))
-(condition-case err (count-matches) (wrong-number-of-arguments (car err)))

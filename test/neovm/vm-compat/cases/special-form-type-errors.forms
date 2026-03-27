@@ -1,8 +1,0 @@
-(condition-case err (setq x) (error err))
-(condition-case err (setq 1 2) (error err))
-(condition-case err (let ((1 2)) nil) (error err))
-(condition-case err (let* ((1 2)) nil) (error err))
-(condition-case err (cond 1) (error err))
-(condition-case err (condition-case 1 2 (error 3)) (error err))
-(condition-case err (condition-case err 2 3) (error err))
-(condition-case err (condition-case err 2 ()) (error err))

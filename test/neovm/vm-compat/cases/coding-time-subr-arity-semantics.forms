@@ -1,8 +1,0 @@
-(subr-arity (symbol-function 'decode-coding-string))
-(subr-arity (symbol-function 'decode-time))
-(subr-arity (symbol-function 'detect-coding-region))
-(subr-arity (symbol-function 'detect-coding-string))
-(subr-arity (symbol-function 'encode-char))
-(subr-arity (symbol-function 'encode-coding-string))
-(subr-arity (symbol-function 'encode-time))
-(subr-arity (symbol-function 'format-time-string))

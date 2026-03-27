@@ -1,6 +1,0 @@
-1	(condition-case err (display-color-p [foo]) (error err))	OK (error "Invalid argument [foo] in ‘get-device-terminal’")
-2	(condition-case err (x-display-color-p [foo]) (error err))	OK (error "Invalid argument [foo] in ‘get-device-terminal’")
-3	(condition-case err (display-color-p '(foo)) (error err))	OK (error "Invalid argument (foo) in ‘get-device-terminal’")
-4	(condition-case err (x-display-color-p '(foo)) (error err))	OK (error "Invalid argument (foo) in ‘get-device-terminal’")
-5	(condition-case err (display-color-p '(foo . bar)) (error err))	OK (error "Invalid argument (foo . bar) in ‘get-device-terminal’")
-6	(condition-case err (x-display-color-p '(foo . bar)) (error err))	OK (error "Invalid argument (foo . bar) in ‘get-device-terminal’")

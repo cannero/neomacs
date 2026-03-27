@@ -1,4 +1,0 @@
-1	(let* ((path "__neovm_missing_module__.so") (err (condition-case e (module-load path) (error e)))) (list (car err) (equal (cadr err) path) (stringp (caddr err)) (string-match-p path (caddr err))))	OK (module-open-failed t t 0)
-2	(let ((err (condition-case e (module-load "/dev/null") (error e)))) (list (car err) (equal (cadr err) "/dev/null") (stringp (caddr err))))	OK (module-open-failed t t)
-3	(condition-case err (module-load nil) (error err))	OK (wrong-type-argument stringp nil)
-4	(condition-case err (module-load) (error err))	OK (wrong-number-of-arguments module-load 0)

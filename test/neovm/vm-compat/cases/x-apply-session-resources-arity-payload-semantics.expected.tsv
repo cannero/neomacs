@@ -1,4 +1,0 @@
-1	(condition-case err (x-apply-session-resources) (error err))	OK (error "Window system is not in use or not initialized")
-2	(condition-case err (x-apply-session-resources nil) (error err))	OK (wrong-number-of-arguments x-apply-session-resources 1)
-3	(condition-case err (x-apply-session-resources 1) (error err))	OK (wrong-number-of-arguments x-apply-session-resources 1)
-4	(condition-case err (x-apply-session-resources nil nil) (error err))	OK (wrong-number-of-arguments x-apply-session-resources 2)

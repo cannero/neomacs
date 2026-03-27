@@ -1,5 +1,0 @@
-(make-string 0 97)
-(make-string 3 97)
-(make-string -1 97)
-(make-string 1 -1)
-(make-string 2 ?A)

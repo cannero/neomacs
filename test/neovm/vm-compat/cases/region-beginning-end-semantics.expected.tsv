@@ -1,7 +1,0 @@
-1	(with-temp-buffer (condition-case err (region-beginning) (error (car err))))	OK error
-2	(with-temp-buffer (condition-case err (region-end) (error (car err))))	OK error
-3	(with-temp-buffer (set-mark (point-min)) (list (region-beginning) (region-end)))	OK (1 1)
-4	(with-temp-buffer (insert "abc") (goto-char (point-max)) (set-mark (point-min)) (list (region-beginning) (region-end)))	OK (1 4)
-5	(with-temp-buffer (insert "abc") (goto-char (point-min)) (set-mark (point-max)) (list (region-beginning) (region-end)))	OK (1 4)
-6	(with-temp-buffer (set-mark (point-min)) (set-marker (mark-marker) nil) (condition-case err (region-beginning) (error (car err))))	OK error
-7	(with-temp-buffer (let ((transient-mark-mode t)) (condition-case err (region-end) (error (car err)))))	OK error

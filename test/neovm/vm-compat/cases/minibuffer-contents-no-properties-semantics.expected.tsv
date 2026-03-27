@@ -1,4 +1,0 @@
-1	(fboundp 'minibuffer-contents-no-properties)	OK t
-2	(with-temp-buffer (insert "probe") (minibuffer-contents-no-properties))	OK "probe"
-3	(with-temp-buffer (insert "probe") (equal (minibuffer-contents-no-properties) (minibuffer-contents)))	OK t
-4	(condition-case err (minibuffer-contents-no-properties nil) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

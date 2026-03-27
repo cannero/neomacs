@@ -1,6 +1,0 @@
-; newline-and-indent runtime arity contract subset.
-(list
- (with-temp-buffer
-   (condition-case err (newline-and-indent nil nil) (error err)))
- (with-temp-buffer
-   (condition-case err (newline-and-indent nil nil nil) (error err))))

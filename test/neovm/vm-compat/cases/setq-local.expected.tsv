@@ -1,4 +1,0 @@
-1	(setq vm-s 3)	OK 3
-2	(with-temp-buffer (setq-local vm-s 9) (list vm-s (default-value 'vm-s) (local-variable-p 'vm-s)))	OK (9 3 t)
-3	(default-value 'vm-s)	OK 3
-4	(with-temp-buffer (setq-local v5 55) (let ((b (current-buffer))) (with-temp-buffer (list (buffer-local-value 'v5 b) (local-variable-p 'v5 b)))))	OK (55 t)

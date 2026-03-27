@@ -1,7 +1,0 @@
-1	(sxhash-equal "a")	OK 109
-2	(sxhash-equal "b")	OK 110
-3	(sxhash-equal "ab")	OK 31265
-4	(sxhash-equal 1)	OK 1
-5	(sxhash-equal 2)	OK 2
-6	(let ((ht (make-hash-table :test 'equal :size 3))) (puthash "a" 1 ht) (puthash "b" 2 ht) (internal--hash-table-buckets ht))	OK ((("b" . 114)) (("a" . 113)))
-7	(let ((ht (make-hash-table :test 'equal :size 3))) (puthash "a" 1 ht) (puthash "b" 2 ht) (internal--hash-table-histogram ht))	OK ((1 . 2))

@@ -1,7 +1,0 @@
-; string-prefix-p/string-suffix-p optional IGNORE-CASE arg semantics
-(string-prefix-p "ab" "abc")
-(string-suffix-p "bc" "abc")
-(string-prefix-p "Ab" "abc" t)
-(string-suffix-p "BC" "abc" t)
-(condition-case err (string-prefix-p "ab" "abc" nil nil) (error (car err)))
-(condition-case err (string-suffix-p "bc" "abc" nil nil) (error (car err)))

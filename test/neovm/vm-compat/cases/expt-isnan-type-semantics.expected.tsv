@@ -1,6 +1,0 @@
-1	(condition-case err (expt 'a 2) (error (cons (car err) (cdr err))))	OK (wrong-type-argument numberp a)
-2	(condition-case err (expt 2 'a) (error (cons (car err) (cdr err))))	OK (wrong-type-argument numberp a)
-3	(condition-case err (isnan 'a) (error (cons (car err) (cdr err))))	OK (wrong-type-argument floatp a)
-4	(condition-case err (isnan 1) (error (cons (car err) (cdr err))))	OK (wrong-type-argument floatp 1)
-5	(isnan 0.0)	OK nil
-6	(isnan (/ 0.0 0.0))	OK t

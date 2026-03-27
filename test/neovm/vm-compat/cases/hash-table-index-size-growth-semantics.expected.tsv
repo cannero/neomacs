@@ -1,8 +1,0 @@
-1	(let ((ht (make-hash-table :test 'equal :size 1))) (puthash 1 'x ht) (puthash 2 'y ht) (internal--hash-table-index-size ht))	OK 32
-2	(let ((ht (make-hash-table :test 'equal :size 2))) (puthash 1 'x ht) (puthash 2 'y ht) (puthash 3 'z ht) (internal--hash-table-index-size ht))	OK 32
-3	(let ((ht (make-hash-table :test 'equal))) (puthash 1 'x ht) (internal--hash-table-index-size ht))	OK 8
-4	(let ((ht (make-hash-table :test 'equal :size 10))) (dotimes (i 10) (puthash i i ht)) (internal--hash-table-index-size ht))	OK 16
-5	(let ((ht (make-hash-table :test 'equal :size 10))) (dotimes (i 11) (puthash i i ht)) (internal--hash-table-index-size ht))	OK 64
-6	(let ((ht (make-hash-table :test 'equal :size 1))) (puthash 1 'x ht) (puthash 2 'y ht) (hash-table-size ht))	OK 24
-7	(let ((ht (make-hash-table :test 'equal))) (puthash 1 'x ht) (hash-table-size ht))	OK 6
-8	(let ((ht (make-hash-table :test 'equal :size 10))) (dotimes (i 11) (puthash i i ht)) (hash-table-size ht))	OK 40

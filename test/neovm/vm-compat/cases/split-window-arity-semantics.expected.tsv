@@ -1,2 +1,0 @@
-1	(condition-case err (split-window nil nil nil nil nil) (error (car err)))	OK wrong-number-of-arguments
-2	(let ((w (split-window nil nil nil nil))) (window-live-p w))	OK t

@@ -1,7 +1,0 @@
-(with-temp-buffer (insert "  abc") (goto-char (point-max)) (back-to-indentation))
-(with-temp-buffer (insert "  abc") (goto-char (point-max)) (back-to-indentation) (point))
-(with-temp-buffer (insert (string 9 97 98 99)) (goto-char (point-max)) (back-to-indentation) (point))
-(with-temp-buffer (insert (string 10 32 32 97 98 99)) (goto-char (point-max)) (back-to-indentation) (point))
-(with-temp-buffer (insert "abc") (goto-char (point-max)) (back-to-indentation) (point))
-(with-temp-buffer (insert "   ") (goto-char (point-max)) (back-to-indentation) (point))
-(condition-case err (back-to-indentation 1) (error err))

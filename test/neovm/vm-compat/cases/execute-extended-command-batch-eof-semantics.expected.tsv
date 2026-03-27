@@ -1,3 +1,0 @@
-1	(condition-case err (execute-extended-command nil) (error err))	OK (end-of-file "Error reading from stdin")
-2	(condition-case err (execute-extended-command '(4)) (error err))	OK (end-of-file "Error reading from stdin")
-3	(condition-case err (let ((prefix-arg '(5)) (current-prefix-arg '(6))) (execute-extended-command 7)) (error err))	OK (end-of-file "Error reading from stdin")

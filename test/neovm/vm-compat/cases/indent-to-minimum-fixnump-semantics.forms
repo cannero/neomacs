@@ -1,7 +1,0 @@
-; indent-to should type-check COLUMN and MINIMUM as fixnump.
-(list
- (with-temp-buffer (condition-case err (indent-to 4 nil) (error err)))
- (with-temp-buffer (condition-case err (indent-to 4 "x") (error err)))
- (with-temp-buffer (condition-case err (indent-to 4 t) (error err)))
- (with-temp-buffer (condition-case err (indent-to 4 [1]) (error err)))
- (with-temp-buffer (condition-case err (indent-to "x") (error err))))

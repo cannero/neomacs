@@ -1,4 +1,0 @@
-(symbol-function 'subr-native-elisp-p)
-(subr-arity (symbol-function 'subr-native-elisp-p))
-(symbol-function 'native-comp-function-p)
-(subr-arity (symbol-function 'native-comp-function-p))

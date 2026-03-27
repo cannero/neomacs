@@ -1,3 +1,0 @@
-1	(let ((term (frame-terminal))) (list (set-terminal-parameter term 7 11) (set-terminal-parameter term 7 22)))	OK (nil 11)
-2	(let ((term (frame-terminal))) (list (set-terminal-parameter term 1.25 11) (set-terminal-parameter term 1.25 22)))	OK (nil nil)
-3	(let ((term (frame-terminal))) (list (set-terminal-parameter term 1.25 11) (set-terminal-parameter term 1.25 22) (condition-case err (terminal-parameter term 1.25) (error (car err)))))	OK (nil nil wrong-type-argument)

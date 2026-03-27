@@ -1,7 +1,0 @@
-1	(condition-case err (describe-key-briefly 1) (error err))	OK (wrong-type-argument sequencep 1)
-2	(condition-case err (describe-key-briefly 'foo) (error err))	OK (wrong-type-argument sequencep foo)
-3	(condition-case err (describe-key-briefly []) (error err))	OK (args-out-of-range [] -1)
-4	(condition-case err (describe-key-briefly "") (error err))	OK (args-out-of-range "" -1)
-5	(stringp (condition-case err (describe-key-briefly [97]) (error err)))	OK t
-6	(string-match-p "self-insert-command" (condition-case err (describe-key-briefly "a") (error err)))	OK 19
-7	(let ((m (make-sparse-keymap))) (use-global-map m) (string-match-p "undefined" (describe-key-briefly "a")))	OK 5

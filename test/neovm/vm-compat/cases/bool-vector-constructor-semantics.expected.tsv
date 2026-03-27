@@ -1,8 +1,0 @@
-1	(fboundp 'bool-vector)	OK t
-2	(subrp (symbol-function 'bool-vector))	OK t
-3	(subr-arity (symbol-function 'bool-vector))	OK (0 . many)
-4	(let ((bv (bool-vector))) (list 'empty (bool-vector-p bv) (bool-vector-count-population bv)))	OK (empty t 0)
-5	(let ((bv (bool-vector t nil 0 'x [1] ""))) (list 'ctor (bool-vector-count-population bv) (aref bv 0) (aref bv 1) (aref bv 2) (aref bv 3) (aref bv 4) (aref bv 5)))	OK (ctor 5 t nil t t t t)
-6	(let ((bv (bool-vector t nil nil t))) (list 'stats (bool-vector-p bv) (bool-vector-count-population bv) (bool-vector-count-consecutive bv t 0) (bool-vector-count-consecutive bv nil 1) (bool-vector-count-consecutive bv t 3)))	OK (stats t 2 1 2 1)
-7	(let ((bv (bool-vector nil nil))) (aset bv 1 t) (list 'mutate (aref bv 0) (aref bv 1) (bool-vector-count-population bv)))	OK (mutate nil t 1)
-8	(let ((bv (bool-vector nil 0 nil ""))) (list 'truth-shape (aref bv 0) (aref bv 1) (aref bv 2) (aref bv 3)))	OK (truth-shape nil t nil t)

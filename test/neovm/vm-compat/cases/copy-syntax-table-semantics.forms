@@ -1,6 +1,0 @@
-(fboundp 'copy-syntax-table)
-(char-table-p (copy-syntax-table))
-(char-table-subtype (copy-syntax-table))
-(let ((t0 (make-syntax-table))) (eq t0 (copy-syntax-table t0)))
-(condition-case err (copy-syntax-table 1) (wrong-type-argument (car err)))
-(condition-case err (copy-syntax-table nil nil) (wrong-number-of-arguments (car err)))

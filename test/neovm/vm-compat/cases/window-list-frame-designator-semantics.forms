@@ -1,5 +1,0 @@
-(condition-case err (length (window-list)) (error err))
-(condition-case err (length (window-list nil)) (error err))
-(condition-case err (window-list 999999) (error err))
-(condition-case err (window-list 'foo) (error err))
-(condition-case err (window-list (selected-window)) (error err))

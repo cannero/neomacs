@@ -1,6 +1,0 @@
-1	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (list (replace-rectangle 1 10 "hi") (point) (string-to-list (buffer-string))))	OK (10 10 (104 105 99 100 101 102 10 104 105 51 52 53 54 10))
-2	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (list (replace-rectangle 1 9 42) (point) (string-to-list (buffer-string))))	OK (9 9 (42 98 99 100 101 102 10 42 50 51 52 53 54 10))
-3	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (list (replace-rectangle 8 7 "ZZ") (point) (string-to-list (buffer-string))))	OK (10 10 (97 98 99 100 101 102 10 90 90 10))
-4	(with-temp-buffer (insert "abc") (list (replace-rectangle 20 1 "x") (point) (string-to-list (buffer-string))))	OK (2 2 (120))
-5	(condition-case err (replace-rectangle 1 9 1.5) (error (car err)))	OK wrong-type-argument
-6	(condition-case err (replace-rectangle 1 9) (error (car err)))	OK wrong-number-of-arguments

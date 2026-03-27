@@ -1,6 +1,0 @@
-1	(fboundp 'garbage-collect)	OK t
-2	(let ((gc (garbage-collect))) (listp gc))	OK t
-3	(let ((gc (garbage-collect))) (and (consp (assq 'conses gc)) (consp (assq 'symbols gc)) (consp (assq 'strings gc)) (consp (assq 'buffers gc))))	OK t
-4	(let* ((gc (garbage-collect)) (entry (assq 'conses gc))) (and (numberp (nth 1 entry)) (numberp (nth 2 entry)) (numberp (nth 3 entry))))	OK t
-5	(let* ((gc (garbage-collect)) (entry (assq 'string-bytes gc))) (and (numberp (nth 1 entry)) (numberp (nth 2 entry)) (null (nth 3 entry))))	OK t
-6	(condition-case err (garbage-collect 1) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

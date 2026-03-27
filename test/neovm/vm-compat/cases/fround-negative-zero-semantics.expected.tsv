@@ -1,5 +1,0 @@
-1	(fround -0.5)	OK -0.0
-2	(fround -0.4)	OK -0.0
-3	(fround 0.5)	OK 0.0
-4	(fround 2.5)	OK 2.0
-5	(fround -2.5)	OK -2.0

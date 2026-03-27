@@ -1,6 +1,0 @@
-1	(register-ccl-program 'neovm-ccl-program-plist [10 0 0])	OK 1
-2	(boundp 'neovm-ccl-program-plist)	OK nil
-3	(condition-case err (symbol-value 'neovm-ccl-program-plist) (error (car err)))	OK void-variable
-4	(get 'neovm-ccl-program-plist 'ccl-program)	OK nil
-5	(get 'neovm-ccl-program-plist 'ccl-program-idx)	OK 1
-6	(let ((plist (symbol-plist 'neovm-ccl-program-plist))) (list (null plist) (equal (plist-get plist 'ccl-program) [10 0 0]) (equal (plist-get plist 'ccl-program-idx) 1)))	OK (nil nil t)

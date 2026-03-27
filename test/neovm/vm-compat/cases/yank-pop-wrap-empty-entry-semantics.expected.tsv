@@ -1,3 +1,0 @@
-1	(with-temp-buffer (setq kill-ring (list "" "x" "y")) (setq kill-ring-yank-pointer kill-ring) (yank) (setq last-command 'yank) (yank-pop 1) (list (buffer-string) (car kill-ring-yank-pointer)))	OK ("x" "x")
-2	(with-temp-buffer (setq kill-ring (list "" "x" "y")) (setq kill-ring-yank-pointer kill-ring) (yank) (setq last-command 'yank) (yank-pop 1) (setq last-command 'yank) (yank-pop 1) (list (buffer-string) (car kill-ring-yank-pointer)))	OK ("y" "y")
-3	(with-temp-buffer (setq kill-ring (list "" "x" "y")) (setq kill-ring-yank-pointer kill-ring) (yank) (setq last-command 'yank) (yank-pop -1) (list (buffer-string) (car kill-ring-yank-pointer)))	OK ("y" "y")

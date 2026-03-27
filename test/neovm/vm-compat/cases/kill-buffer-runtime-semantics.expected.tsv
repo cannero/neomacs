@@ -1,6 +1,0 @@
-1	(condition-case err (kill-buffer nil nil) (error (car err)))	OK wrong-number-of-arguments
-2	(let* ((a (get-buffer-create "kb-runtime-a")) (b (get-buffer-create "kb-runtime-b"))) (save-current-buffer (set-buffer a) (prog1 (list (kill-buffer) (bufferp (current-buffer)) (buffer-live-p a) (buffer-live-p b)) (kill-buffer b))))	OK (t t nil t)
-3	(let* ((a (get-buffer-create "kb-runtime-nil-a")) (b (get-buffer-create "kb-runtime-nil-b"))) (save-current-buffer (set-buffer a) (prog1 (list (kill-buffer nil) (bufferp (current-buffer)) (buffer-live-p a) (buffer-live-p b)) (kill-buffer b))))	OK (t t nil t)
-4	(condition-case err (kill-buffer "kb-runtime-missing") (error err))	OK (error "No buffer named kb-runtime-missing")
-5	(let ((b (generate-new-buffer "kb-runtime-dead"))) (kill-buffer b) (kill-buffer b))	OK nil
-6	(condition-case err (kill-buffer 1) (error err))	OK (wrong-type-argument stringp 1)

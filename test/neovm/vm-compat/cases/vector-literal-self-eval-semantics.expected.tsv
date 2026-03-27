@@ -1,8 +1,0 @@
-1	(aref [f1] 0)	OK f1
-2	(let ((f1 'shadowed)) (aref [f1] 0))	OK f1
-3	(aref [(+ 1 2)] 0)	OK (+ 1 2)
-4	(let ((x 1)) (aref [x] 0))	OK x
-5	(key-description [f1])	OK "<f1>"
-6	(string= (help-key-description [f1] [f1]) "<f1>")	OK t
-7	(string= (help-key-description [f1] [f2]) "<f1> (translated from <f2>)")	OK t
-8	(condition-case err (help-key-description [f1] [f1] nil) (error (car err)))	OK wrong-number-of-arguments

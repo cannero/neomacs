@@ -1,9 +1,0 @@
-1	(setq my-var 10)	OK 10
-2	(local-variable-p 'my-var)	OK nil
-3	(with-temp-buffer (local-variable-p 'my-var (current-buffer)))	OK nil
-4	(with-temp-buffer (make-local-variable 'my-var) (local-variable-p 'my-var))	OK t
-5	(with-temp-buffer (set (make-local-variable 'my-var) 99) my-var)	OK 99
-6	(default-value 'my-var)	OK 10
-7	(with-temp-buffer (setq my-var 22) (list my-var (default-value 'my-var)))	OK (22 22)
-8	(set-default 'my-var 33)	OK 33
-9	(list my-var (default-value 'my-var))	OK (33 33)

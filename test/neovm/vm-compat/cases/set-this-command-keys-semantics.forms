@@ -1,6 +1,0 @@
-(list
- (condition-case err (set--this-command-keys) (error err))
- (condition-case err (set--this-command-keys nil) (error err))
- (condition-case err (set--this-command-keys t) (error err))
- (condition-case err (set--this-command-keys 1) (error err))
- (condition-case err (set--this-command-keys "x") (error err)))

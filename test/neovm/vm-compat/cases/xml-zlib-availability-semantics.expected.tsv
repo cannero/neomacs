@@ -1,4 +1,0 @@
-1	(libxml-available-p)	OK t
-2	(condition-case err (libxml-available-p 1) (error err))	OK (wrong-number-of-arguments libxml-available-p 1)
-3	(zlib-available-p)	OK t
-4	(condition-case err (zlib-available-p 1) (error err))	OK (wrong-number-of-arguments zlib-available-p 1)

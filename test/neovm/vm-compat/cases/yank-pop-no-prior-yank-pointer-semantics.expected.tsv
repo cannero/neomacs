@@ -1,2 +1,0 @@
-1	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq last-command 'yank) (condition-case err (yank-pop 1) (error (list (car err) (car (cdr err)) (car kill-ring-yank-pointer)))))	OK (wrong-type-argument number-or-marker-p nil)
-2	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (setq last-command 'yank) (condition-case err (yank-pop 1) (error (list (car err) (car (cdr err)) (car kill-ring-yank-pointer)))))	OK (wrong-type-argument number-or-marker-p 1)

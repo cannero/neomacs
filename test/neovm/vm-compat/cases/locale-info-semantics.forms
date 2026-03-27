@@ -1,8 +1,0 @@
-(locale-info 'codeset)
-(locale-info 'days)
-(locale-info 'months)
-(locale-info 'paper)
-(locale-info "codeset")
-(locale-info nil)
-(locale-info t)
-(condition-case err (locale-info 1) (error err))

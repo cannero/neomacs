@@ -1,9 +1,0 @@
-1	(let ((start (length (recent-keys)))) (progn (command-execute 'ignore nil []) (append (nthcdr start (append (recent-keys) nil)) nil)))	OK nil
-2	(let ((start (length (recent-keys)))) (progn (call-interactively 'ignore nil []) (append (nthcdr start (append (recent-keys) nil)) nil)))	OK nil
-3	(progn (fset 'neo-empty-keys-probe (lambda nil (interactive) (list (this-command-keys) (this-command-keys-vector)))) 'probe-installed)	OK probe-installed
-4	(command-execute 'neo-empty-keys-probe nil [])	OK ("" [])
-5	(call-interactively 'neo-empty-keys-probe nil [])	OK ("" [])
-6	(condition-case err (command-execute 'ignore nil "a") (error err))	OK (wrong-type-argument vectorp "a")
-7	(condition-case err (call-interactively 'ignore nil "a") (error err))	OK (wrong-type-argument vectorp "a")
-8	(let ((start (length (recent-keys)))) (progn (condition-case _ (command-execute 'ignore nil "a") (error nil)) (append (nthcdr start (append (recent-keys) nil)) nil)))	OK nil
-9	(let ((start (length (recent-keys)))) (progn (condition-case _ (call-interactively 'ignore nil "a") (error nil)) (append (nthcdr start (append (recent-keys) nil)) nil)))	OK nil

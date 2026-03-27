@@ -1,8 +1,0 @@
-; region-beginning/region-end behavior with unset/set/cleared mark.
-(with-temp-buffer (condition-case err (region-beginning) (error (car err))))
-(with-temp-buffer (condition-case err (region-end) (error (car err))))
-(with-temp-buffer (set-mark (point-min)) (list (region-beginning) (region-end)))
-(with-temp-buffer (insert "abc") (goto-char (point-max)) (set-mark (point-min)) (list (region-beginning) (region-end)))
-(with-temp-buffer (insert "abc") (goto-char (point-min)) (set-mark (point-max)) (list (region-beginning) (region-end)))
-(with-temp-buffer (set-mark (point-min)) (set-marker (mark-marker) nil) (condition-case err (region-beginning) (error (car err))))
-(with-temp-buffer (let ((transient-mark-mode t)) (condition-case err (region-end) (error (car err)))))

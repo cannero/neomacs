@@ -1,7 +1,0 @@
-1	(condition-case err (progn (setq unread-command-events (list 1.0 97)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (1.0))
-2	(condition-case err (progn (setq unread-command-events (list 1.0 98 97)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (1.0))
-3	(condition-case err (progn (setq unread-command-events (list 1.0 98 97 96)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (1.0))
-4	(condition-case err (progn (setq unread-command-events (list 1.0 98 97 96 95)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (1.0))
-5	(condition-case err (progn (setq unread-command-events (list 1.0 98 97 96 95 94)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (1.0))
-6	(condition-case err (progn (setq unread-command-events (list 1.0 98 97 96 95 94 93)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (1.0))
-7	(condition-case err (progn (setq unread-command-events '(1.0 . 97)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (1.0))

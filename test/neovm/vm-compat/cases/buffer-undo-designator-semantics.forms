@@ -1,8 +1,0 @@
-(condition-case err (buffer-enable-undo) (error err))
-(condition-case err (buffer-disable-undo) (error err))
-(condition-case err (buffer-enable-undo 1) (error err))
-(condition-case err (buffer-disable-undo 1) (error err))
-(condition-case err (buffer-enable-undo "missing-bu") (error err))
-(condition-case err (buffer-disable-undo "missing-bd") (error err))
-(let ((b (generate-new-buffer "undo-dead-en"))) (kill-buffer b) (condition-case err (buffer-enable-undo b) (error err)))
-(let ((b (generate-new-buffer "undo-dead-dis"))) (kill-buffer b) (condition-case err (buffer-disable-undo b) (error err)))

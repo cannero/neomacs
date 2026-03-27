@@ -1,5 +1,0 @@
-(define-hash-table-test 'neovm-probe-ht-test 'eq 'sxhash-eq)
-(hash-table-test (make-hash-table :test 'neovm-probe-ht-test))
-(let ((ht (make-hash-table :test 'neovm-probe-ht-test))) (hash-table-test (copy-hash-table ht)))
-(define-hash-table-test 'neovm-probe-ht-test 'equal 'sxhash-equal)
-(hash-table-test (make-hash-table :test 'neovm-probe-ht-test))

@@ -1,5 +1,0 @@
-1	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '("b" . "c")) (condition-case err (yank) (error (car err))))	OK wrong-type-argument
-2	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (yank) (list (buffer-string) (car kill-ring-yank-pointer)))	OK ("b" "b")
-3	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2 3 4)) (yank) (list (buffer-string) (car kill-ring-yank-pointer)))	OK ("c" "c")
-4	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (yank) (setq last-command 'yank) (yank-pop 1) (list (buffer-string) (car kill-ring-yank-pointer)))	OK ("c" "c")
-5	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '("b" . "c")) (setq last-command 'yank) (condition-case err (yank-pop 1) (error (car err))))	OK wrong-type-argument

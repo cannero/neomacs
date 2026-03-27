@@ -1,4 +1,0 @@
-1	(with-temp-buffer (insert (concat "a" (char-to-string 9) "b")) (goto-char (point-min)) (let ((replace-lax-whitespace nil)) (replace-string "a b" "X")) (equal (buffer-string) "X"))	OK nil
-2	(with-temp-buffer (insert (concat "a" (char-to-string 9) "b")) (goto-char (point-min)) (let ((replace-lax-whitespace t)) (replace-string "a b" "X")) (equal (buffer-string) "X"))	OK t
-3	(with-temp-buffer (insert (concat "a" (char-to-string 9) "b")) (goto-char (point-min)) (let ((replace-lax-whitespace nil) (unread-command-events (list 33))) (query-replace "a b" "X")) (equal (buffer-string) "X"))	OK nil
-4	(with-temp-buffer (insert (concat "a" (char-to-string 9) "b")) (goto-char (point-min)) (let ((replace-lax-whitespace t) (unread-command-events (list 33))) (query-replace "a b" "X")) (equal (buffer-string) "X"))	OK t

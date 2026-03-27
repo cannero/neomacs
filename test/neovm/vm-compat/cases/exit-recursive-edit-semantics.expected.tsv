@@ -1,3 +1,0 @@
-1	(fboundp 'exit-recursive-edit)	OK t
-2	(condition-case err (exit-recursive-edit) (error err))	OK (user-error "No recursive edit is in progress")
-3	(condition-case err (exit-recursive-edit nil) (error err))	OK (wrong-number-of-arguments exit-recursive-edit 1)

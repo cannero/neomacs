@@ -1,9 +1,0 @@
-1	(fboundp 'x-display-color-p)	OK t
-2	(let ((term (car (terminal-list)))) (x-display-color-p term))	OK nil
-3	(let ((term (frame-terminal (selected-frame)))) (x-display-color-p term))	OK nil
-4	(condition-case err (x-display-pixel-width (car (terminal-list))) (error (car err)))	OK error
-5	(condition-case err (x-display-pixel-width (car (terminal-list))) (error (cadr err)))	OK "Terminal 0 is not an X display"
-6	(condition-case err (x-display-pixel-height (car (terminal-list))) (error (car err)))	OK error
-7	(condition-case err (x-display-pixel-height (car (terminal-list))) (error (cadr err)))	OK "Terminal 0 is not an X display"
-8	(condition-case err (x-close-connection (car (terminal-list))) (error (car err)))	OK error
-9	(condition-case err (x-close-connection (car (terminal-list))) (error (cadr err)))	OK "Terminal 0 is not an X display"

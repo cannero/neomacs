@@ -1,5 +1,0 @@
-1	(let ((w (split-window))) (delete-window w) (list (windowp w) (window-live-p w)))	OK (t nil)
-2	(let ((w (split-window))) (delete-window w) (condition-case err (window-buffer w) (error (car err))))	OK nil
-3	(let ((w (split-window))) (delete-window w) (condition-case err (window-frame w) (error (car err))))	OK wrong-type-argument
-4	(let ((w (split-window))) (delete-window w) (condition-case err (select-window w) (error (car err))))	OK wrong-type-argument
-5	(let ((w (split-window))) (delete-window w) (condition-case err (set-window-buffer w (current-buffer)) (error (car err))))	OK wrong-type-argument

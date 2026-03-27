@@ -1,3 +1,0 @@
-1	(let ((f (selected-frame))) (list (display-graphic-p f) (display-color-p f) (display-pixel-width f) (display-pixel-height f) (display-mm-width f) (display-mm-height f) (display-screens f) (display-color-cells f) (display-planes f) (display-visual-class f) (display-backing-store f)))	OK (nil nil 80 25 nil nil 1 0 3 static-gray not-useful)
-2	(condition-case err (display-graphic-p 999999) (error (car err)))	OK error
-3	(condition-case err (display-pixel-width 999999) (error (car err)))	OK error

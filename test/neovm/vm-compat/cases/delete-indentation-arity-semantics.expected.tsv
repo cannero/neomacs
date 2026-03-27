@@ -1,1 +1,0 @@
-1	(list (with-temp-buffer (condition-case err (delete-indentation nil nil nil nil) (error err))) (with-temp-buffer (condition-case err (delete-indentation t nil nil nil) (error err))))	OK ((wrong-number-of-arguments delete-indentation 4) (wrong-number-of-arguments delete-indentation 4))

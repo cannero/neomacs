@@ -1,7 +1,0 @@
-1	(subr-arity (symbol-function 'find-file))	OK (1 . 2)
-2	(subr-arity (symbol-function 'find-file-noselect))	OK (1 . 4)
-3	(subr-arity (symbol-function 'insert-file-contents))	OK (1 . 5)
-4	(subr-arity (symbol-function 'load))	OK (1 . 5)
-5	(subr-arity (symbol-function 'load-file))	OK (1 . 1)
-6	(subr-arity (symbol-function 'locate-file))	OK (2 . 4)
-7	(subr-arity (symbol-function 'locate-file-internal))	OK (2 . 4)

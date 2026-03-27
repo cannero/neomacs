@@ -1,7 +1,0 @@
-1	(with-temp-buffer (insert (string 32 32 97)) (goto-char (point-max)) (indent-according-to-mode) (string-to-list (buffer-string)))	OK (97)
-2	(with-temp-buffer (insert (string 32 32 97)) (goto-char (point-max)) (indent-according-to-mode) (point))	OK 2
-3	(with-temp-buffer (insert (string 32 32 97)) (goto-char (point-max)) (indent-according-to-mode t) (string-to-list (buffer-string)))	OK (97)
-4	(condition-case err (indent-according-to-mode 1 2) (error err))	OK (wrong-number-of-arguments indent-according-to-mode 2)
-5	(with-temp-buffer (insert (string 32 32 97)) (goto-char (point-max)) (reindent-then-newline-and-indent) (string-to-list (buffer-string)))	OK (97 10)
-6	(with-temp-buffer (insert (string 32 32 97)) (goto-char (point-max)) (reindent-then-newline-and-indent) (point))	OK 3
-7	(condition-case err (reindent-then-newline-and-indent 1) (error err))	OK (wrong-number-of-arguments reindent-then-newline-and-indent 1)

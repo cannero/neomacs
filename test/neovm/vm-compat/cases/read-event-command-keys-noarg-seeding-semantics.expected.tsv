@@ -1,5 +1,0 @@
-1	(this-command-keys-vector)	OK []
-2	(let ((unread-command-events (list 97))) (read-event))	OK 97
-3	(this-command-keys-vector)	OK [97]
-4	(let ((unread-command-events (list '(mouse-1)))) (read-event))	OK (mouse-1)
-5	(this-command-keys-vector)	OK [97]

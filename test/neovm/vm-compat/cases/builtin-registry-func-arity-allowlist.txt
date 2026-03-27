@@ -1,4 +1,0 @@
-# One builtin name per line.
-# This allowlist is for intentional core parity drifts in `func-arity`
-# reporting for names in DISPATCH_BUILTIN_NAMES.
-# Keep empty unless a drift is explicitly documented and approved.

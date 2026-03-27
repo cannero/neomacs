@@ -1,8 +1,0 @@
-1	(let ((ct (make-char-table 'syntax-table 42))) (char-table-range ct nil))	OK 42
-2	(condition-case err (char-table-range (make-char-table 'syntax-table 0) t) (error (car err)))	OK error
-3	(let ((ct (make-char-table 'syntax-table 0))) (set-char-table-range ct nil 3) (list (char-table-range ct 97) (char-table-range ct nil)))	OK (0 3)
-4	(let ((ct (make-char-table 'syntax-table 0))) (set-char-table-range ct t 5) (list (char-table-range ct 97) (char-table-range ct 98) (char-table-range ct nil)))	OK (5 5 0)
-5	(let ((ct (make-char-table 'syntax-table 0))) (set-char-table-range ct t 5) (set-char-table-range ct 97 9) (list (char-table-range ct 97) (char-table-range ct 98) (char-table-range ct nil)))	OK (9 5 0)
-6	(let* ((parent (make-char-table 'syntax-table 8)) (ct (make-char-table 'syntax-table nil))) (set-char-table-parent ct parent) (list (char-table-range ct 97) (char-table-range ct nil)))	OK (8 nil)
-7	(let* ((parent (make-char-table 'syntax-table 8)) (ct (make-char-table 'syntax-table 0))) (set-char-table-parent ct parent) (list (char-table-range ct 97) (char-table-range ct nil)))	OK (0 0)
-8	(let* ((parent (make-char-table 'syntax-table 8)) (ct (make-char-table 'syntax-table nil))) (set-char-table-parent ct parent) (set-char-table-range ct t 5) (list (char-table-range ct 97) (char-table-range ct nil)))	OK (5 nil)

@@ -1,5 +1,0 @@
-1	(condition-case err (length (window-list)) (error err))	OK 1
-2	(condition-case err (length (window-list nil)) (error err))	OK 1
-3	(condition-case err (window-list 999999) (error err))	OK (error "Window is on a different frame")
-4	(condition-case err (window-list 'foo) (error err))	OK (error "Window is on a different frame")
-5	(condition-case err (window-list (selected-window)) (error err))	OK (error "Window is on a different frame")

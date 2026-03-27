@@ -1,6 +1,0 @@
-1	(setq features '(vm-existing))	OK (vm-existing)
-2	(featurep 'vm-existing)	OK t
-3	(require 'vm-existing)	OK vm-existing
-4	(setq features '(vm-existing))	OK (vm-existing)
-5	(provide 'vm-new)	OK vm-new
-6	features	OK (vm-new vm-existing)

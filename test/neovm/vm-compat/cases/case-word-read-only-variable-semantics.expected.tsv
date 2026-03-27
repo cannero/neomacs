@@ -1,5 +1,0 @@
-1	(with-temp-buffer (insert "ABC") (goto-char 1) (setq buffer-read-only t) (condition-case err (downcase-word 1) (error (car err))))	OK buffer-read-only
-2	(with-temp-buffer (insert "abc") (goto-char 1) (let ((buffer-read-only t)) (condition-case err (upcase-word 1) (error (car err)))))	OK buffer-read-only
-3	(with-temp-buffer (insert "abc") (goto-char 1) (setq buffer-read-only t) (condition-case err (capitalize-word 1) (error (car err))))	OK buffer-read-only
-4	(with-temp-buffer (insert "abc") (goto-char 1) (setq buffer-read-only t) (condition-case err (downcase-word 0) (error (car err))))	OK nil
-5	(let ((orig (default-value 'buffer-read-only))) (unwind-protect (progn (setq-default buffer-read-only t) (with-temp-buffer (insert "ABC") (goto-char 1) (condition-case err (downcase-word 1) (error (car err))))) (setq-default buffer-read-only orig)))	OK nil

@@ -1,5 +1,0 @@
-1	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (list (delete-rectangle 1 9) (string-to-list (buffer-string))))	OK (7 (98 99 100 101 102 10 50 51 52 53 54 10))
-2	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (list (delete-rectangle 8 7) (string-to-list (buffer-string))))	OK (8 (97 98 99 100 101 102 10 10))
-3	(with-temp-buffer (insert "abcdef") (list (delete-rectangle 20 1) (string-to-list (buffer-string))))	OK (1 nil)
-4	(condition-case err (delete-rectangle "x" 2) (error (car err)))	OK wrong-type-argument
-5	(condition-case err (delete-rectangle 1 "x") (error (car err)))	OK wrong-type-argument

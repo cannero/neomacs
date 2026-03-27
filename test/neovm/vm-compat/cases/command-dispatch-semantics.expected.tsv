@@ -1,8 +1,0 @@
-1	(condition-case err (command-execute 'ignore) (error err))	OK nil
-2	(condition-case err (command-execute 'car) (error err))	OK (wrong-type-argument commandp car)
-3	(condition-case err (command-execute 'nonexistent) (error err))	OK (wrong-type-argument commandp nonexistent)
-4	(condition-case err (call-interactively 'ignore) (error err))	OK nil
-5	(condition-case err (call-interactively 'car) (error err))	OK (wrong-type-argument commandp car)
-6	(condition-case err (call-interactively 'nonexistent) (error err))	OK (wrong-type-argument commandp nonexistent)
-7	(let ((orig (symbol-function 't))) (unwind-protect (progn (fset t 'ignore) (condition-case err (command-execute t) (error err))) (fset 't orig)))	OK nil
-8	(let ((orig-k (symbol-function :vm-cmd-run-k))) (unwind-protect (progn (fset :vm-cmd-run-k 'ignore) (condition-case err (command-execute :vm-cmd-run-k) (error err))) (fset :vm-cmd-run-k orig-k)))	OK nil

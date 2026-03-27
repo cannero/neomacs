@@ -1,5 +1,0 @@
-1	(subr-arity (symbol-function 'add-name-to-file))	OK (2 . 3)
-2	(subr-arity (symbol-function 'add-text-properties))	OK (3 . 4)
-3	(subr-arity (symbol-function 'add-variable-watcher))	OK (2 . 2)
-4	(subr-arity (symbol-function 'autoload-do-load))	OK (1 . 3)
-5	(subr-arity (symbol-function 'backtrace-frame))	OK (1 . 2)

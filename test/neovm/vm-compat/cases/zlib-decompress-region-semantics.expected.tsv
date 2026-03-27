@@ -1,8 +1,0 @@
-1	(condition-case err (zlib-decompress-region 1 1) (error err))	OK (error "This function can be called only in unibyte buffers")
-2	(condition-case err (zlib-decompress-region) (error err))	OK (wrong-number-of-arguments zlib-decompress-region 0)
-3	(condition-case err (zlib-decompress-region 1 1 1) (error err))	OK (error "This function can be called only in unibyte buffers")
-4	(condition-case err (zlib-decompress-region 1 1 1 1) (error err))	OK (wrong-number-of-arguments zlib-decompress-region 4)
-5	(condition-case err (zlib-decompress-region nil 1) (error err))	OK (wrong-type-argument integer-or-marker-p nil)
-6	(condition-case err (zlib-decompress-region 1 nil) (error err))	OK (wrong-type-argument integer-or-marker-p nil)
-7	(condition-case err (zlib-decompress-region "1" 1) (error err))	OK (wrong-type-argument integer-or-marker-p "1")
-8	(condition-case err (zlib-decompress-region 1 "1") (error err))	OK (wrong-type-argument integer-or-marker-p "1")

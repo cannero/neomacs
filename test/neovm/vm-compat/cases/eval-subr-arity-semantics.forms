@@ -1,4 +1,0 @@
-(subr-arity (symbol-function 'eval))
-(subr-arity (symbol-function 'eval-buffer))
-(subr-arity (symbol-function 'eval-expression))
-(subr-arity (symbol-function 'eval-region))

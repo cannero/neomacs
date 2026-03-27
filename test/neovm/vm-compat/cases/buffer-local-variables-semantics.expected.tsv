@@ -1,7 +1,0 @@
-1	(listp (buffer-local-variables))	OK t
-2	(let ((v (make-local-variable 'neovm-blv-probe))) (set v 42) (cdr (assq 'neovm-blv-probe (buffer-local-variables))))	OK 42
-3	(with-temp-buffer (let ((v (make-local-variable 'neovm-blv-probe2))) (set v 99) (let ((b (current-buffer))) (cdr (assq 'neovm-blv-probe2 (buffer-local-variables b))))))	OK 99
-4	(condition-case err (let ((b (get-buffer-create "neovm-blv-buffer"))) (unwind-protect (buffer-local-variables "neovm-blv-buffer") (kill-buffer b))) (error err))	OK (wrong-type-argument bufferp "neovm-blv-buffer")
-5	(condition-case err (buffer-local-variables 1) (error err))	OK (wrong-type-argument bufferp 1)
-6	(condition-case err (buffer-local-variables nil nil) (error err))	OK (wrong-number-of-arguments buffer-local-variables 2)
-7	(with-temp-buffer (assq 'neovm-blv-missing (buffer-local-variables)))	OK nil

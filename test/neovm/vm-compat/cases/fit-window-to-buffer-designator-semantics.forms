@@ -1,8 +1,0 @@
-(windowp (fit-window-to-buffer))
-(let ((w (split-window)))
-  (windowp (fit-window-to-buffer w)))
-(condition-case err (fit-window-to-buffer 999999) (error (car err)))
-(condition-case err (fit-window-to-buffer 'foo) (error (car err)))
-(let ((w (split-window)))
-  (delete-window w)
-  (condition-case err (fit-window-to-buffer w) (error (car err))))

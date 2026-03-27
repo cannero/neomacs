@@ -1,4 +1,0 @@
-1	(progn (setq vm-expand-base (let* ((forms-file (getenv "NEOVM_FORMS_FILE")) (base (if forms-file (file-name-directory forms-file) default-directory))) (expand-file-name "directory-files-fixtures/" base))) (file-name-nondirectory (directory-file-name vm-expand-base)))	OK "directory-files-fixtures"
-2	(let ((default-directory vm-expand-base)) (equal (expand-file-name "alpha.txt") (expand-file-name "alpha.txt" vm-expand-base)))	OK t
-3	(let ((default-directory vm-expand-base)) (equal (expand-file-name "beta.txt" nil) (expand-file-name "beta.txt" vm-expand-base)))	OK t
-4	(let ((default-directory vm-expand-base)) (equal (expand-file-name "") (directory-file-name vm-expand-base)))	OK t

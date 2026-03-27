@@ -1,8 +1,0 @@
-1	(subr-arity (symbol-function 'back-to-indentation))	OK (0 . 0)
-2	(subr-arity (symbol-function 'backward-prefix-chars))	OK (0 . 0)
-3	(subr-arity (symbol-function 'backward-sexp))	OK (0 . 2)
-4	(subr-arity (symbol-function 'backward-kill-word))	OK (1 . 1)
-5	(subr-arity (symbol-function 'move-beginning-of-line))	OK (1 . 1)
-6	(subr-arity (symbol-function 'capitalize))	OK (1 . 1)
-7	(subr-arity (symbol-function 'capitalize-word))	OK (1 . 1)
-8	(subr-arity (symbol-function 'capitalize-region))	OK (2 . 3)

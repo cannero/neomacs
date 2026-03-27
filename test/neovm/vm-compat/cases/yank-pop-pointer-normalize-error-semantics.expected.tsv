@@ -1,5 +1,0 @@
-1	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (let ((inhibit-message t) (message-log-max nil)) (condition-case _err (yank-pop 1) (error (car kill-ring-yank-pointer)))))	OK "b"
-2	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2 3 4)) (let ((inhibit-message t) (message-log-max nil)) (condition-case _err (yank-pop 1) (error (car kill-ring-yank-pointer)))))	OK "c"
-3	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '("b" . "c")) (condition-case err (yank-pop 1) (error (car err))))	OK wrong-type-argument
-4	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (yank) (setq last-command 'yank) (condition-case err (progn (setq buffer-read-only t) (yank-pop 1)) (error (list (car err) (car kill-ring-yank-pointer)))))	OK nil
-5	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (yank) (setq last-command 'yank) (yank-pop -1) (list (buffer-string) (car kill-ring-yank-pointer)))	OK ("a" "a")

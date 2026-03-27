@@ -1,1 +1,0 @@
-1	(save-current-buffer (let* ((b1 (get-buffer-create "ow-curbuf-a")) (b2 (get-buffer-create "ow-curbuf-b"))) (set-window-buffer nil b1) (let ((w2 (split-window))) (set-window-buffer w2 b2) (other-window 1) (buffer-name (current-buffer)))))	OK "ow-curbuf-b"

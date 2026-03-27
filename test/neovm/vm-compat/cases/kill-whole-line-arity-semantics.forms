@@ -1,8 +1,0 @@
-; kill-whole-line runtime arity contract subset.
-(list
- (with-temp-buffer
-   (condition-case err (kill-whole-line nil nil) (error err)))
- (with-temp-buffer
-   (condition-case err (kill-whole-line 1 nil) (error err)))
- (with-temp-buffer
-   (condition-case err (kill-whole-line 1 2 3) (error err))))

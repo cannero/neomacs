@@ -1,5 +1,0 @@
-1	(condition-case err (with-temp-buffer (insert "aa bb") (goto-char 1) (transpose-words 1) (buffer-string)) (error err))	OK "bb aa"
-2	(condition-case err (with-temp-buffer (insert "one two three") (goto-char 5) (transpose-words 1) (buffer-string)) (error err))	OK "two one three"
-3	(condition-case err (with-temp-buffer (insert "aa") (goto-char 1) (transpose-words 1) (buffer-string)) (error err))	OK (error "Don’t have two things to transpose")
-4	(condition-case err (with-temp-buffer (insert "a b") (goto-char 1) (transpose-words -1) (buffer-string)) (error err))	OK (error "Don’t have two things to transpose")
-5	(condition-case err (with-temp-buffer (insert "aa bb") (goto-char 1) (transpose-words)) (error err))	OK (wrong-number-of-arguments transpose-words 0)

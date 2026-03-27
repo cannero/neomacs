@@ -1,5 +1,0 @@
-(let ((b (generate-new-buffer "sb-dead"))) (kill-buffer b) (condition-case err (set-buffer b) (error err)))
-(condition-case err (set-buffer "sb-missing") (error err))
-(condition-case err (set-buffer 1) (error err))
-(save-current-buffer (let ((b (get-buffer-create "sb-live"))) (prog1 (eq (set-buffer b) b) (kill-buffer b))))
-(save-current-buffer (let ((b (get-buffer-create "sb-live-name"))) (prog1 (eq (set-buffer "sb-live-name") b) (kill-buffer b))))

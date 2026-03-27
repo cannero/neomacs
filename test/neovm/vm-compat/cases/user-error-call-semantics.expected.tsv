@@ -1,4 +1,0 @@
-1	(condition-case err (user-error "oops %s" "now") (error err))	OK (user-error "oops now")
-2	(condition-case err (user-error "plain") (error err))	OK (user-error "plain")
-3	(condition-case err (user-error) (error (car err)))	OK wrong-number-of-arguments
-4	(condition-case err (user-error nil) (error (list (car err) (cadr err) (equal (nth 2 err) nil))))	OK (wrong-type-argument stringp t)

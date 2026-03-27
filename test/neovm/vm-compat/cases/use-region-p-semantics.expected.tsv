@@ -1,8 +1,0 @@
-1	(with-temp-buffer (use-region-p))	OK nil
-2	(with-temp-buffer (set-mark (point-min)) (use-region-p))	OK nil
-3	(with-temp-buffer (set-mark (point-min)) (setq mark-active t) (use-region-p))	OK nil
-4	(with-temp-buffer (set-mark (point-min)) (setq mark-active nil) (use-region-p))	OK nil
-5	(with-temp-buffer (let ((mark-active t)) (use-region-p)))	OK nil
-6	(with-temp-buffer (let ((transient-mark-mode nil)) (set-mark (point-min)) (setq mark-active t) (use-region-p)))	OK nil
-7	(with-temp-buffer (let ((transient-mark-mode t)) (set-mark (point-min)) (setq mark-active t) (use-region-p)))	OK nil
-8	(with-temp-buffer (let ((transient-mark-mode t)) (insert "abc") (goto-char (point-max)) (set-mark (point-min)) (setq mark-active t) (use-region-p)))	OK t

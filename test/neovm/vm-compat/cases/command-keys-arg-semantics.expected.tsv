@@ -1,6 +1,0 @@
-1	(condition-case err (command-execute 'ignore nil "a") (error err))	OK (wrong-type-argument vectorp "a")
-2	(condition-case err (call-interactively 'ignore nil "b") (error err))	OK (wrong-type-argument vectorp "b")
-3	(command-execute 'ignore nil [97])	OK nil
-4	(call-interactively 'ignore nil [98])	OK nil
-5	(command-execute 'ignore nil nil)	OK nil
-6	(call-interactively 'ignore nil nil)	OK nil

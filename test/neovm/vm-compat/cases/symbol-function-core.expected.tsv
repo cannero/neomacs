@@ -1,8 +1,0 @@
-1	(symbol-function 'message)	OK #<subr message>
-2	(symbol-function 'load)	OK #<subr load>
-3	(symbol-function 'if)	OK #<subr if>
-4	(symbol-function 'car)	OK #<subr car>
-5	(symbol-function 'read-key)	OK #<subr read-key>
-6	(symbol-function 'read-key-sequence-vector)	OK #<subr read-key-sequence-vector>
-7	(symbol-function 'read-event)	OK #<subr read-event>
-8	(symbol-function 'read-char-exclusive)	OK #<subr read-char-exclusive>

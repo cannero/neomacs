@@ -1,3 +1,0 @@
-1	(let* ((attrs (car (display-monitor-attributes-list))) (frames (cdr (assq 'frames attrs))) (f (car frames))) (list (= (length frames) 1) (framep f) (frame-live-p f) (integerp f) (numberp f) (listp f) (vectorp f)))	OK (t t t nil nil nil nil)
-2	(let* ((attrs (frame-monitor-attributes)) (frames (cdr (assq 'frames attrs))) (f (car frames))) (list (= (length frames) 1) (framep f) (frame-live-p f) (integerp f) (numberp f) (listp f) (vectorp f)))	OK (t t t nil nil nil nil)
-3	(let* ((f (car (cdr (assq 'frames (car (display-monitor-attributes-list)))))) (attrs (frame-monitor-attributes f))) (list (frame-visible-p f) (stringp (frame-parameter f 'name)) (windowp (frame-selected-window f)) (= (length (display-monitor-attributes-list f)) 1) (listp attrs)))	OK (t t t t t)

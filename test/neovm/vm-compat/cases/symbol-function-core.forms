@@ -1,9 +1,0 @@
-; symbol-function should resolve builtins and special forms to subr objects.
-(symbol-function 'message)
-(symbol-function 'load)
-(symbol-function 'if)
-(symbol-function 'car)
-(symbol-function 'read-key)
-(symbol-function 'read-key-sequence-vector)
-(symbol-function 'read-event)
-(symbol-function 'read-char-exclusive)

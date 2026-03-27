@@ -1,5 +1,0 @@
-1	(setq my-var 7)	OK 7
-2	(with-temp-buffer (buffer-local-value 'my-var (current-buffer)))	OK 7
-3	(with-temp-buffer (make-local-variable 'my-var) (set 'my-var 9) (buffer-local-value 'my-var (current-buffer)))	OK 9
-4	(buffer-local-value 'my-var (current-buffer))	OK 7
-5	(with-temp-buffer (buffer-local-value 'unknown-var (current-buffer)))	ERR (void-variable (unknown-var))

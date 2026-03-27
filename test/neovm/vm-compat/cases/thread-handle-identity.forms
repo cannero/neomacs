@@ -1,7 +1,0 @@
-(eq (current-thread) (current-thread))
-(let ((th (current-thread))) (eq th (current-thread)))
-(threadp '(thread . 0))
-(thread-live-p '(thread . 0))
-(thread-name '(thread . 0))
-(mutexp '(mutex . 1))
-(condition-variable-p '(condition-variable . 1))

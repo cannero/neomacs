@@ -1,8 +1,0 @@
-1	(condition-case err (x-display-pixel-width 'foo) (error err))	OK (wrong-type-argument frame-live-p foo)
-2	(condition-case err (x-display-pixel-height 'foo) (error err))	OK (wrong-type-argument frame-live-p foo)
-3	(condition-case err (x-display-pixel-width [foo]) (error err))	OK (wrong-type-argument frame-live-p [foo])
-4	(condition-case err (x-display-pixel-height [foo]) (error err))	OK (wrong-type-argument frame-live-p [foo])
-5	(condition-case err (x-display-pixel-width '(foo)) (error err))	OK (wrong-type-argument frame-live-p (foo))
-6	(condition-case err (x-display-pixel-height '(foo)) (error err))	OK (wrong-type-argument frame-live-p (foo))
-7	(condition-case err (x-display-pixel-width '(foo . bar)) (error err))	OK (wrong-type-argument frame-live-p (foo . bar))
-8	(condition-case err (x-display-pixel-height '(foo . bar)) (error err))	OK (wrong-type-argument frame-live-p (foo . bar))

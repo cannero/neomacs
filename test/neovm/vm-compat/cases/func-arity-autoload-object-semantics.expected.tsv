@@ -1,6 +1,0 @@
-1	(autoload 'vm-auto-fn "vm-auto-file" nil t)	OK vm-auto-fn
-2	(condition-case err (func-arity (indirect-function 'vm-auto-fn)) (error err))	OK (wrong-type-argument symbolp (autoload "vm-auto-file" nil t nil))
-3	(autoload 'vm-auto-macro "vm-auto-file" nil nil 'macro)	OK vm-auto-macro
-4	(condition-case err (func-arity (indirect-function 'vm-auto-macro)) (error err))	OK (wrong-type-argument symbolp (autoload "vm-auto-file" nil nil macro))
-5	(condition-case err (func-arity '(autoload "vm-auto-file" nil t nil)) (error err))	OK (wrong-type-argument symbolp (autoload "vm-auto-file" nil t nil))
-6	(condition-case err (func-arity '(autoload "vm-auto-file" nil nil macro)) (error err))	OK (wrong-type-argument symbolp (autoload "vm-auto-file" nil nil macro))

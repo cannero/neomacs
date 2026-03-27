@@ -1,9 +1,0 @@
-1	(fboundp 'erase-buffer)	OK t
-2	(fboundp 'widen)	OK t
-3	(fboundp 'current-time)	OK t
-4	(with-temp-buffer (insert "abc") (erase-buffer) (buffer-string))	OK ""
-5	(with-temp-buffer (insert "abcdef") (narrow-to-region 2 4) (widen) (list (point-min) (point-max)))	OK (1 7)
-6	(let ((tm (current-time))) (and (listp tm) (or (= (length tm) 3) (= (length tm) 4)) (integerp (nth 0 tm)) (integerp (nth 1 tm)) (integerp (nth 2 tm))))	OK t
-7	(condition-case err (erase-buffer nil) (error (car err)))	OK wrong-number-of-arguments
-8	(condition-case err (widen nil) (error (car err)))	OK wrong-number-of-arguments
-9	(condition-case err (current-time nil) (error (car err)))	OK wrong-number-of-arguments

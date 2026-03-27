@@ -1,7 +1,0 @@
-1	(let ((start (length (recent-keys)))) (progn (command-execute 'ignore nil [97]) (append (nthcdr start (append (recent-keys) nil)) nil)))	OK nil
-2	(let ((start (length (recent-keys)))) (progn (call-interactively 'ignore nil [98]) (append (nthcdr start (append (recent-keys) nil)) nil)))	OK nil
-3	(progn (fset 'neo-rk-probe (lambda nil (interactive) (list (this-command-keys) (this-command-keys-vector)))) 'probe-installed)	OK probe-installed
-4	(command-execute 'neo-rk-probe nil [99])	OK ("" [])
-5	(call-interactively 'neo-rk-probe nil [100])	OK ("" [])
-6	(let ((start (length (recent-keys)))) (progn (command-execute 'neo-rk-probe nil [101]) (append (nthcdr start (append (recent-keys) nil)) nil)))	OK nil
-7	(let ((start (length (recent-keys)))) (progn (call-interactively 'neo-rk-probe nil [102]) (append (nthcdr start (append (recent-keys) nil)) nil)))	OK nil

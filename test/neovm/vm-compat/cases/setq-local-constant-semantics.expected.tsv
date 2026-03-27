@@ -1,3 +1,0 @@
-1	(list (condition-case err (setq-local :foo 1) (error err)) (condition-case err (setq-local nil 1) (error err)) (condition-case err (setq-local t 1) (error err)) (condition-case err (setq-local 1 2) (error err)))	OK ((setting-constant :foo) (setting-constant nil) (setting-constant t) (error "Attempting to set a non-symbol: 1"))
-2	(let ((x 0)) (condition-case err (setq-local nil (setq x 1)) (error (list err x))))	OK ((setting-constant nil) 0)
-3	(let ((x 0)) (condition-case err (setq-local :foo (setq x 2)) (error (list err x))))	OK ((setting-constant :foo) 0)

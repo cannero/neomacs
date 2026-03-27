@@ -1,8 +1,0 @@
-(subr-arity (symbol-function 'hash-table-p))
-(subr-arity (symbol-function 'make-hash-table))
-(subr-arity (symbol-function 'gethash))
-(subr-arity (symbol-function 'puthash))
-(subr-arity (symbol-function 'remhash))
-(subr-arity (symbol-function 'clrhash))
-(subr-arity (symbol-function 'hash-table-count))
-(subr-arity (symbol-function 'maphash))

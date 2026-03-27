@@ -1,9 +1,0 @@
-1	(copy-sequence nil)	OK nil
-2	(copy-sequence '(1 2 3))	OK (1 2 3)
-3	(let ((x '(1 2 3))) (eq (copy-sequence x) x))	OK nil
-4	(copy-sequence '(1 . 2))	ERR (wrong-type-argument (listp 2))
-5	(copy-sequence [1 2 3])	OK [1 2 3]
-6	(let ((v [1 2 3])) (eq (copy-sequence v) v))	OK nil
-7	(copy-sequence "abc")	OK "abc"
-8	(let ((s "abc")) (eq (copy-sequence s) s))	OK nil
-9	(copy-sequence 5)	ERR (wrong-type-argument (sequencep 5))

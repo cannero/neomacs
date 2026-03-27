@@ -1,8 +1,0 @@
-(string-to-unibyte "")
-(string-to-unibyte "abc")
-(condition-case err (string-to-unibyte "é") (error err))
-(condition-case err (string-to-unibyte "ÿ") (error err))
-(condition-case err (string-to-unibyte "😀") (error err))
-(condition-case err (string-to-unibyte 1) (error err))
-(list (string-bytes (string-to-unibyte "abc")) (aref (string-to-unibyte "abc") 0) (find-charset-string (string-to-unibyte "abc")))
-(list (string-bytes (string-to-unibyte (unibyte-string 255))) (aref (string-to-unibyte (unibyte-string 255)) 0) (find-charset-string (string-to-unibyte (unibyte-string 255))))

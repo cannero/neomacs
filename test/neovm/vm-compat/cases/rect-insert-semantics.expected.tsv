@@ -1,8 +1,0 @@
-1	(with-temp-buffer (insert "abc") (newline) (insert "def") (newline) (goto-char 1) (insert-rectangle '("X" "Y")) (list (point) (string-to-list (buffer-string))))	OK (7 (88 97 98 99 10 89 100 101 102 10))
-2	(with-temp-buffer (insert "abc") (newline) (insert "def") (newline) (goto-char 2) (insert-rectangle '("X" "Y")) (list (point) (string-to-list (buffer-string))))	OK (8 (97 88 98 99 10 100 89 101 102 10))
-3	(with-temp-buffer (insert "abc") (goto-char 2) (insert-rectangle '("X" "Y" "Z")) (list (point) (string-to-list (buffer-string))))	OK (11 (97 88 98 99 10 32 89 10 32 90))
-4	(with-temp-buffer (insert "abc") (goto-char 2) (insert-rectangle nil) (list (point) (string-to-list (buffer-string))))	OK (2 (97 98 99))
-5	(with-temp-buffer (insert "abc") (goto-char 2) (insert-rectangle 'nil) (list (point) (string-to-list (buffer-string))))	OK (2 (97 98 99))
-6	(with-temp-buffer (insert "abc") (goto-char 2) (insert-rectangle '("" "")) (list (point) (string-to-list (buffer-string))))	OK (6 (97 98 99 10 32))
-7	(condition-case err (insert-rectangle 1) (error (car err)))	OK wrong-type-argument
-8	(condition-case err (insert-rectangle '("a" 1)) (error (list (car err) (cadr err))))	OK (wrong-type-argument buffer-or-string-p)

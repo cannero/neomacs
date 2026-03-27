@@ -1,4 +1,0 @@
-(save-current-buffer (let* ((w1 (progn (delete-other-windows) (selected-window))) (w2 (split-window))) (list (internal-show-cursor-p w1) (internal-show-cursor-p w2) (progn (internal-show-cursor nil nil) (list (internal-show-cursor-p w1) (internal-show-cursor-p w2) (internal-show-cursor-p))) (progn (internal-show-cursor w2 t) (list (internal-show-cursor-p w1) (internal-show-cursor-p w2) (internal-show-cursor-p))))))
-(save-current-buffer (let* ((w1 (progn (delete-other-windows) (selected-window))) (w2 (split-window))) (internal-show-cursor w1 nil) (select-window w2) (list (internal-show-cursor-p) (internal-show-cursor-p w1) (internal-show-cursor-p w2))))
-(save-current-buffer (let* ((w1 (progn (delete-other-windows) (selected-window))) (w2 (split-window))) (select-window w2) (internal-show-cursor nil nil) (list (internal-show-cursor-p) (internal-show-cursor-p w1) (internal-show-cursor-p w2))))
-(condition-case err (internal-show-cursor-p 999999) (error (car err)))

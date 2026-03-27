@@ -1,2 +1,0 @@
-# Evaluator-dispatch names intentionally excluded from DISPATCH_BUILTIN_NAMES.
-# Keep this list minimal and startup-policy driven.

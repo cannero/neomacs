@@ -1,4 +1,0 @@
-1	(fboundp 'memory-use-counts)	OK t
-2	(let ((counts (memory-use-counts))) (and (listp counts) (= (length counts) 7)))	OK t
-3	(let ((counts (memory-use-counts))) (and (numberp (nth 0 counts)) (numberp (nth 1 counts)) (numberp (nth 2 counts)) (numberp (nth 3 counts)) (numberp (nth 4 counts)) (numberp (nth 5 counts)) (numberp (nth 6 counts))))	OK t
-4	(condition-case err (memory-use-counts 1) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

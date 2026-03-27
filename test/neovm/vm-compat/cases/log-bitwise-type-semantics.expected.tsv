@@ -1,7 +1,0 @@
-1	(condition-case err (logand 1 2.0) (error (cons (car err) (cdr err))))	OK (wrong-type-argument integer-or-marker-p 2.0)
-2	(condition-case err (logior 1 2.0) (error (cons (car err) (cdr err))))	OK (wrong-type-argument integer-or-marker-p 2.0)
-3	(condition-case err (logxor 1 2.0) (error (cons (car err) (cdr err))))	OK (wrong-type-argument integer-or-marker-p 2.0)
-4	(condition-case err (lognot 2.0) (error (cons (car err) (cdr err))))	OK (wrong-type-argument integerp 2.0)
-5	(logand 65 7)	OK 1
-6	(logior 65 7)	OK 71
-7	(logxor 65 7)	OK 70

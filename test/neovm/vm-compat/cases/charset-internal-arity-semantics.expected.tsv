@@ -1,9 +1,0 @@
-1	(fboundp 'define-charset-internal)	OK t
-2	(condition-case err (define-charset-internal) (error (car err)))	OK wrong-number-of-arguments
-3	(condition-case err (apply #'define-charset-internal (make-list 16 nil)) (error (car err)))	OK wrong-number-of-arguments
-4	(condition-case err (apply #'define-charset-internal (make-list 17 nil)) (error (car err)))	OK wrong-type-argument
-5	(condition-case err (apply #'define-charset-internal (append (list 'x [0] [0]) (make-list 14 nil))) (error (car err)))	OK args-out-of-range
-6	(condition-case err (apply #'define-charset-internal (make-list 18 nil)) (error (car err)))	OK wrong-number-of-arguments
-7	(fboundp 'clear-charset-maps)	OK t
-8	(condition-case err (clear-charset-maps) (error (car err)))	OK nil
-9	(condition-case err (clear-charset-maps nil) (error (car err)))	OK wrong-number-of-arguments

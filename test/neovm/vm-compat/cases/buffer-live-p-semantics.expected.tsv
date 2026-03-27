@@ -1,6 +1,0 @@
-1	(fboundp 'buffer-live-p)	OK t
-2	(let ((b (get-buffer-create " *buffer-live-p*"))) (prog1 (buffer-live-p b) (kill-buffer b)))	OK t
-3	(let ((b (get-buffer-create " *buffer-live-p-killed*"))) (kill-buffer b) (buffer-live-p b))	OK nil
-4	(buffer-live-p "*scratch*")	OK nil
-5	(buffer-live-p nil)	OK nil
-6	(condition-case err (buffer-live-p) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

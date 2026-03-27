@@ -1,6 +1,0 @@
-1	(subr-arity (symbol-function 'abbrev-mode))	OK (0 . 1)
-2	(subr-arity (symbol-function 'abbrev-expansion))	OK (1 . 2)
-3	(subr-arity (symbol-function 'abbrev-table-p))	OK (1 . 1)
-4	(subr-arity (symbol-function 'define-abbrev))	OK (3 . many)
-5	(subr-arity (symbol-function 'define-abbrev-table))	OK (2 . many)
-6	(subr-arity (symbol-function 'expand-abbrev))	OK (0 . 0)

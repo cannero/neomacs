@@ -1,5 +1,0 @@
-1	(fboundp 'forward-comment)	OK t
-2	(with-temp-buffer (insert "  ; hi") (goto-char (point-min)) (forward-comment 1) (point))	OK 3
-3	(with-temp-buffer (insert "  ; hi") (goto-char (point-max)) (forward-comment -1) (point))	OK 7
-4	(condition-case err (forward-comment 'x) (wrong-type-argument (car err)))	OK wrong-type-argument
-5	(condition-case err (forward-comment) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

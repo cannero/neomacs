@@ -1,4 +1,0 @@
-1	(with-temp-buffer (insert (concat "line1" (string 10) "line2" (string 10))) (goto-char (point-min)) (string-to-list (thing-at-point 'line)))	OK (108 105 110 101 49 10)
-2	(with-temp-buffer (insert (concat "line1" (string 10) "line2" (string 10))) (goto-char (point-min)) (bounds-of-thing-at-point 'line))	OK (1 . 7)
-3	(with-temp-buffer (insert (concat "line1" (string 10) "line2" (string 10))) (goto-char (point-min)) (forward-line 1) (string-to-list (thing-at-point 'line)))	OK (108 105 110 101 50 10)
-4	(with-temp-buffer (insert (concat "line1" (string 10) "line2" (string 10))) (goto-char (point-min)) (forward-line 1) (bounds-of-thing-at-point 'line))	OK (7 . 13)

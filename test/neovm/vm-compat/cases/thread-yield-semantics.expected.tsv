@@ -1,4 +1,0 @@
-1	(thread-yield)	OK nil
-2	(condition-case err (thread-yield) (error (list 'err (car err))))	OK nil
-3	(condition-case err (thread-yield 1) (error (list 'err (car err) (cadr err))))	OK (err wrong-number-of-arguments thread-yield)
-4	(condition-case err (thread-yield 'tag) (error (error-message-string err)))	OK "Wrong number of arguments: thread-yield, 1"

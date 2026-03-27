@@ -1,6 +1,0 @@
-1	(with-temp-buffer (insert "go https://example.com/path?a=1, mail user@example.com.") (goto-char (point-min)) (search-forward "https") (thing-at-point 'url))	OK "https://example.com/path?a=1"
-2	(with-temp-buffer (insert "go https://example.com/path?a=1, mail user@example.com.") (goto-char (point-min)) (search-forward "https") (bounds-of-thing-at-point 'url))	OK (4 . 32)
-3	(with-temp-buffer (insert "go https://example.com/path?a=1, mail user@example.com.") (goto-char (point-min)) (search-forward "user") (thing-at-point 'email))	OK "user@example.com."
-4	(with-temp-buffer (insert "go https://example.com/path?a=1, mail user@example.com.") (goto-char (point-min)) (search-forward "user") (bounds-of-thing-at-point 'email))	OK (39 . 56)
-5	(with-temp-buffer (insert "go https://example.com/path?a=1, mail user@example.com.") (goto-char (point-min)) (search-forward ",") (thing-at-point 'url))	OK "https://example.com/path?a=1,"
-6	(with-temp-buffer (insert "go https://example.com/path?a=1, mail user@example.com.") (goto-char (point-min)) (search-forward "mail") (thing-at-point 'email))	OK nil

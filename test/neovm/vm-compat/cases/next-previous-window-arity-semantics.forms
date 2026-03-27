@@ -1,4 +1,0 @@
-(condition-case err (next-window nil nil nil nil) (error (car err)))
-(condition-case err (previous-window nil nil nil nil) (error (car err)))
-(let ((w1 (selected-window))) (split-window) (windowp (next-window w1 nil nil)))
-(let ((w1 (selected-window))) (split-window) (windowp (previous-window w1 nil nil)))

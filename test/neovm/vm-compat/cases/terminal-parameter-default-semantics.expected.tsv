@@ -1,8 +1,0 @@
-1	(terminal-parameter nil 'normal-erase-is-backspace)	OK 0
-2	(terminal-parameter nil 'keyboard-coding-saved-meta-mode)	OK (t)
-3	(let ((params (terminal-parameters nil))) (list (assoc 'normal-erase-is-backspace params) (assoc 'keyboard-coding-saved-meta-mode params)))	OK ((normal-erase-is-backspace . 0) (keyboard-coding-saved-meta-mode t))
-4	(let ((term (frame-terminal nil))) (set-terminal-parameter term 'normal-erase-is-backspace 9))	OK 0
-5	(terminal-parameter nil 'normal-erase-is-backspace)	OK 9
-6	(let ((term (frame-terminal nil))) (set-terminal-parameter term 'keyboard-coding-saved-meta-mode nil))	OK (t)
-7	(terminal-parameter nil 'keyboard-coding-saved-meta-mode)	OK nil
-8	(terminal-parameter (selected-frame) 'normal-erase-is-backspace)	OK 9

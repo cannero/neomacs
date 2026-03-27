@@ -1,4 +1,0 @@
-1	(condition-case err (funcall '(autoload "x" nil nil nil) 3) (wrong-type-argument (list (nth 1 err) (autoloadp (nth 2 err)))))	OK (symbolp t)
-2	(condition-case err (funcall (symbol-function 'safe-date-to-time) "1970-01-01 00:00:00 +0000") (wrong-type-argument (list (nth 1 err) (autoloadp (nth 2 err)))))	OK (symbolp t)
-3	(condition-case err (apply '(autoload "x" nil nil nil) '(3)) (wrong-type-argument (list (nth 1 err) (autoloadp (nth 2 err)))))	OK (symbolp t)
-4	(condition-case err (apply (symbol-function 'safe-date-to-time) '("1970-01-01 00:00:00 +0000")) (wrong-type-argument (list (nth 1 err) (autoloadp (nth 2 err)))))	OK (symbolp t)

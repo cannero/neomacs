@@ -1,7 +1,0 @@
-; func-arity should reject autoload forms with oracle-compatible type payload.
-(autoload 'vm-auto-fn "vm-auto-file" nil t)
-(condition-case err (func-arity (indirect-function 'vm-auto-fn)) (error err))
-(autoload 'vm-auto-macro "vm-auto-file" nil nil 'macro)
-(condition-case err (func-arity (indirect-function 'vm-auto-macro)) (error err))
-(condition-case err (func-arity '(autoload "vm-auto-file" nil t nil)) (error err))
-(condition-case err (func-arity '(autoload "vm-auto-file" nil nil macro)) (error err))

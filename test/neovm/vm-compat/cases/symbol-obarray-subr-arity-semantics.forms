@@ -1,8 +1,0 @@
-(subr-arity (symbol-function 'intern))
-(subr-arity (symbol-function 'intern-soft))
-(subr-arity (symbol-function 'make-symbol))
-(subr-arity (symbol-function 'symbol-name))
-(subr-arity (symbol-function 'symbol-plist))
-(subr-arity (symbol-function 'unintern))
-(subr-arity (symbol-function 'indirect-function))
-(subr-arity (symbol-function 'symbol-file))

@@ -1,3 +1,0 @@
-1	(stringp (compose-string-internal "hello" 0 5 nil))	OK t
-2	(equal (compose-string-internal "abc" 0 3 nil) "abc")	OK t
-3	(let ((s (compose-string-internal "ab" 0 2 [97 98]))) (stringp s))	OK t

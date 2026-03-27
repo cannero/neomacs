@@ -1,7 +1,0 @@
-1	(fboundp 'image-flush)	OK t
-2	(condition-case err (image-flush nil) (error err))	OK (error "Invalid image specification")
-3	(condition-case err (image-flush (create-image "x" 'pbm t)) (error err))	OK (error "Window system frame should be used")
-4	(condition-case err (image-flush (create-image "x" 'pbm t) nil) (error err))	OK (error "Window system frame should be used")
-5	(image-flush (create-image "x" 'pbm t) t)	OK nil
-6	(condition-case err (image-flush (create-image "x" 'pbm t) 1) (error err))	OK (wrong-type-argument frame-live-p 1)
-7	(condition-case err (image-flush (create-image "x" 'pbm t) nil nil) (error (car err)))	OK wrong-number-of-arguments

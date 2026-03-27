@@ -1,6 +1,0 @@
-1	(condition-case err (x-server-version "tty") (error (list (car err) (cadr err))))	OK (error "Display tty can’t be opened")
-2	(condition-case err (x-server-max-request-size "tty") (error (list (car err) (cadr err))))	OK (error "Display tty can’t be opened")
-3	(condition-case err (x-display-grayscale-p "tty") (error (list (car err) (cadr err))))	OK (error "Display tty can’t be opened")
-4	(condition-case err (x-server-version (car (terminal-list))) (error (list (car err) (cadr err))))	OK (error "Terminal 0 is not an X display")
-5	(condition-case err (x-server-max-request-size (car (terminal-list))) (error (list (car err) (cadr err))))	OK (error "Terminal 0 is not an X display")
-6	(condition-case err (x-display-grayscale-p (car (terminal-list))) (error (list (car err) (cadr err))))	OK (error "Terminal 0 is not an X display")

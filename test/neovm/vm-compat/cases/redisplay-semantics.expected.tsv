@@ -1,1 +1,0 @@
-1	(list (condition-case err (redisplay) (error err)) (condition-case err (redisplay nil) (error err)) (condition-case err (redisplay t) (error err)) (condition-case err (redisplay 1) (error err)) (condition-case err (redisplay "x") (error err)) (condition-case err (redisplay nil nil) (error err)))	OK (t t t t t (wrong-number-of-arguments redisplay 2))

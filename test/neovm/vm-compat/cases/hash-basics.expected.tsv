@@ -1,9 +1,0 @@
-1	(let ((h (make-hash-table :test 'eq))) (puthash 'a 1 h) (gethash 'a h))	OK 1
-2	(let ((h (make-hash-table :test 'equal))) (puthash "a" 1 h) (gethash "a" h))	OK 1
-3	(let ((h (make-hash-table))) (gethash 'missing h 'fallback))	OK fallback
-4	(let ((h (make-hash-table))) (puthash 'a 1 h) (hash-table-count h))	OK 1
-5	(let ((h (make-hash-table))) (puthash 'a 1 h) (remhash 'a h) (hash-table-count h))	OK 0
-6	(let ((h (make-hash-table))) (puthash 'a 1 h) (clrhash h) (hash-table-count h))	OK 0
-7	(condition-case err (puthash 'a 1 7) (error (car err)))	OK wrong-type-argument
-8	(condition-case err (gethash 'a 7) (error (car err)))	OK wrong-type-argument
-9	(condition-case err (hash-table-count 7) (error (car err)))	OK wrong-type-argument

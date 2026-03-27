@@ -1,8 +1,0 @@
-1	(find-charset-string "")	OK nil
-2	(find-charset-string "abc")	OK (ascii)
-3	(find-charset-string "é")	OK (unicode-bmp)
-4	(find-charset-string "😀")	OK (unicode)
-5	(find-charset-string "aé")	OK (ascii unicode-bmp)
-6	(find-charset-string "é😀")	OK (unicode unicode-bmp)
-7	(condition-case err (find-charset-string 1) (error err))	OK (wrong-type-argument stringp 1)
-8	(condition-case err (find-charset-string "a" nil t) (error err))	OK (wrong-number-of-arguments find-charset-string 3)

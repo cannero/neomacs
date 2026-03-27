@@ -1,4 +1,0 @@
-# One symbol name per line.
-# This allowlist is for intentional core parity drifts in builtin function-cell
-# shape (`fboundp` + subr/non-subr + subr arity). Keep empty unless drift is
-# explicitly documented and approved.

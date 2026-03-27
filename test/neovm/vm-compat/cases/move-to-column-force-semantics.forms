@@ -1,6 +1,0 @@
-(with-temp-buffer (insert "abc") (goto-char (point-min)) (move-to-column 10 t))
-(with-temp-buffer (insert "abc") (goto-char (point-min)) (move-to-column 10 t) (point))
-(with-temp-buffer (insert "abc") (goto-char (point-min)) (move-to-column 10 t) (string-to-list (buffer-string)))
-(with-temp-buffer (insert "a\\tb") (goto-char (point-min)) (move-to-column 5 t))
-(with-temp-buffer (insert "a\\tb") (goto-char (point-min)) (move-to-column 5 t) (point))
-(with-temp-buffer (insert "a\\tb") (goto-char (point-min)) (move-to-column 5 t) (string-to-list (buffer-string)))

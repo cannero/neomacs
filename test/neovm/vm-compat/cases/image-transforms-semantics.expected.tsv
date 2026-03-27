@@ -1,6 +1,0 @@
-1	(fboundp 'image-transforms-p)	OK t
-2	(image-transforms-p)	OK nil
-3	(image-transforms-p nil)	OK nil
-4	(image-transforms-p (selected-frame))	OK nil
-5	(condition-case err (image-transforms-p 1) (error (car err)))	OK wrong-type-argument
-6	(condition-case err (image-transforms-p nil nil) (error (car err)))	OK wrong-number-of-arguments

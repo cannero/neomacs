@@ -1,3 +1,0 @@
-1	(condition-case err (x-open-connection (car (terminal-list))) (error (list (car err) (length err) (cadr err))))	OK (wrong-type-argument 3 stringp)
-2	(condition-case err (x-close-connection (car (terminal-list))) (error (list (car err) (length err) (cadr err))))	OK (error 2 "Terminal 0 is not an X display")
-3	(condition-case err (x-open-connection (selected-frame)) (error (list (car err) (length err) (framep (cadr err)))))	OK (wrong-type-argument 3 nil)

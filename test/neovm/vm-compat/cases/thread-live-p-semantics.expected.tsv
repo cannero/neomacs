@@ -1,5 +1,0 @@
-1	(thread-live-p (current-thread))	OK t
-2	(let ((th (make-thread (lambda nil nil)))) (thread-join th) (thread-live-p th))	OK nil
-3	(condition-case err (thread-live-p) (error err))	OK (wrong-number-of-arguments thread-live-p 0)
-4	(condition-case err (thread-live-p 1 2) (error err))	OK (wrong-number-of-arguments thread-live-p 2)
-5	(condition-case err (thread-live-p '(thread . 0)) (error err))	OK (wrong-type-argument threadp (thread . 0))

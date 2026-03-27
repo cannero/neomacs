@@ -1,4 +1,0 @@
-1	(condition-case err (x-open-connection "foo") (error (list (car err) (cadr err))))	OK (error "Display foo can’t be opened")
-2	(condition-case err (x-close-connection "foo") (error (list (car err) (cadr err))))	OK (error "Display foo can’t be opened")
-3	(condition-case err (x-open-connection (car (terminal-list))) (error (list (car err) (cadr err))))	OK (wrong-type-argument stringp)
-4	(condition-case err (x-close-connection (car (terminal-list))) (error (list (car err) (cadr err))))	OK (error "Terminal 0 is not an X display")

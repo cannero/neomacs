@@ -1,4 +1,0 @@
-1	(condition-case err (frame-visible-p) (error (car err)))	OK wrong-number-of-arguments
-2	(condition-case err (frame-visible-p nil) (error err))	OK (wrong-type-argument frame-live-p nil)
-3	(condition-case err (frame-visible-p 999999) (error err))	OK (wrong-type-argument frame-live-p 999999)
-4	(not (null (frame-visible-p (selected-frame))))	OK t

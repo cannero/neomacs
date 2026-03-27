@@ -1,4 +1,0 @@
-1	(fboundp 'command-remapping)	OK t
-2	(subr-arity (symbol-function 'command-remapping))	OK (1 . 3)
-3	(let ((g (make-sparse-keymap)) (m-em (make-sparse-keymap)) (m-minor (make-sparse-keymap)) (emulation-mode-map-alists nil) (minor-mode-map-alist nil) (demo-mode t)) (use-global-map g) (define-key m-em [remap ignore] 'forward-char) (define-key m-minor [remap ignore] 'self-insert-command) (setq emulation-mode-map-alists (list (list (cons 'demo-mode m-em)))) (setq minor-mode-map-alist (list (cons 'demo-mode m-minor))) (command-remapping 'ignore))	OK forward-char
-4	(let ((g (make-sparse-keymap)) (m-minor (make-sparse-keymap)) (emulation-mode-map-alists '(missing-alist)) (minor-mode-map-alist nil) (demo-mode t)) (use-global-map g) (define-key m-minor [remap ignore] 'self-insert-command) (setq minor-mode-map-alist (list (cons 'demo-mode m-minor))) (command-remapping 'ignore))	OK self-insert-command

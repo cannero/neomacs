@@ -1,8 +1,0 @@
-1	(fboundp 'remove-images)	OK t
-2	(remove-images 1 10)	OK nil
-3	(remove-images 97 122)	OK nil
-4	(condition-case err (remove-images "x" 10) (error err))	OK (wrong-type-argument integer-or-marker-p "x")
-5	(condition-case err (remove-images 1 "x") (error err))	OK (wrong-type-argument integer-or-marker-p "x")
-6	(condition-case err (remove-images 1 10 1) (error err))	OK nil
-7	(condition-case err (remove-images 1 10 nil) (error err))	OK nil
-8	(condition-case err (remove-images 1) (error (car err)))	OK wrong-number-of-arguments

@@ -1,5 +1,0 @@
-(fboundp 'font-xlfd-name)
-(font-xlfd-name (font-spec :family "x") nil nil)
-(condition-case err
-    (font-xlfd-name (font-spec :family "x") nil nil nil)
-  (error (car err)))

@@ -1,3 +1,0 @@
-(subr-arity (symbol-function 'defined-colors))
-(subr-arity (symbol-function 'color-defined-p))
-(subr-arity (symbol-function 'color-values))

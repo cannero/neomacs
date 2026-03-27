@@ -1,4 +1,0 @@
-1	(symbol-function 'count-matches)	OK how-many
-2	(symbol-function 'replace-rectangle)	OK string-rectangle
-3	(symbol-function 'wholenump)	OK natnump
-4	(symbol-function 'name-last-kbd-macro)	OK kmacro-name-last-macro

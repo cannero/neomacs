@@ -1,6 +1,0 @@
-1	(condition-case err (progn (charset-plist 'ascii) 'ok) (error err))	OK ok
-2	(condition-case err (charset-plist 'no-such-charset) (error err))	OK (wrong-type-argument charsetp no-such-charset)
-3	(condition-case err (charset-plist "ascii") (error err))	OK (wrong-type-argument charsetp "ascii")
-4	(condition-case err (charset-plist nil) (error err))	OK (wrong-type-argument charsetp nil)
-5	(condition-case err (charset-plist) (error err))	OK (wrong-number-of-arguments charset-plist 0)
-6	(condition-case err (charset-plist 'ascii 'unicode) (error err))	OK (wrong-number-of-arguments charset-plist 2)

@@ -1,6 +1,0 @@
-1	(subr-arity (symbol-function 'delete-char))	OK (1 . 2)
-2	(subr-arity (symbol-function 'delete-region))	OK (2 . 2)
-3	(subr-arity (symbol-function 'delete-horizontal-space))	OK (0 . 1)
-4	(subr-arity (symbol-function 'delete-indentation))	OK (0 . 3)
-5	(subr-arity (symbol-function 'delete-overlay))	OK (1 . 1)
-6	(subr-arity (symbol-function 'delete-window))	OK (0 . 1)

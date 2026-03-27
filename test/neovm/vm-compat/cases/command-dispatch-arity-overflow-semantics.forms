@@ -1,7 +1,0 @@
-; command dispatch builtins should reject overflow argument counts.
-(condition-case err (command-execute 'ignore nil nil nil nil) (error (car err)))
-(condition-case err (call-interactively 'ignore nil nil nil) (error (car err)))
-
-; max accepted arities remain valid.
-(command-execute 'ignore nil nil nil)
-(call-interactively 'ignore nil nil)

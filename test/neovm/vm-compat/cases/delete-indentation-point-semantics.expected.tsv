@@ -1,1 +1,0 @@
-1	(list (with-temp-buffer (insert "a\\n  b") (goto-char 3) (list (condition-case err (delete-indentation) (error err)) (point) (string-to-list (buffer-string)))) (with-temp-buffer (insert "a\\n  b") (goto-char 2) (list (condition-case err (delete-indentation t) (error err)) (point) (string-to-list (buffer-string)))))	OK ((nil 2 (97 32 98)) (nil 2 (97 32 98)))

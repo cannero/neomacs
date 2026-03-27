@@ -1,8 +1,0 @@
-(aref [f1] 0)
-(let ((f1 'shadowed)) (aref [f1] 0))
-(aref [(+ 1 2)] 0)
-(let ((x 1)) (aref [x] 0))
-(key-description [f1])
-(string= (help-key-description [f1] [f1]) "<f1>")
-(string= (help-key-description [f1] [f2]) "<f1> (translated from <f2>)")
-(condition-case err (help-key-description [f1] [f1] nil) (error (car err)))

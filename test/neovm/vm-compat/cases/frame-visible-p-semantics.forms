@@ -1,4 +1,0 @@
-(condition-case err (frame-visible-p) (error (car err)))
-(condition-case err (frame-visible-p nil) (error err))
-(condition-case err (frame-visible-p 999999) (error err))
-(not (null (frame-visible-p (selected-frame))))

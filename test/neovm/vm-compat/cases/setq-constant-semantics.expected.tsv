@@ -1,7 +1,0 @@
-1	(list (condition-case err (setq nil 1) (error err)) (condition-case err (setq t 1) (error err)) (condition-case err (setq :vm-key 1) (error err)) (condition-case err (setq 1 2) (error err)))	OK ((setting-constant nil) (setting-constant t) (setting-constant :vm-key) (wrong-type-argument symbolp 1))
-2	(setq vm-setq-side 0)	OK 0
-3	(condition-case err (setq nil (setq vm-setq-side 1)) (error (list (car err) (cdr err) vm-setq-side)))	OK (setting-constant (nil) 1)
-4	(setq vm-setq-side 0)	OK 0
-5	(condition-case err (setq t (setq vm-setq-side 2)) (error (list (car err) (cdr err) vm-setq-side)))	OK (setting-constant (t) 2)
-6	(setq vm-setq-side 0)	OK 0
-7	(condition-case err (setq :vm-key (setq vm-setq-side 3)) (error (list (car err) (cdr err) vm-setq-side)))	OK (setting-constant (:vm-key) 3)

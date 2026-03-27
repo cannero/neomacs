@@ -1,3 +1,0 @@
-1	(not (not (libxml-available-p)))	OK t
-2	(with-temp-buffer (insert "<p>hello</p>") (listp (libxml-parse-html-region (point-min) (point-max))))	OK t
-3	(listp (libxml-parse-xml-string "<root>text</root>"))	ERR (void-function (libxml-parse-xml-string))

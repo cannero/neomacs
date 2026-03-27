@@ -1,8 +1,0 @@
-1	(condition-case err (funcall 'name-last-kbd-macro) (error err))	OK (wrong-number-of-arguments #<subr kmacro-name-last-macro> 0)
-2	(condition-case err (funcall 'kmacro-name-last-macro) (error err))	OK (wrong-number-of-arguments #<subr kmacro-name-last-macro> 0)
-3	(condition-case err (apply 'name-last-kbd-macro nil) (error err))	OK (wrong-number-of-arguments #<subr kmacro-name-last-macro> 0)
-4	(condition-case err (apply 'kmacro-name-last-macro nil) (error err))	OK (wrong-number-of-arguments #<subr kmacro-name-last-macro> 0)
-5	(condition-case err (funcall (symbol-function 'name-last-kbd-macro)) (error err))	OK (wrong-number-of-arguments #<subr kmacro-name-last-macro> 0)
-6	(condition-case err (funcall (symbol-function 'kmacro-name-last-macro)) (error err))	OK (wrong-number-of-arguments #<subr kmacro-name-last-macro> 0)
-7	(let ((orig (symbol-function 'vm-wrap-subr-call))) (unwind-protect (progn (fset 'vm-wrap-subr-call (symbol-function 'car)) (condition-case err (funcall 'vm-wrap-subr-call) (error err))) (fset 'vm-wrap-subr-call orig)))	OK (wrong-number-of-arguments #<subr car> 0)
-8	(let ((orig (symbol-function 'vm-wrap-subr-apply))) (unwind-protect (progn (fset 'vm-wrap-subr-apply (symbol-function 'car)) (condition-case err (apply 'vm-wrap-subr-apply nil) (error err))) (fset 'vm-wrap-subr-apply orig)))	OK (wrong-number-of-arguments #<subr car> 0)

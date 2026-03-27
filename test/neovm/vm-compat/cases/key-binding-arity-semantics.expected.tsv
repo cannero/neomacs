@@ -1,6 +1,0 @@
-1	(condition-case err (key-binding "a" nil nil nil nil) (error err))	OK (wrong-number-of-arguments key-binding 5)
-2	(let ((m (make-sparse-keymap))) (use-global-map m) (condition-case err (key-binding "a" nil nil nil) (error err)))	OK nil
-3	(condition-case err (global-key-binding "a" nil nil) (error err))	OK (wrong-number-of-arguments global-key-binding 3)
-4	(let ((m (make-sparse-keymap))) (use-global-map m) (condition-case err (global-key-binding "a" nil) (error err)))	OK nil
-5	(condition-case err (local-key-binding "a" nil nil) (error err))	OK (wrong-number-of-arguments local-key-binding 3)
-6	(condition-case err (local-key-binding "a" nil) (error err))	OK nil

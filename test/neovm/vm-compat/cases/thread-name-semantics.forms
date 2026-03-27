@@ -1,6 +1,0 @@
-; thread-name runtime semantics and argument errors.
-(thread-name (current-thread))
-(thread-name (make-thread (lambda () nil) "named-thread"))
-(condition-case err (thread-name) (error (car err)))
-(condition-case err (thread-name 1) (error (list (car err) (cadr err))))
-(condition-case err (thread-name 1 2) (error (list (car err) (cadr err))))

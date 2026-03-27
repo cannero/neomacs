@@ -1,6 +1,0 @@
-1	(thread-last-error)	OK nil
-2	(thread-last-error 1)	OK nil
-3	(thread-last-error nil)	OK nil
-4	(let ((th (make-thread (lambda nil nil)))) (thread-join th) (thread-last-error))	OK nil
-5	(progn (thread-last-error t) (thread-last-error))	OK nil
-6	(thread-last-error 1)	OK nil

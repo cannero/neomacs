@@ -1,6 +1,0 @@
-(fboundp 'abort-minibuffers)
-(subrp (symbol-function 'abort-minibuffers))
-(subr-arity (symbol-function 'abort-minibuffers))
-(condition-case err (abort-minibuffers) (error err))
-(condition-case err (abort-minibuffers nil) (error err))
-(condition-case err (abort-minibuffers nil nil) (error err))

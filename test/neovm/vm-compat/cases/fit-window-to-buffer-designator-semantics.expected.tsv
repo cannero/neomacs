@@ -1,5 +1,0 @@
-1	(windowp (fit-window-to-buffer))	OK nil
-2	(let ((w (split-window))) (windowp (fit-window-to-buffer w)))	OK nil
-3	(condition-case err (fit-window-to-buffer 999999) (error (car err)))	OK error
-4	(condition-case err (fit-window-to-buffer 'foo) (error (car err)))	OK error
-5	(let ((w (split-window))) (delete-window w) (condition-case err (fit-window-to-buffer w) (error (car err))))	OK error

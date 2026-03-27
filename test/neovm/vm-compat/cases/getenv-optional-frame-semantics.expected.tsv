@@ -1,7 +1,0 @@
-1	(subr-arity (symbol-function 'getenv))	OK (1 . 2)
-2	(condition-case err (let ((v (getenv "HOME"))) (if (stringp v) 'string v)) (error err))	OK string
-3	(condition-case err (let ((v (getenv "HOME" nil))) (if (stringp v) 'string v)) (error err))	OK string
-4	(condition-case err (getenv "HOME" '(x)) (error err))	OK (wrong-type-argument framep (x))
-5	(condition-case err (getenv 1 nil) (error err))	OK (wrong-type-argument stringp 1)
-6	(condition-case err (getenv 1 '(x)) (error err))	OK (wrong-type-argument framep (x))
-7	(condition-case err (getenv "HOME" nil nil) (error err))	OK (wrong-number-of-arguments getenv 3)

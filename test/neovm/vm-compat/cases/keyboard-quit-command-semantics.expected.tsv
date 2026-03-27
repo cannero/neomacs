@@ -1,4 +1,0 @@
-1	(fboundp 'keyboard-quit)	OK t
-2	(commandp 'keyboard-quit)	OK t
-3	(condition-case err (command-execute 'keyboard-quit) (quit (list 'quit (cdr err))) (error (list 'error (car err) (cdr err))))	OK (quit nil)
-4	(condition-case err (call-interactively 'keyboard-quit) (quit (list 'quit (cdr err))) (error (list 'error (car err) (cdr err))))	OK (quit nil)

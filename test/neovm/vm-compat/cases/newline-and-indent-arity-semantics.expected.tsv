@@ -1,1 +1,0 @@
-1	(list (with-temp-buffer (condition-case err (newline-and-indent nil nil) (error err))) (with-temp-buffer (condition-case err (newline-and-indent nil nil nil) (error err))))	OK ((wrong-number-of-arguments newline-and-indent 2) (wrong-number-of-arguments newline-and-indent 3))

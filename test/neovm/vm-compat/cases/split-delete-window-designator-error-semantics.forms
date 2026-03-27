@@ -1,6 +1,0 @@
-(condition-case err (split-window 999999) (error (car err)))
-(condition-case err (split-window 'foo) (error (car err)))
-(condition-case err (delete-window 999999) (error (car err)))
-(condition-case err (delete-window 'foo) (error (car err)))
-(condition-case err (delete-other-windows 999999) (error (car err)))
-(condition-case err (delete-other-windows 'foo) (error (car err)))

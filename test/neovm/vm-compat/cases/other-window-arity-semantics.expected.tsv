@@ -1,6 +1,0 @@
-1	(condition-case err (other-window) (error (car err)))	OK wrong-number-of-arguments
-2	(condition-case err (other-window nil) (error err))	OK (wrong-type-argument number-or-marker-p nil)
-3	(condition-case err (other-window "x") (error err))	OK (wrong-type-argument number-or-marker-p "x")
-4	(condition-case err (other-window (make-marker)) (error err))	OK (error "Marker does not point anywhere")
-5	(condition-case err (other-window 1 nil nil nil) (error (car err)))	OK wrong-number-of-arguments
-6	(let* ((w1 (progn (delete-other-windows) (selected-window))) (w2 (split-window))) (list (progn (other-window 1 nil nil) (eq (selected-window) w2)) (progn (select-window w1) (other-window 1.5 nil nil) (eq (selected-window) w2)) (progn (select-window w1) (other-window 0.4 nil nil) (eq (selected-window) w1)) (progn (select-window w1) (other-window -0.4 nil nil) (eq (selected-window) w2)) (progn (select-window w1) (other-window -1.2 nil nil) (eq (selected-window) w1))))	OK (t t t t t)

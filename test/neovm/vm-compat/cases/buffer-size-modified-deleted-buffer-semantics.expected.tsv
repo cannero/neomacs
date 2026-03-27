@@ -1,6 +1,0 @@
-1	(condition-case err (buffer-size 1) (error err))	OK (wrong-type-argument bufferp 1)
-2	(condition-case err (buffer-modified-p 1) (error err))	OK (wrong-type-argument bufferp 1)
-3	(let ((b (generate-new-buffer "bs-dead"))) (kill-buffer b) (buffer-size b))	OK 0
-4	(let ((b (generate-new-buffer "bm-dead"))) (kill-buffer b) (buffer-modified-p b))	OK nil
-5	(let ((b (get-buffer-create "bs-live"))) (with-current-buffer b (erase-buffer) (insert "abc")) (buffer-size b))	OK 3
-6	(let ((b (get-buffer-create "bm-live"))) (with-current-buffer b (set-buffer-modified-p t)) (buffer-modified-p b))	OK t

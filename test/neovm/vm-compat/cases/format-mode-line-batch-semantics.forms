@@ -1,7 +1,0 @@
-(fboundp 'format-mode-line)
-(format-mode-line "%b")
-(condition-case err (format-mode-line 1) (error err))
-(condition-case err (format-mode-line "%b" nil "x") (error err))
-(condition-case err (format-mode-line "%b" nil nil (current-buffer)) (error err))
-(condition-case err (format-mode-line "%b" nil nil "x") (error err))
-(condition-case err (format-mode-line "%b" nil nil nil nil) (error (car err)))

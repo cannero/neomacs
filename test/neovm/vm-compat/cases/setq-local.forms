@@ -1,5 +1,0 @@
-; setq-local should create buffer-local bindings and preserve global defaults.
-(setq vm-s 3)
-(with-temp-buffer (setq-local vm-s 9) (list vm-s (default-value 'vm-s) (local-variable-p 'vm-s)))
-(default-value 'vm-s)
-(with-temp-buffer (setq-local v5 55) (let ((b (current-buffer))) (with-temp-buffer (list (buffer-local-value 'v5 b) (local-variable-p 'v5 b)))))

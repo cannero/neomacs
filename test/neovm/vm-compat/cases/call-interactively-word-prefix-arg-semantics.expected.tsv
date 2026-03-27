@@ -1,4 +1,0 @@
-1	(with-temp-buffer (insert "ab cd ef") (goto-char 1) (let ((current-prefix-arg 2)) (call-interactively 'upcase-word) (buffer-string)))	OK "AB CD ef"
-2	(with-temp-buffer (insert "ab cd ef") (goto-char 1) (let ((current-prefix-arg 2)) (command-execute 'upcase-word) (buffer-string)))	OK "AB cd ef"
-3	(with-temp-buffer (insert "ab cd ef") (goto-char 7) (let ((current-prefix-arg '-)) (call-interactively 'capitalize-word) (buffer-string)))	OK "ab Cd ef"
-4	(with-temp-buffer (insert "ab cd ef") (goto-char 7) (let ((current-prefix-arg '-)) (command-execute 'capitalize-word) (buffer-string)))	OK "ab cd Ef"

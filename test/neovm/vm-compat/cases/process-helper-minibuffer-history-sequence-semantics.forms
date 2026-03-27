@@ -1,8 +1,0 @@
-; minibuffer--sort-preprocess-history sequence contract semantics.
-(list
- (minibuffer--sort-preprocess-history nil)
- (minibuffer--sort-preprocess-history "")
- (minibuffer--sort-preprocess-history [97])
- (minibuffer--sort-preprocess-history '(97))
- (condition-case err (minibuffer--sort-preprocess-history 1) (error err))
- (condition-case err (minibuffer--sort-preprocess-history) (error err)))

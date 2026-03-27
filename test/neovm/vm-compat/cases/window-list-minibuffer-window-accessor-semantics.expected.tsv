@@ -1,3 +1,0 @@
-1	(let ((m (car (last (window-list nil t))))) (list (window-live-p m) (windowp m) (buffer-name (window-buffer m)) (window-start m) (window-point m) (window-body-height m) (window-body-height m t)))	OK (t t " *Minibuf-0*" 1 1 1 1)
-2	(let ((m (car (last (window-list nil t))))) (set-window-start m 7) (window-start m))	OK 1
-3	(let ((m (car (last (window-list nil t))))) (set-window-point m 8) (window-point m))	OK 1

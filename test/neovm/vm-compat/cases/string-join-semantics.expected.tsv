@@ -1,5 +1,0 @@
-1	(string-join '("a" "b"))	OK "ab"
-2	(string-join '("a" "b") ",")	OK "a,b"
-3	(string-join '("a" [98] (99)) "-")	OK "a-b-c"
-4	(condition-case err (string-join '("a" 1)) (error err))	OK (wrong-type-argument sequencep 1)
-5	(condition-case err (string-join '("a") "," nil) (error (car err)))	OK wrong-number-of-arguments

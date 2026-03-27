@@ -1,2 +1,0 @@
-1	(condition-case err (x-display-pixel-width (selected-window)) (error (list (car err) (cadr err) (windowp (nth 2 err)))))	OK (wrong-type-argument frame-live-p t)
-2	(condition-case err (x-display-pixel-height (selected-window)) (error (list (car err) (cadr err) (windowp (nth 2 err)))))	OK (wrong-type-argument frame-live-p t)

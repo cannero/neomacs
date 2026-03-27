@@ -1,7 +1,0 @@
-(condition-case err (mutex-lock 1) (error err))
-(condition-case err (mutex-unlock 1) (error err))
-(condition-case err (condition-wait 1) (error err))
-(condition-case err (condition-notify 1) (error err))
-(condition-case err (make-condition-variable 1) (error err))
-(condition-case err (condition-wait 1 2 3) (error err))
-(condition-case err (condition-notify 1 2 3) (error err))

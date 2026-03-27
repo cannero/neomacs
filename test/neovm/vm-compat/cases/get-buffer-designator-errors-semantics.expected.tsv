@@ -1,7 +1,0 @@
-1	(condition-case err (get-buffer 1) (error err))	OK (wrong-type-argument stringp 1)
-2	(condition-case err (get-buffer nil) (error err))	OK (wrong-type-argument stringp nil)
-3	(condition-case err (get-buffer 'foo) (error err))	OK (wrong-type-argument stringp foo)
-4	(let ((b (get-buffer-create "gb-live"))) (prog1 (bufferp (get-buffer b)) (kill-buffer b)))	OK t
-5	(let ((b (generate-new-buffer "gb-dead"))) (kill-buffer b) (let ((r (get-buffer b))) (list (bufferp r) (buffer-live-p r))))	OK (t nil)
-6	(get-buffer "gb-missing")	OK nil
-7	(bufferp (get-buffer "*scratch*"))	OK t

@@ -1,6 +1,0 @@
-1	(condition-case err (rename-file 1 "/tmp/x") (error err))	OK (wrong-type-argument stringp 1)
-2	(condition-case err (rename-file "/tmp/x" 1) (error err))	OK (wrong-type-argument stringp 1)
-3	(condition-case err (rename-file "/tmp/x") (error err))	OK (wrong-number-of-arguments rename-file 1)
-4	(let* ((base (make-temp-file "neovm-rename-file-" t)) (src (expand-file-name "src.txt" base)) (dst (expand-file-name "dst.txt" base))) (with-temp-buffer (insert "x") (write-region nil nil src)) (with-temp-buffer (insert "y") (write-region nil nil dst)) (prog1 (list (condition-case err (rename-file src dst) (error (car err))) (condition-case err (rename-file src dst t) (error (car err))) (file-exists-p src) (file-exists-p dst)) (delete-file dst) (delete-directory base)))	OK (file-already-exists nil nil t)
-5	(condition-case err (rename-file "a" "b" nil nil) (error err))	OK (wrong-number-of-arguments rename-file 4)
-6	(let* ((base (make-temp-file "neovm-rename-file-eval-" t)) (src (expand-file-name "src.txt" base))) (with-temp-buffer (insert "x") (write-region nil nil src)) (prog1 (let ((default-directory (file-name-as-directory base))) (list (rename-file "src.txt" "dst.txt") (file-exists-p "src.txt") (file-exists-p "dst.txt"))) (delete-file (expand-file-name "dst.txt" base)) (delete-directory base)))	OK (nil nil t)

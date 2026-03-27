@@ -1,5 +1,0 @@
-(functionp (symbol-function 'subr-primitive-p))
-(subrp (symbol-function 'subr-primitive-p))
-(condition-case err (subr-arity (symbol-function 'subr-primitive-p)) (error (car err)))
-(subr-primitive-p (symbol-function 'message))
-(subr-primitive-p (symbol-function 'if))

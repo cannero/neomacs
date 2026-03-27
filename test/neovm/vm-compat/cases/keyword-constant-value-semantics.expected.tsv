@@ -1,3 +1,0 @@
-1	(list (symbol-value :foo) (default-value :foo) (default-toplevel-value :foo))	OK (:foo :foo :foo)
-2	(list (condition-case err (set-default :foo 1) (error err)) (condition-case err (set-default-toplevel-value :foo 1) (error err)) (condition-case err (set :foo 1) (error err)))	OK ((setting-constant :foo) (setting-constant :foo) (setting-constant :foo))
-3	(list (boundp :foo) (default-boundp :foo) (special-variable-p :foo))	OK (t t t)

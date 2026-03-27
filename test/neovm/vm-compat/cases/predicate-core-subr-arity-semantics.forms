@@ -1,6 +1,0 @@
-(subr-arity (symbol-function 'charsetp))
-(subr-arity (symbol-function 'closurep))
-(subr-arity (symbol-function 'compiled-function-p))
-(subr-arity (symbol-function 'custom-variable-p))
-(subr-arity (symbol-function 'decode-char))
-(subr-arity (symbol-function 'default-value))

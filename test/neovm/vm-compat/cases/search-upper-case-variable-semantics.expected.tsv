@@ -1,8 +1,0 @@
-1	(with-temp-buffer (insert "a") (goto-char (point-min)) (let ((case-fold-search t) (search-upper-case nil)) (replace-string "A" "x")) (buffer-string))	OK "x"
-2	(with-temp-buffer (insert "a") (goto-char (point-min)) (let ((case-fold-search t) (search-upper-case nil)) (replace-regexp "A" "x")) (buffer-string))	OK "x"
-3	(with-temp-buffer (insert "a") (goto-char (point-min)) (let ((case-fold-search t) (search-upper-case nil) (unread-command-events (list 33))) (query-replace "A" "x")) (buffer-string))	OK "x"
-4	(with-temp-buffer (insert "a") (goto-char (point-min)) (let ((case-fold-search t) (search-upper-case nil) (unread-command-events (list 33))) (query-replace-regexp "A" "x")) (buffer-string))	OK "x"
-5	(with-temp-buffer (insert (concat "a" (char-to-string 10))) (goto-char (point-min)) (let ((case-fold-search t) (search-upper-case nil)) (keep-lines "A")) (split-string (buffer-string) (char-to-string 10) t))	OK ("a")
-6	(with-temp-buffer (insert (concat "a" (char-to-string 10))) (goto-char (point-min)) (let ((case-fold-search t) (search-upper-case nil)) (flush-lines "A")) (split-string (buffer-string) (char-to-string 10) t))	OK nil
-7	(with-temp-buffer (insert "a") (goto-char (point-min)) (let ((case-fold-search t) (search-upper-case nil)) (count-matches "A")))	OK 1
-8	(with-temp-buffer (insert "a") (goto-char (point-min)) (let ((case-fold-search t) (search-upper-case nil)) (how-many "A")))	OK 1

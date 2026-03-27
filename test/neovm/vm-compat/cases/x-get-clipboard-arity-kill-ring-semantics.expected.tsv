@@ -1,9 +1,0 @@
-1	(x-get-clipboard)	OK nil
-2	(let ((kill-ring nil)) (x-get-clipboard))	OK nil
-3	(let ((kill-ring '("abc"))) (x-get-clipboard))	OK nil
-4	(let ((kill-ring '(1))) (x-get-clipboard))	OK nil
-5	(let ((kill-ring 1)) (x-get-clipboard))	OK nil
-6	(let ((kill-ring ["abc"])) (x-get-clipboard))	OK nil
-7	(condition-case err (x-get-clipboard nil) (error err))	OK (wrong-number-of-arguments x-get-clipboard 1)
-8	(condition-case err (x-get-clipboard 1) (error err))	OK (wrong-number-of-arguments x-get-clipboard 1)
-9	(condition-case err (x-get-clipboard nil nil) (error err))	OK (wrong-number-of-arguments x-get-clipboard 2)

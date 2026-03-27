@@ -1,7 +1,0 @@
-1	(condition-case err (progn (setq unread-command-events (list [foo] [bar])) (read-char-exclusive nil nil 0)) (error (list (car err) unread-command-events)))	OK nil
-2	(let ((unread-command-events (list [foo] 98 [bar]))) (progn (read-char-exclusive nil nil 0) unread-command-events))	OK ([bar])
-3	(let ((unread-command-events (list [foo] 98 [bar] [baz]))) (progn (read-char-exclusive nil nil 0) unread-command-events))	OK ([bar] [baz])
-4	(let ((unread-command-events (list [foo] 98 [bar] [baz] [qux]))) (progn (read-char-exclusive nil nil 0) unread-command-events))	OK ([bar] [baz] [qux])
-5	(let ((unread-command-events (list [foo] 98 [bar] [baz] [qux] [quux]))) (progn (read-char-exclusive nil nil 0) unread-command-events))	OK ([bar] [baz] [qux] [quux])
-6	(let ((unread-command-events (list [foo] 98 [bar] [baz] [qux] [quux] [quuz]))) (progn (read-char-exclusive nil nil 0) unread-command-events))	OK ([bar] [baz] [qux] [quux] [quuz])
-7	(condition-case err (progn (setq unread-command-events '([foo] . [bar])) (read-char-exclusive nil nil 0)) (error (list (car err) unread-command-events)))	OK nil

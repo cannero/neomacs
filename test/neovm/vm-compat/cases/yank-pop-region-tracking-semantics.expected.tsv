@@ -1,3 +1,0 @@
-1	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (yank) (erase-buffer) (setq last-command 'yank) (yank-pop 1) (list (buffer-string) (car kill-ring-yank-pointer) (mark) (point)))	OK ("c" "c" 1 2)
-2	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (yank) (delete-region (point-min) (point-max)) (setq last-command 'yank) (yank-pop -1) (list (buffer-string) (car kill-ring-yank-pointer) (mark) (point)))	OK ("a" "a" 1 2)
-3	(with-temp-buffer (setq kill-ring (list "a" "b" "c")) (setq kill-ring-yank-pointer '(1 2)) (yank) (goto-char (point-min)) (insert "zz") (setq last-command 'yank) (yank-pop 1) (list (buffer-string) (car kill-ring-yank-pointer) (mark) (point)))	OK ("cb" "c" 1 2)

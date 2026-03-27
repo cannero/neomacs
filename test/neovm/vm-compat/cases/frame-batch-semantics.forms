@@ -1,9 +1,0 @@
-; Batch-mode frame introspection should still see an initial selected frame.
-(framep (selected-frame))
-(frame-live-p (selected-frame))
-(length (frame-list))
-(let ((f (selected-frame)))
-  (and (memq f (frame-list)) t))
-(frame-parameter nil 'name)
-(frame-parameter nil 'width)
-(frame-parameter nil 'height)

@@ -1,6 +1,0 @@
-(subr-arity (symbol-function 'delete-char))
-(subr-arity (symbol-function 'delete-region))
-(subr-arity (symbol-function 'delete-horizontal-space))
-(subr-arity (symbol-function 'delete-indentation))
-(subr-arity (symbol-function 'delete-overlay))
-(subr-arity (symbol-function 'delete-window))

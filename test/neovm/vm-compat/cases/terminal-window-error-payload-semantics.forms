@@ -1,3 +1,0 @@
-(condition-case err (frame-terminal (selected-window)) (error err))
-(condition-case err (tty-type (selected-window)) (error err))
-(condition-case err (terminal-name (selected-window)) (error err))

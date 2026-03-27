@@ -1,6 +1,0 @@
-1	(fboundp 'copy-syntax-table)	OK t
-2	(char-table-p (copy-syntax-table))	OK t
-3	(char-table-subtype (copy-syntax-table))	OK syntax-table
-4	(let ((t0 (make-syntax-table))) (eq t0 (copy-syntax-table t0)))	OK nil
-5	(condition-case err (copy-syntax-table 1) (wrong-type-argument (car err)))	OK wrong-type-argument
-6	(condition-case err (copy-syntax-table nil nil) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

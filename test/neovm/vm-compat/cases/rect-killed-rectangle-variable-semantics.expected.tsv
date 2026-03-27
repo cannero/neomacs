@@ -1,5 +1,0 @@
-1	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (kill-rectangle 1 9) killed-rectangle)	OK ("a" "1")
-2	(with-temp-buffer (setq killed-rectangle '("Q" "W")) (insert "abc") (newline) (insert "def") (newline) (goto-char 1) (yank-rectangle) (list (point) (string-to-list (buffer-string))))	OK (7 (81 97 98 99 10 87 100 101 102 10))
-3	(with-temp-buffer (setq killed-rectangle nil) (insert "abc") (goto-char 2) (list (yank-rectangle) (point) (string-to-list (buffer-string))))	OK (nil 2 (97 98 99))
-4	(condition-case err (with-temp-buffer (setq killed-rectangle 1) (yank-rectangle)) (error (list (car err) (cadr err))))	OK (wrong-type-argument listp)
-5	(condition-case err (with-temp-buffer (setq killed-rectangle '("a" 1)) (yank-rectangle)) (error (list (car err) (cadr err))))	OK (wrong-type-argument buffer-or-string-p)

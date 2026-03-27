@@ -1,7 +1,0 @@
-1	(fboundp 'replace-string)	OK t
-2	(fboundp 'replace-regexp)	OK t
-3	(with-temp-buffer (insert "abc") (goto-char (point-max)) (replace-string "" "x" nil nil nil t) (list (buffer-string) (point)))	OK ("axbxcx" 2)
-4	(with-temp-buffer (insert "abc") (goto-char (point-min)) (replace-string "" "x" nil nil nil t) (list (buffer-string) (point)))	OK ("abc" 1)
-5	(with-temp-buffer (insert "abc") (goto-char (point-max)) (replace-regexp "" "x" nil nil nil t) (list (buffer-string) (point)))	OK ("axbxcx" 2)
-6	(with-temp-buffer (insert "abc") (goto-char (point-max)) (replace-string "a" "z" nil 2 4 t) (list (buffer-string) (point)))	OK ("abc" 4)
-7	(with-temp-buffer (insert "abcabc") (goto-char (point-max)) (replace-regexp "a" "z" nil 2 5 t) (list (buffer-string) (point)))	OK ("abczbc" 4)

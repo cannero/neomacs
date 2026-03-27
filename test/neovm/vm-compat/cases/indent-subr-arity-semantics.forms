@@ -1,8 +1,0 @@
-(subr-arity (symbol-function 'indent-according-to-mode))
-(subr-arity (symbol-function 'indent-for-tab-command))
-(subr-arity (symbol-function 'indent-line-to))
-(subr-arity (symbol-function 'indent-region))
-(subr-arity (symbol-function 'indent-rigidly))
-(subr-arity (symbol-function 'indent-to))
-(subr-arity (symbol-function 'tab-to-tab-stop))
-(subr-arity (symbol-function 'move-to-column))

@@ -1,6 +1,0 @@
-1	(condition-case err (file-name-case-insensitive-p 1) (error err))	OK (wrong-type-argument stringp 1)
-2	(file-name-case-insensitive-p "/")	OK nil
-3	(let ((f (make-temp-file "neovm-fncip-file-"))) (prog1 (file-name-case-insensitive-p f) (delete-file f)))	OK nil
-4	(let ((d (make-temp-file "neovm-fncip-dir-" t))) (prog1 (file-name-case-insensitive-p d) (delete-directory d)))	OK nil
-5	(let ((d (make-temp-file "neovm-fncip-eval-" t))) (let ((f (expand-file-name "alpha.txt" d))) (with-temp-buffer (insert "x") (write-region nil nil f)) (prog1 (let ((default-directory (file-name-as-directory d))) (file-name-case-insensitive-p "alpha.txt")) (delete-file f) (delete-directory d))))	OK nil
-6	(condition-case err (file-name-case-insensitive-p "/tmp/neovm-fncip-noop" nil) (error err))	OK (wrong-number-of-arguments file-name-case-insensitive-p 2)

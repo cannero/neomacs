@@ -1,9 +1,0 @@
-1	(condition-case err (let ((t (setq vm-let-a 1)) (x (setq vm-let-b 1))) x) (error (list :error (car err) (cdr err))))	OK (:error setting-constant (t))
-2	(list vm-let-a vm-let-b)	OK (1 1)
-3	(setq vm-let-a 0 vm-let-b 0)	OK 0
-4	(condition-case err (let* ((t (setq vm-let-a 1)) (x (setq vm-let-b 1))) x) (error (list :error (car err) (cdr err))))	OK (:error setting-constant (t))
-5	(list vm-let-a vm-let-b)	OK (1 0)
-6	(condition-case err (let ((nil 1)) nil) (error (list :error (car err) (cdr err))))	OK (:error setting-constant (nil))
-7	(condition-case err (let* ((nil 1)) nil) (error (list :error (car err) (cdr err))))	OK (:error setting-constant (nil))
-8	(condition-case err (let (t) t) (error (list :error (car err) (cdr err))))	OK (:error setting-constant (t))
-9	(condition-case err (let* (t) t) (error (list :error (car err) (cdr err))))	OK (:error setting-constant (t))

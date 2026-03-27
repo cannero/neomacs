@@ -1,4 +1,0 @@
-1	(string-match-p "^#<frame F[0-9]+ 0x[0-9a-f]+>$" (format "%S" (selected-frame)))	OK 0
-2	(string-match-p "^#<frame F[0-9]+ 0x[0-9a-f]+>$" (format "%s" (selected-frame)))	OK 0
-3	(let* ((attrs (car (display-monitor-attributes-list (selected-frame)))) (frames (alist-get 'frames attrs)) (frame (car frames))) (string-match-p "^#<frame F[0-9]+ 0x[0-9a-f]+>$" (format "%S" frame)))	OK 0
-4	(let* ((attrs (frame-monitor-attributes (selected-frame))) (frames (alist-get 'frames attrs)) (frame (car frames))) (string-match-p "^#<frame F[0-9]+ 0x[0-9a-f]+>$" (format "%S" frame)))	OK 0

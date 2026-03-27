@@ -1,8 +1,0 @@
-; execute-extended-command should signal batch EOF when COMMAND-NAME is omitted.
-(condition-case err (execute-extended-command nil) (error err))
-(condition-case err (execute-extended-command '(4)) (error err))
-(condition-case err
-    (let ((prefix-arg '(5))
-          (current-prefix-arg '(6)))
-      (execute-extended-command 7))
-  (error err))

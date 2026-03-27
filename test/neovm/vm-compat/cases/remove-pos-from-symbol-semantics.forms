@@ -1,7 +1,0 @@
-(list
- (condition-case err (remove-pos-from-symbol) (error err))
- (condition-case err (remove-pos-from-symbol nil) (error err))
- (condition-case err (remove-pos-from-symbol t) (error err))
- (condition-case err (remove-pos-from-symbol 1) (error err))
- (condition-case err (remove-pos-from-symbol 'foo) (error err))
- (condition-case err (remove-pos-from-symbol "foo") (error err)))

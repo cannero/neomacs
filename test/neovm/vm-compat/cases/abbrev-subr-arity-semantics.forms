@@ -1,6 +1,0 @@
-(subr-arity (symbol-function 'abbrev-mode))
-(subr-arity (symbol-function 'abbrev-expansion))
-(subr-arity (symbol-function 'abbrev-table-p))
-(subr-arity (symbol-function 'define-abbrev))
-(subr-arity (symbol-function 'define-abbrev-table))
-(subr-arity (symbol-function 'expand-abbrev))

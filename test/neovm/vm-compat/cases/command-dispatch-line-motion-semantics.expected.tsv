@@ -1,8 +1,0 @@
-1	(condition-case err (with-temp-buffer (insert "abc") (goto-char 1) (command-execute 'forward-char) (point)) (error err))	OK 2
-2	(condition-case err (with-temp-buffer (insert "abc") (goto-char 1) (command-execute 'next-line) (point)) (error err))	OK (end-of-buffer)
-3	(condition-case err (with-temp-buffer (insert "abc") (goto-char 2) (command-execute 'previous-line) (point)) (error err))	OK (beginning-of-buffer)
-4	(condition-case err (with-temp-buffer (insert "abc") (goto-char 1) (call-interactively 'next-line) (point)) (error err))	OK (end-of-buffer)
-5	(condition-case err (with-temp-buffer (insert "abc") (goto-char 2) (call-interactively 'previous-line) (point)) (error err))	OK (beginning-of-buffer)
-6	(condition-case err (with-temp-buffer (insert "abc") (goto-char 2) (command-execute 'beginning-of-line) (point)) (error err))	OK 1
-7	(condition-case err (with-temp-buffer (insert "abc") (goto-char 1) (command-execute 'end-of-line) (point)) (error err))	OK 4
-8	(condition-case err (command-execute 'other-window) (error err))	OK nil

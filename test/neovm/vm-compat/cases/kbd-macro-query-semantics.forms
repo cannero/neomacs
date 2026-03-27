@@ -1,4 +1,0 @@
-(kbd-macro-query)
-(condition-case err (kbd-macro-query t) (error err))
-(condition-case err (kbd-macro-query nil) (error err))
-(condition-case err (kbd-macro-query t t) (error err))

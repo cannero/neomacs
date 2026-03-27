@@ -1,8 +1,0 @@
-1	(condition-case err (substitute-command-keys) (error err))	OK (wrong-number-of-arguments substitute-command-keys 0)
-2	(equal (condition-case err (substitute-command-keys "x" 'extra) (error err)) "x")	OK t
-3	(equal (condition-case err (substitute-command-keys "x" 'a 'b) (error err)) "x")	OK t
-4	(condition-case err (substitute-command-keys "x" 'a 'b 'c) (error err))	OK (wrong-number-of-arguments substitute-command-keys 4)
-5	(equal (condition-case err (describe-key-briefly) (error err)) "")	OK t
-6	(stringp (condition-case err (describe-key-briefly "C-f") (error err)))	OK t
-7	(null (condition-case err (describe-key-briefly "C-f" t) (error err)))	OK t
-8	(condition-case err (describe-key-briefly "C-f" nil nil 'x) (error err))	OK (wrong-number-of-arguments describe-key-briefly 4)

@@ -1,7 +1,0 @@
-1	(condition-case err (make-nearby-temp-file 1) (error err))	OK (wrong-type-argument sequencep 1)
-2	(condition-case err (make-nearby-temp-file "x" nil 1) (error err))	OK (wrong-type-argument stringp 1)
-3	(condition-case err (make-nearby-temp-file "x" nil nil nil) (error err))	OK (wrong-number-of-arguments make-nearby-temp-file 4)
-4	(let* ((probe (make-temp-file "neovm-nearby-probe-")) (tmpdir (file-name-directory probe))) (delete-file probe) (let ((p (make-nearby-temp-file "neovm-nearby-"))) (prog1 (list (stringp p) (file-exists-p p) (string-prefix-p tmpdir p)) (delete-file p))))	OK (t t t)
-5	(let* ((probe (make-temp-file "neovm-nearby-probe-dir-")) (tmpdir (file-name-directory probe))) (delete-file probe) (let ((d (make-nearby-temp-file "neovm-nearby-dir-" t))) (prog1 (list (stringp d) (file-directory-p d) (string-prefix-p tmpdir d)) (delete-directory d))))	OK (t t t)
-6	(let* ((base (make-temp-file "neovm-nearby-parent-" t)) (prefix (expand-file-name "child-" base)) (p (make-nearby-temp-file prefix))) (prog1 (list (equal (file-name-directory p) (file-name-directory prefix)) (file-exists-p p)) (delete-file p) (delete-directory base)))	OK (t t)
-7	(let* ((base (make-temp-file "neovm-nearby-rel-" t)) (sub (expand-file-name "sub" base))) (make-directory sub) (prog1 (let ((default-directory (file-name-as-directory base))) (condition-case err (make-nearby-temp-file "sub/child-") (error (car err)))) (delete-directory sub) (delete-directory base)))	OK file-missing

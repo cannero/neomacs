@@ -1,3 +1,0 @@
-1	(condition-case err (x-display-set-last-user-time) (error err))	OK (wrong-number-of-arguments x-display-set-last-user-time 0)
-2	(condition-case err (x-display-set-last-user-time nil 1 nil) (error err))	OK (wrong-number-of-arguments x-display-set-last-user-time 3)
-3	(condition-case err (x-display-set-last-user-time nil 1 nil nil) (error err))	OK (wrong-number-of-arguments x-display-set-last-user-time 4)

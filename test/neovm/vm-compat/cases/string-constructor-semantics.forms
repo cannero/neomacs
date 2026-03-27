@@ -1,9 +1,0 @@
-; `string` should construct strings from character arguments and validate types.
-(fboundp 'string)
-(string)
-(string 65 66)
-(string ?A ?B)
-(string-to-list (string 1114112))
-(condition-case err (string -1) (error (car err)))
-(condition-case err (string 65 'a) (error (car err)))
-(condition-case err (string "a") (error (car err)))

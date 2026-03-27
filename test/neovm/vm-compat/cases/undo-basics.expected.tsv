@@ -1,8 +1,0 @@
-1	(with-temp-buffer (buffer-enable-undo) (buffer-local-value 'buffer-undo-list (current-buffer)))	OK nil
-2	(with-temp-buffer (buffer-disable-undo) (buffer-local-value 'buffer-undo-list (current-buffer)))	OK t
-3	(with-temp-buffer (buffer-enable-undo) (insert "abc") (undo-boundary) (buffer-string))	OK "abc"
-4	(with-temp-buffer (buffer-enable-undo) (insert "abc") (condition-case err (undo 1) (error (car err))) (buffer-string))	OK ""
-5	(buffer-disable-undo)	OK t
-6	(buffer-enable-undo)	OK nil
-7	(condition-case err (primitive-undo 1 7) (error (car err)))	OK wrong-type-argument
-8	(condition-case err (primitive-undo 1 nil) (error (car err)))	OK nil

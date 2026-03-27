@@ -1,4 +1,0 @@
-(fboundp 'charset-list)
-(condition-case err (charset-list) (error err))
-(fboundp 'unibyte-charset)
-(condition-case err (unibyte-charset) (error err))

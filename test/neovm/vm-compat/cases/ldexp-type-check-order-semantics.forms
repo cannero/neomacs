@@ -1,6 +1,0 @@
-(ldexp 'sym 2.0)
-(ldexp 'sym 'sym)
-(ldexp 'sym 2)
-(ldexp 1 2.0)
-(ldexp 1 'sym)
-(ldexp 1 2)

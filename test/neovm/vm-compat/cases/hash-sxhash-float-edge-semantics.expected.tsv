@@ -1,9 +1,0 @@
-1	(sxhash-eql 0.0)	OK 0
-2	(sxhash-eql -0.0)	OK -2305843009213693952
-3	(sxhash-equal 0.0)	OK 0
-4	(sxhash-equal -0.0)	OK -2305843009213693952
-5	(eql 0.0 -0.0)	OK nil
-6	(equal 0.0 -0.0)	OK nil
-7	(let ((x (/ 0.0 0.0))) (list (eql x x) (equal x x) (sxhash-eql x) (sxhash-equal x)))	OK (t t 1688849860263936 1688849860263936)
-8	(let ((ht (make-hash-table :test 'eql)) (nan (/ 0.0 0.0))) (puthash 0.0 'zero ht) (puthash nan 'nan ht) (list (gethash -0.0 ht 'miss) (gethash nan ht 'miss)))	OK (miss nan)
-9	(let ((ht (make-hash-table :test 'equal)) (nan (/ 0.0 0.0))) (puthash 0.0 'zero ht) (puthash nan 'nan ht) (list (gethash -0.0 ht 'miss) (gethash nan ht 'miss)))	OK (miss nan)

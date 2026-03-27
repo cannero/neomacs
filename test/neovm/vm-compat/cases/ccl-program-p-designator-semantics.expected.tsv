@@ -1,6 +1,0 @@
-1	(mapcar (lambda (s) (list s (fboundp s) (subrp (symbol-function s)) (subr-arity (symbol-function s)) (commandp s))) '(ccl-program-p register-ccl-program))	OK ((ccl-program-p t t (1 . 1) nil) (register-ccl-program t t (2 . 2) nil))
-2	(ccl-program-p 'neovm-ccl-program-p-missing)	OK nil
-3	(register-ccl-program 'neovm-ccl-program-p-live [10 0 0])	OK 1
-4	(ccl-program-p 'neovm-ccl-program-p-live)	OK t
-5	(ccl-program-p [10 0 0])	OK t
-6	(ccl-program-p [1])	OK nil

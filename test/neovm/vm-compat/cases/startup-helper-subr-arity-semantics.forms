@@ -1,5 +1,0 @@
-(subr-arity (symbol-function 'add-name-to-file))
-(subr-arity (symbol-function 'add-text-properties))
-(subr-arity (symbol-function 'add-variable-watcher))
-(subr-arity (symbol-function 'autoload-do-load))
-(subr-arity (symbol-function 'backtrace-frame))

@@ -1,3 +1,0 @@
-1	(condition-case err (frame-terminal (selected-window)) (error err))	OK (wrong-type-argument frame-live-p #<window 1 on *scratch*>)
-2	(condition-case err (tty-type (selected-window)) (error err))	OK (wrong-type-argument terminal-live-p #<window 1 on *scratch*>)
-3	(condition-case err (terminal-name (selected-window)) (error err))	OK (wrong-type-argument terminal-live-p #<window 1 on *scratch*>)

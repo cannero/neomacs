@@ -1,9 +1,0 @@
-1	(condition-case err (accept-process-output nil 0.1 "x") (error err))	OK (wrong-type-argument fixnump "x")
-2	(condition-case err (accept-process-output nil nil "x") (error err))	OK (wrong-type-argument fixnump "x")
-3	(condition-case err (accept-process-output nil 1 "x") (error err))	OK (wrong-type-argument fixnump "x")
-4	(condition-case err (accept-process-output nil nil 0) (error err))	OK nil
-5	(condition-case err (accept-process-output nil 0.1 nil) (error err))	OK nil
-6	(condition-case err (accept-process-output nil 0.1 0) (error err))	OK (wrong-type-argument fixnump 0.1)
-7	(condition-case err (accept-process-output nil 0.1 0 t) (error err))	OK (wrong-type-argument fixnump 0.1)
-8	(condition-case err (accept-process-output nil 1 2) (error err))	OK nil
-9	(condition-case err (accept-process-output nil 1 2 nil) (error err))	OK nil

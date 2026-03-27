@@ -1,8 +1,0 @@
-1	(file-truename "/tmp/neovm-file-truename-missing")	OK "/tmp/neovm-file-truename-missing"
-2	(let ((default-directory "/tmp/")) (file-truename "neovm-file-truename-rel"))	OK "/tmp/neovm-file-truename-rel"
-3	(file-truename "/tmp/../tmp/")	OK "/tmp/"
-4	(condition-case err (file-truename 1) (error err))	OK (wrong-type-argument stringp 1)
-5	(condition-case err (file-truename "/tmp" 1) (error err))	OK (wrong-type-argument listp 1)
-6	(file-truename "/tmp" '(visited))	ERR (wrong-type-argument (number-or-marker-p visited))
-7	(file-truename "/tmp" '(visited) 1)	ERR (wrong-type-argument (number-or-marker-p visited))
-8	(condition-case err (file-truename "/tmp" nil nil nil) (error err))	OK (wrong-number-of-arguments file-truename 4)

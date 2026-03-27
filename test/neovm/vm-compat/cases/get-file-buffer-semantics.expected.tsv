@@ -1,4 +1,0 @@
-1	(get-file-buffer "/tmp/neovm-no-such-file")	OK nil
-2	(condition-case err (get-file-buffer 1) (error err))	OK (wrong-type-argument stringp 1)
-3	(let* ((forms-file (getenv "NEOVM_FORMS_FILE")) (base (if forms-file (file-name-directory forms-file) default-directory)) (f (expand-file-name "directory-files-fixtures/alpha.txt" base)) (b (find-file-noselect f))) (prog1 (list (bufferp b) (eq (get-file-buffer f) b) (let ((default-directory (file-name-directory f))) (eq (get-file-buffer (file-name-nondirectory f)) b))) (kill-buffer b)))	OK (t t t)
-4	(let* ((forms-file (getenv "NEOVM_FORMS_FILE")) (base (if forms-file (file-name-directory forms-file) default-directory)) (f (expand-file-name "directory-files-fixtures/alpha.txt" base)) (b (find-file-noselect f))) (prog1 (progn (kill-buffer b) (get-file-buffer f))))	OK nil

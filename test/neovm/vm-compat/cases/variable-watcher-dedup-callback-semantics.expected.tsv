@@ -1,3 +1,0 @@
-1	(progn (add-variable-watcher 'vm-dedup-sym 'vm-dedup-fn) (add-variable-watcher 'vm-dedup-sym 'vm-dedup-fn) (get-variable-watchers 'vm-dedup-sym))	OK (vm-dedup-fn)
-2	(progn (add-variable-watcher 'vm-dedup-lambda (lambda (symbol newval operation where) nil)) (add-variable-watcher 'vm-dedup-lambda (lambda (symbol newval operation where) nil)) (length (get-variable-watchers 'vm-dedup-lambda)))	OK 1
-3	(progn (defvaralias 'vm-dedup-alias 'vm-dedup-base) (add-variable-watcher 'vm-dedup-alias 'vm-dedup-alias-fn) (add-variable-watcher 'vm-dedup-base 'vm-dedup-alias-fn) (list (get-variable-watchers 'vm-dedup-alias) (get-variable-watchers 'vm-dedup-base)))	OK ((vm-dedup-alias-fn) (vm-dedup-alias-fn))

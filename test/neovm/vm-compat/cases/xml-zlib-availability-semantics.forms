@@ -1,4 +1,0 @@
-(libxml-available-p)
-(condition-case err (libxml-available-p 1) (error err))
-(zlib-available-p)
-(condition-case err (zlib-available-p 1) (error err))

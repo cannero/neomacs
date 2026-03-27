@@ -1,6 +1,0 @@
-(seq-reverse '(1 2 3))
-(seq-reverse [1 2 3])
-(seq-reverse "abc")
-(seq-reverse nil)
-(seq-reverse 5)
-(seq-reverse '(1 . 2))

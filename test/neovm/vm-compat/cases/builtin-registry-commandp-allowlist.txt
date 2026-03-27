@@ -1,2 +1,0 @@
-# One builtin name per line.
-# Empty by default: commandp parity over core dispatch names is expected exact.

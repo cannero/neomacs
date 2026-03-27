@@ -1,2 +1,0 @@
-1	(condition-case err (x-display-pixel-width (selected-frame)) (error (list (car err) (cadr err))))	OK (error "Window system frame should be used")
-2	(condition-case err (x-display-pixel-height (selected-frame)) (error (list (car err) (cadr err))))	OK (error "Window system frame should be used")

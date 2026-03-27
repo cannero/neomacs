@@ -1,6 +1,0 @@
-1	(let ((unread-command-events nil)) (list (read-event nil nil 0) unread-command-events))	OK (nil nil)
-2	(let ((unread-command-events (list 97))) (progn (read-event nil nil 0) (list (read-event nil nil 0) unread-command-events)))	OK (nil nil)
-3	(let ((unread-command-events (list 'foo))) (progn (read-event nil nil 0) (list (read-event nil nil 0) unread-command-events)))	OK (nil nil)
-4	(let ((unread-command-events 'foo)) (list (read-event nil nil 0) unread-command-events))	OK (nil foo)
-5	(let ((unread-command-events [97])) (list (read-event nil nil 0) unread-command-events))	OK (nil [97])
-6	(let ((unread-command-events '(97 98))) (progn (read-event nil nil 0) (read-event nil nil 0) (list (read-event nil nil 0) unread-command-events)))	OK (nil nil)

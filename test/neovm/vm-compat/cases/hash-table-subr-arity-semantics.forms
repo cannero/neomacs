@@ -1,5 +1,0 @@
-(subr-arity (symbol-function 'hash-table-test))
-(subr-arity (symbol-function 'hash-table-size))
-(subr-arity (symbol-function 'hash-table-rehash-size))
-(subr-arity (symbol-function 'hash-table-rehash-threshold))
-(subr-arity (symbol-function 'hash-table-weakness))

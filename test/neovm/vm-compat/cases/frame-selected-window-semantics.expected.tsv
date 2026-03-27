@@ -1,9 +1,0 @@
-1	(fboundp 'frame-selected-window)	OK t
-2	(subr-arity (symbol-function 'frame-selected-window))	OK (0 . 1)
-3	(windowp (frame-selected-window))	OK t
-4	(windowp (frame-selected-window nil))	OK t
-5	(windowp (frame-selected-window (selected-frame)))	OK t
-6	(condition-case err (frame-selected-window "x") (error err))	OK (wrong-type-argument frame-live-p "x")
-7	(condition-case err (frame-selected-window 999999) (error err))	OK (wrong-type-argument frame-live-p 999999)
-8	(condition-case err (frame-selected-window nil nil) (error (car err)))	OK wrong-number-of-arguments
-9	(commandp 'frame-selected-window)	OK nil

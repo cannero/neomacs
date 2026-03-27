@@ -1,8 +1,0 @@
-1	(condition-case err (buffer-enable-undo) (error err))	OK nil
-2	(condition-case err (buffer-disable-undo) (error err))	OK t
-3	(condition-case err (buffer-enable-undo 1) (error err))	OK (wrong-type-argument stringp 1)
-4	(condition-case err (buffer-disable-undo 1) (error err))	OK (wrong-type-argument stringp 1)
-5	(condition-case err (buffer-enable-undo "missing-bu") (error err))	OK (error "No buffer named missing-bu")
-6	(condition-case err (buffer-disable-undo "missing-bd") (error err))	OK (wrong-type-argument stringp nil)
-7	(let ((b (generate-new-buffer "undo-dead-en"))) (kill-buffer b) (condition-case err (buffer-enable-undo b) (error err)))	OK nil
-8	(let ((b (generate-new-buffer "undo-dead-dis"))) (kill-buffer b) (condition-case err (buffer-disable-undo b) (error err)))	OK (error "Selecting deleted buffer")

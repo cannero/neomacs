@@ -1,6 +1,0 @@
-(list
- (condition-case err (match-data--translate) (error err))
- (condition-case err (match-data--translate nil) (error err))
- (condition-case err (match-data--translate t) (error err))
- (condition-case err (match-data--translate 1) (error err))
- (condition-case err (match-data--translate '(1 2)) (error err)))

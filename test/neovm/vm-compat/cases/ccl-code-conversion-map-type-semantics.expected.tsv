@@ -1,7 +1,0 @@
-1	(mapcar (lambda (s) (list s (fboundp s) (subrp (symbol-function s)) (subr-arity (symbol-function s)) (commandp s))) '(register-code-conversion-map))	OK ((register-code-conversion-map t t (2 . 2) nil))
-2	(condition-case err (register-code-conversion-map 'neovm-map nil) (error err))	OK (wrong-type-argument vectorp nil)
-3	(condition-case err (register-code-conversion-map 'neovm-map "x") (error err))	OK (wrong-type-argument vectorp "x")
-4	(condition-case err (register-code-conversion-map 'neovm-map 1) (error err))	OK (wrong-type-argument vectorp 1)
-5	(condition-case err (register-code-conversion-map 'neovm-map 'foo) (error err))	OK (wrong-type-argument vectorp foo)
-6	(register-code-conversion-map 'neovm-map [1 2 3])	OK 0
-7	(register-code-conversion-map 'neovm-map [4 5 6])	OK 0

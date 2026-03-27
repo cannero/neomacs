@@ -1,8 +1,0 @@
-(subr-arity (symbol-function 'activate-mark))
-(subr-arity (symbol-function 'auto-composition-mode))
-(subr-arity (symbol-function 'clear-composition-cache))
-(subr-arity (symbol-function 'compose-region-internal))
-(subr-arity (symbol-function 'compose-string-internal))
-(subr-arity (symbol-function 'composition-get-gstring))
-(subr-arity (symbol-function 'composition-sort-rules))
-(subr-arity (symbol-function 'deactivate-mark))

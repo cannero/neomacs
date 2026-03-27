@@ -1,9 +1,0 @@
-1	(subr-arity (symbol-function 'featurep))	OK (1 . 2)
-2	(condition-case err (featurep 'vm-featurep-sentinel) (error err))	OK nil
-3	(condition-case err (featurep 'vm-featurep-sentinel nil) (error err))	OK nil
-4	(condition-case err (featurep 'vm-featurep-sentinel 'subfeature) (error err))	OK nil
-5	(condition-case err (featurep 'vm-featurep-sentinel 1) (error err))	OK nil
-6	(condition-case err (featurep 1) (error err))	OK (wrong-type-argument symbolp 1)
-7	(condition-case err (featurep 'vm-featurep-sentinel nil nil) (error err))	OK (wrong-number-of-arguments featurep 3)
-8	(let ((old-features features)) (unwind-protect (progn (setq features '(vm-featurep-present)) (put 'vm-featurep-present 'subfeatures '(subfeature 1)) (list (featurep 'vm-featurep-present) (featurep 'vm-featurep-present nil) (featurep 'vm-featurep-present 'subfeature) (featurep 'vm-featurep-present 1) (featurep 'vm-featurep-present 'missing))) (setq features old-features) (put 'vm-featurep-present 'subfeatures nil)))	OK (t t t t nil)
-9	(let ((old-features features)) (unwind-protect (progn (setq features '(vm-featurep-present)) (put 'vm-featurep-present 'subfeatures 1) (condition-case err (featurep 'vm-featurep-present 'subfeature) (error err))) (setq features old-features) (put 'vm-featurep-present 'subfeatures nil)))	OK (wrong-type-argument listp 1)

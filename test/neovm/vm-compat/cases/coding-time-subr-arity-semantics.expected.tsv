@@ -1,8 +1,0 @@
-1	(subr-arity (symbol-function 'decode-coding-string))	OK (2 . 4)
-2	(subr-arity (symbol-function 'decode-time))	OK (0 . 3)
-3	(subr-arity (symbol-function 'detect-coding-region))	OK (2 . 3)
-4	(subr-arity (symbol-function 'detect-coding-string))	OK (1 . 2)
-5	(subr-arity (symbol-function 'encode-char))	OK (2 . 2)
-6	(subr-arity (symbol-function 'encode-coding-string))	OK (2 . 4)
-7	(subr-arity (symbol-function 'encode-time))	OK (1 . many)
-8	(subr-arity (symbol-function 'format-time-string))	OK (1 . 3)

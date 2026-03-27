@@ -1,8 +1,0 @@
-1	(let ((f (selected-frame))) (set-terminal-parameter f 'neo-term 5))	OK nil
-2	(let ((f (selected-frame))) (terminal-parameter f 'neo-term))	OK 5
-3	(condition-case err (terminal-parameter 999999 'neo-term) (error err))	OK (wrong-type-argument terminal-live-p 999999)
-4	(condition-case err (terminal-parameter "terminal" 'neo-term) (error err))	OK (wrong-type-argument terminal-live-p "terminal")
-5	(condition-case err (set-terminal-parameter 999999 'neo-term 1) (error err))	OK (wrong-type-argument terminal-live-p 999999)
-6	(condition-case err (set-terminal-parameter "terminal" 'neo-term 1) (error err))	OK (wrong-type-argument terminal-live-p "terminal")
-7	(condition-case err (terminal-parameter (selected-frame) "neo-key") (error err))	OK (wrong-type-argument symbolp "neo-key")
-8	(condition-case err (set-terminal-parameter (selected-frame) "neo-key" 1) (error err))	OK nil

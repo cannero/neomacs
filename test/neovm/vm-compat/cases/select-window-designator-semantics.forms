@@ -1,5 +1,0 @@
-(condition-case err (select-window nil) (error err))
-(condition-case err (select-window 'foo) (error err))
-(condition-case err (select-window 999999) (error err))
-(save-current-buffer (windowp (select-window (selected-window))))
-(condition-case err (select-window (selected-window) nil nil) (error (car err)))

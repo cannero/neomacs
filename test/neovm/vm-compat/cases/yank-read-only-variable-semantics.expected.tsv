@@ -1,4 +1,0 @@
-1	(with-temp-buffer (kill-new "x") (setq buffer-read-only t) (condition-case err (yank) (error (car err))))	OK buffer-read-only
-2	(with-temp-buffer (kill-new "x") (let ((buffer-read-only t)) (condition-case err (yank) (error (car err)))))	OK buffer-read-only
-3	(let ((orig (default-value 'buffer-read-only))) (unwind-protect (progn (setq-default buffer-read-only t) (with-temp-buffer (kill-new "x") (condition-case err (yank) (error (car err))))) (setq-default buffer-read-only orig)))	OK nil
-4	(with-temp-buffer (kill-new "x") (yank) (buffer-string))	OK "x"

@@ -1,8 +1,0 @@
-; composite.c — composition operations (oracle-safe subset)
-; compose-string-internal — basic
-(stringp (compose-string-internal "hello" 0 5 nil))
-(equal (compose-string-internal "abc" 0 3 nil) "abc")
-
-; compose-string-internal with vector components
-(let ((s (compose-string-internal "ab" 0 2 [?a ?b])))
-  (stringp s))

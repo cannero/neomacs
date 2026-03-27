@@ -1,8 +1,0 @@
-1	(stringp (format-mode-line "test"))	OK t
-2	(equal (format-mode-line "hello") "hello")	OK nil
-3	(stringp (format-mode-line "%b"))	OK t
-4	(eq (invisible-p nil) nil)	OK t
-5	(with-temp-buffer (insert "hello") (put-text-property 1 6 'invisible t) (eq (invisible-p t) t))	OK t
-6	(with-temp-buffer (insert "hello") (symbolp (current-bidi-paragraph-direction)))	OK t
-7	(with-temp-buffer (insert "hello") (integerp (line-pixel-height)))	OK t
-8	(eq (lookup-image-map nil nil) nil)	ERR (wrong-number-of-arguments (lookup-image-map 2))

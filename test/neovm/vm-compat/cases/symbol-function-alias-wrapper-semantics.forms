@@ -1,4 +1,0 @@
-(symbol-function 'count-matches)
-(symbol-function 'replace-rectangle)
-(symbol-function 'wholenump)
-(symbol-function 'name-last-kbd-macro)

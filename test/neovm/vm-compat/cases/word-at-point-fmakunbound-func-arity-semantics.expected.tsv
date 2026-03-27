@@ -1,8 +1,0 @@
-1	(fboundp 'word-at-point)	OK nil
-2	(func-arity 'symbol-at-point)	OK (0 . 0)
-3	(fboundp 'word-at-point)	OK t
-4	(fmakunbound 'word-at-point)	OK word-at-point
-5	(fboundp 'word-at-point)	OK nil
-6	(func-arity 'symbol-at-point)	OK (0 . 0)
-7	(fboundp 'word-at-point)	OK nil
-8	(condition-case err (func-arity 'word-at-point) (error (car err)))	OK void-function

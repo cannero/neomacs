@@ -1,8 +1,0 @@
-1	(subr-arity (symbol-function 'hash-table-p))	OK (1 . 1)
-2	(subr-arity (symbol-function 'make-hash-table))	OK (0 . many)
-3	(subr-arity (symbol-function 'gethash))	OK (2 . 3)
-4	(subr-arity (symbol-function 'puthash))	OK (3 . 3)
-5	(subr-arity (symbol-function 'remhash))	OK (2 . 2)
-6	(subr-arity (symbol-function 'clrhash))	OK (1 . 1)
-7	(subr-arity (symbol-function 'hash-table-count))	OK (1 . 1)
-8	(subr-arity (symbol-function 'maphash))	OK (2 . 2)

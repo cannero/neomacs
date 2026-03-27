@@ -1,7 +1,0 @@
-1	(framep (selected-frame))	OK t
-2	(frame-live-p (selected-frame))	OK t
-3	(length (frame-list))	OK 1
-4	(let ((f (selected-frame))) (and (memq f (frame-list)) t))	OK t
-5	(frame-parameter nil 'name)	OK "F1"
-6	(frame-parameter nil 'width)	OK 80
-7	(frame-parameter nil 'height)	OK 25

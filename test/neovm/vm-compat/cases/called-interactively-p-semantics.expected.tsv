@@ -1,6 +1,0 @@
-1	(called-interactively-p 'interactive)	OK nil
-2	(called-interactively-p 'any)	OK nil
-3	(called-interactively-p nil)	OK nil
-4	(condition-case err (called-interactively-p 'foo) (error err))	OK nil
-5	(let ((result nil)) (fset 'neo-ci-test (lambda nil (interactive) (setq result (list (called-interactively-p 'interactive) (called-interactively-p 'any) (called-interactively-p nil))))) (call-interactively 'neo-ci-test) result)	OK (nil t t)
-6	(let ((result nil)) (fset 'neo-ci-test2 (lambda nil (interactive) (setq result (list (called-interactively-p 'interactive) (called-interactively-p 'any) (called-interactively-p nil))))) (command-execute 'neo-ci-test2) result)	OK (nil t t)

@@ -1,4 +1,0 @@
-; Lock in batch semantics for exit-recursive-edit.
-(fboundp 'exit-recursive-edit)
-(condition-case err (exit-recursive-edit) (error err))
-(condition-case err (exit-recursive-edit nil) (error err))

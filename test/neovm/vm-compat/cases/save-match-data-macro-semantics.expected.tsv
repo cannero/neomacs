@@ -1,9 +1,0 @@
-1	(fboundp 'save-match-data)	OK t
-2	(macrop 'save-match-data)	OK t
-3	(special-form-p 'save-match-data)	OK nil
-4	(functionp 'save-match-data)	OK nil
-5	(func-arity 'save-match-data)	OK (0 . many)
-6	(func-arity (indirect-function 'save-match-data))	OK (0 . many)
-7	(let ((before (progn (set-match-data '(1 2)) (match-data)))) (list (save-match-data (set-match-data '(3 4)) (match-data)) (match-data) (equal (match-data) before)))	OK ((3 4) (1 2) t)
-8	(progn (set-match-data '(1 2)) (list (condition-case err (save-match-data (set-match-data '(5 6)) (error "boom")) (error (car err))) (match-data)))	OK (error (1 2))
-9	(macroexpand '(save-match-data (string-match "a" "a")))	OK (let ((saved-match-data (match-data))) (unwind-protect (progn (string-match "a" "a")) (set-match-data saved-match-data t)))

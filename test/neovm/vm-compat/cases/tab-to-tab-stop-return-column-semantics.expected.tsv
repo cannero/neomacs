@@ -1,1 +1,0 @@
-1	(list (with-temp-buffer (list (current-column) (tab-to-tab-stop) (current-column) (buffer-string))) (with-temp-buffer (insert "abc") (goto-char (point-max)) (list (current-column) (tab-to-tab-stop) (current-column) (buffer-string))) (condition-case err (tab-to-tab-stop 1) (error err)))	OK ((0 8 8 "\\t") (3 8 8 "abc\\t") (wrong-number-of-arguments tab-to-tab-stop 1))

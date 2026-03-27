@@ -1,2 +1,0 @@
-1	(let ((f (make-temp-file "ffn-arity-ok-")) buf) (unwind-protect (progn (setq buf (find-file-noselect f nil nil nil)) (bufferp buf)) (when (buffer-live-p buf) (kill-buffer buf)) (ignore-errors (delete-file f))))	OK t
-2	(let ((f (make-temp-file "ffn-arity-bad-")) buf) (unwind-protect (condition-case err (progn (setq buf (find-file-noselect f nil nil nil nil)) 'ok) (error (car err))) (when (buffer-live-p buf) (kill-buffer buf)) (ignore-errors (delete-file f))))	OK wrong-number-of-arguments

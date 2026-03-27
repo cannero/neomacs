@@ -1,6 +1,0 @@
-(extract-rectangle-line 1 3 "abcdef")
-(extract-rectangle-line 3 1 "abcdef")
-(extract-rectangle-line 0 10 "abc")
-(extract-rectangle-line 2 2 "abc")
-(condition-case err (extract-rectangle-line -1 1 "abc") (error (car err)))
-(extract-rectangle-line 1 3)

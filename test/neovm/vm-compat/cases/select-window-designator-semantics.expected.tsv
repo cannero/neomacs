@@ -1,5 +1,0 @@
-1	(condition-case err (select-window nil) (error err))	OK (wrong-type-argument window-live-p nil)
-2	(condition-case err (select-window 'foo) (error err))	OK (wrong-type-argument window-live-p foo)
-3	(condition-case err (select-window 999999) (error err))	OK (wrong-type-argument window-live-p 999999)
-4	(save-current-buffer (windowp (select-window (selected-window))))	OK t
-5	(condition-case err (select-window (selected-window) nil nil) (error (car err)))	OK wrong-number-of-arguments

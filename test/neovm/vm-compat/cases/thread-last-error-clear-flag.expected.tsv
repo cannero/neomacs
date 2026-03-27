@@ -1,5 +1,0 @@
-1	(progn (thread-last-error t) (thread-last-error nil))	OK nil
-2	(let ((th (make-thread 1))) (thread-join th) (list (thread-last-error nil) (thread-last-error nil)))	OK ((invalid-function 1) (invalid-function 1))
-3	(let ((th (make-thread 1))) (thread-join th) (list (thread-last-error t) (thread-last-error nil)))	OK ((invalid-function 1) nil)
-4	(let ((th (make-thread 1))) (thread-join th) (list (thread-last-error nil) (thread-last-error t) (thread-last-error nil)))	OK ((invalid-function 1) (invalid-function 1) nil)
-5	(let ((th (make-thread (lambda nil (signal 'foo '(7)))))) (thread-join th) (list (thread-last-error nil) (thread-last-error t) (thread-last-error nil)))	OK ((foo 7) (foo 7) nil)

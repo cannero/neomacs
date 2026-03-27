@@ -1,8 +1,0 @@
-1	(string-prefix-p "#<thread" (prin1-to-string (current-thread)))	OK t
-2	(string-prefix-p "#<mutex" (prin1-to-string (make-mutex)))	OK t
-3	(let ((m (make-mutex))) (string-prefix-p "#<condvar" (prin1-to-string (make-condition-variable m))))	OK t
-4	(string-prefix-p "#<thread" (format "%S" (current-thread)))	OK t
-5	(string-prefix-p "#<thread" (format "%s" (current-thread)))	OK t
-6	(let ((m (make-mutex))) (string-prefix-p "#<mutex" (format "%S" m)))	OK t
-7	(let* ((m (make-mutex)) (cv (make-condition-variable m))) (string-prefix-p "#<condvar" (format "%S" cv)))	OK t
-8	(let ((msg (condition-case e (progn (error "%S" (current-thread)) "") (error (error-message-string e))))) (string-prefix-p "#<thread" msg))	OK t

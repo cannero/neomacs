@@ -1,6 +1,0 @@
-1	(and (consp (key-binding "")) (keymapp (car (key-binding ""))))	OK t
-2	(key-binding [])	OK nil
-3	(keymapp (global-key-binding ""))	OK t
-4	(keymapp (global-key-binding []))	OK t
-5	(let ((m (make-sparse-keymap))) (use-local-map m) (let ((maps (key-binding ""))) (and (consp maps) (keymapp (car maps)) (consp (cdr maps)) (keymapp (car (cdr maps))))))	OK t
-6	(let ((m (make-sparse-keymap))) (use-local-map m) (key-binding []))	OK nil

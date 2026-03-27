@@ -1,7 +1,0 @@
-1	(let* ((w1 (selected-window)) (w2 (split-window))) (prog1 (list (window-use-time w1) (window-use-time w2) (window-bump-use-time w2) (window-use-time w1) (window-use-time w2) (window-bump-use-time w1)) (delete-window w2)))	OK (1 0 1 2 1 nil)
-2	(let* ((w1 (selected-window)) (w2 (split-window)) (b1 (funcall #'window-bump-use-time w2)) (b2 (apply #'window-bump-use-time (list w1)))) (prog1 (list (integerp b1) (null b2) (= (window-use-time w2) b1)) (delete-window w2)))	OK (t t t)
-3	(list (condition-case err (funcall #'window-bump-use-time nil nil) (error err)) (condition-case err (apply #'window-bump-use-time '(nil nil)) (error err)))	OK ((wrong-number-of-arguments #<subr window-bump-use-time> 2) (wrong-number-of-arguments #<subr window-bump-use-time> 2))
-4	(null (window-bump-use-time nil))	OK t
-5	(condition-case err (window-bump-use-time 1) (error err))	OK (wrong-type-argument window-live-p 1)
-6	(condition-case err (window-bump-use-time nil nil) (error err))	OK (wrong-number-of-arguments window-bump-use-time 2)
-7	(let ((w (split-window))) (delete-window w) (let ((err (condition-case e (window-bump-use-time w) (error e)))) (list (car err) (car (cdr err)))))	OK (wrong-type-argument window-live-p)

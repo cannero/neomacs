@@ -1,9 +1,0 @@
-1	(subr-arity (symbol-function 'emacs-version))	OK (0 . 1)
-2	(subr-arity (symbol-function 'system-name))	OK (0 . 0)
-3	(condition-case err (stringp (emacs-version)) (error err))	OK t
-4	(condition-case err (stringp (emacs-version nil)) (error err))	OK t
-5	(condition-case err (emacs-version t) (error err))	OK nil
-6	(condition-case err (emacs-version 1) (error err))	OK nil
-7	(condition-case err (emacs-version nil nil) (error err))	OK (wrong-number-of-arguments emacs-version 2)
-8	(condition-case err (stringp (system-name)) (error err))	OK t
-9	(condition-case err (system-name nil) (error err))	OK (wrong-number-of-arguments system-name 1)

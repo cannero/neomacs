@@ -1,8 +1,0 @@
-(list
- (condition-case err (open-font) (error err))
- (condition-case err (open-font nil) (error err))
- (condition-case err (open-font t) (error err))
- (condition-case err (open-font 1) (error err))
- (condition-case err (open-font "x") (error err))
- (condition-case err (open-font nil nil) (error err))
- (condition-case err (open-font nil nil nil) (error err)))

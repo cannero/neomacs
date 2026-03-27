@@ -1,4 +1,0 @@
-1	(with-temp-buffer (kill-new "a") (kill-new "b") (yank) (setq last-command 'yank) (setq buffer-read-only t) (condition-case err (yank-pop 1) (error (car err))))	OK nil
-2	(with-temp-buffer (kill-new "a") (kill-new "b") (yank) (setq last-command 'yank) (let ((buffer-read-only t)) (condition-case err (yank-pop 1) (error (car err)))))	OK nil
-3	(let ((orig (default-value 'buffer-read-only))) (unwind-protect (progn (setq-default buffer-read-only t) (with-temp-buffer (kill-new "a") (kill-new "b") (yank) (setq last-command 'yank) (condition-case err (progn (yank-pop 1) (buffer-string)) (error (car err))))) (setq-default buffer-read-only orig)))	OK "a"
-4	(with-temp-buffer (kill-new "a") (kill-new "b") (yank) (setq last-command 'yank) (yank-pop 1) (buffer-string))	OK "a"

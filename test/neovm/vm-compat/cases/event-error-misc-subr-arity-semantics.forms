@@ -1,8 +1,0 @@
-(subr-arity (symbol-function 'event-basic-type))
-(subr-arity (symbol-function 'event-convert-list))
-(subr-arity (symbol-function 'event-modifiers))
-(subr-arity (symbol-function 'eventp))
-(subr-arity (symbol-function 'error-message-string))
-(subr-arity (symbol-function 'copysign))
-(subr-arity (symbol-function 'equal-including-properties))
-(subr-arity (symbol-function 'emacs-pid))

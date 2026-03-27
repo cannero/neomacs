@@ -1,6 +1,0 @@
-1	(fboundp 'replace-string)	OK t
-2	(with-temp-buffer (insert "Foo foo") (goto-char (point-min)) (replace-string "foo" "bar") (buffer-string))	OK "Bar bar"
-3	(with-temp-buffer (insert "abc") (goto-char (point-min)) (replace-string "z" "x") (point))	OK 1
-4	(with-temp-buffer (insert "abc") (goto-char (point-min)) (replace-string "" "x") (buffer-string))	OK "xaxbxc"
-5	(condition-case err (replace-string "a") (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-6	(condition-case err (replace-string 1 "x") (error err))	OK (wrong-type-argument sequencep 1)

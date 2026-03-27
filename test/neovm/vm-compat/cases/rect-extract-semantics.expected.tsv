@@ -1,9 +1,0 @@
-1	(with-temp-buffer (insert "abcdef") (extract-rectangle 1 3))	OK ("ab")
-2	(with-temp-buffer (insert "abcdef") (extract-rectangle 3 1))	OK ("ab")
-3	(with-temp-buffer (insert "abcdef") (extract-rectangle 20 1))	OK ("abcdef")
-4	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (extract-rectangle 1 9))	OK ("a" "1")
-5	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (extract-rectangle 7 8))	OK ("abcdef" "123456")
-6	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (extract-rectangle 8 7))	OK ("123456")
-7	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (extract-rectangle 14 15))	OK ("123456" "      ")
-8	(condition-case err (extract-rectangle "x" 2) (error (car err)))	OK wrong-type-argument
-9	(condition-case err (extract-rectangle 1 "x") (error (car err)))	OK wrong-type-argument

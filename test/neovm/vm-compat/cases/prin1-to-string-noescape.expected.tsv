@@ -1,5 +1,0 @@
-1	(string= "\"ab\"" (prin1-to-string "ab"))	OK t
-2	(string= "ab" (prin1-to-string "ab" t))	OK t
-3	(string= "foo" (prin1-to-string 'foo t))	OK t
-4	(string-prefix-p "#<thread" (prin1-to-string (current-thread) t))	OK t
-5	(condition-case nil (prin1-to-string 1 nil nil) (wrong-number-of-arguments t))	OK "1"

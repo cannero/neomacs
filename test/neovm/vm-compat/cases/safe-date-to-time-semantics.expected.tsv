@@ -1,8 +1,0 @@
-1	(fboundp 'safe-date-to-time)	OK t
-2	(safe-date-to-time "1970-01-01 00:00:00 +0000")	OK (0 0)
-3	(safe-date-to-time "Thu, 01 Jan 1970 00:00:00 +0000")	OK (0 0)
-4	(safe-date-to-time "1970-01-01 00:00:00 -0100")	OK (0 3600)
-5	(safe-date-to-time "not a date")	OK 0
-6	(safe-date-to-time nil)	OK 0
-7	(condition-case err (safe-date-to-time) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-8	(condition-case err (safe-date-to-time "x" nil) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

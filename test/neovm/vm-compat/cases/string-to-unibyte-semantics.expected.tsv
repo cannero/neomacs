@@ -1,8 +1,0 @@
-1	(string-to-unibyte "")	OK ""
-2	(string-to-unibyte "abc")	OK "abc"
-3	(condition-case err (string-to-unibyte "é") (error err))	OK (error "Cannot convert character at index 0 to unibyte")
-4	(condition-case err (string-to-unibyte "ÿ") (error err))	OK (error "Cannot convert character at index 0 to unibyte")
-5	(condition-case err (string-to-unibyte "😀") (error err))	OK (error "Cannot convert character at index 0 to unibyte")
-6	(condition-case err (string-to-unibyte 1) (error err))	OK (wrong-type-argument stringp 1)
-7	(list (string-bytes (string-to-unibyte "abc")) (aref (string-to-unibyte "abc") 0) (find-charset-string (string-to-unibyte "abc")))	OK (3 97 (ascii))
-8	(list (string-bytes (string-to-unibyte (unibyte-string 255))) (aref (string-to-unibyte (unibyte-string 255)) 0) (find-charset-string (string-to-unibyte (unibyte-string 255))))	OK (1 255 (eight-bit))

@@ -1,3 +1,0 @@
-(condition-case err (frame-edges "x") (error (error-message-string err)))
-(condition-case err (frame-edges 999999) (error (error-message-string err)))
-(condition-case err (frame-edges 999999 'outer-edges) (error (error-message-string err)))

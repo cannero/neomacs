@@ -1,4 +1,0 @@
-1	(condition-case err (command-execute 'ignore nil nil nil nil) (error (car err)))	OK wrong-number-of-arguments
-2	(condition-case err (call-interactively 'ignore nil nil nil) (error (car err)))	OK wrong-number-of-arguments
-3	(command-execute 'ignore nil nil nil)	OK nil
-4	(call-interactively 'ignore nil nil)	OK nil

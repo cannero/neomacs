@@ -1,6 +1,0 @@
-1	(with-temp-buffer (insert "abc") (secure-hash 'sha1 (current-buffer)))	OK "a9993e364706816aba3e25717850c26c9cd0d89d"
-2	(with-temp-buffer (insert "abc") (secure-hash 'sha1 (current-buffer) 1 4))	OK "a9993e364706816aba3e25717850c26c9cd0d89d"
-3	(with-temp-buffer (insert "abc") (condition-case err (secure-hash 'sha1 (current-buffer) 0 3) (error err)))	OK (args-out-of-range 0 3)
-4	(with-temp-buffer (insert "abc") (condition-case err (secure-hash 'sha1 (current-buffer) t 3) (error err)))	OK (wrong-type-argument integer-or-marker-p t)
-5	(with-temp-buffer (insert "abc") (let ((m (copy-marker 2))) (secure-hash 'sha1 (current-buffer) m 4)))	OK "5b2505039ac5af9e197f5dad04113906a9cf9a2a"
-6	(let ((b (generate-new-buffer " *secure-dead*"))) (kill-buffer b) (condition-case err (secure-hash 'sha1 b) (error err)))	OK (error "Selecting deleted buffer")

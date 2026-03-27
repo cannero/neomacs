@@ -1,6 +1,0 @@
-(list (symbol-value :foo) (default-value :foo) (default-toplevel-value :foo))
-(list
- (condition-case err (set-default :foo 1) (error err))
- (condition-case err (set-default-toplevel-value :foo 1) (error err))
- (condition-case err (set :foo 1) (error err)))
-(list (boundp :foo) (default-boundp :foo) (special-variable-p :foo))

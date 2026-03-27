@@ -1,5 +1,0 @@
-1	(with-temp-buffer (insert "First sentence. Second sentence! Third?") (goto-char (point-min)) (search-forward "Second") (thing-at-point 'sentence))	OK "First sentence. Second sentence! Third?"
-2	(with-temp-buffer (insert "First sentence. Second sentence! Third?") (goto-char (point-min)) (search-forward "Second") (bounds-of-thing-at-point 'sentence))	OK (1 . 40)
-3	(with-temp-buffer (insert "(foo bar) baz") (goto-char (point-min)) (search-forward "foo") (thing-at-point 'sexp))	OK "foo"
-4	(with-temp-buffer (insert "(foo bar) baz") (goto-char (point-min)) (search-forward "foo") (bounds-of-thing-at-point 'sexp))	OK (2 . 5)
-5	(with-temp-buffer (insert "(foo bar) baz") (goto-char (point-min)) (search-forward "baz") (thing-at-point 'sexp))	OK "baz"

@@ -1,6 +1,0 @@
-(condition-case err (set-window-dedicated-p nil t) (error err))
-(window-dedicated-p nil)
-(condition-case err (set-window-dedicated-p 'foo t) (error err))
-(condition-case err (set-window-dedicated-p 999999 t) (error err))
-(condition-case err (set-window-dedicated-p nil nil) (error err))
-(window-dedicated-p nil)

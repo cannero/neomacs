@@ -1,5 +1,0 @@
-1	(with-temp-buffer (set-mark (point-min)) (setq mark-active t) (list (deactivate-mark) (use-region-p) (mark t)))	OK (nil nil 1)
-2	(with-temp-buffer (insert "abc") (goto-char (point-max)) (set-mark (point-min)) (setq mark-active t) (deactivate-mark) (list (use-region-p) (mark t) (point)))	OK (nil 1 4)
-3	(with-temp-buffer (condition-case err (exchange-point-and-mark) (error (car err))))	OK user-error
-4	(with-temp-buffer (insert "abc") (goto-char (point-max)) (set-mark (point-min)) (condition-case err (progn (exchange-point-and-mark) (list (point) (mark t) (use-region-p))) (error (car err))))	OK (1 4 nil)
-5	(with-temp-buffer (insert "abc") (goto-char (point-max)) (set-mark (point-min)) (setq mark-active nil) (exchange-point-and-mark) (list (point) (mark t) (use-region-p)))	OK (1 4 nil)

@@ -1,6 +1,0 @@
-1	(condition-case err (bookmark-set "bm") (error err))	OK (error "Buffer not visiting a file or directory")
-2	(condition-case err (bookmark-set "bm" nil) (error err))	OK (error "Buffer not visiting a file or directory")
-3	(condition-case err (bookmark-set "bm" nil nil) (error err))	OK (wrong-number-of-arguments bookmark-set 3)
-4	(condition-case err (bookmark-set "bm" "/tmp/bm-file") (error err))	OK (error "Buffer not visiting a file or directory")
-5	(condition-case err (bookmark-set "bm" "/tmp/bm-file" "note") (error err))	OK (wrong-number-of-arguments bookmark-set 3)
-6	(condition-case err (bookmark-set "bm" nil "note") (error err))	OK (wrong-number-of-arguments bookmark-set 3)

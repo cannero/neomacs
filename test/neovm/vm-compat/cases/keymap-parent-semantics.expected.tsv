@@ -1,8 +1,0 @@
-1	(fboundp 'keymap-parent)	OK t
-2	(fboundp 'set-keymap-parent)	OK t
-3	(condition-case err (let ((a (make-sparse-keymap)) (b (make-sparse-keymap))) (set-keymap-parent a b) (equal (keymap-parent a) b)) (error err))	OK t
-4	(condition-case err (let ((a (make-sparse-keymap)) (b (make-sparse-keymap))) (set-keymap-parent a b) (set-keymap-parent a nil) (keymap-parent a)) (error err))	OK nil
-5	(condition-case err (keymap-parent) (error (car err)))	OK wrong-number-of-arguments
-6	(condition-case err (set-keymap-parent) (error (car err)))	OK wrong-number-of-arguments
-7	(condition-case err (keymap-parent "x") (error (car err)))	OK wrong-type-argument
-8	(condition-case err (set-keymap-parent "x" nil) (error (car err)))	OK wrong-type-argument

@@ -1,9 +1,0 @@
-(list
- (condition-case err (set-fringe-bitmap-face) (error err))
- (condition-case err (set-fringe-bitmap-face nil) (error err))
- (condition-case err (set-fringe-bitmap-face t) (error err))
- (condition-case err (set-fringe-bitmap-face 'left-triangle) (error err))
- (condition-case err (set-fringe-bitmap-face 'right-triangle) (error err))
- (condition-case err (set-fringe-bitmap-face 'does-not-exist) (error err))
- (condition-case err (set-fringe-bitmap-face 'left-triangle nil) (error err))
- (condition-case err (set-fringe-bitmap-face 'left-triangle t) (error err)))

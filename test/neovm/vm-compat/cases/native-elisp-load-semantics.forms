@@ -1,8 +1,0 @@
-(list
- (condition-case err (native-elisp-load) (error err))
- (condition-case err (native-elisp-load nil) (error err))
- (condition-case err (native-elisp-load t) (error err))
- (condition-case err (native-elisp-load 1) (error err))
- (condition-case err (native-elisp-load nil nil) (error err))
- (condition-case err (native-elisp-load "foo.eln") (error err))
- (condition-case err (native-elisp-load "foo.eln" nil) (error err)))

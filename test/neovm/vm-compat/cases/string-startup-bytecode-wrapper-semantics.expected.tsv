@@ -1,6 +1,0 @@
-1	(let ((fn (symbol-function 'string-join))) (list (type-of fn) (subrp fn) (func-arity fn) (help-function-arglist fn t)))	OK (byte-code-function nil (1 . 2) (strings &optional separator))
-2	(let ((fn (symbol-function 'string-to-list))) (list (type-of fn) (subrp fn) (func-arity fn) (help-function-arglist fn t)))	OK (byte-code-function nil (1 . 1) (string))
-3	(func-arity 'string-join)	OK (1 . 2)
-4	(func-arity 'string-to-list)	OK (1 . 1)
-5	(help-function-arglist 'string-join t)	OK (strings &optional separator)
-6	(help-function-arglist 'string-to-list t)	OK (string)

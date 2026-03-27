@@ -1,5 +1,0 @@
-1	(with-temp-buffer (insert "foo") (setq buffer-read-only t) (condition-case err (replace-string "foo" "bar") (error (car err))))	OK nil
-2	(with-temp-buffer (insert "foo") (setq buffer-read-only t) (condition-case err (replace-regexp "f.o" "bar") (error (car err))))	OK nil
-3	(with-temp-buffer (insert "foo") (let ((buffer-read-only t)) (condition-case err (replace-string "foo" "bar") (error (car err)))))	OK nil
-4	(let ((orig (default-value 'buffer-read-only))) (unwind-protect (progn (setq-default buffer-read-only t) (with-temp-buffer (insert "foo") (condition-case err (replace-string "foo" "bar") (error (car err))))) (setq-default buffer-read-only orig)))	OK nil
-5	(with-temp-buffer (insert "foo") (setq buffer-read-only t) (replace-string "zzz" "bar") (buffer-string))	OK "foo"

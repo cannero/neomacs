@@ -1,6 +1,0 @@
-(ccl-execute [1 2 3] [10 20 30])
-(ccl-execute [1 2 3] [0 0 0 0 0 0 0 0])
-(ccl-execute 1 [0 0 0 0 0 0 0 0])
-(ccl-execute-on-string [1 2 3] [10 20 30] "abc")
-(ccl-execute-on-string [1 2 3] [0 0 0 0 0 0 0 0 0] "abc")
-(ccl-execute-on-string [1 2 3] [0 0 0 0 0 0 0 0 0] 123)

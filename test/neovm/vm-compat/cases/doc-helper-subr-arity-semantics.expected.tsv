@@ -1,5 +1,0 @@
-1	(subr-arity (symbol-function 'Snarf-documentation))	OK (1 . 1)
-2	(subr-arity (symbol-function 'substitute-command-keys))	OK (1 . 3)
-3	(subr-arity (symbol-function 'documentation))	OK (1 . 2)
-4	(subr-arity (symbol-function 'documentation-property))	OK (2 . 3)
-5	(subr-arity (symbol-function 'help-function-arglist))	OK (1 . 2)

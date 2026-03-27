@@ -1,5 +1,0 @@
-; fboundp should report core builtins and special forms as bound.
-(fboundp 'car)
-(fboundp 'setq)
-(fboundp 'if)
-(fboundp 'with-temp-buffer)

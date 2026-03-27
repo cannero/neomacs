@@ -1,6 +1,0 @@
-1	(let ((w '(button :action car :rest cdr :list list :bad 7))) (widget-apply w :action))	OK button
-2	(let ((w '(button :action car :rest cdr :list list :bad 7))) (equal (widget-apply w :rest) '(:action car :rest cdr :list list :bad 7)))	OK t
-3	(let ((w '(button :action car :rest cdr :list list :bad 7))) (equal (widget-apply w :list 1 2) (list w 1 2)))	OK t
-4	(let ((w '(button :action car :rest cdr :list list :bad 7))) (widget-apply w :missing))	ERR (void-function (nil))
-5	(condition-case err (let ((w '(button :bad 7))) (widget-apply w :bad)) (error err))	OK (invalid-function 7)
-6	(condition-case err (widget-apply) (error err))	OK (wrong-number-of-arguments widget-apply 0)

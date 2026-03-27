@@ -1,6 +1,0 @@
-1	(sxhash-eql 1.0)	OK -1149543804886319104
-2	(sxhash-eql 2.0)	OK 1152921504606846976
-3	(sxhash-equal 1.0)	OK -1149543804886319104
-4	(sxhash-equal 2.0)	OK 1152921504606846976
-5	(let ((ht (make-hash-table :test 'eql :size 3))) (puthash 1.0 'one ht) (puthash 2.0 'two ht) (let* ((entries (apply #'append (internal--hash-table-buckets ht))) (one (assoc 1.0 entries)) (two (assoc 2.0 entries))) (list (cdr one) (cdr two))))	OK (1072693248 1073741824)
-6	(let ((ht (make-hash-table :test 'equal :size 3))) (puthash 1.0 'one ht) (puthash 2.0 'two ht) (let* ((entries (apply #'append (internal--hash-table-buckets ht))) (one (assoc 1.0 entries)) (two (assoc 2.0 entries))) (list (cdr one) (cdr two))))	OK (1072693248 1073741824)

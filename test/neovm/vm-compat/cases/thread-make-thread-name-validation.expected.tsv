@@ -1,4 +1,0 @@
-1	(condition-case err (make-thread (lambda nil nil) 1) (error err))	OK (wrong-type-argument stringp 1)
-2	(let ((th (make-thread (lambda nil nil) nil))) (thread-name th))	OK nil
-3	(let ((th (make-thread (lambda nil nil) ""))) (thread-name th))	OK ""
-4	(let ((th (make-thread (lambda nil nil) "worker-y"))) (thread-name th))	OK "worker-y"

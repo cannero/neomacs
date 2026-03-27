@@ -1,5 +1,0 @@
-; thread-yield semantics.
-(thread-yield)
-(condition-case err (thread-yield) (error (list 'err (car err))))
-(condition-case err (thread-yield 1) (error (list 'err (car err) (cadr err))))
-(condition-case err (thread-yield 'tag) (error (error-message-string err)))

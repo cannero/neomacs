@@ -1,8 +1,0 @@
-1	(condition-case err (x-open-connection) (error err))	OK (wrong-number-of-arguments x-open-connection 0)
-2	(condition-case err (x-open-connection "foo" nil nil nil) (error err))	OK (wrong-number-of-arguments x-open-connection 4)
-3	(condition-case err (x-open-connection 1) (error err))	OK (wrong-type-argument stringp 1)
-4	(condition-case err (x-open-connection nil) (error err))	OK (wrong-type-argument stringp nil)
-5	(condition-case err (x-close-connection) (error err))	OK (wrong-number-of-arguments x-close-connection 0)
-6	(condition-case err (x-close-connection 1) (error err))	OK (wrong-type-argument frame-live-p 1)
-7	(condition-case err (x-close-connection nil) (error err))	OK (error "X windows are not in use or not initialized")
-8	(condition-case err (x-close-connection nil nil) (error err))	OK (wrong-number-of-arguments x-close-connection 2)

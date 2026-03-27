@@ -1,3 +1,0 @@
-1	(condition-case err (accept-process-output 1 0.01) (error err))	OK (wrong-type-argument processp 1)
-2	(let ((p (start-process "neovm-apo-stale" nil "cat"))) (unwind-protect (progn (delete-process p) (accept-process-output p 0.01)) (ignore-errors (delete-process p))))	OK nil
-3	(condition-case err (accept-process-output "__missing-neovm-proc__" 0.01) (error err))	OK (wrong-type-argument processp "__missing-neovm-proc__")

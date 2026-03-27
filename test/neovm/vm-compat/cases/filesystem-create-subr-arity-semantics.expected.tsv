@@ -1,6 +1,0 @@
-1	(subr-arity (symbol-function 'make-directory))	OK (1 . 2)
-2	(subr-arity (symbol-function 'make-temp-file))	OK (1 . 4)
-3	(subr-arity (symbol-function 'make-nearby-temp-file))	OK (1 . 3)
-4	(subr-arity (symbol-function 'make-symbolic-link))	OK (2 . 3)
-5	(subr-arity (symbol-function 'rename-file))	OK (2 . 3)
-6	(subr-arity (symbol-function 'add-name-to-file))	OK (2 . 3)

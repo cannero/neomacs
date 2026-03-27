@@ -1,3 +1,0 @@
-1	(fboundp 'font-xlfd-name)	OK t
-2	(font-xlfd-name (font-spec :family "x") nil nil)	OK "-*-x-*-*-*-*-*-*-*-*-*-*-*-*"
-3	(condition-case err (font-xlfd-name (font-spec :family "x") nil nil nil) (error (car err)))	OK wrong-number-of-arguments

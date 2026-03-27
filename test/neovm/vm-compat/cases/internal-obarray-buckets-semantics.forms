@@ -1,9 +1,0 @@
-(list
- (condition-case err (internal--obarray-buckets) (error err))
- (condition-case err (internal--obarray-buckets nil) (error err))
- (condition-case err (internal--obarray-buckets t) (error err))
- (condition-case err (internal--obarray-buckets 1) (error err))
- (condition-case err (internal--obarray-buckets [1 2]) (error err))
- (condition-case err (listp (internal--obarray-buckets obarray)) (error err))
- (condition-case err (vectorp (internal--obarray-buckets obarray)) (error err))
- (condition-case err (eq (internal--obarray-buckets obarray) obarray) (error err)))

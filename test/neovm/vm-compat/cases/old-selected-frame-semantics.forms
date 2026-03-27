@@ -1,5 +1,0 @@
-(list
- (condition-case err (framep (old-selected-frame)) (error err))
- (condition-case err (frame-live-p (old-selected-frame)) (error err))
- (condition-case err (eq (old-selected-frame) (selected-frame)) (error err))
- (condition-case err (old-selected-frame nil) (error err)))

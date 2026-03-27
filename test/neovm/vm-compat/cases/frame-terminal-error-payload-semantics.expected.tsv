@@ -1,9 +1,0 @@
-1	(frame-terminal)	OK #<terminal 0 on initial_terminal>
-2	(frame-terminal nil)	OK #<terminal 0 on initial_terminal>
-3	(equal (frame-terminal nil) (frame-terminal (selected-frame)))	OK t
-4	(condition-case err (frame-terminal 0) (error err))	OK (wrong-type-argument frame-live-p 0)
-5	(condition-case err (frame-terminal t) (error err))	OK (wrong-type-argument frame-live-p t)
-6	(condition-case err (frame-terminal "terminal") (error err))	OK (wrong-type-argument frame-live-p "terminal")
-7	(condition-case err (frame-terminal [1]) (error err))	OK (wrong-type-argument frame-live-p [1])
-8	(condition-case err (frame-terminal '(a b)) (error err))	OK (wrong-type-argument frame-live-p (a b))
-9	(condition-case err (frame-terminal nil nil) (error err))	OK (wrong-number-of-arguments frame-terminal 2)

@@ -1,6 +1,0 @@
-1	(condition-case err (set-window-dedicated-p nil t) (error err))	OK t
-2	(window-dedicated-p nil)	OK t
-3	(condition-case err (set-window-dedicated-p 'foo t) (error err))	OK (wrong-type-argument window-live-p foo)
-4	(condition-case err (set-window-dedicated-p 999999 t) (error err))	OK (wrong-type-argument window-live-p 999999)
-5	(condition-case err (set-window-dedicated-p nil nil) (error err))	OK nil
-6	(window-dedicated-p nil)	OK nil

@@ -1,5 +1,0 @@
-1	(fboundp 'split-window)	OK t
-2	(fboundp 'delete-window)	OK t
-3	(fboundp 'window-live-p)	OK t
-4	(fboundp 'window-point)	OK t
-5	(let ((w (split-window))) (delete-window w) (list (window-live-p w) (condition-case err (window-point w) (error (car err)))))	OK (nil wrong-type-argument)

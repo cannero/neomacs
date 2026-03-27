@@ -1,8 +1,0 @@
-1	(condition-case err (x-open-connection 'foo) (error err))	OK (wrong-type-argument stringp foo)
-2	(condition-case err (x-close-connection 'foo) (error err))	OK (wrong-type-argument frame-live-p foo)
-3	(condition-case err (x-open-connection [foo]) (error err))	OK (wrong-type-argument stringp [foo])
-4	(condition-case err (x-close-connection [foo]) (error err))	OK (wrong-type-argument frame-live-p [foo])
-5	(condition-case err (x-open-connection '(foo)) (error err))	OK (wrong-type-argument stringp (foo))
-6	(condition-case err (x-close-connection '(foo)) (error err))	OK (wrong-type-argument frame-live-p (foo))
-7	(condition-case err (x-open-connection '(foo . bar)) (error err))	OK (wrong-type-argument stringp (foo . bar))
-8	(condition-case err (x-close-connection '(foo . bar)) (error err))	OK (wrong-type-argument frame-live-p (foo . bar))

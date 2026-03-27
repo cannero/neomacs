@@ -1,6 +1,0 @@
-1	(frame-terminal)	OK #<terminal 0 on initial_terminal>
-2	(frame-terminal nil)	OK #<terminal 0 on initial_terminal>
-3	(condition-case err (frame-terminal 0) (error (car err)))	OK wrong-type-argument
-4	(condition-case err (frame-terminal t) (error (car err)))	OK wrong-type-argument
-5	(condition-case err (frame-terminal (selected-frame)) (error (car err)))	OK #<terminal 0 on initial_terminal>
-6	(condition-case err (frame-terminal nil nil) (error (car err)))	OK wrong-number-of-arguments

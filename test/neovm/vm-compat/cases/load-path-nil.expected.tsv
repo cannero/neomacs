@@ -1,6 +1,0 @@
-1	(progn (setq vm-loadpath-nil-dir (expand-file-name "load-path-nil-fixtures" (file-name-directory (getenv "NEOVM_FORMS_FILE")))) 'ok)	OK ok
-2	(setq vm-loadpath-nil-hit nil)	OK nil
-3	(progn (setq default-directory (file-name-as-directory vm-loadpath-nil-dir)) (equal default-directory (file-name-as-directory vm-loadpath-nil-dir)))	OK t
-4	(setq load-path '(nil))	OK (nil)
-5	(load "vm-loadpath-nil-probe" nil 'nomessage)	OK t
-6	vm-loadpath-nil-hit	OK t

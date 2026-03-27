@@ -1,9 +1,0 @@
-1	(fboundp 'scan-lists)	OK t
-2	(with-temp-buffer (insert "(a b)") (scan-lists 1 1 0))	OK 6
-3	(with-temp-buffer (insert "(a b)") (scan-lists 1 -1 0))	OK nil
-4	(condition-case err (scan-lists 1) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-5	(condition-case err (scan-lists 1 1) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-6	(condition-case err (scan-lists 1 1 0 0) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-7	(condition-case err (scan-lists "1" 1 0) (error (car err)))	OK wrong-type-argument
-8	(condition-case err (scan-lists 1 "1" 0) (error (car err)))	OK wrong-type-argument
-9	(condition-case err (scan-lists 1 1 "0") (error (car err)))	OK wrong-type-argument

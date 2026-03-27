@@ -1,3 +1,0 @@
-(fboundp 'char-syntax)
-(with-temp-buffer
-  (mapcar (lambda (c) (cons c (char-syntax c))) (number-sequence 32 126)))

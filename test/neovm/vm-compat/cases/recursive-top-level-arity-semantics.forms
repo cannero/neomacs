@@ -1,7 +1,0 @@
-(fboundp 'recursive-edit)
-(condition-case err (recursive-edit nil) (error (car err)))
-(condition-case err (recursive-edit nil nil) (error (car err)))
-
-(fboundp 'top-level)
-(condition-case err (top-level nil) (error (car err)))
-(condition-case err (top-level nil nil) (error (car err)))

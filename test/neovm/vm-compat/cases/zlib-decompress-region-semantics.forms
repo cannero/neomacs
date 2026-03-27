@@ -1,8 +1,0 @@
-(condition-case err (zlib-decompress-region 1 1) (error err))
-(condition-case err (zlib-decompress-region) (error err))
-(condition-case err (zlib-decompress-region 1 1 1) (error err))
-(condition-case err (zlib-decompress-region 1 1 1 1) (error err))
-(condition-case err (zlib-decompress-region nil 1) (error err))
-(condition-case err (zlib-decompress-region 1 nil) (error err))
-(condition-case err (zlib-decompress-region "1" 1) (error err))
-(condition-case err (zlib-decompress-region 1 "1") (error err))

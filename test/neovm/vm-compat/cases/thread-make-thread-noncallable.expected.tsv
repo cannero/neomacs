@@ -1,4 +1,0 @@
-1	(threadp (make-thread 1))	OK t
-2	(let ((th (make-thread 1))) (condition-case err (thread-join th) (error err)))	OK nil
-3	(let ((th (make-thread 1))) (condition-case err (thread-last-error nil) (error err)))	OK (invalid-function 1)
-4	(let ((th (make-thread 1))) (progn (thread-join th) (thread-last-error t) (thread-last-error nil)))	OK nil

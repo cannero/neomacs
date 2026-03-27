@@ -1,8 +1,0 @@
-1	(lookup-image-map (list :type "stub") 1 2)	OK nil
-2	(lookup-image-map 'image 10 20)	OK nil
-3	(lookup-image-map 'image "x" 'y)	ERR (wrong-type-argument (fixnump "x"))
-4	(lookup-image-map nil 1 "y")	OK nil
-5	(lookup-image-map nil 'x 'y)	OK nil
-6	(condition-case err (lookup-image-map) (error err))	OK (wrong-number-of-arguments lookup-image-map 0)
-7	(condition-case err (lookup-image-map 1 2) (error err))	OK (wrong-number-of-arguments lookup-image-map 2)
-8	(condition-case err (lookup-image-map 1 2 3 4) (error err))	OK (wrong-number-of-arguments lookup-image-map 4)

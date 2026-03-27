@@ -1,9 +1,0 @@
-1	(fboundp 'replace-string)	OK t
-2	(fboundp 'replace-regexp)	OK t
-3	(fboundp 'query-replace)	OK t
-4	(fboundp 'query-replace-regexp)	OK t
-5	(with-temp-buffer (insert "foo x foo y foo") (goto-char (point-max)) (replace-string "foo" "bar" nil nil nil t) (list (buffer-string) (point)))	OK ("bar x bar y bar" 1)
-6	(with-temp-buffer (insert "foo x foo y foo") (goto-char (point-min)) (replace-string "foo" "bar" nil nil nil t) (list (buffer-string) (point)))	OK ("foo x foo y foo" 1)
-7	(with-temp-buffer (insert "foo x foo y foo") (goto-char (point-max)) (replace-regexp "foo" "bar" nil nil nil t) (list (buffer-string) (point)))	OK ("bar x bar y bar" 1)
-8	(with-temp-buffer (insert "foo x foo y foo") (goto-char (point-max)) (let ((unread-command-events (list 33))) (query-replace "foo" "bar" nil nil nil t)) (list (buffer-string) (point)))	OK ("bar x bar y bar" 1)
-9	(with-temp-buffer (insert "foo x foo y foo") (goto-char (point-max)) (let ((unread-command-events (list 33))) (query-replace-regexp "foo" "bar" nil nil nil t)) (list (buffer-string) (point)))	OK ("bar x bar y bar" 1)

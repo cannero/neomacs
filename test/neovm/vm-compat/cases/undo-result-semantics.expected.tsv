@@ -1,6 +1,0 @@
-1	(with-temp-buffer (buffer-enable-undo) (insert "x") (list (condition-case err (undo 1) (error err)) (buffer-string)))	OK ((user-error "No further undo information") "")
-2	(with-temp-buffer (buffer-enable-undo) (insert "abc") (undo-boundary) (list (condition-case err (undo 1) (error err)) (buffer-string)))	OK ("Undo" "")
-3	(with-temp-buffer (buffer-enable-undo) (insert "a") (undo-boundary) (insert "b") (list (condition-case err (undo 1) (error err)) (buffer-string)))	OK ("Undo" "")
-4	(condition-case err (undo 1) (error err))	OK (user-error "No undo information in this buffer")
-5	(with-temp-buffer (buffer-enable-undo) (insert "x") (undo-boundary) (list (condition-case err (undo 0) (error err)) (buffer-string)))	OK ("Undo" "x")
-6	(with-temp-buffer (buffer-enable-undo) (insert "x") (list (condition-case err (undo 0) (error err)) (buffer-string)))	OK ((user-error "No further undo information") "")

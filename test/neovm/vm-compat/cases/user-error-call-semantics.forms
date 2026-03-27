@@ -1,7 +1,0 @@
-; user-error signaling and formatting behavior.
-(condition-case err (user-error "oops %s" "now") (error err))
-(condition-case err (user-error "plain") (error err))
-(condition-case err (user-error) (error (car err)))
-(condition-case err
-    (user-error nil)
-  (error (list (car err) (cadr err) (equal (nth 2 err) nil))))

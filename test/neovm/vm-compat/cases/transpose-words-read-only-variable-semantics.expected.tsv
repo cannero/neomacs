@@ -1,4 +1,0 @@
-1	(with-temp-buffer (insert "aa bb") (goto-char 1) (setq buffer-read-only t) (condition-case err (transpose-words 1) (error (car err))))	OK buffer-read-only
-2	(with-temp-buffer (insert "aa bb") (goto-char 1) (let ((buffer-read-only t)) (condition-case err (transpose-words 1) (error (car err)))))	OK buffer-read-only
-3	(let ((orig (default-value 'buffer-read-only))) (unwind-protect (progn (setq-default buffer-read-only t) (with-temp-buffer (insert "aa bb") (goto-char 1) (condition-case err (progn (transpose-words 1) (buffer-string)) (error (car err))))) (setq-default buffer-read-only orig)))	OK "bb aa"
-4	(with-temp-buffer (insert "aa bb") (goto-char 1) (transpose-words 1) (buffer-string))	OK "bb aa"

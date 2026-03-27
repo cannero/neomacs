@@ -1,7 +1,0 @@
-1	(fboundp 'format-mode-line)	OK t
-2	(format-mode-line "%b")	OK ""
-3	(condition-case err (format-mode-line 1) (error err))	OK ""
-4	(condition-case err (format-mode-line "%b" nil "x") (error err))	OK (wrong-type-argument windowp "x")
-5	(condition-case err (format-mode-line "%b" nil nil (current-buffer)) (error err))	OK ""
-6	(condition-case err (format-mode-line "%b" nil nil "x") (error err))	OK (wrong-type-argument bufferp "x")
-7	(condition-case err (format-mode-line "%b" nil nil nil nil) (error (car err)))	OK wrong-number-of-arguments

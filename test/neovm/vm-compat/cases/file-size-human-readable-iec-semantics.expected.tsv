@@ -1,6 +1,0 @@
-1	(file-size-human-readable-iec 0)	OK "0 B"
-2	(file-size-human-readable-iec 1024)	OK "1 KiB"
-3	(file-size-human-readable-iec 1536)	OK "1.5 KiB"
-4	(file-size-human-readable-iec 1023.9)	OK "1024 B"
-5	(file-size-human-readable-iec -1536.5)	OK "-1536.5 B"
-6	(condition-case err (file-size-human-readable-iec "x") (error (list (car err) (cadr err) (equal (nth 2 err) "x"))))	OK (wrong-type-argument number-or-marker-p t)

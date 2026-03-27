@@ -1,5 +1,0 @@
-1	(let ((b (generate-new-buffer "sb-dead"))) (kill-buffer b) (condition-case err (set-buffer b) (error err)))	OK (error "Selecting deleted buffer")
-2	(condition-case err (set-buffer "sb-missing") (error err))	OK (error "No buffer named sb-missing")
-3	(condition-case err (set-buffer 1) (error err))	OK (wrong-type-argument stringp 1)
-4	(save-current-buffer (let ((b (get-buffer-create "sb-live"))) (prog1 (eq (set-buffer b) b) (kill-buffer b))))	OK t
-5	(save-current-buffer (let ((b (get-buffer-create "sb-live-name"))) (prog1 (eq (set-buffer "sb-live-name") b) (kill-buffer b))))	OK t

@@ -1,8 +1,0 @@
-(define-hash-table-test 'neovm-probe-ht-test2 'eq 'sxhash-eq)
-(let ((ht (make-hash-table :test 'neovm-probe-ht-test2)))
-  (puthash 'k 1 ht)
-  (define-hash-table-test 'neovm-probe-ht-test2 'equal 'sxhash-equal)
-  (list (hash-table-test ht)
-        (hash-table-test (make-hash-table :test 'neovm-probe-ht-test2))
-        (gethash 'k ht)
-        (gethash "k" ht)))

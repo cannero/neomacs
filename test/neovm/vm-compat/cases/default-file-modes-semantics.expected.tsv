@@ -1,5 +1,0 @@
-1	(integerp (default-file-modes))	OK t
-2	(condition-case err (set-default-file-modes) (error err))	OK (wrong-number-of-arguments set-default-file-modes 0)
-3	(condition-case err (default-file-modes 1) (error err))	OK (wrong-number-of-arguments default-file-modes 1)
-4	(condition-case err (set-default-file-modes nil) (error err))	OK (wrong-type-argument fixnump nil)
-5	(let ((orig (default-file-modes))) (unwind-protect (progn (set-default-file-modes 448) (list (default-file-modes) (set-default-file-modes 493) (default-file-modes))) (set-default-file-modes orig)))	OK (448 nil 493)

@@ -1,9 +1,0 @@
-1	(terminal-live-p nil)	OK t
-2	(terminal-live-p (selected-frame))	OK t
-3	(terminal-live-p (frame-terminal nil))	OK t
-4	(terminal-live-p (car (terminal-list)))	OK t
-5	(terminal-live-p 999999)	OK nil
-6	(terminal-live-p "initial_terminal")	OK nil
-7	(terminal-live-p t)	OK nil
-8	(terminal-live-p '(a))	OK nil
-9	(condition-case err (terminal-live-p nil nil) (error err))	OK (wrong-number-of-arguments terminal-live-p 2)

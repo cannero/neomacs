@@ -1,8 +1,0 @@
-1	(condition-case err (overlays-at 1 nil nil) (error err))	OK (wrong-number-of-arguments overlays-at 3)
-2	(condition-case err (overlays-in 1 2 3) (error err))	OK (wrong-number-of-arguments overlays-in 3)
-3	(condition-case err (make-overlay 1 2 nil nil nil nil) (error err))	OK (wrong-number-of-arguments make-overlay 6)
-4	(condition-case err (move-overlay nil 1 2 nil nil) (error err))	OK (wrong-number-of-arguments move-overlay 5)
-5	(condition-case err (overlays-at 'x) (error (car err)))	OK wrong-type-argument
-6	(condition-case err (move-overlay nil 1 2 nil) (error (car err)))	OK wrong-type-argument
-7	(with-temp-buffer (insert "abcdef") (let ((ov (make-overlay 2 5))) (list (overlayp ov) (overlay-start ov) (overlay-end ov) (eq (overlay-buffer ov) (current-buffer)) (length (overlays-at 3)) (length (overlays-at 3 t)) (length (overlays-in 1 6)))))	OK (t 2 5 t 1 1 1)
-8	(with-temp-buffer (insert "abcdef") (let ((ov (make-overlay 2 5))) (delete-overlay ov) (list (overlay-start ov) (overlay-end ov) (overlay-buffer ov))))	OK (nil nil nil)

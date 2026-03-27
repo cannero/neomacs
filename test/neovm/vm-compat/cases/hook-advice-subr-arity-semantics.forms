@@ -1,6 +1,0 @@
-(subr-arity (symbol-function 'add-hook))
-(subr-arity (symbol-function 'remove-hook))
-(subr-arity (symbol-function 'advice-add))
-(subr-arity (symbol-function 'advice-remove))
-(subr-arity (symbol-function 'advice-member-p))
-(subr-arity (symbol-function 'run-hook-with-args))

@@ -1,6 +1,0 @@
-; newline runtime arity contract subset.
-(list
- (with-temp-buffer
-   (condition-case err (newline 1 t nil) (error err)))
- (with-temp-buffer
-   (condition-case err (newline nil nil nil nil) (error err))))

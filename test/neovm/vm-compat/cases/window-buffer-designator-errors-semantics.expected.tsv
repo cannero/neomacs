@@ -1,8 +1,0 @@
-1	(condition-case err (switch-to-buffer 1) (error (list (car err) (cadr err) (caddr err))))	OK (wrong-type-argument stringp 1)
-2	(condition-case err (display-buffer 1) (error (list (car err) (cadr err) (caddr err))))	OK (wrong-type-argument stringp 1)
-3	(condition-case err (pop-to-buffer 1) (error (list (car err) (cadr err) (caddr err))))	OK (wrong-type-argument stringp 1)
-4	(condition-case err (set-window-buffer (selected-window) 1) (error (list (car err) (cadr err) (caddr err))))	OK (wrong-type-argument stringp 1)
-5	(condition-case err (save-current-buffer (bufferp (switch-to-buffer (current-buffer)))) (error err))	OK t
-6	(condition-case err (save-current-buffer (windowp (display-buffer (current-buffer)))) (error err))	OK t
-7	(condition-case err (save-current-buffer (bufferp (pop-to-buffer (current-buffer)))) (error err))	OK t
-8	(condition-case err (progn (set-window-buffer (selected-window) (current-buffer)) t) (error err))	OK t

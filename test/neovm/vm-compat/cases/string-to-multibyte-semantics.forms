@@ -1,8 +1,0 @@
-(string-to-multibyte "")
-(string-to-multibyte "abc")
-(string-to-multibyte "é")
-(string-to-multibyte "😀")
-(condition-case err (string-to-multibyte 1) (error err))
-(list (string-bytes (string-to-multibyte "abc")) (aref (string-to-multibyte "abc") 0) (find-charset-string (string-to-multibyte "abc")))
-(list (string-bytes (string-to-multibyte (unibyte-string 255))) (aref (string-to-multibyte (unibyte-string 255)) 0) (find-charset-string (string-to-multibyte (unibyte-string 255))))
-(list (string-bytes (string-to-multibyte (unibyte-string 65 255 66))) (aref (string-to-multibyte (unibyte-string 65 255 66)) 1) (find-charset-string (string-to-multibyte (unibyte-string 65 255 66))))

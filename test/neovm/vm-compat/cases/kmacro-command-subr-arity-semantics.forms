@@ -1,6 +1,0 @@
-(subr-arity (symbol-function 'start-kbd-macro))
-(subr-arity (symbol-function 'end-kbd-macro))
-(subr-arity (symbol-function 'call-last-kbd-macro))
-(subr-arity (symbol-function 'execute-kbd-macro))
-(subr-arity (symbol-function 'execute-extended-command))
-(subr-arity (symbol-function 'describe-key-briefly))

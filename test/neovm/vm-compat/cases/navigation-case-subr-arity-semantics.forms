@@ -1,8 +1,0 @@
-(subr-arity (symbol-function 'back-to-indentation))
-(subr-arity (symbol-function 'backward-prefix-chars))
-(subr-arity (symbol-function 'backward-sexp))
-(subr-arity (symbol-function 'backward-kill-word))
-(subr-arity (symbol-function 'move-beginning-of-line))
-(subr-arity (symbol-function 'capitalize))
-(subr-arity (symbol-function 'capitalize-word))
-(subr-arity (symbol-function 'capitalize-region))

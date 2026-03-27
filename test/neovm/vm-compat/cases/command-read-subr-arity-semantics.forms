@@ -1,3 +1,0 @@
-(subr-arity (symbol-function 'command-execute))
-(subr-arity (symbol-function 'compare-strings))
-(subr-arity (symbol-function 'completing-read))

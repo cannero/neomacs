@@ -1,8 +1,0 @@
-1	(fboundp '-)	OK t
-2	(subr-arity (symbol-function '-))	OK (0 . many)
-3	(help-function-arglist '-)	OK (&rest rest)
-4	(help-function-arglist '- t)	OK (&optional number-or-marker &rest more-numbers-or-markers)
-5	(-)	OK 0
-6	(funcall #'-)	OK 0
-7	(apply #'- nil)	OK 0
-8	(list (-) (funcall #'-) (apply #'- nil))	OK (0 0 0)

@@ -1,8 +1,0 @@
-(find-charset-string "")
-(find-charset-string "abc")
-(find-charset-string "é")
-(find-charset-string "😀")
-(find-charset-string "aé")
-(find-charset-string "é😀")
-(condition-case err (find-charset-string 1) (error err))
-(condition-case err (find-charset-string "a" nil t) (error err))

@@ -1,5 +1,0 @@
-# One builtin name per line.
-# This allowlist is for intentional startup autoload metadata drifts
-# (autoload file/first-line-doc/interactive/type tuple) in core
-# DISPATCH_BUILTIN_NAMES.
-# Keep empty unless a drift is explicitly documented and approved.

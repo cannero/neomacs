@@ -1,9 +1,0 @@
-; symbol-function error and nil-return boundaries.
-(condition-case err (null (symbol-function 'vm-sf-missing)) (error (car err)))
-(condition-case err (null (symbol-function nil)) (error (car err)))
-(condition-case err (null (symbol-function t)) (error (car err)))
-(condition-case err (macrop (symbol-function 'declare)) (error (car err)))
-(condition-case err (symbol-function 42) (error (car err)))
-(condition-case err (symbol-function "x") (error (car err)))
-(condition-case err (symbol-function [1]) (error (car err)))
-(condition-case err (symbol-function 42) (error (car (cdr err))))

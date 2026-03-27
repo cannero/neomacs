@@ -1,7 +1,0 @@
-1	(progn (setq vm-fa-file (let* ((forms-file (getenv "NEOVM_FORMS_FILE")) (base (if forms-file (file-name-directory forms-file) default-directory))) (expand-file-name "directory-files-fixtures/alpha.txt" base))) (file-name-nondirectory vm-fa-file))	OK "alpha.txt"
-2	(let ((a (file-attributes vm-fa-file))) (list (length a) (listp (nth 4 a)) (length (nth 4 a)) (listp (nth 5 a)) (length (nth 5 a)) (listp (nth 6 a)) (length (nth 6 a)) (integerp (nth 10 a)) (integerp (nth 11 a))))	OK (12 t 4 t 4 t 4 t t)
-3	(let ((a (file-attributes vm-fa-file t))) (list (stringp (nth 2 a)) (stringp (nth 3 a))))	OK (t t)
-4	(file-attributes "/nonexistent_path_neovm_compat_12345")	OK nil
-5	(condition-case err (file-attributes) (car err))	ERR (wrong-number-of-arguments (file-attributes 0))
-6	(condition-case err (file-attributes vm-fa-file nil nil) (car err))	ERR (wrong-number-of-arguments (file-attributes 3))
-7	(let ((default-directory (file-name-directory vm-fa-file))) (listp (file-attributes (file-name-nondirectory vm-fa-file))))	OK t

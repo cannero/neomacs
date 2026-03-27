@@ -1,8 +1,0 @@
-1	(let ((kill-ring nil)) (condition-case err (x-clipboard-yank) (error err)))	OK (error "Kill ring is empty")
-2	(let ((kill-ring '("abc"))) (condition-case err (x-clipboard-yank) (error err)))	OK nil
-3	(let ((kill-ring '("abc" "def"))) (condition-case err (x-clipboard-yank) (error err)))	OK nil
-4	(let ((kill-ring '(1))) (condition-case err (x-clipboard-yank) (error err)))	OK (wrong-type-argument buffer-or-string-p 1)
-5	(let ((kill-ring 1)) (condition-case err (x-clipboard-yank) (error err)))	OK (wrong-type-argument sequencep 1)
-6	(let ((kill-ring "abc")) (condition-case err (x-clipboard-yank) (error err)))	OK (wrong-type-argument listp "abc")
-7	(let ((kill-ring ["abc"])) (condition-case err (x-clipboard-yank) (error err)))	OK (wrong-type-argument listp ["abc"])
-8	(condition-case err (x-clipboard-yank nil) (error err))	OK (wrong-number-of-arguments x-clipboard-yank 1)

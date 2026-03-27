@@ -1,6 +1,0 @@
-1	(ccl-execute [1 2 3] [10 20 30])	ERR (error ("Length of vector REGISTERS is not 8"))
-2	(ccl-execute [1 2 3] [0 0 0 0 0 0 0 0])	ERR (error ("Error in CCL program at 4th code"))
-3	(ccl-execute 1 [0 0 0 0 0 0 0 0])	ERR (error ("Invalid CCL program"))
-4	(ccl-execute-on-string [1 2 3] [10 20 30] "abc")	ERR (error ("Length of vector STATUS is not 9"))
-5	(ccl-execute-on-string [1 2 3] [0 0 0 0 0 0 0 0 0] "abc")	ERR (error ("Error in CCL program at 4th code"))
-6	(ccl-execute-on-string [1 2 3] [0 0 0 0 0 0 0 0 0] 123)	ERR (wrong-type-argument (stringp 123))

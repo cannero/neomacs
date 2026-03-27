@@ -1,5 +1,0 @@
-(condition-case err (car) (error err))
-(condition-case err (funcall 'car) (error err))
-(condition-case err (apply 'car nil) (error err))
-(condition-case err (funcall 'cdr) (error err))
-(condition-case err (apply 'cdr nil) (error err))

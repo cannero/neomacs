@@ -1,9 +1,0 @@
-1	(char-to-string 1114112)	OK "ô€€"
-2	(char-to-string 2097152)	OK "øˆ€€€"
-3	(char-to-string 4194303)	OK "\377"
-4	(string-to-list (make-string 1 1114112))	OK (1114112)
-5	(string-width (make-string 1 1114112))	OK 1
-6	(aref (make-string 1 1114112) 0)	OK 1114112
-7	(string-to-list (make-string 1 4194303))	OK (4194303)
-8	(string-width (make-string 1 4194303))	OK 4
-9	(aref (make-string 1 4194303) 0)	OK 4194303

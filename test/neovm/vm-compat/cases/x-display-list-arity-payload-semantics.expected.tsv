@@ -1,5 +1,0 @@
-1	(x-display-list)	OK nil
-2	(condition-case err (x-display-list nil) (error err))	OK (wrong-number-of-arguments x-display-list 1)
-3	(condition-case err (x-display-list 1) (error err))	OK (wrong-number-of-arguments x-display-list 1)
-4	(condition-case err (x-display-list 1 2) (error err))	OK (wrong-number-of-arguments x-display-list 2)
-5	(condition-case err (x-display-list 1 2 3) (error err))	OK (wrong-number-of-arguments x-display-list 3)

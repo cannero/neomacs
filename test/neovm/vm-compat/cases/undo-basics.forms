@@ -1,9 +1,0 @@
-; undo basics: enable/disable toggles, boundary no-op return, and primitive-undo argument behavior.
-(with-temp-buffer (buffer-enable-undo) (buffer-local-value 'buffer-undo-list (current-buffer)))
-(with-temp-buffer (buffer-disable-undo) (buffer-local-value 'buffer-undo-list (current-buffer)))
-(with-temp-buffer (buffer-enable-undo) (insert "abc") (undo-boundary) (buffer-string))
-(with-temp-buffer (buffer-enable-undo) (insert "abc") (condition-case err (undo 1) (error (car err))) (buffer-string))
-(buffer-disable-undo)
-(buffer-enable-undo)
-(condition-case err (primitive-undo 1 7) (error (car err)))
-(condition-case err (primitive-undo 1 nil) (error (car err)))

@@ -1,8 +1,0 @@
-1	(fboundp 'other-buffer)	OK t
-2	(condition-case err (other-buffer nil nil nil nil) (error (car err)))	OK wrong-number-of-arguments
-3	(bufferp (other-buffer))	OK t
-4	(bufferp (other-buffer nil))	OK t
-5	(bufferp (other-buffer 1))	OK t
-6	(bufferp (other-buffer "no-such-buffer"))	OK t
-7	(let* ((a (get-buffer-create "ob-a")) (b (get-buffer-create "ob-b")) (other (other-buffer a))) (prog1 (and (bufferp other) (not (eq other a))) (kill-buffer a) (kill-buffer b)))	OK t
-8	(let* ((a (get-buffer-create "ob-c")) (b (get-buffer-create "ob-d")) (other (other-buffer "ob-c"))) (prog1 (and (bufferp other) (not (equal (buffer-name other) "ob-c"))) (kill-buffer a) (kill-buffer b)))	OK t

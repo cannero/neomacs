@@ -1,8 +1,0 @@
-; window-adjust-process-window-size* should require WINDOW to be a list.
-(list
- (condition-case err (window-adjust-process-window-size 1 2) (error err))
- (condition-case err (window-adjust-process-window-size-largest 1 2) (error err))
- (condition-case err (window-adjust-process-window-size-smallest 1 2) (error err))
- (window-adjust-process-window-size nil nil)
- (window-adjust-process-window-size-largest nil nil)
- (window-adjust-process-window-size-smallest nil nil))

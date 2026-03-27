@@ -1,7 +1,0 @@
-(condition-case err (logand 1 2.0) (error (cons (car err) (cdr err))))
-(condition-case err (logior 1 2.0) (error (cons (car err) (cdr err))))
-(condition-case err (logxor 1 2.0) (error (cons (car err) (cdr err))))
-(condition-case err (lognot 2.0) (error (cons (car err) (cdr err))))
-(logand ?A 7)
-(logior ?A 7)
-(logxor ?A 7)

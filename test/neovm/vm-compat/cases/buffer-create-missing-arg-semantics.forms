@@ -1,6 +1,0 @@
-(condition-case err (get-buffer-create) (error err))
-(condition-case err (generate-new-buffer-name) (error err))
-(condition-case err (generate-new-buffer) (error err))
-(eq (get-buffer-create "bcm-arg") (get-buffer-create "bcm-arg" 1))
-(let ((b (generate-new-buffer "bcm-live"))) (prog1 (buffer-live-p b) (kill-buffer b)))
-(condition-case err (generate-new-buffer-name "bcm-name" 1) (error err))

@@ -1,4 +1,0 @@
-1	(subr-arity (symbol-function 'default-file-modes))	OK (0 . 0)
-2	(subr-arity (symbol-function 'define-category))	OK (2 . 3)
-3	(subr-arity (symbol-function 'define-coding-system-alias))	OK (2 . 2)
-4	(subr-arity (symbol-function 'define-key))	OK (3 . 4)

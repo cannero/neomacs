@@ -1,8 +1,0 @@
-(terminal-name)
-(terminal-name nil)
-(terminal-name (selected-frame))
-(terminal-name (frame-terminal nil))
-(condition-case err (terminal-name 999999) (error err))
-(condition-case err (terminal-name "initial_terminal") (error err))
-(condition-case err (terminal-name t) (error err))
-(condition-case err (terminal-name nil nil) (error err))

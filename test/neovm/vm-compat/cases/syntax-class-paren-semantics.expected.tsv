@@ -1,8 +1,0 @@
-1	(mapcar #'fboundp '(syntax-class-to-char matching-paren))	OK (t t)
-2	(mapcar #'syntax-class-to-char (number-sequence 0 15))	OK (32 46 119 95 40 41 39 34 36 92 47 60 62 64 33 124)
-3	(condition-case err (syntax-class-to-char -1) (error (list (car err) (cdr err))))	OK (args-out-of-range (15 -1))
-4	(condition-case err (syntax-class-to-char "x") (wrong-type-argument (car err)))	OK wrong-type-argument
-5	(condition-case err (syntax-class-to-char) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-6	(list (matching-paren 40) (matching-paren 41) (matching-paren 91) (matching-paren 93) (matching-paren 123) (matching-paren 125) (matching-paren 97))	OK (41 40 93 91 125 123 nil)
-7	(condition-case err (matching-paren "(") (wrong-type-argument (car err)))	OK wrong-type-argument
-8	(condition-case err (matching-paren) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

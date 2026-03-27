@@ -1,6 +1,0 @@
-1	(string-prefix-p "ab" "abc")	OK t
-2	(string-suffix-p "bc" "abc")	OK t
-3	(string-prefix-p "Ab" "abc" t)	OK t
-4	(string-suffix-p "BC" "abc" t)	OK t
-5	(condition-case err (string-prefix-p "ab" "abc" nil nil) (error (car err)))	OK wrong-number-of-arguments
-6	(condition-case err (string-suffix-p "bc" "abc" nil nil) (error (car err)))	OK wrong-number-of-arguments

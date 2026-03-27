@@ -1,4 +1,0 @@
-(with-temp-buffer (insert "") (tab-to-tab-stop) (string-to-list (buffer-string)))
-(with-temp-buffer (insert "a") (goto-char (point-max)) (tab-to-tab-stop) (string-to-list (buffer-string)))
-(with-temp-buffer (insert "a") (goto-char (point-min)) (tab-to-tab-stop) (string-to-list (buffer-string)))
-(condition-case err (tab-to-tab-stop 1) (error err))

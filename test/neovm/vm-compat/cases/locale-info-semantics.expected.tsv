@@ -1,8 +1,0 @@
-1	(locale-info 'codeset)	OK "UTF-8"
-2	(locale-info 'days)	OK ["Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday"]
-3	(locale-info 'months)	OK ["January" "February" "March" "April" "May" "June" "July" "August" "September" "October" "November" "December"]
-4	(locale-info 'paper)	OK (210 297)
-5	(locale-info "codeset")	OK nil
-6	(locale-info nil)	OK nil
-7	(locale-info t)	OK nil
-8	(condition-case err (locale-info 1) (error err))	OK nil

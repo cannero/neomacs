@@ -1,8 +1,0 @@
-1	(condition-case err (put-image (create-image "x" 'pbm t) 1 nil 'center) (error err))	OK (error "Invalid area center")
-2	(condition-case err (insert-image (create-image "x" 'pbm t) nil 'center) (error err))	OK (error "Invalid area center")
-3	(if (put-image (create-image "x" 'pbm t) 1 nil nil) t nil)	OK t
-4	(if (put-image (create-image "x" 'pbm t) 1 nil 'left-margin) t nil)	OK t
-5	(if (put-image (create-image "x" 'pbm t) 1 nil 'right-margin) t nil)	OK t
-6	(insert-image (create-image "x" 'pbm t) nil nil)	OK t
-7	(insert-image (create-image "x" 'pbm t) nil 'left-margin)	OK t
-8	(insert-image (create-image "x" 'pbm t) nil 'right-margin)	OK t

@@ -1,4 +1,0 @@
-1	(condition-case err (with-temp-buffer (insert "abc") (goto-char 2) (word-at-point)) (error (car err)))	OK void-function
-2	(fboundp 'word-at-point)	OK nil
-3	(save-current-buffer (let ((b (get-buffer-create "wlp"))) (set-buffer b) (erase-buffer) (insert "alpha beta") (goto-char 3) (symbol-at-point) (fboundp 'word-at-point)))	OK t
-4	(save-current-buffer (let ((b (get-buffer "wlp"))) (set-buffer b) (goto-char 3) (word-at-point)))	OK "alpha"

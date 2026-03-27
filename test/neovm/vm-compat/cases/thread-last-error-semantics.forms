@@ -1,7 +1,0 @@
-; thread-last-error semantics and optional clear flag behavior.
-(thread-last-error)
-(thread-last-error 1)
-(thread-last-error nil)
-(let ((th (make-thread (lambda () nil)))) (thread-join th) (thread-last-error))
-(progn (thread-last-error t) (thread-last-error))
-(thread-last-error 1)

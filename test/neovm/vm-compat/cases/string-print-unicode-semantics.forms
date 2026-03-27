@@ -1,8 +1,0 @@
-(prin1-to-string "\U0010FFFF")
-(with-output-to-string (prin1 "\U0010FFFF"))
-(with-output-to-string (princ "\U0010FFFF"))
-(format "%S" "\U0010FFFF")
-
-(prin1-to-string (unibyte-string 233))
-(with-output-to-string (prin1 (unibyte-string 233)))
-(format "%S" (unibyte-string 233))

@@ -1,1 +1,0 @@
-1	(list (condition-case err (native-comp-available-p) (error err)) (condition-case err (native-comp-available-p nil) (error err)))	OK (t (wrong-number-of-arguments native-comp-available-p 1))

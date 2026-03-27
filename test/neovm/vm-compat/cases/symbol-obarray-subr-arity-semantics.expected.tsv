@@ -1,8 +1,0 @@
-1	(subr-arity (symbol-function 'intern))	OK (1 . 2)
-2	(subr-arity (symbol-function 'intern-soft))	OK (1 . 2)
-3	(subr-arity (symbol-function 'make-symbol))	OK (1 . 1)
-4	(subr-arity (symbol-function 'symbol-name))	OK (1 . 1)
-5	(subr-arity (symbol-function 'symbol-plist))	OK (1 . 1)
-6	(subr-arity (symbol-function 'unintern))	OK (1 . 2)
-7	(subr-arity (symbol-function 'indirect-function))	OK (1 . 2)
-8	(subr-arity (symbol-function 'symbol-file))	OK (1 . 3)

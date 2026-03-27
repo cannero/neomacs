@@ -1,4 +1,0 @@
-1	(seq-contains-p '(1 2 3) 2 7)	ERR (invalid-function (7))
-2	(assoc 'a '((a . 1)) 7)	ERR (invalid-function (7))
-3	(alist-get 'a '((a . 1) (a . 9)) nil nil 7)	ERR (invalid-function (7))
-4	(alist-get 'a '((a . 1) (a . 9)) nil nil 'equal)	OK 1

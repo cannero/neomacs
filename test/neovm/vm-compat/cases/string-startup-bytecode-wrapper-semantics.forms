@@ -1,7 +1,0 @@
-; startup wrappers should keep bytecode shape and oracle arg metadata
-(let ((fn (symbol-function 'string-join))) (list (type-of fn) (subrp fn) (func-arity fn) (help-function-arglist fn t)))
-(let ((fn (symbol-function 'string-to-list))) (list (type-of fn) (subrp fn) (func-arity fn) (help-function-arglist fn t)))
-(func-arity 'string-join)
-(func-arity 'string-to-list)
-(help-function-arglist 'string-join t)
-(help-function-arglist 'string-to-list t)

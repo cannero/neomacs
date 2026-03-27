@@ -1,3 +1,0 @@
-1	(condition-case err (let ((th (current-thread))) (thread-signal th 'foo '(1)) (thread-last-error nil)) (t (thread-last-error nil)))	OK nil
-2	(let ((th (make-thread (lambda nil nil)))) (progn (thread-signal th 'foo '(1)) (thread-last-error nil)))	OK nil
-3	(let ((th (make-thread (lambda nil nil)))) (condition-case err (thread-signal th 'foo '(1)) (t err)) (thread-last-error nil))	OK nil

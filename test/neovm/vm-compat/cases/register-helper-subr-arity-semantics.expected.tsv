@@ -1,8 +1,0 @@
-1	(subr-arity (symbol-function 'get-register))	OK (1 . 1)
-2	(subr-arity (symbol-function 'increment-register))	OK (2 . 2)
-3	(subr-arity (symbol-function 'insert-register))	OK (1 . 2)
-4	(subr-arity (symbol-function 'number-to-register))	OK (2 . 2)
-5	(subr-arity (symbol-function 'point-to-register))	OK (1 . 2)
-6	(subr-arity (symbol-function 'set-register))	OK (2 . 2)
-7	(subr-arity (symbol-function 'register-ccl-program))	OK (2 . 2)
-8	(subr-arity (symbol-function 'register-code-conversion-map))	OK (2 . 2)

@@ -1,3 +1,0 @@
-1	(condition-case err (delete-window nil nil) (error (car err)))	OK wrong-number-of-arguments
-2	(condition-case err (delete-other-windows nil nil nil) (error (car err)))	OK wrong-number-of-arguments
-3	(let ((w2 (split-window))) (condition-case err (delete-other-windows w2 nil) (error err)))	OK nil

@@ -1,8 +1,0 @@
-(condition-case err (name-last-kbd-macro) (error err))
-(condition-case err (kmacro-name-last-macro) (error err))
-(let ((orig (symbol-function 'vm-test-subr-wrap)))
-  (unwind-protect
-      (progn
-        (fset 'vm-test-subr-wrap (symbol-function 'car))
-        (condition-case err (vm-test-subr-wrap) (error err)))
-    (fset 'vm-test-subr-wrap orig)))

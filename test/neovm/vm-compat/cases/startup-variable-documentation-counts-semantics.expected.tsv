@@ -1,1 +1,0 @@
-1	(list (let ((n 0)) (mapatoms (lambda (s) (let ((d (get s 'variable-documentation))) (when (integerp d) (setq n (1+ n)))))) n) (let ((n 0)) (mapatoms (lambda (s) (let ((d (get s 'variable-documentation))) (when (stringp d) (setq n (1+ n)))))) n))	OK (761 1902)

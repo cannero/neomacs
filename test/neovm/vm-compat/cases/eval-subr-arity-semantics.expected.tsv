@@ -1,4 +1,0 @@
-1	(subr-arity (symbol-function 'eval))	OK (1 . 2)
-2	(subr-arity (symbol-function 'eval-buffer))	OK (0 . 5)
-3	(subr-arity (symbol-function 'eval-expression))	OK (1 . 4)
-4	(subr-arity (symbol-function 'eval-region))	OK (2 . 4)

@@ -1,9 +1,0 @@
-;; Reader hash syntax compatibility probes.
-(setq load-file-name "/tmp/neovm-reader-hash-1.elc")
-(read-from-string "#$")
-(setq load-file-name nil)
-(read-from-string "#$")
-(setq load-file-name "/tmp/neovm-reader-hash-2.elc")
-(read-from-string "#$")
-(read-from-string "##")
-(read-from-string "\\#\\#")

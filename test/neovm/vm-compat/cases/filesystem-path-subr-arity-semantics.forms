@@ -1,7 +1,0 @@
-(subr-arity (symbol-function 'delete-directory))
-(subr-arity (symbol-function 'delete-file))
-(subr-arity (symbol-function 'directory-file-name))
-(subr-arity (symbol-function 'directory-files))
-(subr-arity (symbol-function 'directory-files-and-attributes))
-(subr-arity (symbol-function 'directory-name-p))
-(subr-arity (symbol-function 'expand-file-name))

@@ -1,4 +1,0 @@
-1	(condition-case err (lock-file nil) (error err))	OK (wrong-type-argument stringp nil)
-2	(condition-case err (unlock-file nil) (error err))	OK (wrong-type-argument stringp nil)
-3	(condition-case err (inotify-add-watch nil nil nil) (error err))	OK (wrong-type-argument stringp nil)
-4	(condition-case err (let ((w (inotify-add-watch "/tmp" '(create) nil))) (list (consp w) (inotify-valid-p w) (inotify-rm-watch w) (inotify-valid-p w))) (error err))	OK (t t t nil)

@@ -1,6 +1,0 @@
-1	(condition-case err (get-buffer-create) (error err))	OK (wrong-number-of-arguments get-buffer-create 0)
-2	(condition-case err (generate-new-buffer-name) (error err))	OK (wrong-number-of-arguments generate-new-buffer-name 0)
-3	(condition-case err (generate-new-buffer) (error err))	OK (wrong-number-of-arguments generate-new-buffer 0)
-4	(eq (get-buffer-create "bcm-arg") (get-buffer-create "bcm-arg" 1))	OK t
-5	(let ((b (generate-new-buffer "bcm-live"))) (prog1 (buffer-live-p b) (kill-buffer b)))	OK t
-6	(condition-case err (generate-new-buffer-name "bcm-name" 1) (error err))	OK (wrong-type-argument stringp 1)

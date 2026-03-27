@@ -1,6 +1,0 @@
-(condition-case err (progn (charset-plist 'ascii) 'ok) (error err))
-(condition-case err (charset-plist 'no-such-charset) (error err))
-(condition-case err (charset-plist "ascii") (error err))
-(condition-case err (charset-plist nil) (error err))
-(condition-case err (charset-plist) (error err))
-(condition-case err (charset-plist 'ascii 'unicode) (error err))

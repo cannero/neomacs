@@ -1,9 +1,0 @@
-1	(fboundp 'file-user-uid)	OK t
-2	(fboundp 'file-group-gid)	OK t
-3	(integerp (file-user-uid))	OK t
-4	(integerp (file-group-gid))	OK t
-5	(>= (file-user-uid) 0)	OK t
-6	(>= (file-group-gid) 0)	OK t
-7	(list (= (file-user-uid) (user-real-uid)) (= (file-group-gid) (group-real-gid)))	OK (t t)
-8	(condition-case err (file-user-uid nil) (error (car err)))	OK wrong-number-of-arguments
-9	(condition-case err (file-group-gid nil) (error (car err)))	OK wrong-number-of-arguments

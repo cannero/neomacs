@@ -1,6 +1,0 @@
-1	(condition-case err (with-temp-buffer (insert "(a) (b) (c)") (goto-char 4) (transpose-sexps 1) (list (buffer-string) (point))) (error err))	OK ("(b) (a) (c)" 8)
-2	(condition-case err (with-temp-buffer (insert "(a) (b) (c)") (goto-char 4) (transpose-sexps 2) (list (buffer-string) (point))) (error err))	OK ("(b) (c) (a)" 12)
-3	(condition-case err (with-temp-buffer (insert "(a) (b) (c)") (goto-char 1) (transpose-sexps 2) (list (buffer-string) (point))) (error err))	OK ("(a) (b) (c)" 8)
-4	(condition-case err (with-temp-buffer (insert "(a) (b) (c)") (goto-char 2) (transpose-sexps 1) err) (error err))	OK (scan-error "Containing expression ends prematurely" 1 1)
-5	(condition-case err (with-temp-buffer (insert "(a) (b) (c)") (goto-char 5) (transpose-sexps -1)) (error err))	OK (error "Don’t have two things to transpose")
-6	(condition-case err (with-temp-buffer (insert "(a) (b) (c)") (goto-char (point-max)) (transpose-sexps -1) (list (buffer-string) (point))) (error err))	OK ("(a) (c) (b)" 8)

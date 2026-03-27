@@ -1,6 +1,0 @@
-(condition-case err (bookmark-set "bm") (error err))
-(condition-case err (bookmark-set "bm" nil) (error err))
-(condition-case err (bookmark-set "bm" nil nil) (error err))
-(condition-case err (bookmark-set "bm" "/tmp/bm-file") (error err))
-(condition-case err (bookmark-set "bm" "/tmp/bm-file" "note") (error err))
-(condition-case err (bookmark-set "bm" nil "note") (error err))

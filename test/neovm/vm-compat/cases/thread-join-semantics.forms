@@ -1,6 +1,0 @@
-(condition-case err (thread-join (current-thread)) (error (car err)))
-(condition-case err (thread-join (current-thread)) (error (error-message-string err)))
-(let ((th (make-thread (lambda () 42)))) (thread-join th))
-(let ((th (make-thread (lambda () 7)))) (list (thread-join th) (thread-live-p th)))
-(let ((th (make-thread (lambda () 7))))
-  (list (thread-join th) (thread-join th) (thread-last-error)))

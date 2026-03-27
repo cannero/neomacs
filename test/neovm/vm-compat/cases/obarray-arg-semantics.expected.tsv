@@ -1,9 +1,0 @@
-1	(setq vm-obarray-probe (intern "vm-obarray-probe"))	OK vm-obarray-probe
-2	(intern-soft "vm-obarray-probe")	OK vm-obarray-probe
-3	(unintern "vm-obarray-probe")	OK t
-4	(intern-soft "vm-obarray-probe")	OK nil
-5	(condition-case err (unintern 1) (error (car err)))	OK wrong-type-argument
-6	(condition-case err (unintern "x" 1) (error (car err)))	OK wrong-type-argument
-7	(condition-case err (unintern "x" nil nil) (error (car err)))	OK wrong-number-of-arguments
-8	(condition-case err (mapatoms 'car 1) (error (car err)))	OK wrong-type-argument
-9	(condition-case err (mapatoms 'car nil nil) (error (car err)))	OK wrong-number-of-arguments

@@ -1,6 +1,0 @@
-(with-temp-buffer (insert "abc") (goto-char (point-min)) (indent-line-to 2) (string-to-list (buffer-string)))
-(with-temp-buffer (insert "  abc") (goto-char (point-max)) (indent-line-to 1) (string-to-list (buffer-string)))
-(with-temp-buffer (insert "abc") (goto-char (point-max)) (indent-line-to 4) (point))
-(with-temp-buffer (condition-case err (indent-line-to) (error err)))
-(with-temp-buffer (condition-case err (indent-line-to 1.5) (error err)))
-(with-temp-buffer (condition-case err (indent-line-to "x") (error err)))

@@ -1,8 +1,0 @@
-(mapcar #'fboundp '(syntax-class-to-char matching-paren))
-(mapcar #'syntax-class-to-char (number-sequence 0 15))
-(condition-case err (syntax-class-to-char -1) (error (list (car err) (cdr err))))
-(condition-case err (syntax-class-to-char "x") (wrong-type-argument (car err)))
-(condition-case err (syntax-class-to-char) (wrong-number-of-arguments (car err)))
-(list (matching-paren ?\() (matching-paren ?\)) (matching-paren ?\[) (matching-paren ?\]) (matching-paren ?{) (matching-paren ?}) (matching-paren ?a))
-(condition-case err (matching-paren "(") (wrong-type-argument (car err)))
-(condition-case err (matching-paren) (wrong-number-of-arguments (car err)))

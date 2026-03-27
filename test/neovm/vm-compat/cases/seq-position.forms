@@ -1,7 +1,0 @@
-(seq-position '(10 20 30) 20)
-(seq-position [10 20 30] 20)
-(seq-position "abc" 98)
-(seq-position 5 5)
-(seq-position '(1 . 2) 1)
-(seq-position '(a b c) 'b #'eq)
-(seq-position '("a" "bb" "ccc") "BB" (lambda (x y) (= (length x) (length y))))

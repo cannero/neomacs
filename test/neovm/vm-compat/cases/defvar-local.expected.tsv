@@ -1,7 +1,0 @@
-1	(defvar-local my-l 1)	OK my-l
-2	(list my-l (default-value 'my-l) (local-variable-p 'my-l))	OK (1 1 nil)
-3	(setq my-l 2)	OK 2
-4	(list my-l (default-value 'my-l) (local-variable-p 'my-l))	OK (2 1 t)
-5	(with-temp-buffer (list my-l (default-value 'my-l) (local-variable-p 'my-l)))	OK (1 1 nil)
-6	(with-temp-buffer (setq my-l 3) (list my-l (default-value 'my-l) (local-variable-p 'my-l)))	OK (3 1 t)
-7	(list my-l (default-value 'my-l) (local-variable-p 'my-l))	OK (2 1 t)

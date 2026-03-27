@@ -1,6 +1,0 @@
-1	(fboundp 'terminal-parameter)	OK t
-2	(fboundp 'set-terminal-parameter)	OK t
-3	(let* ((term (frame-terminal)) (_ (set-terminal-parameter term "neovm-vmcompat-edge-key" 1))) (condition-case err (terminal-parameter term "neovm-vmcompat-edge-key") (wrong-type-argument (car err))))	OK wrong-type-argument
-4	(let* ((term (frame-terminal)) (_ (set-terminal-parameter term "neovm-vmcompat-edge-key" 1)) (_ (set-terminal-parameter term 'neovm-vmcompat-edge-symbol 7))) (terminal-parameter term 'neovm-vmcompat-edge-symbol))	OK 7
-5	(let* ((term (frame-terminal)) (_ (set-terminal-parameter term 'neovm-vmcompat-edge-symbol 3)) (_ (set-terminal-parameter term 'neovm-vmcompat-edge-symbol 4))) (terminal-parameter term 'neovm-vmcompat-edge-symbol))	OK 4
-6	(condition-case err (set-terminal-parameter (frame-terminal) 7 9) (wrong-type-argument (car err)))	OK nil

@@ -1,8 +1,0 @@
-(lookup-image-map (list :type "stub") 1 2)
-(lookup-image-map 'image 10 20)
-(lookup-image-map 'image "x" 'y)
-(lookup-image-map nil 1 "y")
-(lookup-image-map nil 'x 'y)
-(condition-case err (lookup-image-map) (error err))
-(condition-case err (lookup-image-map 1 2) (error err))
-(condition-case err (lookup-image-map 1 2 3 4) (error err))

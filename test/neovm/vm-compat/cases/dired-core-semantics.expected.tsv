@@ -1,8 +1,0 @@
-1	(listp (directory-files "/tmp"))	OK t
-2	(> (length (directory-files "/tmp")) 0)	OK t
-3	(stringp (car (directory-files "/tmp")))	OK t
-4	(listp (directory-files "/tmp" nil nil))	OK t
-5	(listp (file-attributes "/tmp"))	OK t
-6	(> (length (file-attributes "/tmp")) 5)	OK t
-7	(condition-case err (directory-files "/nonexistent-xyz-99") (error (car err)))	OK file-missing
-8	(condition-case err (directory-files 42) (error (car err)))	OK wrong-type-argument

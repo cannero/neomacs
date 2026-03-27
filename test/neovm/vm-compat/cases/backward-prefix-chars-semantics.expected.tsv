@@ -1,4 +1,0 @@
-1	(fboundp 'backward-prefix-chars)	OK t
-2	(with-temp-buffer (insert "'`foo") (goto-char 3) (backward-prefix-chars) (point))	OK 3
-3	(with-temp-buffer (modify-syntax-entry 39 ". p") (insert "''foo") (goto-char 3) (backward-prefix-chars) (point))	OK 1
-4	(condition-case err (backward-prefix-chars 1) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

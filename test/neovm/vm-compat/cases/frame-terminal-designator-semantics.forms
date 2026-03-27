@@ -1,6 +1,0 @@
-(frame-terminal)
-(frame-terminal nil)
-(condition-case err (frame-terminal 0) (error (car err)))
-(condition-case err (frame-terminal t) (error (car err)))
-(condition-case err (frame-terminal (selected-frame)) (error (car err)))
-(condition-case err (frame-terminal nil nil) (error (car err)))

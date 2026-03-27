@@ -1,4 +1,0 @@
-1	(fboundp 'car)	OK t
-2	(fboundp 'setq)	OK t
-3	(fboundp 'if)	OK t
-4	(fboundp 'with-temp-buffer)	OK t

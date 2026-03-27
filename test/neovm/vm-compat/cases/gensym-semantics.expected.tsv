@@ -1,8 +1,0 @@
-1	(fboundp 'gensym)	OK t
-2	(let ((a (gensym)) (b (gensym))) (and (symbolp a) (symbolp b) (not (eq a b))))	OK t
-3	(let ((s (gensym "tmp-"))) (string-prefix-p "tmp-" (symbol-name s)))	OK t
-4	(let ((s (symbol-name (gensym 1)))) (string-prefix-p "1" s))	OK t
-5	(let ((s (symbol-name (gensym :kw)))) (string-prefix-p ":kw" s))	OK t
-6	(let ((s (symbol-name (gensym [1 2])))) (string-prefix-p "[1 2]" s))	OK t
-7	(let ((s (symbol-name (gensym nil)))) (string-prefix-p "g" s))	OK t
-8	(condition-case err (gensym nil nil) (error (car err)))	OK wrong-number-of-arguments

@@ -1,7 +1,0 @@
-(subr-arity (symbol-function 'find-file))
-(subr-arity (symbol-function 'find-file-noselect))
-(subr-arity (symbol-function 'insert-file-contents))
-(subr-arity (symbol-function 'load))
-(subr-arity (symbol-function 'load-file))
-(subr-arity (symbol-function 'locate-file))
-(subr-arity (symbol-function 'locate-file-internal))

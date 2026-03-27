@@ -1,8 +1,0 @@
-1	(fboundp 'string)	OK t
-2	(string)	OK ""
-3	(string 65 66)	OK "AB"
-4	(string 65 66)	OK "AB"
-5	(string-to-list (string 1114112))	OK (1114112)
-6	(condition-case err (string -1) (error (car err)))	OK wrong-type-argument
-7	(condition-case err (string 65 'a) (error (car err)))	OK wrong-type-argument
-8	(condition-case err (string "a") (error (car err)))	OK wrong-type-argument

@@ -1,6 +1,0 @@
-(list
- (condition-case err (open-dribble-file) (error err))
- (condition-case err (open-dribble-file nil) (error err))
- (condition-case err (open-dribble-file t) (error err))
- (condition-case err (open-dribble-file 1) (error err))
- (condition-case err (open-dribble-file "x") (error err)))

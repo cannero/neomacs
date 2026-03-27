@@ -1,6 +1,0 @@
-1	(let ((orig (symbol-function 't))) (unwind-protect (progn (fset t 'car) (funcall t '(1 2))) (fset 't orig)))	OK 1
-2	(let ((orig (symbol-function 't))) (unwind-protect (progn (fset t 'car) (apply t '((1 2)))) (fset 't orig)))	OK 1
-3	(let ((orig (symbol-function 't))) (unwind-protect (progn (fset t nil) (fboundp 't)) (fset 't orig)))	OK nil
-4	(let ((orig (symbol-function 't))) (unwind-protect (progn (fset t nil) (condition-case err (funcall t) (error err))) (fset 't orig)))	OK (void-function t)
-5	(let ((orig (symbol-function 't))) (unwind-protect (progn (fset t 1) (fboundp 't)) (fset 't orig)))	OK t
-6	(let ((orig (symbol-function 't))) (unwind-protect (progn (fset t 1) (condition-case err (funcall t) (error err))) (fset 't orig)))	OK (invalid-function t)

@@ -1,7 +1,0 @@
-1	(cadddr '(a b c d e))	OK d
-2	(cddddr '(a b c d e))	OK (e)
-3	(cadddr '(a b c))	OK nil
-4	(cddddr '(a b c d))	OK nil
-5	(list (cadddr nil) (cddddr nil))	OK (nil nil)
-6	(condition-case err (cadddr '(1 . 2)) (error (list (car err) (car (cdr err)))))	OK (wrong-type-argument listp)
-7	(condition-case err (cddddr '(1 . 2)) (error (list (car err) (car (cdr err)))))	OK (wrong-type-argument listp)

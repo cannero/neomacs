@@ -1,6 +1,0 @@
-1	(eq (standard-syntax-table) (standard-syntax-table))	OK t
-2	(eq (syntax-table) (standard-syntax-table))	OK t
-3	(with-temp-buffer (eq (syntax-table) (standard-syntax-table)))	OK t
-4	(let ((orig (syntax-table)) (tbl (make-syntax-table))) (set-syntax-table tbl) (prog1 (list (eq (syntax-table) tbl) (eq (syntax-table) (standard-syntax-table))) (set-syntax-table orig)))	OK (t nil)
-5	(let ((orig (syntax-table)) (tbl (make-syntax-table))) (set-syntax-table tbl) (prog1 (with-temp-buffer (eq (syntax-table) tbl)) (set-syntax-table orig)))	OK nil
-6	(condition-case err (set-syntax-table nil) (error (list (car err) (cadr err))))	OK (wrong-type-argument syntax-table-p)

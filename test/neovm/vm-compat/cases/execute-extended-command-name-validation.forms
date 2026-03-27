@@ -1,4 +1,0 @@
-; execute-extended-command should reject invalid command-name payloads with oracle-aligned errors.
-(condition-case err (execute-extended-command nil 'ignore) (error err))
-(condition-case err (execute-extended-command nil "car") (error err))
-(condition-case err (execute-extended-command nil 1) (error err))

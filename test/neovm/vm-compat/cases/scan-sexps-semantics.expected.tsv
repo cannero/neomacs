@@ -1,6 +1,0 @@
-1	(fboundp 'scan-sexps)	OK t
-2	(with-temp-buffer (insert "(a b)") (scan-sexps 1 1))	OK 6
-3	(with-temp-buffer (insert "(a b)") (scan-sexps 1 -1))	OK nil
-4	(condition-case err (scan-sexps 1) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-5	(condition-case err (scan-sexps "1" 1) (error (car err)))	OK wrong-type-argument
-6	(condition-case err (scan-sexps 1 "1") (error (car err)))	OK wrong-type-argument

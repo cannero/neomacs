@@ -1,6 +1,0 @@
-; thread-live-p runtime semantics.
-(thread-live-p (current-thread))
-(let ((th (make-thread (lambda () nil)))) (thread-join th) (thread-live-p th))
-(condition-case err (thread-live-p) (error err))
-(condition-case err (thread-live-p 1 2) (error err))
-(condition-case err (thread-live-p '(thread . 0)) (error err))

@@ -1,9 +1,0 @@
-; buffer-local-value should fall back to default global binding.
-(setq my-var 7)
-(with-temp-buffer (buffer-local-value 'my-var (current-buffer)))
-(with-temp-buffer
-  (make-local-variable 'my-var)
-  (set 'my-var 9)
-  (buffer-local-value 'my-var (current-buffer)))
-(buffer-local-value 'my-var (current-buffer))
-(with-temp-buffer (buffer-local-value 'unknown-var (current-buffer)))

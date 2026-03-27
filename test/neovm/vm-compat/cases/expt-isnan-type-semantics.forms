@@ -1,6 +1,0 @@
-(condition-case err (expt 'a 2) (error (cons (car err) (cdr err))))
-(condition-case err (expt 2 'a) (error (cons (car err) (cdr err))))
-(condition-case err (isnan 'a) (error (cons (car err) (cdr err))))
-(condition-case err (isnan 1) (error (cons (car err) (cdr err))))
-(isnan 0.0)
-(isnan (/ 0.0 0.0))

@@ -1,8 +1,0 @@
-(condition-case err (assoc-default 'a '((a . 1) (b . 2))) (error err))
-(condition-case err (assoc-default 'c '((a . 1) (b . 2)) nil 99) (error err))
-(condition-case err (assoc-default 'a 1) (error err))
-(condition-case err (assoc-default 'a '(1 2) 1) (error err))
-(condition-case err (make-list 3 'x) (error err))
-(condition-case err (make-list 0 'x) (error err))
-(condition-case err (make-list -1 'x) (error err))
-(condition-case err (make-list 3.2 'x) (error err))

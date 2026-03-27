@@ -1,1 +1,0 @@
-(condition-case err (save-current-buffer (let ((b (get-buffer-create "swb-bootstrap"))) (set-buffer b) (erase-buffer) (insert "abcdef") (goto-char 1) (set-window-buffer nil b) (list (buffer-name (window-buffer nil)) (window-start nil) (window-end nil)))) (error err))

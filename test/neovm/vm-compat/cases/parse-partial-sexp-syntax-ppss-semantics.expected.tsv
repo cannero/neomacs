@@ -1,9 +1,0 @@
-1	(fboundp 'parse-partial-sexp)	OK t
-2	(fboundp 'syntax-ppss)	OK t
-3	(with-temp-buffer (insert "abc") (parse-partial-sexp 1 4))	OK (0 nil 1 nil nil nil 0 nil nil nil nil)
-4	(with-temp-buffer (insert "(a)") (parse-partial-sexp 1 3))	OK (1 1 2 nil nil nil 0 nil nil (1) nil)
-5	(with-temp-buffer (insert "(a)") (syntax-ppss 3))	OK (1 1 2 nil nil nil 0 nil nil (1) nil)
-6	(condition-case err (parse-partial-sexp 1) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-7	(condition-case err (syntax-ppss 1 2) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-8	(condition-case err (parse-partial-sexp "1" 2) (error (car err)))	OK wrong-type-argument
-9	(condition-case err (syntax-ppss "1") (error (car err)))	OK wrong-type-argument

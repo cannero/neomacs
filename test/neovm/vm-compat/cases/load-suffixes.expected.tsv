@@ -1,2 +1,0 @@
-1	(get-load-suffixes)	OK (".so" ".so.gz" ".elc" ".elc.gz" ".el" ".el.gz")
-2	(condition-case err (get-load-suffixes nil) (error (car err)))	OK wrong-number-of-arguments

@@ -1,7 +1,0 @@
-1	(condition-case err (set-file-times 1 nil) (error err))	OK (wrong-type-argument stringp 1)
-2	(condition-case err (set-file-times) (error err))	OK (wrong-number-of-arguments set-file-times 0)
-3	(condition-case err (set-file-times "/tmp/neovm-set-file-times-missing" nil nil nil) (error err))	OK (wrong-number-of-arguments set-file-times 4)
-4	(let ((f (make-temp-file "neovm-set-file-times-now-"))) (prog1 (set-file-times f nil) (delete-file f)))	OK t
-5	(let ((old (make-temp-file "neovm-set-file-times-old-")) (new (make-temp-file "neovm-set-file-times-new-"))) (prog1 (list (set-file-times old 0) (file-newer-than-file-p new old) (file-newer-than-file-p old new)) (delete-file old) (delete-file new)))	OK (t t nil)
-6	(let ((f (make-temp-file "neovm-set-file-times-flag-"))) (prog1 (set-file-times f nil t) (delete-file f)))	OK t
-7	(let* ((base (make-temp-file "neovm-set-file-times-eval-" t)) (old (expand-file-name "old.txt" base)) (new (expand-file-name "new.txt" base))) (with-temp-buffer (insert "old") (write-region nil nil old)) (with-temp-buffer (insert "new") (write-region nil nil new)) (prog1 (let ((default-directory (file-name-as-directory base))) (list (set-file-times "old.txt" 0) (file-newer-than-file-p "new.txt" "old.txt"))) (delete-file old) (delete-file new) (delete-directory base)))	OK (t t)

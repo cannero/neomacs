@@ -1,1 +1,0 @@
-(save-current-buffer (let* ((b1 (get-buffer-create "dow-curbuf-a")) (b2 (get-buffer-create "dow-curbuf-b"))) (set-window-buffer nil b1) (let ((w2 (split-window)) (w1 (selected-window))) (set-window-buffer w2 b2) (select-window w2) (delete-other-windows w1) (buffer-name (current-buffer)))))

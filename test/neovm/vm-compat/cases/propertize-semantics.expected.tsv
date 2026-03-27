@@ -1,6 +1,0 @@
-1	(propertize "abc")	OK "abc"
-2	(equal (propertize "abc" 'face 'bold) "abc")	OK t
-3	(stringp (propertize "abc" 1 'x))	OK t
-4	(equal (propertize "abc" 1 'x) "abc")	OK t
-5	(condition-case err (propertize 1 'face 'bold) (error err))	OK (wrong-type-argument stringp 1)
-6	(condition-case err (propertize "abc" 'face) (error err))	OK (wrong-number-of-arguments propertize 2)

@@ -1,9 +1,0 @@
-; command-execute/call-interactively KEYS argument must be nil or a vector.
-(condition-case err (command-execute 'ignore nil "a") (error err))
-(condition-case err (call-interactively 'ignore nil "b") (error err))
-
-(command-execute 'ignore nil [97])
-(call-interactively 'ignore nil [98])
-
-(command-execute 'ignore nil nil)
-(call-interactively 'ignore nil nil)

@@ -1,3 +1,0 @@
-(let ((m (car (last (window-list nil t))))) (list (window-live-p m) (windowp m) (buffer-name (window-buffer m)) (window-start m) (window-point m) (window-body-height m) (window-body-height m t)))
-(let ((m (car (last (window-list nil t))))) (set-window-start m 7) (window-start m))
-(let ((m (car (last (window-list nil t))))) (set-window-point m 8) (window-point m))

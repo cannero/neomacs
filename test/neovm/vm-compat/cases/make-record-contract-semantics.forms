@@ -1,7 +1,0 @@
-(list
- (condition-case err (make-record) (error err))
- (condition-case err (make-record nil nil nil) (error err))
- (condition-case err (make-record t nil nil) (error err))
- (condition-case err (make-record 1 nil nil) (error err))
- (condition-case err (make-record 'foo nil nil) (error err))
- (condition-case err (make-record [record foo] nil nil) (error err)))

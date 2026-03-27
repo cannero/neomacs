@@ -1,6 +1,0 @@
-1	(fboundp 'abort-minibuffers)	OK t
-2	(subrp (symbol-function 'abort-minibuffers))	OK t
-3	(subr-arity (symbol-function 'abort-minibuffers))	OK (0 . 0)
-4	(condition-case err (abort-minibuffers) (error err))	OK (error "Not in a minibuffer")
-5	(condition-case err (abort-minibuffers nil) (error err))	OK (wrong-number-of-arguments abort-minibuffers 1)
-6	(condition-case err (abort-minibuffers nil nil) (error err))	OK (wrong-number-of-arguments abort-minibuffers 2)

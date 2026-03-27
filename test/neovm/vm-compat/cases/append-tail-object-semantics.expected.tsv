@@ -1,9 +1,0 @@
-1	(append nil nil)	OK nil
-2	(append '(1) nil)	OK (1)
-3	(append '(1) 'foo)	OK (1 . foo)
-4	(append '(1 2) '(3 . 4))	OK (1 2 3 . 4)
-5	(append [1 2] "a" '(3) 'tail)	OK (1 2 97 3 . tail)
-6	(let ((x 'foo)) (eq (append nil x) x))	OK t
-7	(let ((x '(1 . 2))) (eq (append nil x) x))	OK t
-8	(let ((x '(2 3))) (eq (cdr (append '(1) x)) x))	OK t
-9	(let ((x '(2 3))) (let ((r (append [1] x))) (setcar x 9) r))	OK (1 9 3)

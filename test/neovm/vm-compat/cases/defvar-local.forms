@@ -1,8 +1,0 @@
-; defvar-local should auto-localize on assignment while preserving defaults.
-(defvar-local my-l 1)
-(list my-l (default-value 'my-l) (local-variable-p 'my-l))
-(setq my-l 2)
-(list my-l (default-value 'my-l) (local-variable-p 'my-l))
-(with-temp-buffer (list my-l (default-value 'my-l) (local-variable-p 'my-l)))
-(with-temp-buffer (setq my-l 3) (list my-l (default-value 'my-l) (local-variable-p 'my-l)))
-(list my-l (default-value 'my-l) (local-variable-p 'my-l))

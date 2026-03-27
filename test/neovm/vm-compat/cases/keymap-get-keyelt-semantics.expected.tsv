@@ -1,1 +1,0 @@
-1	(list (condition-case err (keymap--get-keyelt) (error err)) (condition-case err (keymap--get-keyelt nil nil) (error err)) (condition-case err (keymap--get-keyelt t nil) (error err)) (condition-case err (keymap--get-keyelt nil t) (error err)) (condition-case err (keymap--get-keyelt 1 nil) (error err)))	OK ((wrong-number-of-arguments keymap--get-keyelt 0) nil t nil 1)

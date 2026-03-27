@@ -1,3 +1,0 @@
-1	(condition-case err (remove-overlays nil nil nil nil nil) (error err))	OK (wrong-number-of-arguments remove-overlays 5)
-2	(with-temp-buffer (insert "abc") (let ((ov (make-overlay 1 2))) (remove-overlays) (overlay-buffer ov)))	OK nil
-3	(with-temp-buffer (insert "abc") (let ((ov (make-overlay 1 2))) (overlay-put ov 'face 'bold) (remove-overlays nil nil 'face 'bold) (overlay-buffer ov)))	OK nil

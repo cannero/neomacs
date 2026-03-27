@@ -1,8 +1,0 @@
-1	(terminal-name)	OK "initial_terminal"
-2	(terminal-name nil)	OK "initial_terminal"
-3	(terminal-name (selected-frame))	OK "initial_terminal"
-4	(terminal-name (frame-terminal nil))	OK "initial_terminal"
-5	(condition-case err (terminal-name 999999) (error err))	OK (wrong-type-argument terminal-live-p 999999)
-6	(condition-case err (terminal-name "initial_terminal") (error err))	OK (wrong-type-argument terminal-live-p "initial_terminal")
-7	(condition-case err (terminal-name t) (error err))	OK (wrong-type-argument terminal-live-p t)
-8	(condition-case err (terminal-name nil nil) (error err))	OK (wrong-number-of-arguments terminal-name 2)

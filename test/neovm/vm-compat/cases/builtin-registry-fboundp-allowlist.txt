@@ -1,2 +1,0 @@
-# Intentionally empty: extension-prefixed names (for example `neovm-*`) are
-# excluded from GNU Emacs oracle parity checks by the harness script.

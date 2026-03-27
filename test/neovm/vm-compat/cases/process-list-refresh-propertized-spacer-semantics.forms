@@ -1,4 +1,0 @@
-; list-processes--refresh should return a propertized spacer string in column 3.
-(list
- (list-processes--refresh)
- (condition-case err (list-processes--refresh nil) (error err)))

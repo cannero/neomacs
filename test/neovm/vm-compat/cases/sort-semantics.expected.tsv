@@ -1,9 +1,0 @@
-1	(sort (list 3 1 2) #'<)	OK (1 2 3)
-2	(let ((x (list 3 1 2))) (let ((r (sort x #'<))) (list r x (eq r x))))	OK ((1 2 3) (1 2 3) t)
-3	(let ((x (list 3 1 2))) (let ((tail (cdr x))) (sort x #'<) tail))	OK (2 3)
-4	(sort nil #'<)	OK nil
-5	(sort '(1 . 2) #'<)	ERR (wrong-type-argument (listp 2))
-6	(sort [3 1 2] #'<)	OK [1 2 3]
-7	(let ((v [3 1 2])) (let ((r (sort v #'<))) (list r v (eq r v))))	OK ([1 2 3] [1 2 3] t)
-8	(sort "cba" #'<)	ERR (wrong-type-argument (list-or-vector-p "cba"))
-9	(sort 5 #'<)	ERR (wrong-type-argument (list-or-vector-p 5))

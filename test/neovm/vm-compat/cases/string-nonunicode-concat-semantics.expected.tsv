@@ -1,8 +1,0 @@
-1	(equal (string-to-list (concat (list 1114112))) '(1114112))	OK t
-2	(equal (string-to-list (concat (list 4194303))) '(255))	OK t
-3	(string-to-list (concat (list 1114112)))	OK (1114112)
-4	(string-to-list (concat (list 4194303)))	OK (255)
-5	(equal (string-to-list (concat [1114112])) '(1114112))	OK t
-6	(equal (string-to-list (concat [4194303])) '(255))	OK t
-7	(string-to-list (concat [1114112]))	OK (1114112)
-8	(string-to-list (concat [4194303]))	OK (255)

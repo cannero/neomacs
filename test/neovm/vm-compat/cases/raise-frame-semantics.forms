@@ -1,7 +1,0 @@
-(list
- (condition-case err (raise-frame) (error err))
- (condition-case err (raise-frame nil) (error err))
- (condition-case err (raise-frame t) (error err))
- (condition-case err (raise-frame 1) (error err))
- (condition-case err (raise-frame (selected-frame)) (error err))
- (condition-case err (raise-frame nil nil) (error err)))

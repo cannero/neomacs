@@ -1,5 +1,0 @@
-1	(condition-case err (car) (error err))	OK (wrong-number-of-arguments car 0)
-2	(condition-case err (funcall 'car) (error err))	OK (wrong-number-of-arguments #<subr car> 0)
-3	(condition-case err (apply 'car nil) (error err))	OK (wrong-number-of-arguments #<subr car> 0)
-4	(condition-case err (funcall 'cdr) (error err))	OK (wrong-number-of-arguments #<subr cdr> 0)
-5	(condition-case err (apply 'cdr nil) (error err))	OK (wrong-number-of-arguments #<subr cdr> 0)

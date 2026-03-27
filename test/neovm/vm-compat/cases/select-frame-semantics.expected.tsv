@@ -1,7 +1,0 @@
-1	(fboundp 'select-frame)	OK t
-2	(subr-arity (symbol-function 'select-frame))	OK (1 . 2)
-3	(condition-case err (select-frame) (error (car err)))	OK wrong-number-of-arguments
-4	(condition-case err (select-frame nil) (error err))	OK (wrong-type-argument frame-live-p nil)
-5	(condition-case err (select-frame "x") (error err))	OK (wrong-type-argument frame-live-p "x")
-6	(condition-case err (select-frame 999999) (error err))	OK (wrong-type-argument frame-live-p 999999)
-7	(let ((f (selected-frame))) (list (framep (select-frame f)) (eq (selected-frame) f)))	OK (t t)

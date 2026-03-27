@@ -1,4 +1,0 @@
-(subr-arity (symbol-function 'default-file-modes))
-(subr-arity (symbol-function 'define-category))
-(subr-arity (symbol-function 'define-coding-system-alias))
-(subr-arity (symbol-function 'define-key))

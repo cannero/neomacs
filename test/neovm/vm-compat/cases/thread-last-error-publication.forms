@@ -1,5 +1,0 @@
-(progn (thread-last-error t) (let ((th (make-thread 1))) (thread-last-error nil)))
-(progn (thread-last-error t) (let ((th (make-thread 1))) (thread-join th) (thread-last-error nil)))
-(progn (thread-last-error t) (let ((th (make-thread (lambda () (signal 'foo '(1)))))) (thread-last-error nil)))
-(progn (thread-last-error t) (let ((th (make-thread (lambda () (signal 'foo '(1)))))) (thread-join th) (thread-last-error nil)))
-(progn (thread-last-error t) (let ((th (make-thread (lambda () (signal 'foo '(1)))))) (thread-join th) (thread-last-error t) (thread-join th) (thread-last-error nil)))

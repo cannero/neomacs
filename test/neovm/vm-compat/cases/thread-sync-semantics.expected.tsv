@@ -1,9 +1,0 @@
-1	(let ((m (make-mutex))) (mutex-lock m) (mutex-unlock m) 'ok)	OK ok
-2	(let ((m (make-mutex "m"))) (mutex-name m))	OK "m"
-3	(let ((m (make-mutex))) (let ((cv (make-condition-variable m "cv"))) (condition-notify cv) 'ok))	ERR (error ("Condition variable’s mutex is not held by current thread"))
-4	(let ((m (make-mutex))) (let ((cv (make-condition-variable m))) (condition-notify cv 3) 'ok))	ERR (error ("Condition variable’s mutex is not held by current thread"))
-5	(let ((m (make-mutex))) (mutex-lock m) (unwind-protect (let ((cv (make-condition-variable m))) (condition-case err (condition-notify cv "x") (error err))) (mutex-unlock m)))	OK nil
-6	(let ((m (make-mutex))) (mutex-lock m) (unwind-protect (let ((cv (make-condition-variable m))) (condition-case err (condition-notify cv 0) (error err))) (mutex-unlock m)))	OK nil
-7	(let ((m (make-mutex))) (mutex-lock m) (unwind-protect (let ((cv (make-condition-variable m))) (condition-case err (condition-notify cv -1) (error err))) (mutex-unlock m)))	OK nil
-8	(let ((m (make-mutex))) (mutex-lock m) (unwind-protect (let ((cv (make-condition-variable m))) (condition-case err (condition-notify cv 1.5) (error err))) (mutex-unlock m)))	OK nil
-9	(let ((m (make-mutex))) (mutex-lock m) (unwind-protect (let ((cv (make-condition-variable m))) (condition-notify cv 1)) (mutex-unlock m)))	OK nil

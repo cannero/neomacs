@@ -1,4 +1,0 @@
-1	(fboundp 'charset-list)	OK nil
-2	(condition-case err (charset-list) (error err))	OK (void-function charset-list)
-3	(fboundp 'unibyte-charset)	OK nil
-4	(condition-case err (unibyte-charset) (error err))	OK (void-function unibyte-charset)

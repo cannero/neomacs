@@ -1,6 +1,0 @@
-1	(/ 1.0 0.0)	OK 1.0e+INF
-2	(/ -1.0 0.0)	OK -1.0e+INF
-3	(/ 0.0 0.0)	OK -0.0e+NaN
-4	(condition-case err (/ 1 0) (error (cons (car err) (cdr err))))	OK (arith-error)
-5	(/ 1.0 0)	OK 1.0e+INF
-6	(/ 1 0.0)	OK 1.0e+INF

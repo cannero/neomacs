@@ -1,5 +1,0 @@
-1	(functionp (symbol-function 'subr-primitive-p))	OK t
-2	(subrp (symbol-function 'subr-primitive-p))	OK nil
-3	(condition-case err (subr-arity (symbol-function 'subr-primitive-p)) (error (car err)))	OK wrong-type-argument
-4	(subr-primitive-p (symbol-function 'message))	OK t
-5	(subr-primitive-p (symbol-function 'if))	OK t

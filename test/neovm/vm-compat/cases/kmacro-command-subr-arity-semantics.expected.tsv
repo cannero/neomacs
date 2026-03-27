@@ -1,6 +1,0 @@
-1	(subr-arity (symbol-function 'start-kbd-macro))	OK (1 . 2)
-2	(subr-arity (symbol-function 'end-kbd-macro))	OK (0 . 2)
-3	(subr-arity (symbol-function 'call-last-kbd-macro))	OK (0 . 2)
-4	(subr-arity (symbol-function 'execute-kbd-macro))	OK (1 . 3)
-5	(subr-arity (symbol-function 'execute-extended-command))	OK (1 . 3)
-6	(subr-arity (symbol-function 'describe-key-briefly))	OK (0 . 3)

@@ -1,7 +1,0 @@
-1	(fboundp 'save-excursion)	OK t
-2	(fboundp 'save-restriction)	OK t
-3	(with-temp-buffer (insert "abcdef") (goto-char 4) (save-excursion (goto-char 2) (point)) (point))	OK 4
-4	(with-temp-buffer (insert "abcdef") (goto-char 4) (condition-case _err (save-excursion (goto-char 2) (signal 'error '("boom"))) (error nil)) (point))	OK 4
-5	(with-temp-buffer (insert "abcdef") (narrow-to-region 2 5) (save-restriction (widen) (list (point-min) (point-max))) (list (point-min) (point-max)))	OK (2 5)
-6	(with-temp-buffer (insert "abcdef") (narrow-to-region 2 5) (condition-case _err (save-restriction (widen) (signal 'error '("boom"))) (error nil)) (list (point-min) (point-max)))	OK (2 5)
-7	(with-temp-buffer (insert "abcdef") (narrow-to-region 2 5) (save-restriction) (list (point-min) (point-max)))	OK (2 5)

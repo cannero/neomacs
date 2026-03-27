@@ -1,9 +1,0 @@
-1	\.foo	ERR (void-variable (\.foo))
-2	\.bar	ERR (void-variable (\.bar))
-3	\.1abc	ERR (void-variable (\.1abc))
-4	0.1	OK 0.1
-5	\..1	ERR (void-variable (\..1))
-6	\.+1	ERR (void-variable (\.+1))
-7	\.0e+nan	ERR (void-variable (\.0e+nan))
-8	\.5e+nan	ERR (void-variable (\.5e+nan))
-9	\.0E+Inf	ERR (void-variable (\.0E+Inf))

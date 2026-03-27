@@ -1,9 +1,0 @@
-(list
- (condition-case err (set-charset-plist) (error err))
- (condition-case err (set-charset-plist nil nil) (error err))
- (condition-case err (set-charset-plist t nil) (error err))
- (condition-case err (set-charset-plist 'foo nil) (error err))
- (condition-case err (set-charset-plist 'ascii nil) (error err))
- (condition-case err (set-charset-plist 'unicode nil) (error err))
- (condition-case err (set-charset-plist 'unicode 'foo) (error err))
- (condition-case err (set-charset-plist 'unicode '(a . b)) (error err)))

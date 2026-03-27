@@ -1,7 +1,0 @@
-1	(condition-case err (progn (setq unread-command-events (list 'foo 97)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (foo))
-2	(condition-case err (progn (setq unread-command-events (list 'foo 98 'bar)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (foo))
-3	(condition-case err (progn (setq unread-command-events (list 'foo 98 'bar 'baz)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (foo))
-4	(condition-case err (progn (setq unread-command-events (list 'foo 98 'bar 'baz 'qux)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (foo))
-5	(condition-case err (progn (setq unread-command-events (list 'foo 98 'bar 'baz 'qux 'quux)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (foo))
-6	(condition-case err (progn (setq unread-command-events (list 'foo 98 'bar 'baz 'qux 'quux 'quuz)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (foo))
-7	(condition-case err (progn (setq unread-command-events '(foo . 97)) (read-char nil nil 0)) (error (list (car err) unread-command-events)))	OK (error (foo))

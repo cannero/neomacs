@@ -1,3 +1,0 @@
-1	(condition-case err (execute-extended-command nil 'ignore) (error err))	OK (error "‘ignore’ is not a valid command name")
-2	(condition-case err (execute-extended-command nil "car") (error err))	OK (error "‘car’ is not a valid command name")
-3	(condition-case err (execute-extended-command nil 1) (error err))	OK (error "‘1’ is not a valid command name")

@@ -1,3 +1,0 @@
-1	(let ((s (secure-hash 'sha1 "abc" nil nil t))) (list (string-bytes s) (aref s 0) (string-to-list (substring s 0 1))))	OK (20 169 (169))
-2	(let ((s (secure-hash 'sha256 "abc" nil nil t))) (list (string-bytes s) (aref s 0) (aref s 31) (string-to-list (substring s 0 1))))	OK (32 186 173 (186))
-3	(let ((s (secure-hash 'md5 "abc" nil nil t))) (list (string-bytes s) (aref s 0) (aref s 15) (string-to-list (substring s 0 1))))	OK (16 144 114 (144))

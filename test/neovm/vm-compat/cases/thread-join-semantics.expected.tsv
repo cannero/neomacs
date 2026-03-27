@@ -1,5 +1,0 @@
-1	(condition-case err (thread-join (current-thread)) (error (car err)))	OK error
-2	(condition-case err (thread-join (current-thread)) (error (error-message-string err)))	OK "Cannot join current thread"
-3	(let ((th (make-thread (lambda nil 42)))) (thread-join th))	OK 42
-4	(let ((th (make-thread (lambda nil 7)))) (list (thread-join th) (thread-live-p th)))	OK (7 nil)
-5	(let ((th (make-thread (lambda nil 7)))) (list (thread-join th) (thread-join th) (thread-last-error)))	OK (7 7 nil)

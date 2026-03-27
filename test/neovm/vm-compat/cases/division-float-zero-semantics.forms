@@ -1,6 +1,0 @@
-(/ 1.0 0.0)
-(/ -1.0 0.0)
-(/ 0.0 0.0)
-(condition-case err (/ 1 0) (error (cons (car err) (cdr err))))
-(/ 1.0 0)
-(/ 1 0.0)

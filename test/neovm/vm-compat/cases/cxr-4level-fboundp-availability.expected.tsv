@@ -1,2 +1,0 @@
-1	(mapcar #'fboundp '(caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr))	OK (t t t t t t t t t t t t t t t t)
-2	(let ((syms '(caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr))) (list (length syms) (length (delq nil (mapcar #'fboundp syms)))))	OK (16 16)

@@ -1,5 +1,0 @@
-(subr-arity (symbol-function 'line-beginning-position))
-(subr-arity (symbol-function 'line-end-position))
-(subr-arity (symbol-function 'line-number-at-pos))
-(subr-arity (symbol-function 'line-number-display-width))
-(subr-arity (symbol-function 'line-pixel-height))

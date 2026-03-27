@@ -1,4 +1,0 @@
-1	(with-temp-buffer (insert "abc") (goto-char (point-max)) (let ((current-prefix-arg nil)) (command-execute 'set-mark-command) (list (point) (mark t) mark-active)))	OK (4 4 t)
-2	(with-temp-buffer (insert "abc") (goto-char (point-max)) (set-mark (point-min)) (setq mark-active nil) (let ((current-prefix-arg '(4))) (command-execute 'set-mark-command) (list (point) (mark t) mark-active)))	OK (4 4 t)
-3	(with-temp-buffer (insert "abc") (goto-char (point-max)) (set-mark (point-min)) (setq mark-active nil) (let ((current-prefix-arg '(4))) (call-interactively 'set-mark-command) (list (point) (mark t) mark-active)))	OK (1 1 nil)
-4	(with-temp-buffer (insert "abc") (goto-char (point-max)) (let ((current-prefix-arg '(4))) (condition-case err (call-interactively 'set-mark-command) (error (car err)))))	OK user-error

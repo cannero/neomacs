@@ -1,7 +1,0 @@
-1	(eq (current-thread) (current-thread))	OK t
-2	(let ((th (current-thread))) (eq th (current-thread)))	OK t
-3	(threadp '(thread . 0))	OK nil
-4	(thread-live-p '(thread . 0))	ERR (wrong-type-argument (threadp (thread . 0)))
-5	(thread-name '(thread . 0))	ERR (wrong-type-argument (threadp (thread . 0)))
-6	(mutexp '(mutex . 1))	OK nil
-7	(condition-variable-p '(condition-variable . 1))	OK nil

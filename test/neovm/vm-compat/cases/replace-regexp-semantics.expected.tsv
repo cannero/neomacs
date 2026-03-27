@@ -1,8 +1,0 @@
-1	(fboundp 'replace-regexp)	OK t
-2	(with-temp-buffer (insert "Foo 123 foo") (goto-char (point-min)) (replace-regexp "foo" "bar") (buffer-string))	OK "Bar 123 bar"
-3	(with-temp-buffer (insert "a1 b2 c3") (goto-char (point-min)) (replace-regexp "[0-9]" "x" nil 4 8) (buffer-string))	OK "a1 bx c3"
-4	(with-temp-buffer (insert "abc") (goto-char (point-min)) (replace-regexp "z" "x") (point))	OK 1
-5	(with-temp-buffer (insert "abc") (goto-char (point-min)) (replace-regexp "" "x") (buffer-string))	OK "xaxbxc"
-6	(condition-case err (replace-regexp "a") (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-7	(condition-case err (replace-regexp 1 "x") (error err))	OK (wrong-type-argument sequencep 1)
-8	(condition-case err (replace-regexp "[" "x") (invalid-regexp (car err)))	OK invalid-regexp

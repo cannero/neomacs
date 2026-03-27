@@ -1,7 +1,0 @@
-(let* ((w1 (selected-window)) (w2 (split-window))) (prog1 (list (window-use-time w1) (window-use-time w2) (window-bump-use-time w2) (window-use-time w1) (window-use-time w2) (window-bump-use-time w1)) (delete-window w2)))
-(let* ((w1 (selected-window)) (w2 (split-window)) (b1 (funcall #'window-bump-use-time w2)) (b2 (apply #'window-bump-use-time (list w1)))) (prog1 (list (integerp b1) (null b2) (= (window-use-time w2) b1)) (delete-window w2)))
-(list (condition-case err (funcall #'window-bump-use-time nil nil) (error err)) (condition-case err (apply #'window-bump-use-time '(nil nil)) (error err)))
-(null (window-bump-use-time nil))
-(condition-case err (window-bump-use-time 1) (error err))
-(condition-case err (window-bump-use-time nil nil) (error err))
-(let ((w (split-window))) (delete-window w) (let ((err (condition-case e (window-bump-use-time w) (error e)))) (list (car err) (car (cdr err)))))

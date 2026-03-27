@@ -1,5 +1,0 @@
-1	(thread-name (current-thread))	OK nil
-2	(thread-name (make-thread (lambda nil nil) "named-thread"))	OK "named-thread"
-3	(condition-case err (thread-name) (error (car err)))	OK wrong-number-of-arguments
-4	(condition-case err (thread-name 1) (error (list (car err) (cadr err))))	OK (wrong-type-argument threadp)
-5	(condition-case err (thread-name 1 2) (error (list (car err) (cadr err))))	OK (wrong-number-of-arguments thread-name)

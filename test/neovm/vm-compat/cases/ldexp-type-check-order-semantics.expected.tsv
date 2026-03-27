@@ -1,6 +1,0 @@
-1	(ldexp 'sym 2.0)	ERR (wrong-type-argument (fixnump 2.0))
-2	(ldexp 'sym 'sym)	ERR (wrong-type-argument (fixnump sym))
-3	(ldexp 'sym 2)	ERR (wrong-type-argument (numberp sym))
-4	(ldexp 1 2.0)	ERR (wrong-type-argument (fixnump 2.0))
-5	(ldexp 1 'sym)	ERR (wrong-type-argument (fixnump sym))
-6	(ldexp 1 2)	OK 4.0

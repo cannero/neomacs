@@ -1,8 +1,0 @@
-(list
- (condition-case err (new-fontset) (error err))
- (condition-case err (new-fontset nil nil) (error err))
- (condition-case err (new-fontset t nil) (error err))
- (condition-case err (new-fontset 1 nil) (error err))
- (condition-case err (new-fontset "x" nil) (error err))
- (condition-case err (new-fontset "x" t) (error err))
- (condition-case err (new-fontset "x" "y") (error err)))

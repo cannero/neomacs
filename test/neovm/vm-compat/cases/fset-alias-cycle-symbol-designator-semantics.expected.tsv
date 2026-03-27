@@ -1,3 +1,0 @@
-1	(condition-case err (fset :vmk-self :vmk-self) (error err))	OK (cyclic-function-indirection :vmk-self)
-2	(condition-case err (progn (fset :vmk2 :vmk3) (fset :vmk3 :vmk2)) (error err))	OK (cyclic-function-indirection :vmk3)
-3	(let ((orig-t (symbol-function 't)) (orig-k (symbol-function :vmk))) (unwind-protect (progn (fset t :vmk) (condition-case err (fset :vmk t) (error err))) (fset 't orig-t) (fset :vmk orig-k)))	OK (cyclic-function-indirection :vmk)

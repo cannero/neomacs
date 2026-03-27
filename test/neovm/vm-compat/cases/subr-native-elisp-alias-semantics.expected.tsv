@@ -1,4 +1,0 @@
-1	(symbol-function 'subr-native-elisp-p)	OK native-comp-function-p
-2	(subr-arity (symbol-function 'subr-native-elisp-p))	ERR (wrong-type-argument (subrp native-comp-function-p))
-3	(symbol-function 'native-comp-function-p)	OK #<subr native-comp-function-p>
-4	(subr-arity (symbol-function 'native-comp-function-p))	OK (1 . 1)

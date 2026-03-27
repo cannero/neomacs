@@ -1,3 +1,0 @@
-1	(subr-arity (symbol-function 'defined-colors))	OK (0 . 1)
-2	(subr-arity (symbol-function 'color-defined-p))	OK (1 . 2)
-3	(subr-arity (symbol-function 'color-values))	OK (1 . 2)

@@ -1,9 +1,0 @@
-1	(fboundp 'looking-at-p)	OK t
-2	(with-temp-buffer (insert "hello") (goto-char (point-min)) (looking-at-p "hel"))	OK t
-3	(with-temp-buffer (insert "hello") (goto-char (point-min)) (looking-at-p "world"))	OK nil
-4	(with-temp-buffer (insert "hello") (goto-char (point-min)) (set-match-data (list 7 8)) (looking-at-p "hel") (match-data))	OK (7 8)
-5	(with-temp-buffer (insert "hello") (goto-char (point-min)) (set-match-data nil) (looking-at "h\\(e\\)l") (match-beginning 1))	OK 2
-6	(with-temp-buffer (insert "A") (goto-char (point-min)) (looking-at-p "a"))	OK t
-7	(with-temp-buffer (insert "A") (goto-char (point-min)) (looking-at "a"))	OK t
-8	(condition-case err (looking-at-p "[") (invalid-regexp (car err)))	OK invalid-regexp
-9	(condition-case err (looking-at-p "x" nil) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

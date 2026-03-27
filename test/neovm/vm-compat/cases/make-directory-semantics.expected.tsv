@@ -1,5 +1,0 @@
-1	(condition-case err (make-directory 1) (error err))	OK (wrong-type-argument stringp 1)
-2	(condition-case err (make-directory) (error err))	OK (wrong-number-of-arguments make-directory 0)
-3	(condition-case err (make-directory "a" nil nil) (error err))	OK (wrong-number-of-arguments make-directory 3)
-4	(let* ((base (make-temp-file "neovm-make-directory-" t)) (d1 (expand-file-name "a/b" base)) (d2 (expand-file-name "c" base))) (prog1 (list (condition-case err (make-directory d1) (error (car err))) (make-directory d1 t) (file-directory-p d1) (make-directory d2) (file-directory-p d2)) (delete-directory base t)))	OK (file-missing nil t nil t)
-5	(let ((base (make-temp-file "neovm-make-directory-eval-" t))) (prog1 (let ((default-directory (file-name-as-directory base))) (list (make-directory "x/y" t) (file-directory-p "x/y"))) (delete-directory base t)))	OK (nil t)

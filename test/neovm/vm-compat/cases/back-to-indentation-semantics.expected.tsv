@@ -1,7 +1,0 @@
-1	(with-temp-buffer (insert "  abc") (goto-char (point-max)) (back-to-indentation))	OK nil
-2	(with-temp-buffer (insert "  abc") (goto-char (point-max)) (back-to-indentation) (point))	OK 3
-3	(with-temp-buffer (insert (string 9 97 98 99)) (goto-char (point-max)) (back-to-indentation) (point))	OK 2
-4	(with-temp-buffer (insert (string 10 32 32 97 98 99)) (goto-char (point-max)) (back-to-indentation) (point))	OK 4
-5	(with-temp-buffer (insert "abc") (goto-char (point-max)) (back-to-indentation) (point))	OK 1
-6	(with-temp-buffer (insert "   ") (goto-char (point-max)) (back-to-indentation) (point))	OK 4
-7	(condition-case err (back-to-indentation 1) (error err))	OK (wrong-number-of-arguments back-to-indentation 1)

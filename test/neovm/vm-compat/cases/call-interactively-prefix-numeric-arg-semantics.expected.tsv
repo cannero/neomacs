@@ -1,7 +1,0 @@
-1	(with-temp-buffer (insert "abcdef") (goto-char 1) (let ((current-prefix-arg 3)) (call-interactively 'forward-char) (point)))	OK 4
-2	(with-temp-buffer (insert "abcdef") (goto-char 1) (let ((current-prefix-arg 3)) (command-execute 'forward-char) (point)))	OK 2
-3	(with-temp-buffer (insert "abcdef") (goto-char 1) (let ((current-prefix-arg 3)) (call-interactively 'delete-char) (buffer-string)))	OK "def"
-4	(with-temp-buffer (insert "abcdef") (goto-char 1) (let ((current-prefix-arg 3)) (command-execute 'delete-char) (buffer-string)))	OK "bcdef"
-5	(with-temp-buffer (insert "abcdef") (goto-char 1) (let ((current-prefix-arg '(4))) (call-interactively 'forward-char) (point)))	OK 5
-6	(with-temp-buffer (insert "abcdef") (goto-char 4) (let ((current-prefix-arg '-)) (call-interactively 'backward-char) (point)))	OK 5
-7	(with-temp-buffer (insert "abcdef") (goto-char 1) (let ((current-prefix-arg '(foo))) (call-interactively 'forward-char) (point)))	OK 2

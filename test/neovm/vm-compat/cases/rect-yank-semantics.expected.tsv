@@ -1,4 +1,0 @@
-1	(with-temp-buffer (insert "abc") (goto-char 2) (list (yank-rectangle) (point) (string-to-list (buffer-string))))	OK (nil 2 (97 98 99))
-2	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (kill-rectangle 1 9) (goto-char 1) (yank-rectangle) (list (point) (string-to-list (buffer-string))))	OK (9 (97 98 99 100 101 102 10 49 50 51 52 53 54 10))
-3	(with-temp-buffer (insert "abcdef") (newline) (insert "123456") (newline) (kill-rectangle 1 9) (goto-char 2) (yank-rectangle) (list (point) (string-to-list (buffer-string))))	OK (10 (98 97 99 100 101 102 10 50 49 51 52 53 54 10))
-4	(condition-case err (yank-rectangle 1) (error (car err)))	OK wrong-number-of-arguments

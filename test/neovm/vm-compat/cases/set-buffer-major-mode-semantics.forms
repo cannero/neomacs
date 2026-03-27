@@ -1,5 +1,0 @@
-(list
- (condition-case err (set-buffer-major-mode) (error err))
- (condition-case err (set-buffer-major-mode nil) (error err))
- (condition-case err (set-buffer-major-mode 1) (error err))
- (condition-case err (set-buffer-major-mode (current-buffer)) (error err)))

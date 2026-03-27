@@ -1,6 +1,0 @@
-(list
- (condition-case err (object-intervals) (error err))
- (condition-case err (object-intervals nil) (error err))
- (condition-case err (object-intervals t) (error err))
- (condition-case err (object-intervals 1) (error err))
- (condition-case err (object-intervals "x") (error err)))

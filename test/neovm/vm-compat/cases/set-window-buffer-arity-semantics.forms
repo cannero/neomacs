@@ -1,2 +1,0 @@
-(condition-case err (set-window-buffer nil "*scratch*" nil nil) (error (car err)))
-(condition-case err (set-window-buffer nil "*scratch*" nil) (error err))

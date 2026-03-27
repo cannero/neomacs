@@ -1,8 +1,0 @@
-1	(fboundp 'select-frame-set-input-focus)	OK t
-2	(subr-arity (symbol-function 'select-frame-set-input-focus))	OK (1 . 2)
-3	(condition-case err (select-frame-set-input-focus) (error (car err)))	OK wrong-number-of-arguments
-4	(condition-case err (select-frame-set-input-focus nil) (error err))	OK (wrong-type-argument frame-live-p nil)
-5	(condition-case err (select-frame-set-input-focus "x") (error err))	OK (wrong-type-argument frame-live-p "x")
-6	(condition-case err (select-frame-set-input-focus 999999) (error err))	OK (wrong-type-argument frame-live-p 999999)
-7	(let ((f (selected-frame))) (list (select-frame-set-input-focus f) (eq (selected-frame) f)))	OK (nil t)
-8	(commandp 'select-frame-set-input-focus)	OK nil

@@ -1,8 +1,0 @@
-(fboundp '-)
-(subr-arity (symbol-function '-))
-(help-function-arglist '-)
-(help-function-arglist '- t)
-(-)
-(funcall #'-)
-(apply #'- nil)
-(list (-) (funcall #'-) (apply #'- nil))

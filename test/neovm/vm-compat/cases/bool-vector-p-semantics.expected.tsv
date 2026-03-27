@@ -1,7 +1,0 @@
-1	(fboundp 'bool-vector-p)	OK t
-2	(let ((bv (make-bool-vector 4 nil))) (bool-vector-p bv))	OK t
-3	(let ((bv (make-bool-vector 4 nil))) (bool-vector-p (copy-sequence bv)))	OK t
-4	(bool-vector-p [t nil t])	OK nil
-5	(bool-vector-p "abc")	OK nil
-6	(condition-case err (bool-vector-p) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments
-7	(condition-case err (bool-vector-p 1 2) (wrong-number-of-arguments (car err)))	OK wrong-number-of-arguments

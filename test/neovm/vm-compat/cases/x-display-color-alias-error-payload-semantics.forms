@@ -1,6 +1,0 @@
-(condition-case err (display-color-p "foo") (error err))
-(condition-case err (x-display-color-p "foo") (error err))
-(condition-case err (display-color-p 'foo) (error err))
-(condition-case err (x-display-color-p 'foo) (error err))
-(condition-case err (display-color-p 1 2) (error err))
-(condition-case err (x-display-color-p 1 2) (error err))

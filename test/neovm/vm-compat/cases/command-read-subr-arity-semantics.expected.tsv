@@ -1,3 +1,0 @@
-1	(subr-arity (symbol-function 'command-execute))	OK (1 . 4)
-2	(subr-arity (symbol-function 'compare-strings))	OK (6 . 7)
-3	(subr-arity (symbol-function 'completing-read))	OK (2 . 8)

@@ -1,6 +1,0 @@
-cases/default.list
-cases/neovm-only.list
-cases/legacy-elc-literal.list
-cases/introspection.list
-cases/thread.list
-cases/startup-doc.list

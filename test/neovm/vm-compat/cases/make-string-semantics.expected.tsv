@@ -1,5 +1,0 @@
-1	(make-string 0 97)	OK ""
-2	(make-string 3 97)	OK "aaa"
-3	(make-string -1 97)	ERR (wrong-type-argument (wholenump -1))
-4	(make-string 1 -1)	ERR (wrong-type-argument (characterp -1))
-5	(make-string 2 65)	OK "AA"

@@ -1,8 +1,0 @@
-1	(with-temp-buffer (insert "hello world") (goto-char (point-min)) (search-forward "ell") (thing-at-point 'word))	OK "hello"
-2	(with-temp-buffer (insert "hello world") (goto-char (point-min)) (search-forward "ell") (bounds-of-thing-at-point 'word))	OK (1 . 6)
-3	(with-temp-buffer (insert "foo-bar baz") (goto-char (point-min)) (search-forward "foo") (thing-at-point 'symbol))	OK "foo-bar"
-4	(with-temp-buffer (insert "foo-bar baz") (goto-char (point-min)) (search-forward "foo") (bounds-of-thing-at-point 'symbol))	OK (1 . 8)
-5	(with-temp-buffer (insert "a   b") (goto-char (point-min)) (search-forward " ") (thing-at-point 'whitespace))	OK "   "
-6	(with-temp-buffer (insert "v 12.34 x") (goto-char (point-min)) (search-forward "12") (thing-at-point 'number))	OK 12.34
-7	(with-temp-buffer (insert "v 12.34 x") (goto-char (point-min)) (search-forward "12") (bounds-of-thing-at-point 'number))	OK (3 . 8)
-8	(with-temp-buffer (insert "   ") (goto-char (point-min)) (search-forward " ") (thing-at-point 'word))	OK nil

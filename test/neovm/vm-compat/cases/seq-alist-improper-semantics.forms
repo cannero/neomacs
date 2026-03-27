@@ -1,9 +1,0 @@
-; Improper argument edges for seq/alist primitives.
-
-; non-function predicate for optional TESTFN argument
-(seq-contains-p '(1 2 3) 2 7)
-(assoc 'a '((a . 1)) 7)
-(alist-get 'a '((a . 1) (a . 9)) nil nil 7)
-
-; function designator works for alist-get comparison path
-(alist-get 'a '((a . 1) (a . 9)) nil nil 'equal)

@@ -1,6 +1,0 @@
-1	(fboundp 'recursive-edit)	OK t
-2	(condition-case err (recursive-edit nil) (error (car err)))	OK wrong-number-of-arguments
-3	(condition-case err (recursive-edit nil nil) (error (car err)))	OK wrong-number-of-arguments
-4	(fboundp 'top-level)	OK t
-5	(condition-case err (top-level nil) (error (car err)))	OK wrong-number-of-arguments
-6	(condition-case err (top-level nil nil) (error (car err)))	OK wrong-number-of-arguments

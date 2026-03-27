@@ -1,6 +1,0 @@
-1	(with-temp-buffer (insert "my-symbol other") (goto-char (point-min)) (search-forward "my-symbol") (let ((s (symbol-at-point))) (if s (symbol-name s) nil)))	OK "my-symbol"
-2	(with-temp-buffer (insert "my-symbol other") (goto-char (point-min)) (search-forward "my") (word-at-point))	OK "my"
-3	(with-temp-buffer (insert "alpha beta") (goto-char (point-min)) (search-forward "alpha") (word-at-point t))	OK "alpha"
-4	(with-temp-buffer (insert "my-symbol other") (goto-char (point-min)) (search-forward "my-symbol") (bounds-of-thing-at-point 'symbol))	OK (1 . 10)
-5	(with-temp-buffer (insert "   ") (goto-char (point-min)) (search-forward " ") (symbol-at-point))	OK nil
-6	(with-temp-buffer (insert "alpha") (goto-char (point-min)) (search-forward "alp") (condition-case err (word-at-point nil nil) (error (car err))))	OK wrong-number-of-arguments

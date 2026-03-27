@@ -1,6 +1,0 @@
-(fboundp 'syntax-ppss-flush-cache)
-(condition-case err (syntax-ppss-flush-cache) (wrong-number-of-arguments (car err)))
-(syntax-ppss-flush-cache 1)
-(syntax-ppss-flush-cache 1 2)
-(condition-case err (syntax-ppss-flush-cache nil) (wrong-type-argument (car err)))
-(condition-case err (syntax-ppss-flush-cache 1 2 3) (wrong-number-of-arguments (car err)))

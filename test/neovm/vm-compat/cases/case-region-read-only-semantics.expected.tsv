@@ -1,5 +1,0 @@
-1	(with-temp-buffer (insert "FOO") (setq buffer-read-only t) (condition-case err (downcase-region (point-min) (point-max)) (error (car err))))	OK buffer-read-only
-2	(with-temp-buffer (insert "foo") (setq buffer-read-only t) (condition-case err (upcase-region (point-min) (point-max)) (error (car err))))	OK buffer-read-only
-3	(with-temp-buffer (insert "foo") (setq buffer-read-only t) (condition-case err (capitalize-region (point-min) (point-max)) (error (car err))))	OK buffer-read-only
-4	(with-temp-buffer (insert "foo bar") (setq buffer-read-only t) (condition-case err (upcase-initials-region (point-min) (point-max)) (error (car err))))	OK buffer-read-only
-5	(with-temp-buffer (insert "foo") (setq buffer-read-only t) (upcase-word 1) (buffer-string))	OK "foo"

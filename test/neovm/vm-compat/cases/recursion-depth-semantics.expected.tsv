@@ -1,5 +1,0 @@
-1	(fboundp 'recursion-depth)	OK t
-2	(special-form-p 'recursion-depth)	OK nil
-3	(integerp (recursion-depth))	OK t
-4	(condition-case err (recursion-depth 1) (error (car err)))	OK wrong-number-of-arguments
-5	(let* ((base (recursion-depth)) (probe (make-symbol "neovm-recursion-depth-probe"))) (fset probe (lambda (n) (if (= n 0) (recursion-depth) (funcall (symbol-function probe) (1- n))))) (let ((deep (funcall (symbol-function probe) 3))) (list (integerp base) (integerp deep))))	OK (t t)

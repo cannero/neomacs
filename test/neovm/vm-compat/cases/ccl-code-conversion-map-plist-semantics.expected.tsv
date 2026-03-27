@@ -1,6 +1,0 @@
-1	(register-code-conversion-map 'neovm-ccl-map-plist [1 2 3])	OK 0
-2	(boundp 'neovm-ccl-map-plist)	OK nil
-3	(condition-case err (symbol-value 'neovm-ccl-map-plist) (error (car err)))	OK void-variable
-4	(get 'neovm-ccl-map-plist 'code-conversion-map)	OK [1 2 3]
-5	(get 'neovm-ccl-map-plist 'code-conversion-map-id)	OK 0
-6	(let ((plist (symbol-plist 'neovm-ccl-map-plist))) (list (null plist) (equal (plist-get plist 'code-conversion-map) [1 2 3]) (equal (plist-get plist 'code-conversion-map-id) 0)))	OK (nil t t)
