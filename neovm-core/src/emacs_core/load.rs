@@ -1587,6 +1587,121 @@ fn eager_expand_eval_and_collect(
     Ok(result)
 }
 
+/// Shared context save/restore for file loading.
+///
+/// Saves and restores: lexical-binding, lexenv, load-file-name, temp roots.
+/// Sets lexical-binding from the file cookie and load-file-name to the path.
+/// The `body` closure runs with the new context and its result is returned
+/// after context restoration.
+fn with_load_context<F>(
+    eval: &mut super::eval::Context,
+    path: &Path,
+    lexical_binding: bool,
+    body: F,
+) -> Result<Value, EvalError>
+where
+    F: FnOnce(&mut super::eval::Context) -> Result<Value, EvalError>,
+{
+    let old_lexical = eval.lexical_binding();
+    let old_lexenv = eval.lexenv;
+    let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
+
+    let saved_roots = eval.save_temp_roots();
+    eval.push_temp_root(old_lexenv);
+    if let Some(ref v) = old_load_file {
+        eval.push_temp_root(*v);
+    }
+
+    if lexical_binding {
+        eval.set_lexical_binding(true);
+        eval.lexenv = Value::list(vec![Value::True]);
+    }
+
+    eval.set_variable(
+        "load-file-name",
+        Value::string(path.to_string_lossy().to_string()),
+    );
+
+    let result = body(eval);
+
+    eval.set_lexical_binding(old_lexical);
+    eval.lexenv = old_lexenv;
+    if let Some(old) = old_load_file {
+        eval.set_variable("load-file-name", old);
+    } else {
+        eval.set_variable("load-file-name", Value::Nil);
+    }
+    eval.restore_temp_roots(saved_roots);
+
+    result
+}
+
+/// Shared form-by-form evaluation loop, modelled after GNU Emacs `readevalloop`
+/// in lread.c.
+///
+/// Iterates over `forms`, logging each form and its timing, reporting errors
+/// with human-readable detail, and calling `gc_safe_point` between forms.
+/// The `eval_one` closure controls per-form evaluation semantics (e.g. whether
+/// to reify byte-code literals, apply eager macro expansion, or collect expanded
+/// forms for caching).
+///
+/// This function does NOT handle: context save/restore (see `with_load_context`),
+/// `record_load_history`, or caching.
+fn readevalloop<F>(
+    eval: &mut super::eval::Context,
+    file_name: &str,
+    forms: &[Expr],
+    mut eval_one: F,
+) -> Result<(), EvalError>
+where
+    F: FnMut(&mut super::eval::Context, usize, &Expr) -> Result<Value, EvalError>,
+{
+    for (i, form) in forms.iter().enumerate() {
+        tracing::debug!(
+            "{} FORM[{i}/{}]: {}",
+            file_name,
+            forms.len(),
+            print_expr(form).chars().take(100).collect::<String>()
+        );
+        let start = std::time::Instant::now();
+        let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
+
+        let eval_result = eval_one(eval, i, form);
+
+        let elapsed = start.elapsed();
+        let (dh, dm) = (
+            eval.macro_cache_hits - h0,
+            eval.macro_cache_misses - m0,
+        );
+        if elapsed.as_millis() > 200 || dm > 0 || dh > 0 {
+            tracing::debug!(
+                "  {file_name} FORM[{i}] ({:.2?}) [cache hit={dh} miss={dm}]: {}",
+                elapsed,
+                print_expr(form).chars().take(80).collect::<String>()
+            );
+        }
+        if let Err(ref e) = eval_result {
+            let err_detail = match e {
+                EvalError::Signal { symbol, data } => {
+                    let sym_name = super::intern::resolve_sym(*symbol);
+                    let data_strs: Vec<String> =
+                        data.iter().map(|v| format_value_for_error(v)).collect();
+                    format!("({} {})", sym_name, data_strs.join(" "))
+                }
+                other => format!("{:?}", other),
+            };
+            tracing::error!(
+                "  !! {file_name} FORM[{i}] FAILED: {} => {}",
+                print_expr(form).chars().take(120).collect::<String>(),
+                err_detail
+            );
+        }
+        eval_result?;
+        eval.gc_safe_point();
+    }
+    Ok(())
+}
+
 /// Load and evaluate a file. Returns the last result.
 #[tracing::instrument(level = "info", skip(eval), err(Debug))]
 pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
@@ -1648,16 +1763,10 @@ pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, 
 }
 
 fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
-    // Check for .elc file and use the compiled loading path.
-    if path.extension().and_then(|e| e.to_str()) == Some("elc") {
-        return load_elc_file_body(eval, path);
-    }
+    let is_elc = path.extension().and_then(|e| e.to_str()) == Some("elc");
 
-    // Read raw bytes and decode with Emacs-extended UTF-8.  Some Lisp files
-    // (e.g., ethiopic.el, tibetan.el) declare `coding: utf-8-emacs` and
-    // contain byte sequences for code points above U+10FFFF (Emacs-internal
-    // characters).  decode_emacs_utf8 handles these by converting `?<ext>`
-    // character literals to `?\x<HEX>` escape syntax.
+    // Read raw bytes and decode (with Emacs-extended UTF-8 for .el,
+    // or header-skipping for .elc).
     let raw_bytes = std::fs::read(path).map_err(|e| EvalError::Signal {
         symbol: intern("file-error"),
         data: vec![Value::string(format!(
@@ -1666,121 +1775,88 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
             e
         ))],
     })?;
-    let content = decode_emacs_utf8(&raw_bytes);
 
-    // Save dynamic loader context and restore it even on parse/eval errors.
-    let old_lexical = eval.lexical_binding();
-    let old_lexenv = eval.lexenv;
-    let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
+    // For .elc: skip the ;ELC magic header and detect lexical-binding from raw bytes.
+    // For .el: decode Emacs-extended UTF-8.
+    let content = if is_elc {
+        skip_elc_header(&raw_bytes)
+    } else {
+        decode_emacs_utf8(&raw_bytes)
+    };
 
-    // Root the saved load-file-name value: it sits in a Rust local variable
-    // that the GC cannot see.  Without this, nested load (require inside
-    // a loaded file) can trigger gc_safe_point which sweeps the string,
-    // causing stale ObjId panics when we try to restore it later.
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(old_lexenv);
-    if let Some(ref v) = old_load_file {
-        eval.push_temp_root(*v);
+    // Detect lexical-binding.
+    let lexical_binding = if is_elc {
+        elc_has_lexical_binding(&raw_bytes)
+    } else {
+        lexical_binding_enabled_for_source(&content)
+    };
+
+    // --- .el-only: check for pre-compiled .neobc cache before setting up context ---
+    if !is_elc {
+        let neobc_path = path.with_extension("neobc");
+        if neobc_path.exists() {
+            let source_hash = super::file_compile_format::source_sha256(&content);
+            if let Ok(loaded) =
+                super::file_compile_format::read_neobc(&neobc_path, &source_hash)
+            {
+                tracing::info!(
+                    "neobc cache hit for {} ({} forms)",
+                    path.display(),
+                    loaded.forms.len()
+                );
+                return with_load_context(eval, path, loaded.lexical_binding, |eval| {
+                    for form in &loaded.forms {
+                        match form {
+                            super::file_compile_format::LoadedForm::Eval(expr) => {
+                                eval.eval_expr(expr)?;
+                            }
+                            super::file_compile_format::LoadedForm::Constant(_) => {
+                                // eval-when-compile constant -- already evaluated, skip.
+                            }
+                        }
+                        eval.gc_safe_point();
+                    }
+                    record_load_history(eval, path);
+                    Ok(Value::True)
+                });
+            }
+        }
     }
 
-    // Check for pre-compiled .neobc file.  If a valid .neobc exists with a
-    // source hash matching the current .el content, load it directly — this
-    // skips parsing, macro expansion, and eval-when-compile re-execution.
-    let neobc_path = path.with_extension("neobc");
-    if neobc_path.exists() {
-        let source_hash = super::file_compile_format::source_sha256(&content);
-        if let Ok(loaded) = super::file_compile_format::read_neobc(&neobc_path, &source_hash) {
-            tracing::info!(
-                "neobc cache hit for {} ({} forms)",
-                path.display(),
-                loaded.forms.len()
-            );
-            // Set up lexical binding from the compiled file.
-            if loaded.lexical_binding {
-                eval.set_lexical_binding(true);
-                eval.lexenv = Value::list(vec![Value::True]);
-            }
-            // Set load-file-name before evaluating forms (require/provide need it).
-            eval.set_variable(
-                "load-file-name",
-                Value::string(path.to_string_lossy().to_string()),
-            );
-            // Evaluate each loaded form.
-            let neobc_result = (|| -> Result<Value, EvalError> {
-                for form in &loaded.forms {
-                    match form {
-                        super::file_compile_format::LoadedForm::Eval(expr) => {
-                            eval.eval_expr(expr)?;
-                        }
-                        super::file_compile_format::LoadedForm::Constant(_) => {
-                            // eval-when-compile constant — already evaluated, skip.
-                        }
-                    }
+    // --- Shared context setup via with_load_context ---
+    with_load_context(eval, path, lexical_binding, |eval| {
+        // .el-only: generated loaddefs fast path
+        if !is_elc {
+            // Clear pointer-identity caches before each source file.
+            eval.macro_expansion_cache.clear();
+            eval.literal_cache.clear();
+
+            let generated_loaddefs = is_generated_loaddefs_source(&content);
+            if generated_loaddefs {
+                let forms = parse_source_with_cache(path, &content, eval.lexical_binding())?;
+                tracing::info!(
+                    "generated loaddefs replay for {} ({} forms)",
+                    path.display(),
+                    forms.len()
+                );
+                for form in &forms {
+                    eval_generated_loaddefs_form(eval, form)?;
                     eval.gc_safe_point();
                 }
                 record_load_history(eval, path);
-                Ok(Value::True)
-            })();
-            // Restore context and return.
-            eval.set_lexical_binding(old_lexical);
-            eval.lexenv = old_lexenv;
-            if let Some(old) = old_load_file {
-                eval.set_variable("load-file-name", old);
-            } else {
-                eval.set_variable("load-file-name", Value::Nil);
+                return Ok(Value::True);
             }
-            eval.restore_temp_roots(saved_roots);
-            return neobc_result;
-        }
-    }
-
-    // Check for lexical-binding file variable in file-local line.
-    if lexical_binding_enabled_for_source(&content) {
-        eval.set_lexical_binding(true);
-        eval.lexenv = Value::list(vec![Value::True]);
-    }
-
-    eval.set_variable(
-        "load-file-name",
-        Value::string(path.to_string_lossy().to_string()),
-    );
-
-    let result = (|| -> Result<Value, EvalError> {
-        let generated_loaddefs = is_generated_loaddefs_source(&content);
-
-        // Clear pointer-identity caches before each source file. Parsed Expr
-        // allocations from previous files can be freed and reused at the same
-        // addresses, so cross-file reuse would alias unrelated forms.
-        // Lambda-body caches (Rc<Vec<Expr>>) are still valid but will be
-        // re-populated on first use — a small one-time cost per file.
-        eval.macro_expansion_cache.clear();
-        eval.literal_cache.clear();
-
-        if generated_loaddefs {
-            let forms = parse_source_with_cache(path, &content, eval.lexical_binding())?;
-            tracing::info!(
-                "generated loaddefs replay for {} ({} forms)",
-                path.display(),
-                forms.len()
-            );
-            for form in &forms {
-                eval_generated_loaddefs_form(eval, form)?;
-                eval.gc_safe_point();
-            }
-            record_load_history(eval, path);
-            return Ok(Value::True);
         }
 
-        // Eager macro expansion guard (like real Emacs's lread.c).
-        // We need BOTH internal-macroexpand-for-load AND the pcase `
-        // macroexpander to be defined, since macroexpand-all uses pcase
-        // backquote patterns in its body.
-        let macroexpand_fn: Option<Value> = get_eager_macroexpand_fn(eval);
+        // Eager macro expansion guard (.el only -- .elc has macros compiled away).
+        let macroexpand_fn: Option<Value> = if !is_elc {
+            get_eager_macroexpand_fn(eval)
+        } else {
+            None
+        };
 
-        // === V2 expanded-cache fast path ===
-        // If macroexpand is available AND we have a V2 cache hit, just eval
-        // the pre-expanded forms directly — no macro expansion needed.
-        if macroexpand_fn.is_some() && expanded_cache_reads_enabled() {
+        // .el-only: V2 expanded-cache fast path
+        if !is_elc && macroexpand_fn.is_some() && expanded_cache_reads_enabled() {
             if let Some(expanded_forms) =
                 maybe_load_expanded_cache(path, &content, eval.lexical_binding())
             {
@@ -1789,23 +1865,61 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
                     path.display(),
                     expanded_forms.len()
                 );
-                for form in &expanded_forms {
-                    eval.eval_expr(form)?;
-                    eval.gc_safe_point();
-                }
+                let file_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                readevalloop(eval, &file_name, &expanded_forms, |eval, _i, form| {
+                    eval.eval_expr(form)
+                })?;
                 record_load_history(eval, path);
                 return Ok(Value::True);
             }
         }
 
-        // === V1 parse cache or fresh parse ===
-        let forms = parse_source_with_cache(path, &content, eval.lexical_binding())?;
+        // --- Parse forms ---
+        let forms = if is_elc {
+            super::parser::parse_forms(&content).map_err(|e| EvalError::Signal {
+                symbol: intern("error"),
+                data: vec![Value::string(format!(
+                    "Parse error in {}: {}",
+                    path.display(),
+                    e
+                ))],
+            })?
+        } else {
+            parse_source_with_cache(path, &content, eval.lexical_binding())?
+        };
 
         let file_name = path
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
+
+        if is_elc {
+            tracing::info!(
+                "{} parsed {} ELC forms from {} bytes",
+                file_name,
+                forms.len(),
+                content.len()
+            );
+        }
+
+        // --- .elc path: reify byte-code literals + eval via shared readevalloop ---
+        if is_elc {
+            readevalloop(eval, &file_name, &forms, |eval, _i, form| {
+                let reified = eval
+                    .reify_byte_code_literals(form)
+                    .map_err(crate::emacs_core::error::map_flow)?;
+                eval.eval_expr(&reified)
+            })?;
+            record_load_history(eval, path);
+            return Ok(Value::True);
+        }
+
+        // --- .el path: eager macro expansion with V2 cache collection ---
 
         // Collector for V2 cache: only populated when macroexpand is available.
         let mut expanded_collector: Vec<Expr> = if macroexpand_fn.is_some() {
@@ -1814,13 +1928,7 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
             Vec::new()
         };
         // Snapshot features BEFORE expansion so we can track which features
-        // were loaded as side effects of macro expansion. These need to be
-        // required during V2 cache replay.
-        //
-        // Only track dependencies for files outside the NeoVM lisp/ directory
-        // and outside the GNU Emacs lisp/ mirror. Loadup files have their
-        // features available from the pdump; adding require forms for them
-        // would fail during early bootstrap.
+        // were loaded as side effects of macro expansion.
         let path_str_for_check = path.to_string_lossy();
         let is_external_file = !path_str_for_check.contains("/neomacs-main/lisp/")
             && !path_str_for_check.contains("/emacs-mirror/emacs/lisp/");
@@ -1828,71 +1936,6 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
             eval.features.clone()
         } else {
             Vec::new()
-        };
-        let run_forms = |working_eval: &mut super::eval::Context,
-                         eager_macroexpand_fn: Option<Value>,
-                         expanded_forms: &mut Vec<Expr>|
-         -> Result<(), EvalError> {
-            for (i, form) in forms.iter().enumerate() {
-                tracing::debug!(
-                    "{} FORM[{i}/{}]: {}",
-                    file_name,
-                    forms.len(),
-                    print_expr(form).chars().take(100).collect::<String>()
-                );
-                let start = std::time::Instant::now();
-                let (h0, m0) = (
-                    working_eval.macro_cache_hits,
-                    working_eval.macro_cache_misses,
-                );
-                let eval_result = if let Some(mexp_fn) = eager_macroexpand_fn {
-                    let form_value = working_eval.quote_to_runtime_value(form);
-                    eager_expand_eval_and_collect(working_eval, form_value, mexp_fn, expanded_forms)
-                } else {
-                    working_eval.eval_expr(form)
-                };
-                let elapsed = start.elapsed();
-                let (dh, dm) = (
-                    working_eval.macro_cache_hits - h0,
-                    working_eval.macro_cache_misses - m0,
-                );
-                if elapsed.as_millis() > 200 || dm > 0 || dh > 0 {
-                    tracing::debug!(
-                        "  {file_name} FORM[{i}] ({:.2?}) [cache hit={dh} miss={dm}]: {}",
-                        elapsed,
-                        print_expr(form).chars().take(80).collect::<String>()
-                    );
-                }
-                if let Err(ref e) = eval_result {
-                    // Build a human-readable error message resolving Str ObjIds
-                    let err_detail = match e {
-                        EvalError::Signal { symbol, data } => {
-                            let sym_name = super::intern::resolve_sym(*symbol);
-                            let data_strs: Vec<String> =
-                                data.iter().map(|v| format_value_for_error(v)).collect();
-                            format!("({} {})", sym_name, data_strs.join(" "))
-                        }
-                        other => format!("{:?}", other),
-                    };
-                    tracing::error!(
-                        "  !! {file_name} FORM[{i}] FAILED: {} => {}",
-                        print_expr(form).chars().take(120).collect::<String>(),
-                        err_detail
-                    );
-                }
-                eval_result?;
-                working_eval.gc_safe_point();
-
-                // Note: we intentionally do NOT re-check `macroexpand_fn`
-                // mid-file.  Enabling eager expansion mid-file breaks pcase.el
-                // loading: once `\`--pcase-macroexpander` is defined, the re-check
-                // would enable eager expansion for `pcase--expand-\``, but
-                // macroexpand-all needs that very function (circular dependency).
-                // Real Emacs prevents this via `macroexp--pending-eager-loads`;
-                // we simply check once at file start and keep that mode for the
-                // whole file.
-            }
-            Ok(())
         };
 
         if macroexpand_fn.is_some() && isolated_eager_replay_requested() {
@@ -1906,14 +1949,30 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
             working_eval.macro_expansion_cache.clear();
             let working_macroexpand_fn = get_eager_macroexpand_fn(&working_eval)
                 .expect("macroexpand function should exist in cloned evaluator");
-            let working_result = run_forms(
+            // Note: we intentionally do NOT re-check `macroexpand_fn`
+            // mid-file.  Enabling eager expansion mid-file breaks pcase.el
+            // loading: once `\`--pcase-macroexpander` is defined, the re-check
+            // would enable eager expansion for `pcase--expand-\``, but
+            // macroexpand-all needs that very function (circular dependency).
+            // Real Emacs prevents this via `macroexp--pending-eager-loads`;
+            // we simply check once at file start and keep that mode for the
+            // whole file.
+            readevalloop(
                 &mut working_eval,
-                Some(working_macroexpand_fn),
-                &mut expanded_collector,
-            );
+                &file_name,
+                &forms,
+                |working_eval, _i, form| {
+                    let form_value = working_eval.quote_to_runtime_value(form);
+                    eager_expand_eval_and_collect(
+                        working_eval,
+                        form_value,
+                        working_macroexpand_fn,
+                        &mut expanded_collector,
+                    )
+                },
+            )?;
             sync_interner_growth(eval, &working_eval);
             eval.setup_thread_locals();
-            working_result?;
             let replay_forms = std::mem::take(&mut expanded_collector);
             let replay_saved_roots = eval.save_temp_roots();
             let mut replay_opaque_roots = Vec::new();
@@ -1946,21 +2005,24 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
             eval.restore_temp_roots(replay_saved_roots);
             expanded_collector = replay_forms;
         } else if let Some(mexp_fn) = macroexpand_fn {
-            run_forms(eval, Some(mexp_fn), &mut expanded_collector)?;
+            // Note: we intentionally do NOT re-check `macroexpand_fn`
+            // mid-file (see comment in isolated replay path above).
+            readevalloop(eval, &file_name, &forms, |eval, _i, form| {
+                let form_value = eval.quote_to_runtime_value(form);
+                eager_expand_eval_and_collect(
+                    eval,
+                    form_value,
+                    mexp_fn,
+                    &mut expanded_collector,
+                )
+            })?;
         } else {
-            run_forms(eval, None, &mut expanded_collector)?;
+            readevalloop(eval, &file_name, &forms, |eval, _i, form| {
+                eval.eval_expr(form)
+            })?;
         }
 
         // Compute features loaded during macro expansion (side effects).
-        // These must be `require`d during V2 cache replay so expanded forms
-        // that call functions from those features find them defined.
-        // This mirrors how GNU Emacs .elc files include the `require` calls
-        // from the source file — macro expansion loads the packages, and the
-        // compiled output depends on them being available at runtime.
-        // Compute the file's own likely feature name(s) from its basename.
-        // A file "foo-bar.el" typically provides feature `foo-bar`.
-        // We must not add the file's own provides as dependencies — that
-        // would create a circular require during V2 cache replay.
         let file_stem = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -1972,8 +2034,6 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
                 .filter(|f| !features_before.contains(f))
                 .filter(|f| {
                     let name = super::intern::resolve_sym(**f);
-                    // Skip features that match the file's own name — these
-                    // are self-provides, not external dependencies.
                     name != file_stem
                 })
                 .map(|f| super::intern::resolve_sym(*f).to_string())
@@ -1983,15 +2043,6 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
         };
 
         // Prepend best-effort (require 'feature) for expansion dependencies.
-        // Wrap in condition-case to suppress ALL errors — not just file-missing
-        // but also "feature not provided". This is because some features loaded
-        // during macro expansion (like theme support) may not provide their
-        // feature when loaded in a different context.
-        //
-        // IMPORTANT: defvar/defconst forms must run BEFORE dependency requires,
-        // because they set up preconditions (like evil-want-keybinding = nil)
-        // that affect how dependencies load. GNU Emacs evaluates forms
-        // sequentially — the V2 cache must preserve this ordering.
         if !expansion_deps.is_empty() && !expanded_collector.is_empty() {
             let dep_forms: Vec<Expr> = expansion_deps
                 .iter()
@@ -2036,7 +2087,7 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
                 }
                 rest_forms.push(form);
             }
-            // Order: prefix defvar/defconst → dependency requires → rest
+            // Order: prefix defvar/defconst -> dependency requires -> rest
             prefix_forms.extend(dep_forms);
             prefix_forms.append(&mut rest_forms);
             expanded_collector = prefix_forms;
@@ -2062,138 +2113,7 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
 
         // Emacs `load` returns non-nil on success (typically `t`).
         Ok(Value::True)
-    })();
-
-    eval.set_lexical_binding(old_lexical);
-    eval.lexenv = old_lexenv;
-    if let Some(old) = old_load_file {
-        eval.set_variable("load-file-name", old);
-    } else {
-        eval.set_variable("load-file-name", Value::Nil);
-    }
-    eval.restore_temp_roots(saved_roots);
-
-    result
-}
-
-/// Load a `.elc` (GNU Emacs byte-compiled) file.
-///
-/// `.elc` files contain:
-/// 1. A magic header: `;ELC` followed by version bytes and comment lines
-/// 2. A `coding:` cookie in the comments (usually `utf-8-emacs-unix`)
-/// 3. Top-level S-expressions, typically `(byte-code ...)` forms
-///
-/// The parser already handles `.elc`-specific reader syntax:
-/// - `#[...]` → `(byte-code-literal VECTOR)` for compiled function objects
-/// - `#@N<bytes>` → reader skip for inline docstring data blocks
-/// - `#$` → reader object resolved against the current `load-file-name`
-fn load_elc_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
-    let raw_bytes = std::fs::read(path).map_err(|e| EvalError::Signal {
-        symbol: intern("file-error"),
-        data: vec![Value::string(format!(
-            "Cannot read file: {}: {}",
-            path.display(),
-            e
-        ))],
-    })?;
-
-    // Skip the ;ELC magic header.
-    // The header format is: ";ELC" (4 bytes) followed by version bytes,
-    // then comment lines starting with ";" until non-comment content.
-    let content = skip_elc_header(&raw_bytes);
-
-    // Save dynamic loader context
-    let old_lexical = eval.lexical_binding();
-    let old_lexenv = eval.lexenv;
-    let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(old_lexenv);
-    if let Some(ref v) = old_load_file {
-        eval.push_temp_root(*v);
-    }
-
-    // .elc files compiled with lexical-binding will have it in the header comments.
-    // Check the raw bytes for the cookie before we stripped the header.
-    if elc_has_lexical_binding(&raw_bytes) {
-        eval.set_lexical_binding(true);
-        eval.lexenv = Value::list(vec![Value::True]);
-    }
-
-    eval.set_variable(
-        "load-file-name",
-        Value::string(path.to_string_lossy().to_string()),
-    );
-
-    let result = (|| -> Result<Value, EvalError> {
-        // Parse the content as S-expressions using the standard parser.
-        // The parser handles #[...], #@N, #$, etc.
-        let forms = super::parser::parse_forms(&content).map_err(|e| EvalError::Signal {
-            symbol: intern("error"),
-            data: vec![Value::string(format!(
-                "Parse error in {}: {}",
-                path.display(),
-                e
-            ))],
-        })?;
-
-        let file_name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        tracing::info!(
-            "{} parsed {} ELC forms from {} bytes",
-            file_name,
-            forms.len(),
-            content.len()
-        );
-        for (i, raw_form) in forms.iter().enumerate() {
-            let form = eval
-                .reify_byte_code_literals(raw_form)
-                .map_err(crate::emacs_core::error::map_flow)?;
-            tracing::debug!(
-                "{} ELC-FORM[{i}/{}]: {}",
-                file_name,
-                forms.len(),
-                print_expr(&form).chars().take(100).collect::<String>()
-            );
-
-            // Evaluate directly — .elc forms are already compiled, no macro expansion needed.
-            let eval_result = eval.eval_expr(&form);
-            if let Err(ref e) = eval_result {
-                let err_detail = match e {
-                    EvalError::Signal { symbol, data } => {
-                        let sym_name = super::intern::resolve_sym(*symbol);
-                        let data_strs: Vec<String> =
-                            data.iter().map(|v| format_value_for_error(v)).collect();
-                        format!("({} {})", sym_name, data_strs.join(" "))
-                    }
-                    other => format!("{:?}", other),
-                };
-                tracing::error!(
-                    "  !! {file_name} ELC-FORM[{i}] FAILED: {} => {}",
-                    print_expr(&form).chars().take(120).collect::<String>(),
-                    err_detail
-                );
-            }
-            eval_result?;
-            eval.gc_safe_point();
-        }
-
-        record_load_history(eval, path);
-        Ok(Value::True)
-    })();
-
-    eval.set_lexical_binding(old_lexical);
-    eval.lexenv = old_lexenv;
-    if let Some(old) = old_load_file {
-        eval.set_variable("load-file-name", old);
-    } else {
-        eval.set_variable("load-file-name", Value::Nil);
-    }
-    eval.restore_temp_roots(saved_roots);
-
-    result
+    })
 }
 
 /// Skip the `;ELC` magic header in a byte-compiled Elisp file.
