@@ -1,5 +1,13 @@
 use super::{Frame, FrameManager, Window, WindowDisplayState, WindowId};
+use crate::buffer::BufferId;
 use crate::emacs_core::value::{Value, next_float_id};
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WindowBufferDisplayDefaults {
+    pub margins: Option<(usize, usize)>,
+    pub fringes: Option<(Option<i32>, Option<i32>, bool)>,
+    pub scroll_bars: Option<(Option<i32>, Value, Option<i32>, Value)>,
+}
 
 fn symbol_name(value: &Value) -> Option<&str> {
     value.as_symbol_name()
@@ -469,5 +477,72 @@ impl FrameManager {
             display.scroll_bars_persistent = persistent;
         }
         self.window_scroll_bars(window_id) != previous
+    }
+
+    /// Apply the window-owned state changes that GNU performs during
+    /// `set_window_buffer`.
+    pub fn apply_set_window_buffer_state(
+        &mut self,
+        window_id: WindowId,
+        buffer_id: BufferId,
+        window_start: usize,
+        point: usize,
+        preserve_display_state: bool,
+        defaults: WindowBufferDisplayDefaults,
+    ) {
+        let Some(frame_id) = self.find_window_frame_id(window_id) else {
+            return;
+        };
+        let (fringes_persistent, scroll_bars_persistent) = self
+            .get(frame_id)
+            .and_then(|frame| frame.find_window(window_id))
+            .and_then(Window::display)
+            .map(|display| (display.fringes_persistent, display.scroll_bars_persistent))
+            .unwrap_or((false, false));
+
+        if let Some(Window::Leaf {
+            buffer_id: leaf_buffer_id,
+            window_start: leaf_window_start,
+            point: leaf_point,
+            hscroll,
+            vscroll,
+            preserve_vscroll_p,
+            margins,
+            ..
+        }) = self
+            .get_mut(frame_id)
+            .and_then(|frame| frame.find_window_mut(window_id))
+        {
+            *leaf_buffer_id = buffer_id;
+            *leaf_window_start = window_start.max(1);
+            *leaf_point = point.max(1);
+            if !preserve_display_state {
+                *hscroll = 0;
+                *vscroll = 0;
+                *preserve_vscroll_p = false;
+            }
+            if let Some(next_margins) = defaults.margins {
+                *margins = next_margins;
+            }
+        }
+
+        if let Some((left_width, right_width, outside_margins)) = defaults.fringes
+            && !fringes_persistent
+        {
+            let _ =
+                self.set_window_fringes(window_id, left_width, right_width, outside_margins, false);
+        }
+        if let Some((width, vertical_type, height, horizontal_type)) = defaults.scroll_bars
+            && !scroll_bars_persistent
+        {
+            let _ = self.set_window_scroll_bars(
+                window_id,
+                width,
+                vertical_type,
+                height,
+                horizontal_type,
+                false,
+            );
+        }
     }
 }

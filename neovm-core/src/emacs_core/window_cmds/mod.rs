@@ -13,8 +13,8 @@ use super::minibuffer::MinibufferManager;
 use super::value::{Value, list_to_vec, next_float_id, read_cons, with_heap};
 use crate::buffer::{BufferId, BufferManager};
 use crate::window::{
-    FrameId, FrameManager, Rect, SplitDirection, Window, WindowId, window_first_child_id,
-    window_next_sibling_id, window_parent_id, window_prev_sibling_id,
+    FrameId, FrameManager, Rect, SplitDirection, Window, WindowBufferDisplayDefaults, WindowId,
+    window_first_child_id, window_next_sibling_id, window_parent_id, window_prev_sibling_id,
 };
 use std::collections::HashSet;
 
@@ -3786,52 +3786,18 @@ pub(crate) fn builtin_set_window_buffer(
             })
             .unwrap_or((1, 1))
     };
-    let (fringes_persistent, scroll_bars_persistent) = frames
-        .get(fid)
-        .and_then(|frame| frame.find_window(wid))
-        .and_then(Window::display)
-        .map(|display| (display.fringes_persistent, display.scroll_bars_persistent))
-        .unwrap_or((false, false));
-    if let Some(Window::Leaf {
-        buffer_id,
-        window_start,
-        point,
-        hscroll,
-        vscroll,
-        preserve_vscroll_p,
-        margins,
-        ..
-    }) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid))
-    {
-        *buffer_id = buf_id;
-        *window_start = next_window_start.max(1);
-        *point = next_point.max(1);
-        if !(same_buffer && keep_margins) {
-            *hscroll = 0;
-            *vscroll = 0;
-            *preserve_vscroll_p = false;
-        }
-        if let Some(next_margins) = next_margins {
-            *margins = next_margins;
-        }
-    }
-    if let Some((left_width, right_width, outside_margins)) = next_fringes
-        && !fringes_persistent
-    {
-        let _ = frames.set_window_fringes(wid, left_width, right_width, outside_margins, false);
-    }
-    if let Some((width, vertical_type, height, horizontal_type)) = next_scroll_bars
-        && !scroll_bars_persistent
-    {
-        let _ = frames.set_window_scroll_bars(
-            wid,
-            width,
-            vertical_type,
-            height,
-            horizontal_type,
-            false,
-        );
-    }
+    frames.apply_set_window_buffer_state(
+        wid,
+        buf_id,
+        next_window_start,
+        next_point,
+        same_buffer && keep_margins,
+        WindowBufferDisplayDefaults {
+            margins: next_margins,
+            fringes: next_fringes,
+            scroll_bars: next_scroll_bars,
+        },
+    );
     record_buffer_display_in_state(buffers, buf_id)?;
     if selected_window == Some(wid)
         && let Some(buffer) = buffers.get_mut(buf_id)
