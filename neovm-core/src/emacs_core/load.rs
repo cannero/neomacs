@@ -1987,8 +1987,13 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
         // but also "feature not provided". This is because some features loaded
         // during macro expansion (like theme support) may not provide their
         // feature when loaded in a different context.
+        //
+        // IMPORTANT: defvar/defconst forms must run BEFORE dependency requires,
+        // because they set up preconditions (like evil-want-keybinding = nil)
+        // that affect how dependencies load. GNU Emacs evaluates forms
+        // sequentially — the V2 cache must preserve this ordering.
         if !expansion_deps.is_empty() && !expanded_collector.is_empty() {
-            let mut dep_forms: Vec<Expr> = expansion_deps
+            let dep_forms: Vec<Expr> = expansion_deps
                 .iter()
                 .map(|feat| {
                     // (condition-case nil (require 'FEATURE nil t) (error nil))
@@ -2011,8 +2016,30 @@ fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value,
                     ])
                 })
                 .collect();
-            dep_forms.append(&mut expanded_collector);
-            expanded_collector = dep_forms;
+            // Split expanded forms: defvar/defconst first, then deps, then rest.
+            let defvar_id = intern("defvar");
+            let defconst_id = intern("defconst");
+            let mut prefix_forms = Vec::new();
+            let mut rest_forms = Vec::new();
+            let mut past_prefix = false;
+            for form in expanded_collector.drain(..) {
+                if !past_prefix {
+                    if let Expr::List(ref items) = form {
+                        if let Some(Expr::Symbol(sym)) = items.first() {
+                            if *sym == defvar_id || *sym == defconst_id {
+                                prefix_forms.push(form);
+                                continue;
+                            }
+                        }
+                    }
+                    past_prefix = true;
+                }
+                rest_forms.push(form);
+            }
+            // Order: prefix defvar/defconst → dependency requires → rest
+            prefix_forms.extend(dep_forms);
+            prefix_forms.append(&mut rest_forms);
+            expanded_collector = prefix_forms;
         }
 
         // Write V2 expanded cache if we collected forms and none contain OpaqueValues.
