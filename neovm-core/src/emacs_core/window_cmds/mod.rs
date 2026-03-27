@@ -764,6 +764,73 @@ fn is_minibuffer_window(frames: &FrameManager, fid: FrameId, wid: WindowId) -> b
         .is_some_and(|frame| frame.minibuffer_window == Some(wid))
 }
 
+fn filtered_window_prev_buffers(
+    prev_raw: Value,
+    discarded_buffers: &[Value],
+) -> Result<Vec<Value>, Flow> {
+    let prev_entries = list_to_vec(&prev_raw).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), prev_raw],
+        )
+    })?;
+    Ok(prev_entries
+        .into_iter()
+        .filter(|entry| {
+            let Some(items) = list_to_vec(entry) else {
+                return true;
+            };
+            !items
+                .first()
+                .is_some_and(|first| discarded_buffers.iter().any(|buffer| *buffer == *first))
+        })
+        .collect())
+}
+
+fn filtered_window_next_buffers(
+    next_raw: Value,
+    discarded_buffers: &[Value],
+) -> Result<Vec<Value>, Flow> {
+    let next_entries = list_to_vec(&next_raw).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), next_raw],
+        )
+    })?;
+    Ok(next_entries
+        .into_iter()
+        .filter(|entry| !discarded_buffers.iter().any(|buffer| *buffer == *entry))
+        .collect())
+}
+
+fn discard_buffers_from_window_history(
+    frames: &mut FrameManager,
+    wid: WindowId,
+    discarded_buffers: &[Value],
+) -> Result<(), Flow> {
+    let prev = filtered_window_prev_buffers(frames.window_prev_buffers(wid), discarded_buffers)?;
+    frames.set_window_prev_buffers(wid, Value::list(prev));
+    let next = filtered_window_next_buffers(frames.window_next_buffers(wid), discarded_buffers)?;
+    frames.set_window_next_buffers(wid, Value::list(next));
+    Ok(())
+}
+
+fn should_record_window_history_buffer(
+    frames: &FrameManager,
+    minibuffers: &MinibufferManager,
+    buffers: &BufferManager,
+    fid: FrameId,
+    wid: WindowId,
+    buffer_id: BufferId,
+) -> bool {
+    if is_minibuffer_window(frames, fid, wid) {
+        return minibuffers.has_buffer(buffer_id);
+    }
+    buffers
+        .get(buffer_id)
+        .is_some_and(|buffer| !buffer.name.starts_with(' '))
+}
+
 fn window_body_height_lines(frames: &FrameManager, fid: FrameId, wid: WindowId, w: &Window) -> i64 {
     let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
     let lines = window_height_lines(w, ch);
@@ -3384,21 +3451,27 @@ pub(crate) fn builtin_set_window_buffer(
         buffer_id,
         window_start,
         point,
+        dedicated,
         ..
     }) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid))
     {
-        old_state = Some((*buffer_id, *window_start, *point));
+        old_state = Some((*buffer_id, *window_start, *point, *dedicated));
     }
-    if let Some((old_buffer_id, old_window_start, old_point)) = old_state {
+    if let Some((old_buffer_id, old_window_start, old_point, dedicated)) = old_state {
+        if dedicated && old_buffer_id != buf_id {
+            let old_buffer_name = buffers
+                .get(old_buffer_id)
+                .map(|buffer| buffer.name.clone())
+                .unwrap_or_else(|| "*deleted*".to_string());
+            return Err(signal(
+                "error",
+                vec![Value::string(format!(
+                    "Window is dedicated to ‘{old_buffer_name}’"
+                ))],
+            ));
+        }
         frames.set_window_buffer_position(wid, old_buffer_id, old_window_start, old_point);
         if old_buffer_id != buf_id {
-            let prev_raw = frames.window_prev_buffers(wid);
-            let prev_entries = list_to_vec(&prev_raw).ok_or_else(|| {
-                signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("listp"), prev_raw],
-                )
-            })?;
             let old_buffer_value = Value::Buffer(old_buffer_id);
             let new_buffer_value = Value::Buffer(buf_id);
             let marker_buffer_name = buffers.get(old_buffer_id).map(|buf| buf.name.clone());
@@ -3417,24 +3490,19 @@ pub(crate) fn builtin_set_window_buffer(
                     false,
                 ),
             ]);
-            let filtered_prev = prev_entries
-                .into_iter()
-                .filter(|entry| {
-                    let Some(items) = list_to_vec(entry) else {
-                        return true;
-                    };
-                    !matches!(items.first(), Some(first) if *first == old_buffer_value || *first == new_buffer_value)
-                })
-                .collect::<Vec<_>>();
+            let filtered_prev = filtered_window_prev_buffers(
+                frames.window_prev_buffers(wid),
+                &[old_buffer_value, new_buffer_value],
+            )?;
             frames.set_window_next_buffers(wid, Value::Nil);
-            let should_record_old_buffer = if is_minibuffer_window(frames, fid, wid) {
-                minibuffers.has_buffer(old_buffer_id)
-            } else {
-                marker_buffer_name
-                    .as_deref()
-                    .is_some_and(|name| !name.starts_with(' '))
-            };
-            if should_record_old_buffer {
+            if should_record_window_history_buffer(
+                frames,
+                minibuffers,
+                buffers,
+                fid,
+                wid,
+                old_buffer_id,
+            ) {
                 let mut next_prev = Vec::with_capacity(filtered_prev.len() + 1);
                 next_prev.push(history_entry);
                 next_prev.extend(filtered_prev);
@@ -3442,6 +3510,8 @@ pub(crate) fn builtin_set_window_buffer(
             } else {
                 frames.set_window_prev_buffers(wid, Value::list(filtered_prev));
             }
+        } else {
+            discard_buffers_from_window_history(frames, wid, &[Value::Buffer(buf_id)])?;
         }
     }
 

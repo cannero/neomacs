@@ -131,6 +131,53 @@ fn compat_window_semantics_matches_gnu_emacs() {
       (when (buffer-live-p b2) (kill-buffer b2)))))"#,
         },
         WindowCase {
+            name: "set_window_buffer_discards_current_buffer_from_history",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((w (selected-window))
+         (current (window-buffer w))
+         (other (get-buffer-create "swb-current-clean")))
+    (unwind-protect
+        (progn
+          (with-current-buffer current
+            (erase-buffer)
+            (insert "current-history"))
+          (with-current-buffer other
+            (erase-buffer)
+            (insert "other-history"))
+          (set-window-prev-buffers
+           w
+           (list
+            (list current
+                  (with-current-buffer current (copy-marker 3))
+                  (with-current-buffer current (copy-marker 5)))
+            (list other
+                  (with-current-buffer other (copy-marker 2))
+                  (with-current-buffer other (copy-marker 4)))))
+          (set-window-next-buffers w (list current other))
+          (set-window-buffer w current)
+          (list
+           (mapcar (lambda (e) (buffer-name (car e))) (window-prev-buffers w))
+           (mapcar #'buffer-name (window-next-buffers w))))
+      (when (buffer-live-p other) (kill-buffer other)))))"#,
+        },
+        WindowCase {
+            name: "set_window_buffer_respects_strong_dedication",
+            form: r#"(save-window-excursion
+  (let* ((w (selected-window))
+         (b (get-buffer-create "swb-dedicated")))
+    (unwind-protect
+        (progn
+          (set-window-dedicated-p w t)
+          (condition-case err
+              (progn
+                (set-window-buffer w b)
+                'no-error)
+            (error (list (car err) (cadr err)))))
+      (set-window-dedicated-p w nil)
+      (when (buffer-live-p b) (kill-buffer b)))))"#,
+        },
+        WindowCase {
             name: "other_window_cycles_across_split_windows",
             form: r#"(save-window-excursion
   (delete-other-windows)
