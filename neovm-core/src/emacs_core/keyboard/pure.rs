@@ -188,10 +188,14 @@ pub(crate) fn describe_single_key_value(value: &Value, no_angles: bool) -> Resul
         Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         Value::Cons(_) => {
             let items = list_to_vec(value).ok_or_else(invalid_single_key_error)?;
-            if items.len() != 1 {
-                return Err(invalid_single_key_error());
+            if items.len() == 1 {
+                return describe_single_key_value(&items[0], no_angles);
             }
-            describe_single_key_value(&items[0], no_angles)
+            // Lucid-style event list, e.g. (meta shift up) — convert first
+            if let Some(converted) = convert_lucid_event_list(&items) {
+                return describe_single_key_value(&converted, no_angles);
+            }
+            Err(invalid_single_key_error())
         }
         _ => Err(invalid_single_key_error()),
     }
@@ -204,7 +208,26 @@ pub(crate) fn key_sequence_values(value: &Value) -> Result<Vec<Value>, Flow> {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             Ok(s.chars().map(|ch| Value::Int(ch as i64)).collect())
         }
-        Value::Vector(v) => Ok(with_heap(|h| h.get_vector(*v).clone())),
+        Value::Vector(v) => {
+            let elems = with_heap(|h| h.get_vector(*v).clone());
+            // Convert any Lucid-style event lists inside the vector
+            let converted: Vec<Value> = elems
+                .into_iter()
+                .map(|e| {
+                    if let Value::Cons(_) = &e {
+                        if let Some(items) = list_to_vec(&e) {
+                            if items.len() > 1 {
+                                if let Some(c) = convert_lucid_event_list(&items) {
+                                    return c;
+                                }
+                            }
+                        }
+                    }
+                    e
+                })
+                .collect();
+            Ok(converted)
+        }
         Value::Cons(_) => list_to_vec(value).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
@@ -242,6 +265,82 @@ pub(crate) fn event_modifier_bit(symbol: &str) -> Option<i64> {
         "super" => Some(KEY_CHAR_SUPER),
         "hyper" => Some(KEY_CHAR_HYPER),
         "alt" => Some(KEY_CHAR_ALT),
+        _ => None,
+    }
+}
+
+/// Convert a Lucid-style event list (e.g. `(meta shift up)`) to a single
+/// event value.  Returns `None` when the list is not a valid Lucid event
+/// (i.e. it contains non-modifier, non-base elements, or has no base).
+/// This mirrors GNU Emacs `Fevent_convert_list` (keyboard.c).
+pub(crate) fn convert_lucid_event_list(items: &[Value]) -> Option<Value> {
+    if items.is_empty() {
+        return None;
+    }
+    if items.len() == 1 {
+        return Some(items[0]);
+    }
+
+    let mut mod_bits = 0i64;
+    let mut base: Option<Value> = None;
+    for item in items {
+        if base.is_none() {
+            if let Some(sym) = item.as_symbol_name() {
+                if let Some(bit) = event_modifier_bit(sym) {
+                    mod_bits |= bit;
+                    continue;
+                }
+            }
+            base = Some(*item);
+        } else {
+            // More than one non-modifier element — not a valid Lucid list
+            return None;
+        }
+    }
+
+    let base = base?;
+
+    match base {
+        Value::Int(_) | Value::Char(_) => {
+            let mut code = match base {
+                Value::Int(i) => i,
+                Value::Char(c) => c as i64,
+                _ => unreachable!(),
+            };
+
+            let ctrl = (mod_bits & KEY_CHAR_CTRL) != 0;
+            let shift = (mod_bits & KEY_CHAR_SHIFT) != 0;
+
+            if shift && !ctrl && (97..=122).contains(&code) {
+                code -= 32;
+                mod_bits &= !KEY_CHAR_SHIFT;
+            }
+            if ctrl && code <= 31 {
+                mod_bits &= !KEY_CHAR_CTRL;
+            }
+            if ctrl && code != 32 && code != 63 {
+                if let Some(resolved) = resolve_control_code(code) {
+                    if (65..=90).contains(&code) {
+                        mod_bits |= KEY_CHAR_SHIFT;
+                    }
+                    code = resolved;
+                    mod_bits &= !KEY_CHAR_CTRL;
+                }
+            }
+            Some(Value::Int(code | mod_bits))
+        }
+        Value::Symbol(id) => {
+            let name = resolve_sym(id);
+            if mod_bits == 0 {
+                Some(Value::symbol(name))
+            } else {
+                Some(Value::symbol(format!(
+                    "{}{}",
+                    event_modifier_prefix(mod_bits),
+                    name
+                )))
+            }
+        }
         _ => None,
     }
 }

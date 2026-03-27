@@ -2824,9 +2824,9 @@ fn key_binding_lookup_in_keymap_in_obarray(
         // Intermediate event — must resolve to a prefix keymap.
         if is_list_keymap(&binding) {
             current_map = binding;
-        } else if let Some(sym_name) = binding.as_symbol_name() {
+        } else if binding.as_symbol_name().is_some() {
             // Resolve symbol function cell to a keymap
-            if let Some(func) = obarray.symbol_function(sym_name).copied() {
+            if let Some(func) = obarray.symbol_function_of_value(&binding).copied() {
                 if is_list_keymap(&func) {
                     current_map = func;
                     continue;
@@ -3012,10 +3012,12 @@ fn lookup_minor_mode_binding_in_alist_in_state(
         // Resolve the keymap value - could be a keymap directly or a symbol
         let keymap = if is_list_keymap(&map_value) {
             map_value
-        } else if let Some(sym_name) = map_value.as_symbol_name() {
-            match obarray.symbol_value(sym_name).copied() {
+        } else if map_value.as_symbol_name().is_some() {
+            // Note: symbol_value still uses name (value cells aren't affected
+            // by the interned/uninterned distinction the same way).
+            match map_value.as_symbol_name().and_then(|n| obarray.symbol_value(n).copied()) {
                 Some(v) if is_list_keymap(&v) => v,
-                _ => match obarray.symbol_function(sym_name).copied() {
+                _ => match obarray.symbol_function_of_value(&map_value).copied() {
                     Some(v) if is_list_keymap(&v) => v,
                     _ => {
                         return Err(signal(

@@ -19,9 +19,10 @@ pub(crate) fn expect_keymap_in_obarray(obarray: &Obarray, value: &Value) -> Resu
     if is_list_keymap(value) {
         return Ok(*value);
     }
-    // Check if it's a symbol whose function cell is a keymap
-    if let Some(sym_name) = value.as_symbol_name() {
-        if let Some(func) = obarray.symbol_function(sym_name).copied() {
+    // Check if it's a symbol whose function cell is a keymap.
+    // Use symbol_function_of_value to handle uninterned symbols correctly.
+    if value.as_symbol_name().is_some() {
+        if let Some(func) = obarray.symbol_function_of_value(value).copied() {
             if is_list_keymap(&func) {
                 return Ok(func);
             }
@@ -289,9 +290,9 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
     // Check if first arg is a list of keymaps (a cons whose car is itself a keymap).
     let keymaps: Vec<Value> = if is_list_keymap(&args[0]) {
         vec![args[0]]
-    } else if let Some(sym_name) = args[0].as_symbol_name() {
+    } else if args[0].as_symbol_name().is_some() {
         // Symbol whose function cell is a keymap
-        if let Some(func) = obarray.symbol_function(sym_name).copied() {
+        if let Some(func) = obarray.symbol_function_of_value(&args[0]).copied() {
             if is_list_keymap(&func) {
                 vec![func]
             } else {
@@ -312,11 +313,10 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
             if !items.is_empty()
                 && items.iter().all(|v| {
                     is_list_keymap(v)
-                        || v.as_symbol_name().is_some_and(|n| {
-                            obarray
-                                .symbol_function(n)
+                        || v.as_symbol_name().is_some()
+                            && obarray
+                                .symbol_function_of_value(v)
                                 .is_some_and(|f| is_list_keymap(f))
-                        })
                 })
             {
                 // It's a list of keymaps — resolve each one
@@ -325,8 +325,8 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
                     .map(|v| {
                         if is_list_keymap(v) {
                             *v
-                        } else if let Some(sym_name) = v.as_symbol_name() {
-                            obarray.symbol_function(sym_name).copied().unwrap_or(*v)
+                        } else if v.as_symbol_name().is_some() {
+                            obarray.symbol_function_of_value(v).copied().unwrap_or(*v)
                         } else {
                             *v
                         }
@@ -407,8 +407,8 @@ fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value], t_
             current_map = binding;
             continue;
         }
-        if let Some(sym_name) = binding.as_symbol_name() {
-            if let Some(func) = obarray.symbol_function(sym_name).copied() {
+        if binding.as_symbol_name().is_some() {
+            if let Some(func) = obarray.symbol_function_of_value(&binding).copied() {
                 if is_list_keymap(&func) {
                     current_map = func;
                     continue;
@@ -686,9 +686,9 @@ fn collect_maps_from_alist_in_state(
         // Resolve indirect keymaps (symbol → its function definition).
         let resolved = if is_list_keymap(&keymap_val) {
             keymap_val
-        } else if let Some(sym_name) = keymap_val.as_symbol_name() {
+        } else if keymap_val.as_symbol_name().is_some() {
             obarray
-                .symbol_function(sym_name)
+                .symbol_function_of_value(&keymap_val)
                 .cloned()
                 .filter(|v| is_list_keymap(v))
                 .unwrap_or(Value::Nil)
@@ -876,10 +876,11 @@ pub(crate) fn builtin_keymapp_impl(obarray: &Obarray, args: &[Value]) -> EvalRes
     if is_list_keymap(&args[0]) {
         return Ok(Value::True);
     }
-    // Check if it's a symbol whose function cell is a keymap
-    if let Some(sym_name) = args[0].as_symbol_name() {
-        if let Some(func) = obarray.symbol_function(sym_name) {
-            if is_list_keymap(&func) {
+    // Check if it's a symbol whose function cell is a keymap.
+    // Use symbol_function_of_value to handle uninterned symbols correctly.
+    if args[0].as_symbol_name().is_some() {
+        if let Some(func) = obarray.symbol_function_of_value(&args[0]) {
+            if is_list_keymap(func) {
                 return Ok(Value::True);
             }
         }

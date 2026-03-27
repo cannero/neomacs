@@ -709,9 +709,10 @@ fn resolve_prefix_keymap_binding_in_obarray(obarray: &Obarray, binding: &Value) 
     if is_list_keymap(binding) {
         return Some(*binding);
     }
-    let sym_name = binding.as_symbol_name()?;
+    // Use symbol_function_of_value to handle uninterned symbols correctly.
+    binding.as_symbol_name()?; // verify it's a symbol
     obarray
-        .symbol_function(sym_name)
+        .symbol_function_of_value(binding)
         .copied()
         .filter(is_list_keymap)
 }

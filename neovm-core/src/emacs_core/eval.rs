@@ -3787,9 +3787,9 @@ impl Context {
             // Check if binding is a keymap (prefix key) — need more keys
             let is_prefix = if is_list_keymap(&binding) {
                 true
-            } else if let Some(sym_name) = binding.as_symbol_name() {
+            } else if binding.as_symbol_name().is_some() {
                 self.obarray
-                    .symbol_function(sym_name)
+                    .symbol_function_of_value(&binding)
                     .copied()
                     .is_some_and(|f| is_list_keymap(&f))
             } else {

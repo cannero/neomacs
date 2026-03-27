@@ -280,6 +280,19 @@ impl Obarray {
         self.symbols.get(&id).and_then(|s| s.function.as_ref())
     }
 
+    /// Get the function cell of a symbol from its Value representation.
+    /// Uses the SymId directly, which works correctly for both interned
+    /// and uninterned symbols (unlike `symbol_function(name)` which
+    /// re-interns the name and would miss uninterned symbol function cells).
+    pub fn symbol_function_of_value(&self, value: &Value) -> Option<&Value> {
+        match value {
+            Value::Symbol(id) | Value::Keyword(id) => self.symbol_function_id(*id),
+            Value::Nil => self.symbol_function("nil"),
+            Value::True => self.symbol_function("t"),
+            _ => None,
+        }
+    }
+
     /// Set the function cell of a symbol (fset). Interns if needed.
     pub fn set_symbol_function(&mut self, name: &str, function: Value) {
         let id = intern(name);
