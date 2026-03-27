@@ -1869,6 +1869,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         save_modified_tick,
         autosave_modified_tick,
         last_window_start,
+        last_selected_window: None,
         read_only: db.read_only,
         multibyte: db.multibyte,
         file_name: db.file_name.clone(),

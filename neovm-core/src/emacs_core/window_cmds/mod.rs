@@ -3242,6 +3242,7 @@ pub(crate) fn builtin_delete_window(
     if let Some(buffer_id) = selected_buffer {
         buffers.set_current(buffer_id);
     }
+    note_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Nil)
 }
 /// `(delete-other-windows &optional WINDOW)` -> nil.
@@ -3274,6 +3275,7 @@ pub(crate) fn builtin_delete_other_windows(
     if let Some(buffer_id) = selected_buffer {
         buffers.set_current(buffer_id);
     }
+    note_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Nil)
 }
 /// `(delete-window-internal WINDOW)` -> nil.
@@ -3412,6 +3414,50 @@ fn sync_selected_window_buffer_in_state(
     }
 }
 
+fn selected_window_buffer_state_in_frame(
+    frames: &FrameManager,
+    fid: FrameId,
+) -> Option<(WindowId, BufferId)> {
+    let frame = frames.get(fid)?;
+    let selected_wid = frame.selected_window;
+    let buffer_id = frame.find_window(selected_wid)?.buffer_id()?;
+    Some((selected_wid, buffer_id))
+}
+
+fn note_selected_window_buffer_in_state(
+    frames: &FrameManager,
+    buffers: &mut BufferManager,
+    fid: FrameId,
+) {
+    let Some((selected_wid, buffer_id)) = selected_window_buffer_state_in_frame(frames, fid) else {
+        return;
+    };
+    if let Some(buffer) = buffers.get_mut(buffer_id) {
+        buffer.last_selected_window = Some(selected_wid);
+    }
+}
+
+fn record_buffer_display_in_state(buffers: &mut BufferManager, buffer_id: BufferId) -> EvalResult {
+    let display_time = super::timefns::builtin_current_time(vec![])?;
+    let Some(buffer) = buffers.get_mut(buffer_id) else {
+        return Ok(Value::Nil);
+    };
+    if let Some(Value::Int(count)) = buffer.buffer_local_value("buffer-display-count") {
+        buffer.set_buffer_local("buffer-display-count", Value::Int(count.saturating_add(1)));
+    }
+    buffer.set_buffer_local("buffer-display-time", display_time);
+    Ok(Value::Nil)
+}
+
+fn window_displays_buffer(frames: &FrameManager, window_id: WindowId, buffer_id: BufferId) -> bool {
+    frames
+        .find_window_frame_id(window_id)
+        .and_then(|frame_id| frames.get(frame_id))
+        .and_then(|frame| frame.find_window(window_id))
+        .and_then(Window::buffer_id)
+        == Some(buffer_id)
+}
+
 /// `(select-window WINDOW &optional NORECORD)` -> WINDOW.
 pub(crate) fn builtin_select_window(
     eval: &mut super::eval::Context,
@@ -3447,6 +3493,7 @@ pub(crate) fn builtin_select_window(
         let _ = frames.note_window_selected(wid);
     }
     sync_selected_window_buffer_in_state(frames, buffers, fid);
+    note_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(window_value(wid))
 }
 /// `(other-window COUNT &optional ALL-FRAMES)` -> nil.
@@ -3487,6 +3534,7 @@ pub(crate) fn builtin_other_window(
         let _ = frames.note_window_selected(new_wid);
     };
     sync_selected_window_buffer_in_state(frames, buffers, fid);
+    note_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Nil)
 }
 /// `(other-window-for-scrolling)` -> window object used for scrolling.
@@ -3662,10 +3710,22 @@ pub(crate) fn builtin_set_window_buffer(
             .get(selected_fid)
             .and_then(|frame| frame.find_window(frame.selected_window))
             .and_then(Window::buffer_id);
-        if selected_buffer_id != Some(old_buffer_id)
-            && let Some(buffer) = buffers.get_mut(old_buffer_id)
-        {
+        let old_buffer_last_selected_window = buffers
+            .get(old_buffer_id)
+            .and_then(|buffer| buffer.last_selected_window);
+        let preserve_old_buffer_point = selected_buffer_id == Some(old_buffer_id)
+            || old_buffer_last_selected_window.is_some_and(|last_selected_window| {
+                last_selected_window != wid
+                    && window_displays_buffer(frames, last_selected_window, old_buffer_id)
+            });
+        if !preserve_old_buffer_point && let Some(buffer) = buffers.get_mut(old_buffer_id) {
             buffer.goto_char(old_point.saturating_sub(1));
+        }
+        if old_buffer_id != buf_id
+            && let Some(buffer) = buffers.get_mut(old_buffer_id)
+            && buffer.last_selected_window == Some(wid)
+        {
+            buffer.last_selected_window = None;
         }
         if old_buffer_id != buf_id {
             let old_buffer_value = Value::Buffer(old_buffer_id);
@@ -3769,6 +3829,12 @@ pub(crate) fn builtin_set_window_buffer(
             horizontal_type,
             false,
         );
+    }
+    record_buffer_display_in_state(buffers, buf_id)?;
+    if selected_window == Some(wid)
+        && let Some(buffer) = buffers.get_mut(buf_id)
+    {
+        buffer.last_selected_window = Some(wid);
     }
     Ok(Value::Nil)
 }

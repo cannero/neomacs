@@ -316,6 +316,75 @@ fn compat_window_semantics_matches_gnu_emacs() {
       (when (buffer-live-p b) (kill-buffer b)))))"#,
         },
         WindowCase {
+            name: "set_window_buffer_updates_buffer_display_bookkeeping",
+            form: r#"(save-window-excursion
+  (let* ((w (selected-window))
+         (b (get-buffer-create "swb-display-meta")))
+    (unwind-protect
+        (progn
+          (with-current-buffer b
+            (setq-local buffer-display-count 0)
+            (setq-local buffer-display-time nil))
+          (list
+           (with-current-buffer b
+             (list buffer-display-count buffer-display-time))
+           (progn
+             (set-window-buffer w b)
+             (with-current-buffer b
+               (list buffer-display-count
+                     (consp buffer-display-time)
+                     (= (length buffer-display-time) 4)
+                     (mapcar #'integerp buffer-display-time))))
+           (progn
+             (set-window-buffer w b)
+             (with-current-buffer b
+               (list buffer-display-count
+                     (consp buffer-display-time)
+                     (= (length buffer-display-time) 4)
+                     (mapcar #'integerp buffer-display-time))))))
+      (when (buffer-live-p b) (kill-buffer b)))))"#,
+        },
+        WindowCase {
+            name: "set_window_buffer_preserves_point_of_other_last_selected_window",
+            form: r#"(save-window-excursion
+  (delete-other-windows)
+  (let* ((w1 (selected-window))
+         (w2 (split-window nil nil 'right))
+         (w3 (split-window w2 nil 'below))
+         (b (get-buffer-create "swb-last-selected"))
+         (c (get-buffer-create "swb-last-selected-other"))
+         (d (get-buffer-create "swb-last-selected-replace")))
+    (unwind-protect
+        (progn
+          (with-current-buffer b
+            (erase-buffer)
+            (insert (make-string 400 ?x))
+            (goto-char 10))
+          (with-current-buffer c
+            (erase-buffer)
+            (insert (make-string 40 ?c)))
+          (with-current-buffer d
+            (erase-buffer)
+            (insert (make-string 40 ?d)))
+          (set-window-buffer w1 b)
+          (set-window-buffer w2 b)
+          (set-window-buffer w3 c)
+          (set-window-point w1 17)
+          (set-window-point w2 91)
+          (select-window w2)
+          (select-window w3)
+          (set-window-buffer w1 d)
+          (list
+           (with-current-buffer b (point))
+           (window-point w2)
+           (buffer-name (window-buffer w1))
+           (buffer-name (window-buffer w2))
+           (buffer-name (window-buffer w3))))
+      (when (buffer-live-p b) (kill-buffer b))
+      (when (buffer-live-p c) (kill-buffer c))
+      (when (buffer-live-p d) (kill-buffer d)))))"#,
+        },
+        WindowCase {
             name: "other_window_cycles_across_split_windows",
             form: r#"(save-window-excursion
   (delete-other-windows)

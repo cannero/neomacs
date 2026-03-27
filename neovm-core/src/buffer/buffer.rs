@@ -13,6 +13,7 @@ use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::{RuntimeBindingValue, Value};
 use crate::gc::GcTrace;
+use crate::window::WindowId;
 
 // ---------------------------------------------------------------------------
 // BufferId
@@ -137,6 +138,9 @@ pub struct Buffer {
     /// GNU `last_window_start`: start position of the most recently
     /// disconnected window that showed this buffer.
     pub last_window_start: usize,
+    /// GNU `last_selected_window`: most recently selected live window showing
+    /// this buffer, when known.
+    pub last_selected_window: Option<WindowId>,
     /// If true, insertions/deletions are forbidden.
     pub read_only: bool,
     /// Multi-byte encoding flag.  Always `true` for now.
@@ -174,6 +178,8 @@ impl Buffer {
             "buffer-file-name",
             "buffer-file-truename",
             "buffer-auto-save-file-name",
+            "buffer-display-count",
+            "buffer-display-time",
             "buffer-invisibility-spec",
             "buffer-undo-list",
             "major-mode",
@@ -208,6 +214,14 @@ impl Buffer {
         );
         properties.insert(
             "buffer-auto-save-file-name".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "buffer-display-count".to_string(),
+            RuntimeBindingValue::Bound(Value::Int(0)),
+        );
+        properties.insert(
+            "buffer-display-time".to_string(),
             RuntimeBindingValue::Bound(Value::Nil),
         );
         properties.insert(
@@ -292,6 +306,7 @@ impl Buffer {
             save_modified_tick: 1,
             autosave_modified_tick: 1,
             last_window_start: 1,
+            last_selected_window: None,
             read_only: false,
             multibyte: true,
             file_name: None,
@@ -2777,6 +2792,14 @@ mod tests {
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
+            Some(Value::Nil)
+        );
+        assert_eq!(
+            buf.buffer_local_value("buffer-display-count"),
+            Some(Value::Int(0))
+        );
+        assert_eq!(
+            buf.buffer_local_value("buffer-display-time"),
             Some(Value::Nil)
         );
         assert_eq!(
