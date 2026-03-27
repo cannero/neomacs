@@ -445,29 +445,6 @@ pub(crate) fn builtin_base64_decode_region(
 // Hash / digest builtins
 // ---------------------------------------------------------------------------
 
-/// (md5 OBJECT &optional START END CODING-SYSTEM NOERROR)
-///
-/// Pure fallback used when evaluator access is unavailable.
-/// Supports string objects and Emacs-compatible range/error semantics.
-pub(crate) fn builtin_md5_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("md5", &args, 1, 5)?;
-    validate_md5_coding_system_arg(&args)?;
-    let object = &args[0];
-    match object {
-        Value::Str(_) => Ok(Value::string(md5_hex_for_string(
-            object,
-            args.get(1),
-            args.get(2),
-        )?)),
-        other => Err(signal(
-            "error",
-            vec![
-                Value::string("Invalid object argument"),
-                invalid_object_payload(other),
-            ],
-        )),
-    }
-}
 
 /// (md5 OBJECT &optional START END CODING-SYSTEM NOERROR)
 ///
@@ -805,35 +782,6 @@ fn secure_hash_digest_bytes(algo_name: &str, input: &str) -> Result<Vec<u8>, Flo
     Ok(digest)
 }
 
-/// (secure-hash ALGORITHM OBJECT &optional START END BINARY)
-/// Returns a digest string for supported hash algorithms.
-pub(crate) fn builtin_secure_hash_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("secure-hash", &args, 2, 5)?;
-    let algo_name = secure_hash_algorithm_name(&args[0])?;
-
-    let object = &args[1];
-    let input = match object {
-        Value::Str(_) => hash_slice_for_string(object, args.get(2), args.get(3))?,
-        other => {
-            return Err(signal(
-                "error",
-                vec![
-                    Value::string("Invalid object argument"),
-                    invalid_object_payload(other),
-                ],
-            ));
-        }
-    };
-
-    let digest = secure_hash_digest_bytes(&algo_name, &input)?;
-
-    let binary = args.get(4).is_some_and(|v| v.is_truthy());
-    if binary {
-        Ok(Value::string(bytes_to_lisp_binary_string(&digest)))
-    } else {
-        Ok(Value::string(bytes_to_hex(&digest)))
-    }
-}
 
 /// (secure-hash ALGORITHM OBJECT &optional START END BINARY)
 ///

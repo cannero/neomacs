@@ -212,35 +212,8 @@ pub(crate) fn builtin_case_table_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(is_case_table(&args[0])))
 }
 
-/// `(current-case-table)` -- return the current case table.
-///
-/// Pure fallback returns the standard case table object.
-pub(crate) fn builtin_current_case_table_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("current-case-table", &args, 0)?;
-    ensure_standard_case_table_object()
-}
 
-/// `(standard-case-table)` -- return the standard case table.
-///
-/// Returns the process-wide standard case table object.
-pub(crate) fn builtin_standard_case_table_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("standard-case-table", &args, 0)?;
-    ensure_standard_case_table_object()
-}
 
-/// `(set-case-table TABLE)` -- set the current case table.
-///
-/// Pure fallback: validate TABLE and return it.
-pub(crate) fn builtin_set_case_table_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("set-case-table", &args, 1)?;
-    if !is_case_table(&args[0]) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("case-table-p"), args[0]],
-        ));
-    }
-    Ok(args[0])
-}
 
 /// `(set-standard-case-table TABLE)` -- set the standard case table.
 ///

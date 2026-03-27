@@ -10607,23 +10607,6 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-/// `(documentation-property SYMBOL PROP &optional RAW)` -- return the
-/// documentation property PROP of SYMBOL.
-///
-/// Stub implementation: always returns nil.  In real Emacs this reads
-/// properties like `variable-documentation` and `function-documentation`
-/// from the symbol's plist, potentially loading from the DOC file.
-pub(crate) fn builtin_documentation_property_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_max_args("documentation-property", &args, 2, 3)?;
-    // Validate that the first argument is a symbol.
-    if args[0].as_symbol_name().is_none() {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        ));
-    }
-    Ok(Value::Nil)
-}
 
 /// `(Snarf-documentation FILENAME)` -- load documentation strings from
 /// the internal DOC file.

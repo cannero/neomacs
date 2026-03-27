@@ -70,15 +70,6 @@ fn expect_list_like(value: &Value) -> Result<(), Flow> {
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-/// (undo-boundary) -> nil
-///
-/// Insert an undo boundary marker in the current buffer's undo list.
-/// This separates consecutive edits into distinct undoable actions.
-///
-pub(crate) fn builtin_undo_boundary_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("undo-boundary", &args, 0)?;
-    Ok(Value::Nil)
-}
 
 /// (undo-boundary) -> nil
 ///

@@ -257,22 +257,6 @@ pub(crate) fn builtin_ding(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// (send-string-to-terminal STRING &optional TERMINAL) -> nil
-pub(crate) fn builtin_send_string_to_terminal_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("send-string-to-terminal", &args, 1, 2)?;
-    match &args[0] {
-        Value::Str(_) => {
-            if let Some(terminal) = args.get(1) {
-                expect_terminal_designator(terminal)?;
-            }
-            Ok(Value::Nil)
-        }
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
-        )),
-    }
-}
 
 /// Context-aware variant of `send-string-to-terminal`.
 ///
@@ -296,13 +280,6 @@ pub(crate) fn builtin_send_string_to_terminal(
     }
 }
 
-/// (internal-show-cursor WINDOW SHOW) -> nil
-pub(crate) fn builtin_internal_show_cursor_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("internal-show-cursor", &args, 2)?;
-    expect_window_designator(&args[0])?;
-    CURSOR_VISIBLE.with(|slot| slot.set(!args[1].is_nil()));
-    Ok(Value::Nil)
-}
 
 /// Context-aware variant of `internal-show-cursor`.
 ///
@@ -322,14 +299,6 @@ pub(crate) fn builtin_internal_show_cursor(
     Ok(Value::Nil)
 }
 
-/// (internal-show-cursor-p &optional WINDOW) -> t/nil
-pub(crate) fn builtin_internal_show_cursor_p_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("internal-show-cursor-p", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_designator(window)?;
-    }
-    Ok(Value::bool(CURSOR_VISIBLE.with(|slot| slot.get())))
-}
 
 /// Context-aware variant of `internal-show-cursor-p`.
 ///

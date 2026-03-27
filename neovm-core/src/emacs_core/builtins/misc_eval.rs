@@ -1153,16 +1153,7 @@ pub(crate) fn prin1_to_string_value_in_state(
     }
 }
 
-pub(crate) fn builtin_princ_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("princ", &args, 1)?;
-    // In real Emacs this prints to standard output; here just return the value
-    Ok(args[0])
-}
 
-pub(crate) fn builtin_prin1_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("prin1", &args, 1)?;
-    Ok(args[0])
-}
 
 pub(crate) fn builtin_princ(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("princ", &args, 1)?;
@@ -1221,11 +1212,6 @@ pub(crate) fn builtin_prin1_impl(
     Ok(args[0])
 }
 
-pub(crate) fn builtin_prin1_to_string_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("prin1-to-string", &args, 1)?;
-    let noescape = args.get(1).is_some_and(|v| v.is_truthy());
-    Ok(Value::string(prin1_to_string_value(&args[0], noescape)))
-}
 
 pub(crate) fn builtin_prin1_to_string(
     eval: &mut super::eval::Context,
@@ -1245,15 +1231,7 @@ pub(crate) fn builtin_prin1_to_string_impl(
     )))
 }
 
-pub(crate) fn builtin_print_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("print", &args, 1)?;
-    Ok(args[0])
-}
 
-pub(crate) fn builtin_terpri_inner(args: Vec<Value>) -> EvalResult {
-    expect_max_args("terpri", &args, 2)?;
-    Ok(Value::True)
-}
 
 pub(crate) fn builtin_print(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("print", &args, 1)?;
@@ -1493,11 +1471,6 @@ pub(crate) fn builtin_current_cpu_time(args: Vec<Value>) -> EvalResult {
     Ok(Value::cons(Value::Int(ticks), Value::Int(1_000_000)))
 }
 
-pub(crate) fn builtin_current_idle_time_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("current-idle-time", &args, 0)?;
-    // Batch mode does not track UI idle duration; Oracle returns nil here.
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_current_idle_time(
     eval: &mut crate::emacs_core::eval::Context,

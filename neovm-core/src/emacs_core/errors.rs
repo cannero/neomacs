@@ -479,37 +479,6 @@ fn extract_parent_symbols(value: &Value) -> Result<Vec<String>, Flow> {
 // Builtins: signal wrapper and error-message-string
 // ---------------------------------------------------------------------------
 
-/// `(signal ERROR-SYMBOL DATA)` — signal an error.
-///
-/// This is a wrapper that can be registered as a builtin.  It extracts the
-/// error symbol name and signals with the provided data.
-pub(crate) fn builtin_signal_inner(args: Vec<Value>) -> EvalResult {
-    if args.len() != 2 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("signal"), Value::Int(args.len() as i64)],
-        ));
-    }
-
-    let sym_name = match args[0].as_symbol_name() {
-        Some(name) => name.to_string(),
-        None => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), args[0]],
-            ));
-        }
-    };
-
-    // DATA should be a list — extract its elements.
-    let data = match &args[1] {
-        Value::Nil => vec![],
-        Value::Cons(_) => list_to_vec(&args[1]).unwrap_or_else(|| vec![args[1]]),
-        other => vec![*other],
-    };
-
-    Err(signal(&sym_name, data))
-}
 
 /// Eval-aware `signal` — checks error hierarchy and converts
 /// unregistered error symbols to `(error "Invalid error symbol" SYM)`,

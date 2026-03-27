@@ -247,50 +247,7 @@ fn flatten_match_data(md: &super::regex::MatchData) -> Value {
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-/// `(string-match REGEXP STRING &optional START)` -- search for REGEXP in
-/// STRING starting at START (default 0).  Returns the index of the match
-/// or nil.  Updates match data.
-pub(crate) fn builtin_string_match_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("string-match", &args, 2, 4)?;
-    let pattern = expect_string(&args[0])?;
-    let s = expect_string(&args[1])?;
-    let start = normalize_string_start_arg(&s, args.get(2))?;
-    let inhibit_modify = args.get(3).is_some_and(|v| v.is_truthy());
 
-    if inhibit_modify {
-        let mut throwaway = None;
-        return match super::regex::string_match_full(&pattern, &s, start, &mut throwaway) {
-            Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-            Ok(None) => Ok(Value::Nil),
-            Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
-        };
-    }
-
-    PURE_MATCH_DATA.with(|slot| {
-        let mut md = slot.borrow_mut();
-        match super::regex::string_match_full(&pattern, &s, start, &mut md) {
-            // string_match_full returns a character position
-            Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-            Ok(None) => Ok(Value::Nil),
-            Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
-        }
-    })
-}
-
-/// `(string-match-p REGEXP STRING &optional START)` -- like `string-match`
-/// but does not modify match data.
-pub(crate) fn builtin_string_match_p_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("string-match-p", &args, 2, 3)?;
-    let pattern = expect_string(&args[0])?;
-    let s = expect_string(&args[1])?;
-    let start = normalize_string_start_arg(&s, args.get(2))?;
-    let mut throwaway = None;
-    match super::regex::string_match_full(&pattern, &s, start, &mut throwaway) {
-        Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-        Ok(None) => Ok(Value::Nil),
-        Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
-    }
-}
 
 /// `(regexp-quote STRING)` -- return a regexp that matches STRING literally,
 /// quoting all special regex characters.
@@ -363,84 +320,7 @@ pub(crate) fn builtin_match_end(args: Vec<Value>) -> EvalResult {
     })
 }
 
-/// `(match-data &optional INTEGERS REUSE RESEAT)` -- return the match data
-/// as a list.
-pub(crate) fn builtin_match_data_inner(args: Vec<Value>) -> EvalResult {
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("match-data"), Value::Int(args.len() as i64)],
-        ));
-    }
-    PURE_MATCH_DATA.with(|slot| {
-        let md = slot.borrow();
-        let Some(md) = md.as_ref() else {
-            return Ok(Value::Nil);
-        };
-        Ok(flatten_match_data(md))
-    })
-}
 
-/// `(set-match-data LIST &optional RESEAT)` -- set match data from LIST.
-pub(crate) fn builtin_set_match_data_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("set-match-data", &args, 1)?;
-    if args.len() > 2 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("set-match-data"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-
-    if args[0].is_nil() {
-        PURE_MATCH_DATA.with(|slot| {
-            *slot.borrow_mut() = None;
-        });
-        return Ok(Value::Nil);
-    }
-
-    let items = list_to_vec(&args[0])
-        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[0]]))?;
-
-    let mut groups: Vec<Option<(usize, usize)>> = Vec::with_capacity(items.len() / 2);
-    let mut i = 0usize;
-    while i + 1 < items.len() {
-        let start_v = &items[i];
-        let end_v = &items[i + 1];
-        if start_v.is_nil() && end_v.is_nil() {
-            groups.push(None);
-            i += 2;
-            continue;
-        }
-
-        let start = expect_integer_or_marker(start_v)?;
-        let end = expect_integer_or_marker(end_v)?;
-
-        // Negative marker positions terminate match-data parsing.
-        if start < 0 || end < 0 {
-            break;
-        }
-
-        groups.push(Some((start as usize, end as usize)));
-        i += 2;
-    }
-
-    PURE_MATCH_DATA.with(|slot| {
-        if groups.is_empty() {
-            *slot.borrow_mut() = None;
-        } else {
-            *slot.borrow_mut() = Some(super::regex::MatchData {
-                groups,
-                searched_string: None,
-                searched_buffer: None,
-            });
-        }
-    });
-
-    Ok(Value::Nil)
-}
 
 /// `(looking-at REGEXP)` -- test whether text after point matches REGEXP.
 /// In batch mode we support an optional second argument as a sample string.
@@ -494,16 +374,6 @@ pub(crate) fn builtin_looking_at_p(args: Vec<Value>) -> EvalResult {
     })
 }
 
-/// `(replace-regexp-in-string REGEXP REP STRING &optional FIXEDCASE LITERAL SUBEXP START)`
-/// -- replace all matches of REGEXP in STRING with REP.
-/// REP is a string (with `\&` and `\N` back-references) or, in the pure
-/// variant, only a string.
-pub(crate) fn builtin_replace_regexp_in_string_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("replace-regexp-in-string", &args, 3, 7)?;
-    // Pure variant: REP must be a string.
-    let rep = expect_string(&args[1])?;
-    replace_regexp_in_string_core(&args, true, &rep, None)
-}
 
 /// Parse SUBEXP and START args (positions 5 and 6) for replace-regexp-in-string.
 fn parse_replace_regexp_subexp_start(args: &[Value], s: &str) -> Result<(i64, usize), Flow> {

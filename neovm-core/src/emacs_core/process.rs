@@ -6161,11 +6161,6 @@ fn getenv_from_list(varname: &str, env_list: Value) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// (getenv-internal VARIABLE &optional FRAME) -> string or nil
-/// Pure fallback for non-evaluator contexts.
-pub(crate) fn builtin_getenv_internal_inner(args: Vec<Value>) -> EvalResult {
-    getenv_impl("getenv-internal", &args)
-}
 
 /// (set-binary-mode STREAM MODE) -> t
 ///

@@ -448,15 +448,6 @@ fn format_mode_string(mode: u32, meta: &fs::Metadata) -> String {
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-/// (directory-files-and-attributes DIRECTORY &optional FULL-NAME MATCH-REGEXP NOSORT ID-FORMAT COUNT)
-///
-/// Like `directory-files` but each element is (NAME . ATTRIBUTES) where
-/// ATTRIBUTES is the result of `file-attributes`.
-pub(crate) fn builtin_directory_files_and_attributes_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("directory-files-and-attributes", &args, 1, 6)?;
-    let dir = expect_string("directory-files-and-attributes", &args[0])?;
-    directory_files_and_attributes_with_dir(&args, dir)
-}
 
 /// Context-backed variant of `directory-files-and-attributes`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
@@ -583,23 +574,6 @@ pub(crate) fn builtin_file_name_completion(
     )
 }
 
-/// (file-name-all-completions FILE DIRECTORY)
-///
-/// Return a list of all completions of FILE in DIRECTORY.
-/// Each entry that is a directory has a trailing '/'.
-pub(crate) fn builtin_file_name_all_completions_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("file-name-all-completions", &args, 2, 2)?;
-
-    let file = expect_string("file-name-all-completions", &args[0])?;
-    let directory = expect_string("file-name-all-completions", &args[1])?;
-    if file.contains('/') {
-        return Ok(Value::Nil);
-    }
-    let completions = collect_file_name_completions(&file, &directory)?;
-    Ok(Value::list(
-        completions.into_iter().map(Value::string).collect(),
-    ))
-}
 
 /// Context-backed variant of `file-name-all-completions`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
@@ -905,36 +879,6 @@ fn predicate_callable_name(predicate: &Value) -> Option<&str> {
     }
 }
 
-/// (file-attributes FILENAME &optional ID-FORMAT)
-///
-/// Return a list of attributes of file FILENAME.
-/// The list elements are:
-///   0. TYPE (t=dir, nil=regular, string=symlink target)
-///   1. Number of hard links
-///   2. UID (integer or string if ID-FORMAT is 'string)
-///   3. GID (integer or string if ID-FORMAT is 'string)
-///   4. Last access time (HIGH LOW)
-///   5. Last modification time (HIGH LOW)
-///   6. Status change time (HIGH LOW)
-///   7. Size in bytes
-///   8. File modes as string (like "drwxr-xr-x")
-///   9. GID-CHANGEP (always nil)
-///  10. Inode number
-///  11. Device number
-pub(crate) fn builtin_file_attributes_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("file-attributes", &args, 1, 2)?;
-
-    let filename = expect_string("file-attributes", &args[0])?;
-    // GNU Emacs: return string names unless ID-FORMAT is nil or 'integer.
-    let id_format_string = args
-        .get(1)
-        .is_some_and(|v| v.is_truthy() && v.as_symbol_name().map_or(true, |s| s != "integer"));
-
-    match build_file_attributes(&filename, id_format_string) {
-        Some(attrs) => Ok(attrs),
-        None => Ok(Value::Nil),
-    }
-}
 
 /// Context-backed variant of `file-attributes`.
 /// Resolves relative FILENAME against dynamic/default `default-directory`.

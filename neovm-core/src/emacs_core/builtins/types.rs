@@ -141,15 +141,6 @@ pub(crate) fn builtin_char_uppercase_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(downcase_char_code_emacs_compat(code) != code))
 }
 
-pub(crate) fn builtin_functionp_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("functionp", &args, 1)?;
-    let is_function = match &args[0] {
-        Value::Symbol(_) => false,
-        Value::Cons(_) => is_lambda_form_list(&args[0]),
-        other => is_runtime_function_object(other),
-    };
-    Ok(Value::bool(is_function))
-}
 
 pub(super) fn is_lambda_form_list(value: &Value) -> bool {
     match value {

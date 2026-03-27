@@ -2475,10 +2475,6 @@ pub(crate) fn builtin_minibuffer_prompt_end(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int(1))
 }
 
-pub(crate) fn builtin_next_frame_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("next-frame", &args, 0, 2)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_next_frame(
     eval: &mut super::eval::Context,
@@ -2498,10 +2494,6 @@ pub(crate) fn builtin_next_frame(
     super::window_cmds::builtin_selected_frame(eval, Vec::new())
 }
 
-pub(crate) fn builtin_previous_frame_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("previous-frame", &args, 0, 2)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_previous_frame(
     eval: &mut super::eval::Context,
@@ -2534,10 +2526,6 @@ pub(crate) fn builtin_raise_frame(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_redisplay_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("redisplay", &args, 0, 1)?;
-    Ok(Value::True)
-}
 
 pub(crate) fn builtin_redisplay(
     eval: &mut crate::emacs_core::eval::Context,
@@ -2836,10 +2824,6 @@ pub(crate) fn builtin_newline_cache_check(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_old_selected_frame_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("old-selected-frame", &args, 0)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_old_selected_frame(
     eval: &mut super::eval::Context,
@@ -2881,10 +2865,6 @@ pub(crate) fn builtin_menu_or_popup_active_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_mouse_pixel_position_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("mouse-pixel-position", &args, 0)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_mouse_pixel_position(
     eval: &mut super::eval::Context,
@@ -2895,10 +2875,6 @@ pub(crate) fn builtin_mouse_pixel_position(
     Ok(Value::list(vec![frame, Value::Nil]))
 }
 
-pub(crate) fn builtin_mouse_position_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("mouse-position", &args, 0)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_mouse_position(
     eval: &mut super::eval::Context,
@@ -2981,12 +2957,6 @@ fn dynamic_or_global_symbol_value_in_state(
     obarray.symbol_value(name).copied()
 }
 
-pub(crate) fn builtin_new_fontset_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("new-fontset", &args, 2)?;
-    let name = expect_strict_string(&args[0])?;
-    let registered = fontset::new_fontset(&name, &args[1], None, None, None)?;
-    Ok(Value::string(registered))
-}
 
 pub(crate) fn builtin_new_fontset(
     eval: &mut super::eval::Context,
@@ -3285,10 +3255,6 @@ pub(crate) fn builtin_set_charset_plist(args: Vec<Value>) -> EvalResult {
     Ok(args[1])
 }
 
-pub(crate) fn builtin_set_fontset_font_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("set-fontset-font", &args, 3, 5)?;
-    fontset::set_fontset_font(&args[0], &args[1], &args[2], args.get(4), None, None, None)
-}
 
 pub(crate) fn builtin_set_fontset_font(
     eval: &mut super::eval::Context,
@@ -3773,13 +3739,6 @@ pub(crate) fn builtin_innermost_minibuffer_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_interactive_form_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("interactive-form", &args, 1)?;
-    if args[0].as_symbol_name() == Some("ignore") {
-        return Ok(Value::list(vec![Value::symbol("interactive"), Value::Nil]));
-    }
-    Ok(Value::Nil)
-}
 
 fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> {
     fn expr_is_declare_form(expr: &super::expr::Expr) -> bool {
@@ -4591,15 +4550,7 @@ pub(crate) fn builtin_handler_bind_1(
     result
 }
 
-pub(crate) fn builtin_defconst_1_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("defconst-1", &args, 2, 3)?;
-    Ok(Value::Nil)
-}
 
-pub(crate) fn builtin_defvar_1_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("defvar-1", &args, 2, 3)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_iso_charset(args: Vec<Value>) -> EvalResult {
     expect_args("iso-charset", &args, 3)?;
@@ -4631,10 +4582,6 @@ pub(crate) fn builtin_keymap_prompt(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_kill_emacs_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("kill-emacs", &args, 0, 2)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn plan_kill_emacs_request(
     args: &[Value],

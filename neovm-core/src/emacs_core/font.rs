@@ -615,19 +615,6 @@ pub(crate) fn builtin_font_put(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// `(list-fonts FONT-SPEC &optional FRAME MAXNUM PREFER)` -- returns nil in
-/// batch-compatible mode.
-pub(crate) fn builtin_list_fonts_batch(args: Vec<Value>) -> EvalResult {
-    expect_min_args("list-fonts", &args, 1)?;
-    expect_max_args("list-fonts", &args, 4)?;
-    if !is_font_spec(&args[0]) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("font-spec"), args[0]],
-        ));
-    }
-    Ok(Value::Nil)
-}
 
 /// Context-aware variant of `list-fonts`.
 ///
@@ -717,19 +704,6 @@ fn font_spec_resolve_request(
     })
 }
 
-/// `(find-font FONT-SPEC &optional FRAME)` -- returns nil in
-/// batch-compatible mode.
-pub(crate) fn builtin_find_font_batch(args: Vec<Value>) -> EvalResult {
-    expect_min_args("find-font", &args, 1)?;
-    expect_max_args("find-font", &args, 2)?;
-    if !is_font_spec(&args[0]) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("font-spec"), args[0]],
-        ));
-    }
-    Ok(Value::Nil)
-}
 
 /// Context-aware variant of `find-font`.
 ///
@@ -767,19 +741,6 @@ pub(crate) fn builtin_clear_font_cache(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// `(font-family-list &optional FRAME)` -- returns nil in batch-compatible mode.
-pub(crate) fn builtin_font_family_list_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("font-family-list", &args, 1)?;
-    if let Some(frame) = args.first() {
-        if !frame.is_nil() {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *frame],
-            ));
-        }
-    }
-    Ok(Value::Nil)
-}
 
 /// Context-aware variant of `font-family-list`.
 ///
@@ -3028,37 +2989,6 @@ pub(crate) fn runtime_face_to_lisp_vector(face: &RuntimeFace) -> Value {
     Value::vector(values)
 }
 
-/// `(internal-get-lisp-face-attribute FACE ATTR &optional FRAME)` -- batch
-/// semantics-compatible face attribute query for core predefined faces.
-pub(crate) fn builtin_internal_get_lisp_face_attribute_batch(args: Vec<Value>) -> EvalResult {
-    expect_min_args("internal-get-lisp-face-attribute", &args, 2)?;
-    expect_max_args("internal-get-lisp-face-attribute", &args, 3)?;
-    let defaults_frame = if let Some(frame) = args.get(2) {
-        if frame.is_nil() {
-            false
-        } else if matches!(frame, Value::True) {
-            true
-        } else if frame_device_designator_p(frame) {
-            false
-        } else {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *frame],
-            ));
-        }
-    } else {
-        false
-    };
-
-    let face_name = resolve_face_name_for_domain(&args[0], defaults_frame)?;
-
-    let attr_name = normalize_face_attribute_name(&args[1])?;
-    Ok(lisp_face_attribute_value(
-        &face_name,
-        &attr_name,
-        defaults_frame,
-    ))
-}
 
 pub(crate) fn builtin_internal_get_lisp_face_attribute(
     eval: &mut super::eval::Context,

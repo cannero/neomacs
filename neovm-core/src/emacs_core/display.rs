@@ -687,149 +687,23 @@ pub(crate) fn x_optional_display_query_error_in_state(
 // Display query builtins
 // ---------------------------------------------------------------------------
 
-/// (display-graphic-p &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_graphic_p_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-graphic-p", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Nil)
-}
 
-/// (display-grayscale-p &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_grayscale_p_batch(args: Vec<Value>) -> EvalResult {
-    display_optional_capability_p("display-grayscale-p", &args)
-}
 
-/// (display-mouse-p &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_mouse_p_batch(args: Vec<Value>) -> EvalResult {
-    display_optional_capability_p("display-mouse-p", &args)
-}
 
-/// (display-popup-menus-p &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_popup_menus_p_batch(args: Vec<Value>) -> EvalResult {
-    display_optional_capability_p("display-popup-menus-p", &args)
-}
 
-/// (display-symbol-keys-p &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_symbol_keys_p_batch(args: Vec<Value>) -> EvalResult {
-    display_optional_capability_p("display-symbol-keys-p", &args)
-}
 
-/// (display-pixel-width &optional DISPLAY) -> 80 (terminal columns in batch).
-pub(crate) fn builtin_display_pixel_width_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-pixel-width", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Int(80))
-}
 
-/// (display-pixel-height &optional DISPLAY) -> 25 (terminal rows in batch).
-pub(crate) fn builtin_display_pixel_height_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-pixel-height", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Int(25))
-}
 
-/// (display-mm-width &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_mm_width_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-mm-width", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Nil)
-}
 
-/// (display-mm-height &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_mm_height_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-mm-height", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Nil)
-}
 
-/// (display-screens &optional DISPLAY) -> 1
-pub(crate) fn builtin_display_screens_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-screens", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Int(1))
-}
 
-/// (display-color-cells &optional DISPLAY) -> 0 in batch-style vm context.
-pub(crate) fn builtin_display_color_cells_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-color-cells", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Int(0))
-}
 
-/// (display-planes &optional DISPLAY) -> 3 in batch-style vm context.
-pub(crate) fn builtin_display_planes_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-planes", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Int(3))
-}
 
-/// (display-visual-class &optional DISPLAY) -> 'static-gray in batch-style vm context.
-pub(crate) fn builtin_display_visual_class_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-visual-class", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::symbol("static-gray"))
-}
 
-/// (display-backing-store &optional DISPLAY) -> 'not-useful in batch-style vm context.
-pub(crate) fn builtin_display_backing_store_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-backing-store", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::symbol("not-useful"))
-}
 
-/// (display-save-under &optional DISPLAY) -> 'not-useful in batch-style vm context.
-pub(crate) fn builtin_display_save_under_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-save-under", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::symbol("not-useful"))
-}
 
-/// (display-selections-p &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_selections_p_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-selections-p", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Nil)
-}
 
-/// (display-images-p &optional DISPLAY) -> nil in batch-style vm context.
-pub(crate) fn builtin_display_images_p_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-images-p", &args, 1)?;
-    if let Some(display) = args.first() {
-        expect_display_designator(display)?;
-    }
-    Ok(Value::Nil)
-}
 
-/// (display-supports-face-attributes-p ATTRIBUTES &optional DISPLAY) -> nil
-/// in batch-style vm context.
-pub(crate) fn builtin_display_supports_face_attributes_p_batch(args: Vec<Value>) -> EvalResult {
-    expect_range_args("display-supports-face-attributes-p", &args, 1, 2)?;
-    Ok(Value::Nil)
-}
 
 /// Context-aware variant of `display-graphic-p`.
 pub(crate) fn builtin_display_graphic_p(
@@ -1032,21 +906,6 @@ pub(crate) fn builtin_window_system(
     )
 }
 
-/// (frame-edges &optional FRAME TYPE) -> `(0 0 80 25)` in batch-style vm context.
-pub(crate) fn builtin_frame_edges_batch(args: Vec<Value>) -> EvalResult {
-    expect_range_args("frame-edges", &args, 0, 2)?;
-    if let Some(frame) = args.first() {
-        if !frame.is_nil() {
-            return Err(frame_not_live_error(frame));
-        }
-    }
-    Ok(Value::list(vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(80),
-        Value::Int(25),
-    ]))
-}
 
 /// Context-aware variant of `frame-edges`.
 pub(crate) fn builtin_frame_edges(
@@ -1506,11 +1365,6 @@ pub(crate) fn builtin_x_get_atom_name(args: Vec<Value>) -> EvalResult {
     Err(x_window_system_frame_error())
 }
 
-/// (x-get-resource ATTRIBUTE CLASS &optional COMPONENT SUBCLASS) -> error in batch/no-X context.
-pub(crate) fn builtin_x_get_resource_batch(args: Vec<Value>) -> EvalResult {
-    expect_range_args("x-get-resource", &args, 2, 4)?;
-    Err(window_system_not_initialized_error())
-}
 
 pub(crate) fn builtin_x_get_resource(
     eval: &mut super::eval::Context,
@@ -1523,11 +1377,6 @@ pub(crate) fn builtin_x_get_resource(
     Err(window_system_not_initialized_error())
 }
 
-/// (x-apply-session-resources) -> error in batch/no-X context.
-pub(crate) fn builtin_x_apply_session_resources_batch(args: Vec<Value>) -> EvalResult {
-    expect_args("x-apply-session-resources", &args, 0)?;
-    Err(window_system_not_initialized_error())
-}
 
 pub(crate) fn builtin_x_apply_session_resources(
     eval: &mut super::eval::Context,
@@ -1540,11 +1389,6 @@ pub(crate) fn builtin_x_apply_session_resources(
     Err(window_system_not_initialized_error())
 }
 
-/// (x-list-fonts PATTERN &optional FACE FRAME MAXIMUM WIDTH) -> error in batch/no-X context.
-pub(crate) fn builtin_x_list_fonts_batch(args: Vec<Value>) -> EvalResult {
-    expect_range_args("x-list-fonts", &args, 1, 5)?;
-    Err(window_system_not_initialized_error())
-}
 
 pub(crate) fn builtin_x_list_fonts(
     eval: &mut super::eval::Context,
@@ -1703,10 +1547,6 @@ pub(crate) fn builtin_x_window_property_attributes(args: Vec<Value>) -> EvalResu
     Err(x_window_system_frame_error())
 }
 
-/// (x-server-version &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_server_version_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-server-version", &args)
-}
 
 /// Context-aware variant of `x-server-version`.
 pub(crate) fn builtin_x_server_version(
@@ -1716,10 +1556,6 @@ pub(crate) fn builtin_x_server_version(
     x_optional_display_query_error_eval(eval, "x-server-version", args)
 }
 
-/// (x-server-max-request-size &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_server_max_request_size_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-server-max-request-size", &args)
-}
 
 /// Context-aware variant of `x-server-max-request-size`.
 pub(crate) fn builtin_x_server_max_request_size(
@@ -1729,10 +1565,6 @@ pub(crate) fn builtin_x_server_max_request_size(
     x_optional_display_query_error_eval(eval, "x-server-max-request-size", args)
 }
 
-/// (x-display-grayscale-p &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_grayscale_p_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-grayscale-p", &args)
-}
 
 /// Context-aware variant of `x-display-grayscale-p`.
 pub(crate) fn builtin_x_display_grayscale_p(
@@ -1745,10 +1577,6 @@ pub(crate) fn builtin_x_display_grayscale_p(
     x_optional_display_query_error_eval(eval, "x-display-grayscale-p", args)
 }
 
-/// (x-display-backing-store &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_backing_store_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-backing-store", &args)
-}
 
 /// Context-aware variant of `x-display-backing-store`.
 pub(crate) fn builtin_x_display_backing_store(
@@ -1758,10 +1586,6 @@ pub(crate) fn builtin_x_display_backing_store(
     x_optional_display_query_error_eval(eval, "x-display-backing-store", args)
 }
 
-/// (x-display-color-cells &optional DISPLAY) -> 16M for X (24-bit TrueColor).
-pub(crate) fn builtin_x_display_color_cells_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-color-cells", &args)
-}
 
 /// Context-aware variant of `x-display-color-cells`.
 pub(crate) fn builtin_x_display_color_cells(
@@ -1774,10 +1598,6 @@ pub(crate) fn builtin_x_display_color_cells(
     x_optional_display_query_error_eval(eval, "x-display-color-cells", args)
 }
 
-/// (x-display-mm-height &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_mm_height_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-mm-height", &args)
-}
 
 /// Context-aware variant of `x-display-mm-height`.
 pub(crate) fn builtin_x_display_mm_height(
@@ -1787,10 +1607,6 @@ pub(crate) fn builtin_x_display_mm_height(
     x_optional_display_query_error_eval(eval, "x-display-mm-height", args)
 }
 
-/// (x-display-mm-width &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_mm_width_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-mm-width", &args)
-}
 
 /// Context-aware variant of `x-display-mm-width`.
 pub(crate) fn builtin_x_display_mm_width(
@@ -1800,10 +1616,6 @@ pub(crate) fn builtin_x_display_mm_width(
     x_optional_display_query_error_eval(eval, "x-display-mm-width", args)
 }
 
-/// (x-display-monitor-attributes-list &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_monitor_attributes_list_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-monitor-attributes-list", &args)
-}
 
 /// Context-aware variant of `x-display-monitor-attributes-list`.
 pub(crate) fn builtin_x_display_monitor_attributes_list(
@@ -1813,10 +1625,6 @@ pub(crate) fn builtin_x_display_monitor_attributes_list(
     x_optional_display_query_error_eval(eval, "x-display-monitor-attributes-list", args)
 }
 
-/// (x-display-planes &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_planes_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-planes", &args)
-}
 
 /// Context-aware variant of `x-display-planes`.
 pub(crate) fn builtin_x_display_planes(
@@ -1829,10 +1637,6 @@ pub(crate) fn builtin_x_display_planes(
     x_optional_display_query_error_eval(eval, "x-display-planes", args)
 }
 
-/// (x-display-save-under &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_save_under_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-save-under", &args)
-}
 
 /// Context-aware variant of `x-display-save-under`.
 pub(crate) fn builtin_x_display_save_under(
@@ -1842,10 +1646,6 @@ pub(crate) fn builtin_x_display_save_under(
     x_optional_display_query_error_eval(eval, "x-display-save-under", args)
 }
 
-/// (x-display-screens &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_screens_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-screens", &args)
-}
 
 /// Context-aware variant of `x-display-screens`.
 pub(crate) fn builtin_x_display_screens(
@@ -1855,10 +1655,6 @@ pub(crate) fn builtin_x_display_screens(
     x_optional_display_query_error_eval(eval, "x-display-screens", args)
 }
 
-/// (x-display-visual-class &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_visual_class_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-display-visual-class", &args)
-}
 
 /// Context-aware variant of `x-display-visual-class`.
 pub(crate) fn builtin_x_display_visual_class(
@@ -1871,10 +1667,6 @@ pub(crate) fn builtin_x_display_visual_class(
     x_optional_display_query_error_eval(eval, "x-display-visual-class", args)
 }
 
-/// (x-server-input-extension-version &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_server_input_extension_version_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-server-input-extension-version", &args)
-}
 
 /// Context-aware variant of `x-server-input-extension-version`.
 pub(crate) fn builtin_x_server_input_extension_version(
@@ -1884,10 +1676,6 @@ pub(crate) fn builtin_x_server_input_extension_version(
     x_optional_display_query_error_eval(eval, "x-server-input-extension-version", args)
 }
 
-/// (x-server-vendor &optional DISPLAY) -> error in batch/no-X context.
-pub(crate) fn builtin_x_server_vendor_batch(args: Vec<Value>) -> EvalResult {
-    x_optional_display_query_error("x-server-vendor", &args)
-}
 
 /// Context-aware variant of `x-server-vendor`.
 pub(crate) fn builtin_x_server_vendor(
@@ -1898,15 +1686,6 @@ pub(crate) fn builtin_x_server_vendor(
 }
 
 
-/// (x-display-set-last-user-time DISPLAY USER-TIME) -> error in batch/no-X context.
-pub(crate) fn builtin_x_display_set_last_user_time_batch(args: Vec<Value>) -> EvalResult {
-    expect_range_args("x-display-set-last-user-time", &args, 1, 2)?;
-    if matches!(args.get(1), Some(Value::Frame(_))) {
-        return Err(x_window_system_frame_error());
-    }
-    let query_args: Vec<Value> = args.get(1).cloned().into_iter().collect();
-    x_optional_display_query_error("x-display-set-last-user-time", &query_args)
-}
 
 /// Context-aware variant of `x-display-set-last-user-time`.
 ///
@@ -2111,20 +1890,6 @@ pub(crate) fn builtin_x_display_pixel_height(
 // Monitor attribute builtins
 // ---------------------------------------------------------------------------
 
-/// (display-monitor-attributes-list &optional DISPLAY) -> list with one monitor alist
-///
-/// Returns a list containing a single alist describing the primary monitor.
-/// Keys: geometry, workarea, mm-size, frames.
-pub(crate) fn builtin_display_monitor_attributes_list_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("display-monitor-attributes-list", &args, 1)?;
-    if let Some(display) = args.first() {
-        if !display.is_nil() && !terminal_designator_p(display) {
-            return Err(invalid_get_device_terminal_error(display));
-        }
-    }
-    let monitor = make_monitor_alist(Value::Nil);
-    Ok(Value::list(vec![monitor]))
-}
 
 /// Context-aware variant of `display-monitor-attributes-list`.
 ///
@@ -2145,16 +1910,6 @@ pub(crate) fn builtin_display_monitor_attributes_list(
     Ok(Value::list(vec![make_monitor_alist(Value::list(frames))]))
 }
 
-/// (frame-monitor-attributes &optional FRAME) -> alist with geometry info
-pub(crate) fn builtin_frame_monitor_attributes_batch(args: Vec<Value>) -> EvalResult {
-    expect_max_args("frame-monitor-attributes", &args, 1)?;
-    if let Some(frame) = args.first() {
-        if !frame.is_nil() && !terminal_designator_p(frame) {
-            return Err(invalid_get_device_terminal_error(frame));
-        }
-    }
-    Ok(make_monitor_alist(Value::Nil))
-}
 
 /// Context-aware variant of `frame-monitor-attributes`.
 ///

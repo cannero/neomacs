@@ -497,18 +497,6 @@ pub(crate) fn builtin_autoload(eval: &mut super::eval::Context, args: Vec<Value>
     register_autoload_in_state(&mut eval.obarray, &mut eval.autoloads, &args)
 }
 
-/// `(symbol-file SYMBOL &optional TYPE)` — return the file that defined SYMBOL.
-/// Stub: always returns nil for now.
-pub(crate) fn builtin_symbol_file_inner(args: Vec<Value>) -> EvalResult {
-    if args.is_empty() || args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("symbol-file"), Value::Int(args.len() as i64)],
-        ));
-    }
-    // Stub: we don't track symbol origins yet.
-    Ok(Value::Nil)
-}
 
 /// Context-aware `(symbol-file SYMBOL &optional TYPE)`.
 ///

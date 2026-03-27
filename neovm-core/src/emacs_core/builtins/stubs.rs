@@ -786,15 +786,7 @@ pub(crate) fn builtin_internal_define_uninitialized_variable(args: Vec<Value>) -
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_internal_labeled_narrow_to_region_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("internal--labeled-narrow-to-region", &args, 3)?;
-    Ok(Value::Nil)
-}
 
-pub(crate) fn builtin_internal_labeled_widen_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("internal--labeled-widen", &args, 1)?;
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_internal_labeled_narrow_to_region(
     eval: &mut super::eval::Context,
@@ -943,18 +935,6 @@ pub(crate) fn builtin_describe_vector(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_frame_face_hash_table_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("frame--face-hash-table", &args, 0, 1)?;
-    if let Some(frame) = args.first() {
-        if !frame.is_nil() {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *frame],
-            ));
-        }
-    }
-    Ok(Value::hash_table(HashTableTest::Eq))
-}
 
 pub(crate) fn builtin_frame_set_was_invisible(args: Vec<Value>) -> EvalResult {
     expect_args("frame--set-was-invisible", &args, 2)?;
@@ -1098,24 +1078,6 @@ pub(crate) fn builtin_frame_window_state_change(args: Vec<Value>) -> EvalResult 
 
 // --- frame.c missing builtins ---
 
-/// `(frame-id &optional FRAME)` — return frame identifier as integer, or nil.
-pub(crate) fn builtin_frame_id_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("frame-id", &args, 0, 1)?;
-    if let Some(frame) = args.first() {
-        match frame {
-            Value::Frame(id) => return Ok(Value::Int(*id as i64)),
-            Value::Nil => return Ok(Value::Nil),
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), *frame],
-                ));
-            }
-        }
-    }
-    // No arg => need evaluator to get selected frame; pure fallback returns nil.
-    Ok(Value::Nil)
-}
 
 /// Eval-dependent variant: defaults to selected frame.
 pub(crate) fn builtin_frame_id(
@@ -1137,25 +1099,6 @@ pub(crate) fn builtin_frame_id(
     Ok(Value::Int(public_id as i64))
 }
 
-/// `(frame-root-frame &optional FRAME)` — walk parent chain to root frame.
-/// Since `frame-parent` always returns nil in NeoVM, just returns FRAME itself.
-pub(crate) fn builtin_frame_root_frame_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("frame-root-frame", &args, 0, 1)?;
-    if let Some(frame) = args.first() {
-        match frame {
-            Value::Frame(_) => return Ok(*frame),
-            Value::Nil => return Ok(Value::Nil),
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), *frame],
-                ));
-            }
-        }
-    }
-    // No arg => need evaluator; pure fallback returns nil.
-    Ok(Value::Nil)
-}
 
 /// Eval-dependent variant: defaults to selected frame.
 pub(crate) fn builtin_frame_root_frame(

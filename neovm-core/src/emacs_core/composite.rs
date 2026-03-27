@@ -79,19 +79,6 @@ fn integer_value(arg: &Value) -> i64 {
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-/// `(compose-region-internal START END &optional COMPONENTS MODIFICATION-FUNC)`
-///
-/// Compose text in the current buffer between START and END.
-/// COMPONENTS, if given, is a vector or string describing the composition.
-/// MODIFICATION-FUNC, if non-nil, is called when the composition is modified.
-///
-/// Stub: composition is handled by the display/layout engine; return nil.
-pub(crate) fn builtin_compose_region_internal_inner(args: Vec<Value>) -> EvalResult {
-    expect_range_args("compose-region-internal", &args, 2, 4)?;
-    expect_integer_or_marker_p(&args[0])?;
-    expect_integer_or_marker_p(&args[1])?;
-    Ok(Value::Nil)
-}
 
 /// Context-backed `(compose-region-internal START END &optional COMPONENTS MODIFICATION-FUNC)`.
 ///

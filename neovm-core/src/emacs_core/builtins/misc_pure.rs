@@ -26,55 +26,8 @@ pub(crate) fn builtin_ignore(_args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_message_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("message", &args, 1)?;
-    // GNU Emacs: nil or empty string clears the echo area and returns as-is.
-    if args[0].is_nil() {
-        return Ok(Value::Nil);
-    }
-    if let Value::Str(id) = &args[0] {
-        if with_heap(|h| h.get_string(*id).is_empty()) {
-            return Ok(args[0]);
-        }
-    }
-    // GNU Emacs's `message` ALWAYS calls `format-message` on the args,
-    // even for a single string argument.  This converts %% -> % and
-    // applies text-quoting (curly quotes).
-    let msg = match builtin_format_message_inner(args.clone())? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-        _ => String::new(),
-    };
-    eprintln!("{}", msg);
-    Ok(Value::string(msg))
-}
 
-pub(crate) fn builtin_message_box_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("message-box", &args, 1)?;
-    if args[0].is_nil() {
-        return Ok(Value::Nil);
-    }
-    // GNU Emacs: always calls format-message, even for single-arg.
-    let msg = match builtin_format_message_inner(args.clone())? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-        _ => String::new(),
-    };
-    eprintln!("{}", msg);
-    Ok(Value::string(msg))
-}
 
-pub(crate) fn builtin_message_or_box_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("message-or-box", &args, 1)?;
-    if args[0].is_nil() {
-        return Ok(Value::Nil);
-    }
-    // GNU Emacs: always calls format-message, even for single-arg.
-    let msg = match builtin_format_message_inner(args.clone())? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-        _ => String::new(),
-    };
-    eprintln!("{}", msg);
-    Ok(Value::string(msg))
-}
 
 pub(crate) fn builtin_message(
     ctx: &mut super::eval::Context,
@@ -148,11 +101,6 @@ pub(crate) fn builtin_message_or_box(
     Ok(Value::string(msg))
 }
 
-pub(crate) fn builtin_current_message_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("current-message", &args, 0)?;
-    // Batch mode keeps message display side effects out-of-band.
-    Ok(Value::Nil)
-}
 
 pub(crate) fn builtin_current_message(
     ctx: &mut super::eval::Context,
@@ -245,16 +193,6 @@ pub(crate) fn builtin_invocation_name(args: Vec<Value>) -> EvalResult {
     Ok(Value::string(name))
 }
 
-pub(crate) fn builtin_error_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("error", &args, 1)?;
-    // GNU Emacs's `error` uses `format-message` (not `format`) so that
-    // backtick/apostrophe quoting respects `text-quoting-style`.
-    let msg = match builtin_format_message_inner(args)? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-        _ => "error".to_string(),
-    };
-    Err(signal("error", vec![Value::string(msg)]))
-}
 
 pub(crate) fn builtin_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("error", &args, 1)?;
@@ -265,14 +203,6 @@ pub(crate) fn builtin_error(eval: &mut super::eval::Context, args: Vec<Value>) -
     Err(signal("error", vec![Value::string(msg)]))
 }
 
-pub(crate) fn builtin_user_error_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("user-error", &args, 1)?;
-    let msg = match builtin_format_message_inner(args)? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-        _ => "user-error".to_string(),
-    };
-    Err(signal("user-error", vec![Value::string(msg)]))
-}
 
 pub(crate) fn builtin_user_error(
     eval: &mut super::eval::Context,

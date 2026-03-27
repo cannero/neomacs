@@ -1398,47 +1398,6 @@ pub(crate) fn builtin_matching_paren_in_buffers(
     Ok(out.map_or(Value::Nil, Value::Char))
 }
 
-/// Pure (no-eval) version of `matching-paren` using standard hardcoded pairs.
-/// Kept for unit tests; dispatch uses `builtin_matching_paren` instead.
-#[allow(dead_code)]
-pub(crate) fn builtin_matching_paren_inner(args: Vec<Value>) -> EvalResult {
-    if args.len() != 1 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("matching-paren"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-
-    let ch = match &args[0] {
-        Value::Int(n) => char::from_u32(*n as u32).ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("characterp"), args[0]],
-            )
-        })?,
-        Value::Char(c) => *c,
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("characterp"), *other],
-            ));
-        }
-    };
-
-    let out = match ch {
-        '(' => Some(')'),
-        ')' => Some('('),
-        '[' => Some(']'),
-        ']' => Some('['),
-        '{' => Some('}'),
-        '}' => Some('{'),
-        _ => None,
-    };
-    Ok(out.map_or(Value::Nil, Value::Char))
-}
 
 /// `(standard-syntax-table)` — return the standard syntax table.
 pub(crate) fn builtin_standard_syntax_table(args: Vec<Value>) -> EvalResult {

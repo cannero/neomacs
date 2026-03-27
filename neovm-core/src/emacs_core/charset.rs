@@ -1165,13 +1165,6 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// `(find-charset-region BEG END &optional TABLE)` -- returns a list of charsets
-/// present in the buffer slice.
-pub(crate) fn builtin_find_charset_region_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("find-charset-region", &args, 2)?;
-    expect_max_args("find-charset-region", &args, 3)?;
-    Ok(Value::list(vec![Value::symbol("ascii")]))
-}
 
 /// Context-aware variant of `(find-charset-region BEG END &optional TABLE)`.
 ///
@@ -1379,11 +1372,6 @@ pub(crate) fn builtin_clear_charset_maps(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// `(charset-after &optional POS)` -- currently returns 'unicode for compatibility.
-pub(crate) fn builtin_charset_after_inner(args: Vec<Value>) -> EvalResult {
-    expect_max_args("charset-after", &args, 1)?;
-    Ok(Value::symbol("unicode"))
-}
 
 /// Context-aware variant of `(charset-after &optional POS)`.
 ///

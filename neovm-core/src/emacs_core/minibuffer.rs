@@ -930,68 +930,8 @@ pub(crate) fn finish_read_variable_in_vm_runtime(
     })
 }
 
-/// `(try-completion STRING COLLECTION &optional PREDICATE)`
-///
-/// Returns:
-/// - `t` if STRING is an exact and unique match
-/// - a string (the longest common prefix) if there are matches
-/// - `nil` if no matches
-pub(crate) fn builtin_try_completion_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("try-completion", &args, 2)?;
-    expect_max_args("try-completion", &args, 3)?;
-    let string = expect_string(&args[0])?;
-    let candidates = value_to_string_list(&args[1]);
 
-    let matches: Vec<String> = candidates
-        .iter()
-        .filter(|c| c.starts_with(&string))
-        .cloned()
-        .collect();
 
-    if matches.is_empty() {
-        return Ok(Value::Nil);
-    }
-
-    // Exact unique match?
-    if matches.len() == 1 && matches[0] == string {
-        return Ok(Value::True);
-    }
-
-    // Compute longest common prefix.
-    match compute_common_prefix(&matches) {
-        Some(prefix) => Ok(Value::string(prefix)),
-        None => Ok(Value::Nil),
-    }
-}
-
-/// `(all-completions STRING COLLECTION &optional PREDICATE)`
-///
-/// Returns a list of all completions of STRING in COLLECTION.
-pub(crate) fn builtin_all_completions_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("all-completions", &args, 2)?;
-    expect_max_args("all-completions", &args, 4)?;
-    let string = expect_string(&args[0])?;
-    let candidates = value_to_string_list(&args[1]);
-
-    let matches: Vec<Value> = candidates
-        .iter()
-        .filter(|c| c.starts_with(&string))
-        .map(|c| Value::string(c.clone()))
-        .collect();
-
-    Ok(Value::list(matches))
-}
-
-/// `(test-completion STRING COLLECTION &optional PREDICATE)`
-///
-/// Returns t if STRING is an exact match in COLLECTION, nil otherwise.
-pub(crate) fn builtin_test_completion_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("test-completion", &args, 2)?;
-    expect_max_args("test-completion", &args, 3)?;
-    let string = expect_string(&args[0])?;
-    let candidates = value_to_string_list(&args[1]);
-    Ok(Value::bool(candidates.iter().any(|c| c == &string)))
-}
 
 /// `(minibuffer-prompt)` — returns the current minibuffer prompt or nil.
 ///
@@ -1158,18 +1098,6 @@ fn validate_minibufferp_args(args: &[Value]) -> Result<(), Flow> {
     Ok(())
 }
 
-/// `(recursive-edit)` — enter a recursive edit.
-///
-/// Mirrors GNU Emacs keyboard.c:772 `Frecursive_edit`.
-/// In interactive mode, enters the command loop (read → execute → redisplay).
-/// In batch mode, returns nil.
-pub(crate) fn builtin_recursive_edit_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("recursive-edit", &args, 0)?;
-    // The actual implementation is in Context::recursive_edit() which needs
-    // &mut self access.  The builtin dispatch calls this stub for the
-    // non-evaluator path; the eval-aware path is registered separately.
-    Ok(Value::Nil)
-}
 
 /// Eval-aware `(recursive-edit)` — enters the command loop.
 ///

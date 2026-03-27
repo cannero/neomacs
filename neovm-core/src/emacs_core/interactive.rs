@@ -339,13 +339,6 @@ pub(crate) fn builtin_commandp_impl(
     Ok(Value::bool(is_command))
 }
 
-/// `(command-modes COMMAND)` -- return COMMAND's mode list.
-///
-/// Current compatibility behavior returns nil.
-pub(crate) fn builtin_command_modes_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("command-modes", &args, 1)?;
-    Ok(Value::Nil)
-}
 
 fn command_modes_from_expr_body(body: &[Expr]) -> Option<Value> {
     let body_index = lambda_body_metadata_end(body);

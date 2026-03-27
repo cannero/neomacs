@@ -365,80 +365,8 @@ fn set_current_buffer_category_table(
 // Pure builtins (no evaluator needed)
 // ===========================================================================
 
-/// `(define-category CHAR DOCSTRING &optional TABLE)`
-///
-/// Define category CHAR (a single letter) with the given DOCSTRING.
-/// TABLE is currently ignored (uses the standard table).
-/// Returns nil.
-pub(crate) fn builtin_define_category_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("define-category", &args, 2)?;
-    expect_max_args("define-category", &args, 3)?;
 
-    let cat = extract_char(&args[0], "define-category")?;
-    let docstring = match &args[1] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
-            ));
-        }
-    };
 
-    if !is_category_letter(cat) {
-        return Err(signal(
-            "error",
-            vec![Value::string(format!(
-                "Invalid category character '{}': must be ASCII graphic",
-                cat
-            ))],
-        ));
-    }
-
-    // TABLE (arg 2) is currently ignored; category tables are not first-class.
-    PURE_CATEGORY_MANAGER.with(|slot| {
-        slot.borrow_mut()
-            .current_mut()
-            .define_category(cat, &docstring)
-            .map_err(|msg| signal("error", vec![Value::string(msg)]))
-    })?;
-
-    Ok(Value::Nil)
-}
-
-/// `(category-docstring CATEGORY &optional TABLE)`
-///
-/// Return the docstring of CATEGORY from the pure category manager.
-pub(crate) fn builtin_category_docstring_inner(args: Vec<Value>) -> EvalResult {
-    expect_min_args("category-docstring", &args, 1)?;
-    expect_max_args("category-docstring", &args, 2)?;
-
-    let cat = extract_char(&args[0], "category-docstring")?;
-    // TABLE (arg 1) is currently ignored; category tables are not first-class.
-    let _ = args.get(1);
-
-    PURE_CATEGORY_MANAGER.with(|slot| {
-        let doc = slot.borrow();
-        match doc.current().category_docstring(cat) {
-            Some(text) => Ok(Value::string(text)),
-            None => Ok(Value::Nil),
-        }
-    })
-}
-
-/// `(get-unused-category &optional TABLE)`
-///
-/// Return an unused category letter, or nil if all 52 are used.
-pub(crate) fn builtin_get_unused_category_inner(args: Vec<Value>) -> EvalResult {
-    expect_max_args("get-unused-category", &args, 1)?;
-    // TABLE (arg 0) is currently ignored; category tables are not first-class.
-    let _ = args.first();
-
-    PURE_CATEGORY_MANAGER.with(|slot| match slot.borrow().current().get_unused_category() {
-        Some(cat) => Ok(Value::Char(cat)),
-        None => Ok(Value::Nil),
-    })
-}
 
 /// `(category-table-p OBJ)`
 ///
@@ -449,21 +377,7 @@ pub(crate) fn builtin_category_table_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(is_category_table_value(&args[0])?))
 }
 
-/// `(category-table)`
-///
-/// Return the standard category table in pure mode.
-pub(crate) fn builtin_category_table_inner(args: Vec<Value>) -> EvalResult {
-    expect_max_args("category-table", &args, 0)?;
-    ensure_standard_category_table()
-}
 
-/// `(standard-category-table)`
-///
-/// Return the standard category table.
-pub(crate) fn builtin_standard_category_table_inner(args: Vec<Value>) -> EvalResult {
-    expect_max_args("standard-category-table", &args, 0)?;
-    ensure_standard_category_table()
-}
 
 /// `(make-category-table)`
 ///
@@ -496,22 +410,6 @@ pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
     clone_char_table_object(&source)
 }
 
-/// `(set-category-table TABLE)`
-///
-/// Pure-mode fallback: validate TABLE and return it.
-pub(crate) fn builtin_set_category_table_inner(args: Vec<Value>) -> EvalResult {
-    expect_args("set-category-table", &args, 1)?;
-    if args[0].is_nil() {
-        return ensure_standard_category_table();
-    }
-    if !is_category_table_value(&args[0])? {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("category-table-p"), args[0]],
-        ));
-    }
-    Ok(args[0])
-}
 
 /// `(make-category-set CATEGORIES)`
 ///
