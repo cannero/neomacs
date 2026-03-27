@@ -248,6 +248,18 @@ fn expect_margin_width(value: &Value) -> Result<usize, Flow> {
     }
 }
 
+fn buffer_margin_width(
+    buffers: &BufferManager,
+    buffer_id: BufferId,
+    name: &str,
+) -> Result<usize, Flow> {
+    let value = buffers
+        .get(buffer_id)
+        .and_then(|buffer| buffer.buffer_local_value(name))
+        .unwrap_or(Value::Nil);
+    expect_margin_width(&value)
+}
+
 fn window_value(wid: WindowId) -> Value {
     Value::Window(wid.0)
 }
@@ -3460,6 +3472,14 @@ pub(crate) fn builtin_set_window_buffer(
     };
 
     let keep_margins = args.get(2).is_some_and(|arg| !arg.is_nil());
+    let next_margins = if keep_margins {
+        None
+    } else {
+        Some((
+            buffer_margin_width(buffers, buf_id, "left-margin-width")?,
+            buffer_margin_width(buffers, buf_id, "right-margin-width")?,
+        ))
+    };
     let target_point = buffers
         .get(buf_id)
         .map(|buf| buf.point_char().saturating_add(1))
@@ -3549,8 +3569,8 @@ pub(crate) fn builtin_set_window_buffer(
         *buffer_id = buf_id;
         *window_start = next_window_start.max(1);
         *point = next_point.max(1);
-        if !keep_margins {
-            *margins = (0, 0);
+        if let Some(next_margins) = next_margins {
+            *margins = next_margins;
         }
     }
     Ok(Value::Nil)

@@ -210,6 +210,21 @@ fn compat_window_semantics_matches_gnu_emacs() {
       (when (buffer-live-p b2) (kill-buffer b2)))))"#,
         },
         WindowCase {
+            name: "set_window_buffer_applies_buffer_local_margins",
+            form: r#"(save-window-excursion
+  (let* ((w (selected-window))
+         (b (get-buffer-create "swb-margins")))
+    (unwind-protect
+        (progn
+          (with-current-buffer b
+            (setq-local left-margin-width 5)
+            (setq-local right-margin-width 6))
+          (set-window-margins w 1 2)
+          (set-window-buffer w b)
+          (window-margins w))
+      (when (buffer-live-p b) (kill-buffer b)))))"#,
+        },
+        WindowCase {
             name: "other_window_cycles_across_split_windows",
             form: r#"(save-window-excursion
   (delete-other-windows)
