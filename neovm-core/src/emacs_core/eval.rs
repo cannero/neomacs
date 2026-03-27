@@ -2777,6 +2777,7 @@ impl Context {
             "features",
             "default-directory",
             "load-file-name",
+            "set-auto-coding-for-load",
             "noninteractive",
             "inhibit-quit",
             "inhibit-read-only",

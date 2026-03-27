@@ -2517,12 +2517,74 @@ fn write_region_content_in_state(
     Ok(buf.buffer_substring(byte_start, byte_end))
 }
 
+fn decode_insert_file_contents(
+    bytes: &[u8],
+    multibyte: bool,
+    source_load_context: bool,
+    coding_system_for_read: Option<&str>,
+) -> Result<(String, String), Flow> {
+    let is_utf8_like_source_coding = |coding: &str| {
+        let family = coding
+            .strip_suffix("-unix")
+            .or_else(|| coding.strip_suffix("-dos"))
+            .or_else(|| coding.strip_suffix("-mac"))
+            .unwrap_or(coding);
+        matches!(family, "utf-8" | "utf-8-emacs")
+    };
+
+    let Some(coding) = coding_system_for_read.filter(|coding| !coding.is_empty() && *coding != "nil")
+    else {
+        if source_load_context && multibyte {
+            return Ok((
+                crate::emacs_core::load::decode_emacs_utf8(bytes),
+                "utf-8-emacs".to_string(),
+            ));
+        }
+
+        if !multibyte {
+            return Ok((
+                crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(bytes),
+                "no-conversion".to_string(),
+            ));
+        }
+
+        let decoded = crate::encoding::decode_bytes(bytes, "utf-8-emacs");
+        return Ok((decoded, "utf-8-emacs".to_string()));
+    };
+
+    if source_load_context && multibyte && is_utf8_like_source_coding(coding) {
+        return Ok((
+            crate::emacs_core::load::decode_emacs_utf8(bytes),
+            coding.to_string(),
+        ));
+    }
+
+    let decoded = crate::encoding::builtin_decode_coding_string(vec![
+        Value::unibyte_string(crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(
+            bytes,
+        )),
+        Value::symbol(coding),
+    ])?;
+
+    match decoded {
+        Value::Str(id) => Ok((with_heap(|h| h.get_string(id).to_owned()), coding.to_string())),
+        other => Err(signal(
+            "error",
+            vec![Value::string(format!(
+                "decode-coding-string returned non-string: {other:?}"
+            ))],
+        )),
+    }
+}
+
 pub(crate) fn builtin_insert_file_contents_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut crate::buffer::BufferManager,
+    source_load_context: bool,
+    coding_system_for_read: Option<&str>,
     args: Vec<Value>,
-) -> EvalResult {
+) -> Result<(Value, String), Flow> {
     expect_min_args("insert-file-contents", &args, 1)?;
     expect_max_args("insert-file-contents", &args, 5)?;
     let filename = expect_string_strict(&args[0])?;
@@ -2597,7 +2659,12 @@ pub(crate) fn builtin_insert_file_contents_impl(
     }
 
     let slice = &contents_bytes[begin as usize..end as usize];
-    let contents = String::from_utf8_lossy(slice).to_string();
+    let multibyte = buffers
+        .get(current_id)
+        .map(|buffer| buffer.multibyte)
+        .unwrap_or(true);
+    let (contents, used_coding) =
+        decode_insert_file_contents(slice, multibyte, source_load_context, coding_system_for_read)?;
     let char_count = contents.chars().count() as i64;
 
     insert_file_contents_into_current_buffer_in_state(
@@ -2612,10 +2679,10 @@ pub(crate) fn builtin_insert_file_contents_impl(
         let _ = buffers.set_buffer_modified_flag(current_id, false);
     }
 
-    Ok(Value::list(vec![
-        Value::string(resolved),
-        Value::Int(char_count),
-    ]))
+    Ok((
+        Value::list(vec![Value::string(resolved), Value::Int(char_count)]),
+        used_coding,
+    ))
 }
 
 /// (insert-file-contents FILENAME &optional VISIT BEG END REPLACE) -> (FILENAME LENGTH)
@@ -2626,7 +2693,26 @@ pub(crate) fn builtin_insert_file_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_insert_file_contents_impl(&eval.obarray, &[], &mut eval.buffers, args)
+    let coding_system_for_read = match eval.visible_variable_value_or_nil("coding-system-for-read") {
+        Value::Nil => None,
+        Value::Symbol(id) => Some(resolve_sym(id).to_owned()),
+        Value::Str(id) => Some(with_heap(|h| h.get_string(id).to_owned())),
+        _ => None,
+    };
+    let source_load_context = eval
+        .visible_variable_value_or_nil("set-auto-coding-for-load")
+        .is_truthy();
+
+    let (value, used_coding) = builtin_insert_file_contents_impl(
+        &eval.obarray,
+        &[],
+        &mut eval.buffers,
+        source_load_context,
+        coding_system_for_read.as_deref(),
+        args,
+    )?;
+    eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
+    Ok(value)
 }
 
 pub(crate) fn builtin_write_region_impl(
@@ -2760,6 +2846,7 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     let temporary_file_directory = std::env::temp_dir().to_string_lossy().to_string();
     obarray.set_symbol_value("file-name-coding-system", Value::Nil);
     obarray.set_symbol_value("default-file-name-coding-system", Value::Nil);
+    obarray.set_symbol_value("set-auto-coding-for-load", Value::Nil);
     obarray.set_symbol_value("file-name-handler-alist", Value::Nil);
     obarray.set_symbol_value("set-auto-coding-function", Value::Nil);
     obarray.set_symbol_value("after-insert-file-functions", Value::Nil);

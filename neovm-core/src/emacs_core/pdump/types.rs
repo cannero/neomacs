@@ -516,6 +516,8 @@ pub struct DumpBuffer {
     pub markers: Vec<DumpMarkerEntry>,
     pub properties: Vec<(String, DumpRuntimeBindingValue)>,
     #[serde(default)]
+    pub local_binding_names: Vec<String>,
+    #[serde(default)]
     pub local_map: DumpValue,
     pub text_props: DumpTextPropertyTable,
     pub overlays: DumpOverlayList,

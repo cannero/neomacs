@@ -146,6 +146,8 @@ pub struct Buffer {
     pub markers: Vec<MarkerEntry>,
     /// Buffer-local variables (name -> runtime binding state).
     pub properties: HashMap<String, RuntimeBindingValue>,
+    /// Names that currently have a buffer-local binding in this buffer, in GNU enumeration order.
+    pub local_binding_names: Vec<String>,
     /// Buffer-local keymap, mirroring GNU `current_buffer->keymap`.
     pub local_map: Value,
     /// Text properties attached to ranges of text.
@@ -162,6 +164,27 @@ pub struct Buffer {
 
 impl Buffer {
     // -- Construction --------------------------------------------------------
+
+    fn seed_builtin_buffer_local_binding_names(local_binding_names: &mut Vec<String>) {
+        for name in [
+            "buffer-read-only",
+            "buffer-file-name",
+            "buffer-file-truename",
+            "buffer-auto-save-file-name",
+            "buffer-invisibility-spec",
+            "buffer-undo-list",
+            "major-mode",
+            "mode-name",
+        ] {
+            local_binding_names.push(name.to_string());
+        }
+    }
+
+    fn ensure_local_binding_name(&mut self, name: &str) {
+        if !self.local_binding_names.iter().any(|existing| existing == name) {
+            self.local_binding_names.push(name.to_string());
+        }
+    }
 
     fn seed_builtin_buffer_local_defaults(properties: &mut HashMap<String, RuntimeBindingValue>) {
         properties.insert(
@@ -239,7 +262,9 @@ impl Buffer {
     /// Create a new, empty buffer.
     pub fn new(id: BufferId, name: String) -> Self {
         let mut properties = HashMap::new();
+        let mut local_binding_names = Vec::new();
         Self::seed_builtin_buffer_local_defaults(&mut properties);
+        Self::seed_builtin_buffer_local_binding_names(&mut local_binding_names);
 
         Self {
             id,
@@ -265,6 +290,7 @@ impl Buffer {
             auto_save_file_name: None,
             markers: Vec::new(),
             properties,
+            local_binding_names,
             local_map: Value::Nil,
             text_props: TextPropertyTable::new(),
             overlays: OverlayList::new(),
@@ -852,6 +878,7 @@ impl Buffer {
         }
         self.properties
             .insert(name.to_string(), RuntimeBindingValue::Bound(value));
+        self.ensure_local_binding_name(name);
     }
 
     pub fn set_buffer_local_void(&mut self, name: &str) {
@@ -863,6 +890,7 @@ impl Buffer {
         }
         self.properties
             .insert(name.to_string(), RuntimeBindingValue::Void);
+        self.ensure_local_binding_name(name);
     }
 
     pub fn get_buffer_local(&self, name: &str) -> Option<&Value> {
@@ -872,6 +900,9 @@ impl Buffer {
     }
 
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
+        if !self.local_binding_names.iter().any(|existing| existing == name) {
+            return None;
+        }
         if name == "buffer-file-name" {
             return Some(match &self.file_name {
                 Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
@@ -888,7 +919,7 @@ impl Buffer {
     }
 
     pub fn has_buffer_local(&self, name: &str) -> bool {
-        self.properties.contains_key(name)
+        self.local_binding_names.iter().any(|existing| existing == name)
     }
 
     pub fn local_map(&self) -> Value {
@@ -1017,6 +1048,7 @@ impl BufferManager {
         indirect.chars_modified_tick = root.chars_modified_tick;
         indirect.save_modified_tick = root.save_modified_tick;
         indirect.autosave_modified_tick = root.autosave_modified_tick;
+        indirect.local_binding_names = root.local_binding_names.clone();
         indirect.file_name = None;
         indirect.text_props = root.text_props.clone();
         if !clone {
@@ -1512,7 +1544,9 @@ impl BufferManager {
     pub fn clear_buffer_local_properties(&mut self, id: BufferId) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
         buf.properties.clear();
+        buf.local_binding_names.clear();
         Buffer::seed_builtin_buffer_local_defaults(&mut buf.properties);
+        Buffer::seed_builtin_buffer_local_binding_names(&mut buf.local_binding_names);
         buf.local_map = Value::Nil;
         Some(())
     }
@@ -1709,7 +1743,11 @@ impl BufferManager {
         id: BufferId,
         name: &str,
     ) -> Option<Option<RuntimeBindingValue>> {
-        Some(self.buffers.get_mut(&id)?.properties.remove(name))
+        let buf = self.buffers.get_mut(&id)?;
+        if let Some(index) = buf.local_binding_names.iter().position(|existing| existing == name) {
+            buf.local_binding_names.remove(index);
+        }
+        Some(buf.properties.remove(name))
     }
 
     pub fn add_undo_boundary(&mut self, id: BufferId) -> Option<()> {

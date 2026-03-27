@@ -51,6 +51,14 @@ fn compat_load_semantics_matches_gnu_emacs() {
 
     let missing_path = fixture_dir.path().join("missing-load.el");
 
+    let utf8_emacs_path = fixture_dir.path().join("load-utf8-emacs.el");
+    let mut utf8_emacs_source =
+        b";; -*- coding: utf-8-emacs; lexical-binding: t; -*-\n(setq neovm--utf8-emacs-probe ?"
+            .to_vec();
+    utf8_emacs_source.extend_from_slice(&[0xF6, 0xA0, 0x87, 0x8A]);
+    utf8_emacs_source.extend_from_slice(b")\n");
+    fs::write(&utf8_emacs_path, utf8_emacs_source).expect("write utf-8-emacs load fixture");
+
     let cases = vec![
         LoadCase {
             name: "load_context_visibility",
@@ -95,6 +103,19 @@ fn compat_load_semantics_matches_gnu_emacs() {
     (load {path} nil nil t)
   (error (car err)))"#,
                 path = elisp_string(&recursive_path)
+            ),
+        },
+        LoadCase {
+            name: "load_with_code_conversion_preserves_utf_8_emacs_chars",
+            form: format!(
+                r#"(let ((sym 'neovm--utf8-emacs-probe))
+  (when (boundp sym)
+    (makunbound sym))
+  (load {path} nil nil t)
+  (let ((value (symbol-value sym)))
+    (list (characterp value)
+          (= value #x1A01CA))))"#,
+                path = elisp_string(&utf8_emacs_path)
             ),
         },
     ];

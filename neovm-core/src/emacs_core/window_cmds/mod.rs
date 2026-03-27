@@ -5483,5 +5483,5 @@ pub(crate) fn builtin_window_resize_apply_total(
 // Tests
 // ===========================================================================
 #[cfg(test)]
-#[path = "window_cmds_test.rs"]
+#[path = "../window_cmds_test.rs"]
 mod tests;

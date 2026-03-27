@@ -16,14 +16,25 @@ use std::path::{Path, PathBuf};
 ///
 /// Emacs uses a superset of UTF-8 that allows code points above U+10FFFF
 /// (used for internal charset characters, eight-bit raw bytes, etc.).
-/// These are encoded as standard 4-byte UTF-8 sequences with first byte
-/// F5-F7 (covering U+140000-U+1FFFFF), which standard UTF-8 rejects.
+/// These are encoded using UTF-8-style 4/5/6-byte sequences that standard
+/// UTF-8 rejects once the leading byte is above F4.
 ///
 /// For `?<extended>` character literals, we replace the extended bytes
 /// with `?\x<HEX>` escape syntax that the parser already supports.
 /// All other extended byte sequences (outside `?` context) are replaced
 /// with U+FFFD, matching lossy UTF-8 behaviour.
 pub(crate) fn decode_emacs_utf8(bytes: &[u8]) -> String {
+    fn push_extended_char_or_escape(out: &mut String, code: u32) {
+        if out.ends_with('?') {
+            // Replace the extended char with `\x<HEX>` escape so the
+            // parser reads it as an integer code point.
+            out.push_str(&format!("\\x{:X}", code));
+        } else {
+            // Outside character literal context, use replacement char.
+            out.push('\u{FFFD}');
+        }
+    }
+
     let mut out = String::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
@@ -77,20 +88,50 @@ pub(crate) fn decode_emacs_utf8(bytes: &[u8]) -> String {
             && (bytes[i + 2] & 0xC0) == 0x80
             && (bytes[i + 3] & 0xC0) == 0x80
         {
-            let cp = ((b as u32 & 0x07) << 18)
+            let code = ((b as u32 & 0x07) << 18)
                 | ((bytes[i + 1] as u32 & 0x3F) << 12)
                 | ((bytes[i + 2] as u32 & 0x3F) << 6)
                 | (bytes[i + 3] as u32 & 0x3F);
-            // Check if preceded by `?` — this is a character literal.
-            if out.ends_with('?') {
-                // Replace the extended char with `\x<HEX>` escape so the
-                // parser reads it as an integer code point.
-                out.push_str(&format!("\\x{:X}", cp));
-            } else {
-                // Outside character literal context, use replacement char.
-                out.push('\u{FFFD}');
-            }
+            push_extended_char_or_escape(&mut out, code);
             i += 4;
+            continue;
+        }
+        // Extended 5-byte (F8-FB): still accepted by Emacs's internal UTF-8.
+        if b >= 0xF8
+            && b <= 0xFB
+            && i + 4 < bytes.len()
+            && (bytes[i + 1] & 0xC0) == 0x80
+            && (bytes[i + 2] & 0xC0) == 0x80
+            && (bytes[i + 3] & 0xC0) == 0x80
+            && (bytes[i + 4] & 0xC0) == 0x80
+        {
+            let code = ((b as u32 & 0x03) << 24)
+                | ((bytes[i + 1] as u32 & 0x3F) << 18)
+                | ((bytes[i + 2] as u32 & 0x3F) << 12)
+                | ((bytes[i + 3] as u32 & 0x3F) << 6)
+                | (bytes[i + 4] as u32 & 0x3F);
+            push_extended_char_or_escape(&mut out, code);
+            i += 5;
+            continue;
+        }
+        // Extended 6-byte (FC-FD): highest Emacs internal codes.
+        if b >= 0xFC
+            && b <= 0xFD
+            && i + 5 < bytes.len()
+            && (bytes[i + 1] & 0xC0) == 0x80
+            && (bytes[i + 2] & 0xC0) == 0x80
+            && (bytes[i + 3] & 0xC0) == 0x80
+            && (bytes[i + 4] & 0xC0) == 0x80
+            && (bytes[i + 5] & 0xC0) == 0x80
+        {
+            let code = ((b as u32 & 0x01) << 30)
+                | ((bytes[i + 1] as u32 & 0x3F) << 24)
+                | ((bytes[i + 2] as u32 & 0x3F) << 18)
+                | ((bytes[i + 3] as u32 & 0x3F) << 12)
+                | ((bytes[i + 4] as u32 & 0x3F) << 6)
+                | (bytes[i + 5] as u32 & 0x3F);
+            push_extended_char_or_escape(&mut out, code);
+            i += 6;
             continue;
         }
         // Invalid byte — replacement character.
@@ -124,6 +165,24 @@ fn format_value_for_error(v: &Value) -> String {
             }
         }),
         other => format!("{:?}", other),
+    }
+}
+
+fn format_eval_error_in_state(eval: &super::eval::Context, err: &EvalError) -> String {
+    match err {
+        EvalError::Signal { symbol, data } => {
+            let payload = if data.is_empty() {
+                "nil".to_string()
+            } else {
+                crate::emacs_core::error::print_value_in_state(eval, &Value::list(data.clone()))
+            };
+            format!("({} {})", resolve_sym(*symbol), payload)
+        }
+        EvalError::UncaughtThrow { tag, value } => format!(
+            "(throw {} {})",
+            crate::emacs_core::error::print_value_in_state(eval, tag),
+            crate::emacs_core::error::print_value_in_state(eval, value),
+        ),
     }
 }
 
@@ -2542,6 +2601,11 @@ pub fn create_bootstrap_evaluator_with_features(
         match load_file(&mut eval, &loadup_path) {
             Ok(_) => tracing::info!("loadup.el completed successfully"),
             Err(e) => {
+                let rendered = format_eval_error_in_state(&eval, &e);
+                tracing::error!("loadup.el failed: {rendered}");
+                maybe_trace_bootstrap_step(format!(
+                    "create_bootstrap_evaluator_with_features: loadup-failed={rendered}"
+                ));
                 // If kill-emacs was called (setting shutdown_request) during
                 // loadup.el, any subsequent errors (e.g. from post-dump code
                 // like `(eval top-level t)`) are expected and can be ignored.

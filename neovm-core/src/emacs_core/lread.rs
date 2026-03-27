@@ -5,7 +5,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::expr::Expr;
-use super::intern::resolve_sym;
+use super::intern::{intern, resolve_sym};
 use super::value::*;
 use std::path::Path;
 
@@ -108,29 +108,73 @@ pub(crate) fn eval_buffer_source_text_in_state(
     buffers: &crate::buffer::BufferManager,
     arg: Option<&Value>,
 ) -> Result<String, Flow> {
-    let buffer_id = match arg {
-        None | Some(Value::Nil) => buffers
+    let buffer_id = resolve_eval_buffer_id_in_state(buffers, arg)?;
+    buffers
+        .get(buffer_id)
+        .map(|buffer| buffer.buffer_string())
+        .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))
+}
+
+fn resolve_eval_buffer_id_in_state(
+    buffers: &crate::buffer::BufferManager,
+    arg: Option<&Value>,
+) -> Result<crate::buffer::BufferId, Flow> {
+    match arg {
+        None | Some(Value::Nil) => Ok(buffers
             .current_buffer()
             .map(|b| b.id)
-            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
-        Some(Value::Buffer(id)) => *id,
-        Some(Value::Str(id)) => {
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?),
+        Some(Value::Buffer(id)) => Ok(*id),
+        Some(Value::Str(id)) => Ok({
             let name = with_heap(|h| h.get_string(*id).to_owned());
             buffers
                 .find_buffer_by_name(&name)
                 .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))?
-        }
+        }),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), *other],
             ));
         }
-    };
-    buffers
-        .get(buffer_id)
-        .map(|buffer| buffer.buffer_string())
-        .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))
+    }
+}
+
+fn eval_buffer_filename_in_state(
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: crate::buffer::BufferId,
+    arg: Option<&Value>,
+) -> Result<Option<String>, Flow> {
+    match arg {
+        None | Some(Value::Nil) => Ok(buffers.get(buffer_id).and_then(|buffer| buffer.file_name.clone())),
+        Some(value) => Ok(Some(expect_string(value)?)),
+    }
+}
+
+fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &str) {
+    let path = Path::new(filename);
+    let path_str = path.to_string_lossy().to_string();
+    let entry = Value::cons(Value::string(path_str.clone()), Value::Nil);
+    let history = eval
+        .obarray()
+        .symbol_value("load-history")
+        .cloned()
+        .unwrap_or(Value::Nil);
+    let filtered_history = Value::list(
+        list_to_vec(&history)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|existing| match existing {
+                Value::Cons(id) => with_heap(|heap| {
+                    heap.cons_car(*id)
+                        .as_str()
+                        .is_none_or(|loaded| loaded != path_str)
+                }),
+                _ => true,
+            })
+            .collect(),
+    );
+    eval.set_variable("load-history", Value::cons(entry, filtered_history));
 }
 
 pub(crate) fn eval_region_source_text_in_state(
@@ -187,8 +231,68 @@ pub(crate) fn eval_region_source_text_in_state(
 /// Evaluate all forms from BUFFER (or current buffer) and return nil.
 pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("eval-buffer", &args, 5)?;
+    let buffer_id = resolve_eval_buffer_id_in_state(&eval.buffers, args.first())?;
     let source = eval_buffer_source_text_in_state(&eval.buffers, args.first())?;
-    eval_forms_from_source(eval, &source)
+    let filename = eval_buffer_filename_in_state(&eval.buffers, buffer_id, args.get(2))?;
+
+    let specpdl_count = eval.specpdl.len();
+    let old_lexical = eval.lexical_binding();
+    let old_lexenv = eval.lexenv;
+    let saved_roots = eval.save_temp_roots();
+    eval.push_temp_root(old_lexenv);
+
+    let buffer_value = Value::Buffer(buffer_id);
+    let prior_eval_buffer_list = eval.visible_variable_value_or_nil("eval-buffer-list");
+    eval.push_temp_root(buffer_value);
+    eval.push_temp_root(prior_eval_buffer_list);
+    let eval_buffer_list = Value::cons(buffer_value, prior_eval_buffer_list);
+    eval.push_temp_root(eval_buffer_list);
+    eval.specbind(intern("eval-buffer-list"), eval_buffer_list);
+
+    let do_allow_print = args.get(4).is_some_and(Value::is_truthy);
+    let standard_output = if args.get(1).is_none_or(Value::is_nil) && !do_allow_print {
+        Value::symbol("symbolp")
+    } else {
+        args.get(1).copied().unwrap_or(Value::Nil)
+    };
+    eval.specbind(intern("standard-output"), standard_output);
+
+    if let Some(filename) = filename.as_ref() {
+        let filename_value = Value::string(filename.clone());
+        eval.push_temp_root(filename_value);
+        let current_load_list = Value::cons(filename_value, Value::Nil);
+        eval.push_temp_root(current_load_list);
+        eval.specbind(intern("current-load-list"), current_load_list);
+    }
+
+    let lexical_binding = eval
+        .buffers
+        .get(buffer_id)
+        .and_then(|buffer| buffer.get_buffer_local_binding("lexical-binding"))
+        .and_then(|binding| binding.as_value())
+        .map_or_else(
+            || super::load::lexical_binding_enabled_for_source(&source),
+            |binding| binding.is_truthy(),
+        );
+    eval.set_lexical_binding(lexical_binding);
+    eval.lexenv = if lexical_binding {
+        Value::list(vec![Value::True])
+    } else {
+        Value::Nil
+    };
+
+    let result = eval_forms_from_source(eval, &source);
+
+    if result.is_ok() && let Some(filename) = filename.as_deref() {
+        record_eval_buffer_load_history(eval, filename);
+    }
+
+    eval.set_lexical_binding(old_lexical);
+    eval.lexenv = old_lexenv;
+    eval.unbind_to(specpdl_count);
+    eval.restore_temp_roots(saved_roots);
+
+    result
 }
 
 /// `(eval-region START END &optional PRINTFLAG READ-FUNCTION)`

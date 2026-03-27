@@ -6,7 +6,8 @@
 
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::string_escape::{
-    bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage, storage_byte_len,
+    bytes_to_unibyte_storage_string, decode_storage_char_codes, encode_nonunicode_char_for_storage,
+    storage_byte_len,
 };
 use crate::emacs_core::value::{StringTextPropertyRun, Value, with_heap};
 
@@ -304,6 +305,161 @@ fn decode_eol_text(bytes: &[u8], coding_system: &str) -> Vec<u8> {
     bytes.to_vec()
 }
 
+fn coding_system_family(coding_system: &str) -> &str {
+    coding_system
+        .strip_suffix("-unix")
+        .or_else(|| coding_system.strip_suffix("-dos"))
+        .or_else(|| coding_system.strip_suffix("-mac"))
+        .unwrap_or(coding_system)
+}
+
+fn push_emacs_utf8_decoded_char(out: &mut String, code: u32) {
+    if let Some(ch) = char::from_u32(code) {
+        out.push(ch);
+    } else if let Some(encoded) = encode_nonunicode_char_for_storage(code) {
+        out.push_str(&encoded);
+    } else {
+        out.push('\u{FFFD}');
+    }
+}
+
+fn decode_utf8_emacs_bytes(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    let mut i = 0usize;
+
+    while i < bytes.len() {
+        let b0 = bytes[i];
+        if b0 < 0x80 {
+            out.push(b0 as char);
+            i += 1;
+            continue;
+        }
+
+        if (0xC2..=0xDF).contains(&b0) && i + 1 < bytes.len() {
+            let b1 = bytes[i + 1];
+            if (b1 & 0xC0) == 0x80 {
+                let code = (((b0 & 0x1F) as u32) << 6) | ((b1 & 0x3F) as u32);
+                push_emacs_utf8_decoded_char(&mut out, code);
+                i += 2;
+                continue;
+            }
+        }
+
+        if (0xE0..=0xEF).contains(&b0) && i + 2 < bytes.len() {
+            let (b1, b2) = (bytes[i + 1], bytes[i + 2]);
+            if (b1 & 0xC0) == 0x80 && (b2 & 0xC0) == 0x80 {
+                let code = (((b0 & 0x0F) as u32) << 12)
+                    | (((b1 & 0x3F) as u32) << 6)
+                    | ((b2 & 0x3F) as u32);
+                push_emacs_utf8_decoded_char(&mut out, code);
+                i += 3;
+                continue;
+            }
+        }
+
+        if (0xF0..=0xF7).contains(&b0) && i + 3 < bytes.len() {
+            let (b1, b2, b3) = (bytes[i + 1], bytes[i + 2], bytes[i + 3]);
+            if (b1 & 0xC0) == 0x80 && (b2 & 0xC0) == 0x80 && (b3 & 0xC0) == 0x80 {
+                let code = (((b0 & 0x07) as u32) << 18)
+                    | (((b1 & 0x3F) as u32) << 12)
+                    | (((b2 & 0x3F) as u32) << 6)
+                    | ((b3 & 0x3F) as u32);
+                push_emacs_utf8_decoded_char(&mut out, code);
+                i += 4;
+                continue;
+            }
+        }
+
+        if (0xF8..=0xFB).contains(&b0) && i + 4 < bytes.len() {
+            let (b1, b2, b3, b4) = (bytes[i + 1], bytes[i + 2], bytes[i + 3], bytes[i + 4]);
+            if (b1 & 0xC0) == 0x80
+                && (b2 & 0xC0) == 0x80
+                && (b3 & 0xC0) == 0x80
+                && (b4 & 0xC0) == 0x80
+            {
+                let code = (((b0 & 0x03) as u32) << 24)
+                    | (((b1 & 0x3F) as u32) << 18)
+                    | (((b2 & 0x3F) as u32) << 12)
+                    | (((b3 & 0x3F) as u32) << 6)
+                    | ((b4 & 0x3F) as u32);
+                push_emacs_utf8_decoded_char(&mut out, code);
+                i += 5;
+                continue;
+            }
+        }
+
+        if (0xFC..=0xFD).contains(&b0) && i + 5 < bytes.len() {
+            let (b1, b2, b3, b4, b5) = (
+                bytes[i + 1],
+                bytes[i + 2],
+                bytes[i + 3],
+                bytes[i + 4],
+                bytes[i + 5],
+            );
+            if (b1 & 0xC0) == 0x80
+                && (b2 & 0xC0) == 0x80
+                && (b3 & 0xC0) == 0x80
+                && (b4 & 0xC0) == 0x80
+                && (b5 & 0xC0) == 0x80
+            {
+                let code = (((b0 & 0x01) as u32) << 30)
+                    | (((b1 & 0x3F) as u32) << 24)
+                    | (((b2 & 0x3F) as u32) << 18)
+                    | (((b3 & 0x3F) as u32) << 12)
+                    | (((b4 & 0x3F) as u32) << 6)
+                    | ((b5 & 0x3F) as u32);
+                push_emacs_utf8_decoded_char(&mut out, code);
+                i += 6;
+                continue;
+            }
+        }
+
+        out.push('\u{FFFD}');
+        i += 1;
+    }
+
+    out
+}
+
+fn encode_emacs_utf8_codepoint(code: u32, out: &mut Vec<u8>) {
+    if code <= 0x7F {
+        out.push(code as u8);
+    } else if code <= 0x7FF {
+        out.push(0xC0 | ((code >> 6) as u8));
+        out.push(0x80 | ((code & 0x3F) as u8));
+    } else if code <= 0xFFFF {
+        out.push(0xE0 | ((code >> 12) as u8));
+        out.push(0x80 | (((code >> 6) & 0x3F) as u8));
+        out.push(0x80 | ((code & 0x3F) as u8));
+    } else if code <= 0x1F_FFFF {
+        out.push(0xF0 | (((code >> 18) & 0x07) as u8));
+        out.push(0x80 | (((code >> 12) & 0x3F) as u8));
+        out.push(0x80 | (((code >> 6) & 0x3F) as u8));
+        out.push(0x80 | ((code & 0x3F) as u8));
+    } else if code <= 0x3F_FFFF {
+        out.push(0xF8 | (((code >> 24) & 0x03) as u8));
+        out.push(0x80 | (((code >> 18) & 0x3F) as u8));
+        out.push(0x80 | (((code >> 12) & 0x3F) as u8));
+        out.push(0x80 | (((code >> 6) & 0x3F) as u8));
+        out.push(0x80 | ((code & 0x3F) as u8));
+    } else if code <= 0x7FFF_FFFF {
+        out.push(0xFC | (((code >> 30) & 0x01) as u8));
+        out.push(0x80 | (((code >> 24) & 0x3F) as u8));
+        out.push(0x80 | (((code >> 18) & 0x3F) as u8));
+        out.push(0x80 | (((code >> 12) & 0x3F) as u8));
+        out.push(0x80 | (((code >> 6) & 0x3F) as u8));
+        out.push(0x80 | ((code & 0x3F) as u8));
+    }
+}
+
+fn encode_utf8_emacs_text(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len());
+    for code in decode_storage_char_codes(s) {
+        encode_emacs_utf8_codepoint(code, &mut out);
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Encoding conversion
 // ---------------------------------------------------------------------------
@@ -312,8 +468,9 @@ fn decode_eol_text(bytes: &[u8], coding_system: &str) -> Vec<u8> {
 /// Currently only UTF-8 is supported.
 pub fn encode_string(s: &str, coding_system: &str) -> Vec<u8> {
     let eol_text = encode_eol_text(s, coding_system);
-    match coding_system {
+    match coding_system_family(coding_system) {
         "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac" => eol_text.as_bytes().to_vec(),
+        "utf-8-emacs" => encode_utf8_emacs_text(&eol_text),
         "latin-1" | "iso-8859-1" | "iso-latin-1" => eol_text
             .chars()
             .map(|c| if (c as u32) <= 0xff { c as u8 } else { b'?' })
@@ -330,10 +487,11 @@ pub fn encode_string(s: &str, coding_system: &str) -> Vec<u8> {
 /// Currently only UTF-8 is supported.
 pub fn decode_bytes(bytes: &[u8], coding_system: &str) -> String {
     let bytes = decode_eol_text(bytes, coding_system);
-    match coding_system {
-        "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac" => {
+    match coding_system_family(coding_system) {
+        "utf-8" => {
             String::from_utf8_lossy(&bytes).into_owned()
         }
+        "utf-8-emacs" => decode_utf8_emacs_bytes(&bytes),
         "latin-1" | "iso-8859-1" | "iso-latin-1" => bytes.iter().map(|&b| b as char).collect(),
         "ascii" | "us-ascii" => bytes
             .iter()
@@ -582,13 +740,11 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
         return Err(signal("coding-system-error", vec![args[1]]));
     }
     if matches!(
-        coding.as_str(),
-        "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac"
+        coding_system_family(&coding),
+        "utf-8" | "utf-8-emacs"
     ) {
-        let encoded = encode_eol_text(&s, &coding);
-        return Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
-            &storage_string_to_bytes(&encoded),
-        )));
+        let bytes = encode_string(&s, &coding);
+        return Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(&bytes)));
     }
     if is_byte_preserving_coding_system(&coding) {
         let encoded = if coding.starts_with("raw-text") {
@@ -644,16 +800,11 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
         )));
     }
     if matches!(
-        coding.as_str(),
-        "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac"
+        coding_system_family(&coding),
+        "utf-8" | "utf-8-emacs"
     ) {
-        let bytes = decode_eol_text(&bytes, &coding);
-        return match String::from_utf8(bytes.clone()) {
-            Ok(text) => Ok(Value::multibyte_string(text)),
-            Err(_) => Ok(Value::multibyte_string(bytes_to_multibyte_raw_string(
-                &bytes,
-            ))),
-        };
+        let decoded = decode_bytes(&bytes, &coding);
+        return Ok(Value::multibyte_string(decoded));
     }
     let decoded = decode_bytes(&bytes, &coding);
     if matches!(coding.as_str(), "latin-1" | "iso-8859-1" | "iso-latin-1") {

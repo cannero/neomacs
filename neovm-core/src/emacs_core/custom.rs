@@ -440,12 +440,14 @@ pub(crate) fn builtin_buffer_local_variables(
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such live buffer")]))?;
 
-    let mut locals: Vec<(String, Option<Value>)> = buf
-        .properties
+    let locals: Vec<(String, Option<Value>)> = buf
+        .local_binding_names
         .iter()
-        .map(|(name, value)| (name.clone(), value.as_value()))
+        .filter_map(|name| {
+            buf.get_buffer_local_binding(name)
+                .map(|value| (name.clone(), value.as_value()))
+        })
         .collect();
-    locals.sort_by(|a, b| a.0.cmp(&b.0));
 
     let entries: Vec<Value> = locals
         .into_iter()

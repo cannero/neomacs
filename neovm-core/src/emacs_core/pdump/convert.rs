@@ -564,6 +564,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
             .iter()
             .map(|(k, v)| (k.clone(), dump_runtime_binding_value(v)))
             .collect(),
+        local_binding_names: buf.local_binding_names.iter().cloned().collect(),
         local_map: dump_value(&buf.local_map),
         text_props: dump_text_property_table(&buf.text_props),
         overlays: dump_overlay_list(&buf.overlays),
@@ -1875,6 +1876,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             .iter()
             .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
             .collect(),
+        local_binding_names: db.local_binding_names.iter().cloned().collect(),
         local_map: load_value(&db.local_map),
         text_props: TextPropertyTable::from_dump(
             db.text_props

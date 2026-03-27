@@ -3,7 +3,8 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use neovm_core::emacs_core::{Context, format_eval_result, parse_forms};
+use neovm_core::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use neovm_core::emacs_core::{format_eval_result_with_eval, parse_forms};
 
 pub fn oracle_emacs_path() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("NEOVM_FORCE_ORACLE_PATH") {
@@ -151,7 +152,10 @@ pub fn run_oracle_eval(form: &str) -> Result<String, String> {
 }
 
 pub fn run_neovm_eval(form: &str) -> Result<String, String> {
-    let mut eval = Context::new();
+    let mut eval = create_bootstrap_evaluator_cached()
+        .map_err(|e| format!("NeoVM bootstrap failed: {e:?}"))?;
+    apply_runtime_startup_state(&mut eval)
+        .map_err(|e| format!("NeoVM runtime startup failed: {e:?}"))?;
     eval.set_lexical_binding(true);
     let forms = parse_forms(form).map_err(|e| format!("NeoVM parse error: {e}"))?;
     let result = eval
@@ -159,5 +163,5 @@ pub fn run_neovm_eval(form: &str) -> Result<String, String> {
         .into_iter()
         .last()
         .ok_or_else(|| "NeoVM eval received no forms".to_string())?;
-    Ok(format_eval_result(&result))
+    Ok(format_eval_result_with_eval(&eval, &result))
 }
