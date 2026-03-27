@@ -212,11 +212,6 @@ pub(crate) fn builtin_case_table_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(is_case_table(&args[0])))
 }
 
-
-
-
-
-
 /// `(downcase CHAR)` -- convert a character to lowercase.
 ///
 /// If the argument is an integer or character, returns the lowercase version
@@ -393,7 +388,8 @@ pub(crate) fn builtin_set_standard_case_table(
         *slot.borrow_mut() = Some(args[0]);
     });
     let table = args[0];
-    ctx.obarray.set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
+    ctx.obarray
+        .set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
     Ok(table)
 }
 

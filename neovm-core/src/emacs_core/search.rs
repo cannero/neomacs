@@ -242,8 +242,6 @@ fn flatten_match_data(md: &super::regex::MatchData) -> Value {
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-
-
 /// `(regexp-quote STRING)` -- return a regexp that matches STRING literally,
 /// quoting all special regex characters.
 pub(crate) fn builtin_regexp_quote(args: Vec<Value>) -> EvalResult {
@@ -266,8 +264,6 @@ pub(crate) fn builtin_regexp_quote(args: Vec<Value>) -> EvalResult {
         },
     )
 }
-
-
 
 /// Parse SUBEXP and START args (positions 5 and 6) for replace-regexp-in-string.
 fn parse_replace_regexp_subexp_start(args: &[Value], s: &str) -> Result<(i64, usize), Flow> {

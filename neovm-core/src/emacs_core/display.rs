@@ -687,24 +687,6 @@ pub(crate) fn x_optional_display_query_error_in_state(
 // Display query builtins
 // ---------------------------------------------------------------------------
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /// Context-aware variant of `display-graphic-p`.
 pub(crate) fn builtin_display_graphic_p(
     eval: &mut super::eval::Context,
@@ -906,12 +888,8 @@ pub(crate) fn builtin_window_system(
     )
 }
 
-
 /// Context-aware variant of `frame-edges`.
-pub(crate) fn builtin_frame_edges(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_frame_edges(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("frame-edges", &args, 0, 2)?;
     if let Some(frame) = args.first() {
         if !frame.is_nil() && !live_frame_designator_p(eval, frame) {
@@ -1365,7 +1343,6 @@ pub(crate) fn builtin_x_get_atom_name(args: Vec<Value>) -> EvalResult {
     Err(x_window_system_frame_error())
 }
 
-
 pub(crate) fn builtin_x_get_resource(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1377,7 +1354,6 @@ pub(crate) fn builtin_x_get_resource(
     Err(window_system_not_initialized_error())
 }
 
-
 pub(crate) fn builtin_x_apply_session_resources(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1388,7 +1364,6 @@ pub(crate) fn builtin_x_apply_session_resources(
     }
     Err(window_system_not_initialized_error())
 }
-
 
 pub(crate) fn builtin_x_list_fonts(
     eval: &mut super::eval::Context,
@@ -1547,7 +1522,6 @@ pub(crate) fn builtin_x_window_property_attributes(args: Vec<Value>) -> EvalResu
     Err(x_window_system_frame_error())
 }
 
-
 /// Context-aware variant of `x-server-version`.
 pub(crate) fn builtin_x_server_version(
     eval: &mut super::eval::Context,
@@ -1556,7 +1530,6 @@ pub(crate) fn builtin_x_server_version(
     x_optional_display_query_error_eval(eval, "x-server-version", args)
 }
 
-
 /// Context-aware variant of `x-server-max-request-size`.
 pub(crate) fn builtin_x_server_max_request_size(
     eval: &mut super::eval::Context,
@@ -1564,7 +1537,6 @@ pub(crate) fn builtin_x_server_max_request_size(
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-max-request-size", args)
 }
-
 
 /// Context-aware variant of `x-display-grayscale-p`.
 pub(crate) fn builtin_x_display_grayscale_p(
@@ -1577,7 +1549,6 @@ pub(crate) fn builtin_x_display_grayscale_p(
     x_optional_display_query_error_eval(eval, "x-display-grayscale-p", args)
 }
 
-
 /// Context-aware variant of `x-display-backing-store`.
 pub(crate) fn builtin_x_display_backing_store(
     eval: &mut super::eval::Context,
@@ -1585,7 +1556,6 @@ pub(crate) fn builtin_x_display_backing_store(
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-backing-store", args)
 }
-
 
 /// Context-aware variant of `x-display-color-cells`.
 pub(crate) fn builtin_x_display_color_cells(
@@ -1598,7 +1568,6 @@ pub(crate) fn builtin_x_display_color_cells(
     x_optional_display_query_error_eval(eval, "x-display-color-cells", args)
 }
 
-
 /// Context-aware variant of `x-display-mm-height`.
 pub(crate) fn builtin_x_display_mm_height(
     eval: &mut super::eval::Context,
@@ -1606,7 +1575,6 @@ pub(crate) fn builtin_x_display_mm_height(
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-mm-height", args)
 }
-
 
 /// Context-aware variant of `x-display-mm-width`.
 pub(crate) fn builtin_x_display_mm_width(
@@ -1616,7 +1584,6 @@ pub(crate) fn builtin_x_display_mm_width(
     x_optional_display_query_error_eval(eval, "x-display-mm-width", args)
 }
 
-
 /// Context-aware variant of `x-display-monitor-attributes-list`.
 pub(crate) fn builtin_x_display_monitor_attributes_list(
     eval: &mut super::eval::Context,
@@ -1624,7 +1591,6 @@ pub(crate) fn builtin_x_display_monitor_attributes_list(
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-monitor-attributes-list", args)
 }
-
 
 /// Context-aware variant of `x-display-planes`.
 pub(crate) fn builtin_x_display_planes(
@@ -1637,7 +1603,6 @@ pub(crate) fn builtin_x_display_planes(
     x_optional_display_query_error_eval(eval, "x-display-planes", args)
 }
 
-
 /// Context-aware variant of `x-display-save-under`.
 pub(crate) fn builtin_x_display_save_under(
     eval: &mut super::eval::Context,
@@ -1646,7 +1611,6 @@ pub(crate) fn builtin_x_display_save_under(
     x_optional_display_query_error_eval(eval, "x-display-save-under", args)
 }
 
-
 /// Context-aware variant of `x-display-screens`.
 pub(crate) fn builtin_x_display_screens(
     eval: &mut super::eval::Context,
@@ -1654,7 +1618,6 @@ pub(crate) fn builtin_x_display_screens(
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-screens", args)
 }
-
 
 /// Context-aware variant of `x-display-visual-class`.
 pub(crate) fn builtin_x_display_visual_class(
@@ -1667,7 +1630,6 @@ pub(crate) fn builtin_x_display_visual_class(
     x_optional_display_query_error_eval(eval, "x-display-visual-class", args)
 }
 
-
 /// Context-aware variant of `x-server-input-extension-version`.
 pub(crate) fn builtin_x_server_input_extension_version(
     eval: &mut super::eval::Context,
@@ -1676,7 +1638,6 @@ pub(crate) fn builtin_x_server_input_extension_version(
     x_optional_display_query_error_eval(eval, "x-server-input-extension-version", args)
 }
 
-
 /// Context-aware variant of `x-server-vendor`.
 pub(crate) fn builtin_x_server_vendor(
     eval: &mut super::eval::Context,
@@ -1684,8 +1645,6 @@ pub(crate) fn builtin_x_server_vendor(
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-vendor", args)
 }
-
-
 
 /// Context-aware variant of `x-display-set-last-user-time`.
 ///
@@ -1858,7 +1817,6 @@ pub(crate) fn builtin_x_display_pixel_height(
 // Monitor attribute builtins
 // ---------------------------------------------------------------------------
 
-
 /// Context-aware variant of `display-monitor-attributes-list`.
 ///
 /// This populates the `frames` slot from the live frame list.
@@ -1877,7 +1835,6 @@ pub(crate) fn builtin_display_monitor_attributes_list(
         .collect::<Vec<_>>();
     Ok(Value::list(vec![make_monitor_alist(Value::list(frames))]))
 }
-
 
 /// Context-aware variant of `frame-monitor-attributes`.
 ///

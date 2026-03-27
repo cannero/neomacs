@@ -29,7 +29,8 @@ fn test_directory_files_and_attributes_basic() {
     let (dir, dir_str) = make_test_dir("dfa_basic");
     create_file(&dir, "test.txt", "hello");
 
-    let result = builtin_directory_files_and_attributes_inner(vec![Value::string(&dir_str)]).unwrap();
+    let result =
+        builtin_directory_files_and_attributes_inner(vec![Value::string(&dir_str)]).unwrap();
     let items = list_to_vec(&result).unwrap();
 
     // Find our file.
@@ -407,9 +408,11 @@ fn test_file_name_all_completions_empty() {
     let (dir, dir_str) = make_test_dir("fnac_empty");
     create_file(&dir, "hello.txt", "");
 
-    let result =
-        builtin_file_name_all_completions_inner(vec![Value::string("zzz"), Value::string(&dir_str)])
-            .unwrap();
+    let result = builtin_file_name_all_completions_inner(vec![
+        Value::string("zzz"),
+        Value::string(&dir_str),
+    ])
+    .unwrap();
     assert!(result.is_nil());
 
     let _ = fs::remove_dir_all(&dir);
@@ -421,8 +424,9 @@ fn test_file_name_all_completions_special_entries() {
     create_file(&dir, ".hidden", "");
     fs::create_dir(dir.join("subdir")).unwrap();
 
-    let dot = builtin_file_name_all_completions_inner(vec![Value::string("."), Value::string(&dir_str)])
-        .unwrap();
+    let dot =
+        builtin_file_name_all_completions_inner(vec![Value::string("."), Value::string(&dir_str)])
+            .unwrap();
     let dot_items = list_to_vec(&dot).unwrap();
     let dot_names: Vec<&str> = dot_items.iter().map(|v| v.as_str().unwrap()).collect();
     assert!(dot_names.contains(&"./"));
@@ -548,7 +552,8 @@ fn test_file_attributes_id_format_string() {
     create_file(&dir, "idtest.txt", "x");
 
     let result =
-        builtin_file_attributes_inner(vec![Value::string(&path_str), Value::symbol("string")]).unwrap();
+        builtin_file_attributes_inner(vec![Value::string(&path_str), Value::symbol("string")])
+            .unwrap();
     let items = list_to_vec(&result).unwrap();
     // UID (index 2) should be a string.
     assert!(items[2].is_string());
@@ -743,7 +748,10 @@ fn test_directory_files_and_attributes_wrong_args() {
 #[test]
 fn test_file_attributes_wrong_args() {
     assert!(builtin_file_attributes_inner(vec![]).is_err());
-    assert!(builtin_file_attributes_inner(vec![Value::string("/tmp"), Value::Nil, Value::Nil,]).is_err());
+    assert!(
+        builtin_file_attributes_inner(vec![Value::string("/tmp"), Value::Nil, Value::Nil,])
+            .is_err()
+    );
 }
 
 #[test]

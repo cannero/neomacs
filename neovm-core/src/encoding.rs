@@ -488,9 +488,7 @@ pub fn encode_string(s: &str, coding_system: &str) -> Vec<u8> {
 pub fn decode_bytes(bytes: &[u8], coding_system: &str) -> String {
     let bytes = decode_eol_text(bytes, coding_system);
     match coding_system_family(coding_system) {
-        "utf-8" => {
-            String::from_utf8_lossy(&bytes).into_owned()
-        }
+        "utf-8" => String::from_utf8_lossy(&bytes).into_owned(),
         "utf-8-emacs" => decode_utf8_emacs_bytes(&bytes),
         "latin-1" | "iso-8859-1" | "iso-latin-1" => bytes.iter().map(|&b| b as char).collect(),
         "ascii" | "us-ascii" => bytes
@@ -739,12 +737,11 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
     if !known_coding_system(&coding) {
         return Err(signal("coding-system-error", vec![args[1]]));
     }
-    if matches!(
-        coding_system_family(&coding),
-        "utf-8" | "utf-8-emacs"
-    ) {
+    if matches!(coding_system_family(&coding), "utf-8" | "utf-8-emacs") {
         let bytes = encode_string(&s, &coding);
-        return Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(&bytes)));
+        return Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
+            &bytes,
+        )));
     }
     if is_byte_preserving_coding_system(&coding) {
         let encoded = if coding.starts_with("raw-text") {
@@ -799,10 +796,7 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
             &bytes,
         )));
     }
-    if matches!(
-        coding_system_family(&coding),
-        "utf-8" | "utf-8-emacs"
-    ) {
+    if matches!(coding_system_family(&coding), "utf-8" | "utf-8-emacs") {
         let decoded = decode_bytes(&bytes, &coding);
         return Ok(Value::multibyte_string(decoded));
     }

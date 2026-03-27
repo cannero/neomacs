@@ -70,7 +70,6 @@ fn expect_list_like(value: &Value) -> Result<(), Flow> {
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-
 /// (undo-boundary) -> nil
 ///
 /// Context-dependent variant used during normal execution: inserts an

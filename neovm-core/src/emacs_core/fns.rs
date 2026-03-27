@@ -430,11 +430,23 @@ pub(crate) fn builtin_base64_decode_region(
     match base64_decode(&source, &table) {
         Ok(bytes) => {
             let decoded = String::from_utf8_lossy(&bytes).into_owned();
-            replace_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte, &decoded)?;
+            replace_buffer_region_in_manager(
+                &mut eval.buffers,
+                buffer_id,
+                start_byte,
+                end_byte,
+                &decoded,
+            )?;
             Ok(Value::Int(bytes.len() as i64))
         }
         Err(()) if noerror => {
-            replace_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte, "")?;
+            replace_buffer_region_in_manager(
+                &mut eval.buffers,
+                buffer_id,
+                start_byte,
+                end_byte,
+                "",
+            )?;
             Ok(Value::Int(0))
         }
         Err(()) => Err(signal("error", vec![Value::string("Invalid base64 data")])),
@@ -444,7 +456,6 @@ pub(crate) fn builtin_base64_decode_region(
 // ---------------------------------------------------------------------------
 // Hash / digest builtins
 // ---------------------------------------------------------------------------
-
 
 /// (md5 OBJECT &optional START END CODING-SYSTEM NOERROR)
 ///
@@ -782,14 +793,10 @@ fn secure_hash_digest_bytes(algo_name: &str, input: &str) -> Result<Vec<u8>, Flo
     Ok(digest)
 }
 
-
 /// (secure-hash ALGORITHM OBJECT &optional START END BINARY)
 ///
 /// Context-aware implementation that also supports buffer objects.
-pub(crate) fn builtin_secure_hash(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_secure_hash(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("secure-hash", &args, 2, 5)?;
     let algo_name = secure_hash_algorithm_name(&args[0])?;
 
@@ -821,10 +828,7 @@ pub(crate) fn builtin_secure_hash(
 
 /// (buffer-hash &optional BUFFER-OR-NAME)
 /// Context-aware implementation used at runtime.
-pub(crate) fn builtin_buffer_hash(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("buffer-hash", &args, 0, 1)?;
 
     let buffer_id = if args.is_empty() || args[0].is_nil() {

@@ -390,10 +390,12 @@ pub(crate) fn builtin_indent_to(
         0
     };
 
-    let current_id = ctx.buffers
+    let current_id = ctx
+        .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = ctx.buffers
+    let buf = ctx
+        .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -448,7 +450,6 @@ pub(crate) fn builtin_indent_to(
 
     Ok(Value::Int(mincol as i64))
 }
-
 
 // ---------------------------------------------------------------------------
 // Variable initialisation

@@ -708,7 +708,10 @@ pub(crate) fn builtin_thread_live_p(
 /// `(threadp OBJ)` -- type predicate.
 ///
 /// Returns t if OBJ is a known thread object.
-pub(crate) fn builtin_threadp(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_threadp(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("threadp", &args, 1)?;
     Ok(Value::bool(
         ctx.threads.thread_id_from_handle(&args[0]).is_some(),
@@ -751,7 +754,8 @@ pub(crate) fn builtin_current_thread(
 ) -> EvalResult {
     expect_args("current-thread", &args, 0)?;
     let id = ctx.threads.current_thread_id();
-    Ok(ctx.threads
+    Ok(ctx
+        .threads
         .thread_handle(id)
         .unwrap_or_else(|| tagged_object_value("thread", id)))
 }
@@ -825,13 +829,17 @@ pub(crate) fn builtin_make_mutex(
         None
     };
     let id = ctx.threads.create_mutex(name);
-    Ok(ctx.threads
+    Ok(ctx
+        .threads
         .mutex_handle(id)
         .unwrap_or_else(|| tagged_object_value("mutex", id)))
 }
 
 /// `(mutexp OBJ)` -- type predicate for mutexes.
-pub(crate) fn builtin_mutexp(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mutexp(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("mutexp", &args, 1)?;
     Ok(Value::bool(
         ctx.threads.mutex_id_from_handle(&args[0]).is_some(),
@@ -839,7 +847,10 @@ pub(crate) fn builtin_mutexp(ctx: &mut crate::emacs_core::eval::Context, args: V
 }
 
 /// `(mutex-name MUTEX)` -- return the mutex's name or nil.
-pub(crate) fn builtin_mutex_name(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mutex_name(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("mutex-name", &args, 1)?;
     let id = expect_mutex_id(&ctx.threads, &args[0])?;
     if !ctx.threads.is_mutex(id) {
@@ -931,7 +942,8 @@ pub(crate) fn builtin_make_condition_variable(
         None
     };
     match ctx.threads.create_condition_variable(mutex_id, name) {
-        Some(id) => Ok(ctx.threads
+        Some(id) => Ok(ctx
+            .threads
             .condition_variable_handle(id)
             .unwrap_or_else(|| tagged_object_value("condition-variable", id))),
         None => Err(signal(

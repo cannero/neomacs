@@ -52,15 +52,15 @@ fn terminal_live_p_int_is_not_live() {
 fn terminal_parameter_roundtrip() {
     reset_terminal_thread_locals();
     let mut eval = Context::new();
-    let prev = builtin_set_terminal_parameter(&mut eval, vec![
-        Value::Nil,
-        Value::symbol("test-param"),
-        Value::Int(99),
-    ])
+    let prev = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("test-param"), Value::Int(99)],
+    )
     .unwrap();
     assert!(prev.is_nil());
 
-    let val = builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("test-param")]).unwrap();
+    let val = builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("test-param")])
+        .unwrap();
     assert_eq!(val, Value::Int(99));
 }
 
@@ -68,9 +68,11 @@ fn terminal_parameter_roundtrip() {
 fn terminal_parameter_defaults() {
     reset_terminal_thread_locals();
     let mut eval = Context::new();
-    let normal =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("normal-erase-is-backspace")])
-            .unwrap();
+    let normal = builtin_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("normal-erase-is-backspace")],
+    )
+    .unwrap();
     assert_eq!(normal, Value::Int(0));
 }
 
@@ -94,12 +96,18 @@ fn tty_runtime_can_report_terminal_type_and_color_capability() {
         builtin_tty_type(&mut eval, vec![]).unwrap(),
         Value::string("xterm-256color")
     );
-    assert_eq!(builtin_tty_display_color_p(&mut eval, vec![]).unwrap(), Value::True);
+    assert_eq!(
+        builtin_tty_display_color_p(&mut eval, vec![]).unwrap(),
+        Value::True
+    );
     assert_eq!(
         builtin_tty_display_color_cells(&mut eval, vec![]).unwrap(),
         Value::Int(256)
     );
-    assert_eq!(builtin_controlling_tty_p(&mut eval, vec![]).unwrap(), Value::True);
+    assert_eq!(
+        builtin_controlling_tty_p(&mut eval, vec![]).unwrap(),
+        Value::True
+    );
 }
 
 #[test]

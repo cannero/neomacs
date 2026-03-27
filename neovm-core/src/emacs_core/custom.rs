@@ -337,16 +337,21 @@ pub(crate) fn builtin_make_local_variable(
     }
 
     if let Some(current_id) = ctx.buffers.current_buffer_id() {
-        if ctx.buffers
+        if ctx
+            .buffers
             .get(current_id)
             .is_some_and(|buf| !buf.has_buffer_local(resolved_name))
         {
             match runtime_binding_for_make_local_variable(&ctx.obarray, &[], symbol, resolved) {
                 RuntimeBindingValue::Bound(value) => {
-                    let _ = ctx.buffers.set_buffer_local_property(current_id, resolved_name, value);
+                    let _ = ctx
+                        .buffers
+                        .set_buffer_local_property(current_id, resolved_name, value);
                 }
                 RuntimeBindingValue::Void => {
-                    let _ = ctx.buffers.set_buffer_local_void_property(current_id, resolved_name);
+                    let _ = ctx
+                        .buffers
+                        .set_buffer_local_void_property(current_id, resolved_name);
                 }
             }
         }
@@ -423,7 +428,8 @@ pub(crate) fn builtin_buffer_local_variables(
     expect_max_args("buffer-local-variables", &args, 1)?;
 
     let id = match args.first() {
-        None | Some(Value::Nil) => ctx.buffers
+        None | Some(Value::Nil) => ctx
+            .buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
@@ -436,7 +442,8 @@ pub(crate) fn builtin_buffer_local_variables(
         }
     };
 
-    let buf = ctx.buffers
+    let buf = ctx
+        .buffers
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such live buffer")]))?;
 
@@ -507,7 +514,8 @@ pub(crate) fn builtin_kill_local_variable_impl(
     let mut removed = false;
     let buffer_id = ctx.buffers.current_buffer_id();
     if let Some(buffer_id) = buffer_id {
-        removed = ctx.buffers
+        removed = ctx
+            .buffers
             .remove_buffer_local_property(buffer_id, &resolved)
             .flatten()
             .is_some();
@@ -538,8 +546,7 @@ pub(crate) fn builtin_default_value(
             ));
         }
     };
-    let resolved =
-        super::builtins::resolve_variable_alias_id_in_obarray(&eval.obarray, symbol)?;
+    let resolved = super::builtins::resolve_variable_alias_id_in_obarray(&eval.obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
     // specbind writes directly to obarray, so no dynamic stack lookup needed.
     match eval.obarray.symbol_value_id(resolved) {

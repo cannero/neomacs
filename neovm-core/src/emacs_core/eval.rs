@@ -859,10 +859,9 @@ pub(crate) fn builtin_require_in_vm_runtime(
         RequirePlan::Load { sym_id, name, path } => {
             shared.require_stack.push(sym_id);
             let extra_roots = args.to_vec();
-            let result =
-                shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
-                    eval.load_file_internal(&path)
-                });
+            let result = shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
+                eval.load_file_internal(&path)
+            });
             let _ = shared.require_stack.pop();
             result?;
             refresh_features_from_variable_in_state(&shared.obarray, &mut shared.features);
@@ -977,8 +976,7 @@ pub(crate) fn builtin_eval_in_vm_runtime(
     let form = args[0];
     let lexical_arg = args.get(1).copied();
     let state = shared.begin_eval_with_lexical_arg(lexical_arg)?;
-    let result = shared
-        .with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval_value(&form));
+    let result = shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval_value(&form));
     shared.finish_eval_with_lexical_arg(state);
     result
 }
@@ -7382,7 +7380,13 @@ impl Context {
                 self.push_temp_root(closure_hook);
                 let result = self.apply(
                     closure_hook,
-                    vec![params_value, body_value, env_value, closure_doc_value, iform_value],
+                    vec![
+                        params_value,
+                        body_value,
+                        env_value,
+                        closure_doc_value,
+                        iform_value,
+                    ],
                 );
                 self.restore_temp_roots(saved);
                 return result;
@@ -8315,7 +8319,6 @@ impl Context {
     pub(crate) fn kmacro_mut(&mut self) -> &mut KmacroManager {
         &mut self.kmacro
     }
-
 
     pub(crate) fn gui_frame_creation_state(
         &mut self,

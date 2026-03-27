@@ -1165,7 +1165,6 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-
 /// Context-aware variant of `(find-charset-region BEG END &optional TABLE)`.
 ///
 /// Returns charset symbols present in the region `[BEG, END)` where BEG/END are
@@ -1179,7 +1178,8 @@ pub(crate) fn builtin_find_charset_region(
     let beg = expect_int_or_marker(&args[0])?;
     let end = expect_int_or_marker(&args[1])?;
 
-    let buf = ctx.buffers
+    let buf = ctx
+        .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -1372,7 +1372,6 @@ pub(crate) fn builtin_clear_charset_maps(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-
 /// Context-aware variant of `(charset-after &optional POS)`.
 ///
 /// Returns the charset of the character at POS (1-based), or the character
@@ -1383,7 +1382,8 @@ pub(crate) fn builtin_charset_after(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("charset-after", &args, 1)?;
-    let buf = ctx.buffers
+    let buf = ctx
+        .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 

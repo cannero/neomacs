@@ -473,7 +473,6 @@ fn garbage_collect_shape_and_arity() {
                 .all(|item| matches!(item, Value::Int(_)))
         );
     }
-
 }
 
 #[test]

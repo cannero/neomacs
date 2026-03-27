@@ -694,10 +694,7 @@ pub(crate) fn builtin_format(eval: &mut super::eval::Context, args: Vec<Value>) 
     builtin_format_wrapper_strict(eval, args)
 }
 
-fn format_percent_s_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    value: &Value,
-) -> String {
+fn format_percent_s_in_state(ctx: &crate::emacs_core::eval::Context, value: &Value) -> String {
     super::misc_eval::print_value_princ_in_state(ctx, value)
 }
 
@@ -1080,15 +1077,12 @@ pub(crate) fn builtin_format_wrapper_strict(
 ) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
         expect_min_args("format", &args, 1)?;
-        let s = do_format(
-            &args,
-            &|v| format_percent_s_in_state(ctx, v),
-            &|v| super::error::print_value_in_state(ctx, v),
-        )?;
+        let s = do_format(&args, &|v| format_percent_s_in_state(ctx, v), &|v| {
+            super::error::print_value_in_state(ctx, v)
+        })?;
         Ok(Value::string(s))
     })
 }
-
 
 /// Apply `text-quoting-style` translation to a string.
 ///

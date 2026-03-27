@@ -248,7 +248,6 @@ pub(crate) fn builtin_ding(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-
 /// Context-aware variant of `send-string-to-terminal`.
 ///
 /// Accepts live frame designators for the optional TERMINAL argument.
@@ -271,7 +270,6 @@ pub(crate) fn builtin_send_string_to_terminal(
     }
 }
 
-
 /// Context-aware variant of `internal-show-cursor`.
 ///
 /// Accepts live window designators in addition to nil.
@@ -289,7 +287,6 @@ pub(crate) fn builtin_internal_show_cursor(
     }
     Ok(Value::Nil)
 }
-
 
 /// Context-aware variant of `internal-show-cursor-p`.
 ///

@@ -441,9 +441,8 @@ fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
     let suppressed =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::symbol("unsafe-mode-line")])
             .expect("unsafe mode-line variable should be suppressed");
-    let allowed =
-        builtin_format_mode_line_ctx(&mut eval, vec![Value::symbol("trusted-mode-line")])
-            .expect("trusted mode-line variable should evaluate");
+    let allowed = builtin_format_mode_line_ctx(&mut eval, vec![Value::symbol("trusted-mode-line")])
+        .expect("trusted mode-line variable should evaluate");
 
     assert_eq!(suppressed, Value::string(""));
     assert_eq!(allowed, Value::string("ok"));
@@ -1006,8 +1005,7 @@ fn test_window_text_pixel_size_eval_window_validation() {
         other => panic!("expected cons return, got {other:?}"),
     }
 
-    let err =
-        builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::Int(999_999)]).unwrap_err();
+    let err = builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::Int(999_999)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected wrong-type-argument, got {:?}", other),
@@ -1210,9 +1208,8 @@ fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
         }]);
     }
 
-    let result = builtin_posn_at_point_impl(
-        &mut eval.frames,
-        &mut eval.buffers,
+    let result = builtin_posn_at_point(
+        &mut eval,
         vec![Value::Int(5), Value::Window(selected_window.0)],
     )
     .unwrap();
@@ -1258,9 +1255,8 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
         }]);
     }
 
-    let text_relative = builtin_posn_at_x_y_impl(
-        &mut eval.frames,
-        &mut eval.buffers,
+    let text_relative = builtin_posn_at_x_y(
+        &mut eval,
         vec![
             Value::Int(30),
             Value::Int(20),
@@ -1274,9 +1270,8 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
         "(#<window 1> 5 (24 . 18) 0 nil 5 (3 . 1) nil (0 . 0) (21 . 30))"
     );
 
-    let whole_window = builtin_posn_at_x_y_impl(
-        &mut eval.frames,
-        &mut eval.buffers,
+    let whole_window = builtin_posn_at_x_y(
+        &mut eval,
         vec![
             Value::Int(38),
             Value::Int(20),
@@ -1344,21 +1339,18 @@ fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
         }]);
     }
 
-    let before = builtin_posn_at_point_impl(
-        &mut eval.frames,
-        &mut eval.buffers,
+    let before = builtin_posn_at_point(
+        &mut eval,
         vec![Value::Int(5), Value::Window(selected_window.0)],
     )
     .unwrap();
-    let after = builtin_posn_at_point_impl(
-        &mut eval.frames,
-        &mut eval.buffers,
+    let after = builtin_posn_at_point(
+        &mut eval,
         vec![Value::Int(20), Value::Window(selected_window.0)],
     )
     .unwrap();
-    let hidden_gap = builtin_posn_at_point_impl(
-        &mut eval.frames,
-        &mut eval.buffers,
+    let hidden_gap = builtin_posn_at_point(
+        &mut eval,
         vec![Value::Int(12), Value::Window(selected_window.0)],
     )
     .unwrap();
@@ -1439,9 +1431,8 @@ fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row(
         }]);
     }
 
-    let missing = builtin_posn_at_point_impl(
-        &mut eval.frames,
-        &mut eval.buffers,
+    let missing = builtin_posn_at_point(
+        &mut eval,
         vec![Value::Int(2), Value::Window(selected_window.0)],
     )
     .unwrap();
@@ -1703,8 +1694,7 @@ fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
     )
     .unwrap();
 
-    let lines =
-        builtin_tab_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
+    let lines = builtin_tab_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
     assert_eq!(lines, Value::Int(1));
 
     let pixels =

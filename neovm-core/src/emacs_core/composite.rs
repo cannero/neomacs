@@ -79,7 +79,6 @@ fn integer_value(arg: &Value) -> i64 {
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-
 /// Context-backed `(compose-region-internal START END &optional COMPONENTS MODIFICATION-FUNC)`.
 ///
 /// Batch-compatible subset:

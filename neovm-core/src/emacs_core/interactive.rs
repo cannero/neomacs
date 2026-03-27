@@ -339,7 +339,6 @@ pub(crate) fn builtin_commandp_impl(
     Ok(Value::bool(is_command))
 }
 
-
 fn command_modes_from_expr_body(body: &[Expr]) -> Option<Value> {
     let body_index = lambda_body_metadata_end(body);
     for expr in &body[body_index..] {
@@ -2202,8 +2201,7 @@ fn eval_interactive_form_expr_in_vm_runtime(
     vm_gc_roots: &[Value],
     form: &Expr,
 ) -> Result<Vec<Value>, Flow> {
-    let value =
-        shared.with_extra_gc_roots(vm_gc_roots, &[], move |eval| eval.eval(form))?;
+    let value = shared.with_extra_gc_roots(vm_gc_roots, &[], move |eval| eval.eval(form))?;
     interactive_form_value_to_args(value)
 }
 
@@ -2212,8 +2210,8 @@ fn eval_interactive_form_value_in_vm_runtime(
     vm_gc_roots: &[Value],
     form: Value,
 ) -> Result<Vec<Value>, Flow> {
-    let value = shared
-        .with_extra_gc_roots(vm_gc_roots, &[form], move |eval| eval.eval_value(&form))?;
+    let value =
+        shared.with_extra_gc_roots(vm_gc_roots, &[form], move |eval| eval.eval_value(&form))?;
     interactive_form_value_to_args(value)
 }
 
@@ -2637,7 +2635,8 @@ pub(crate) fn builtin_key_binding_impl(
         if !string_designator {
             return Ok(Value::Nil);
         }
-        let global = crate::emacs_core::builtins::keymaps::ensure_global_keymap_in_obarray(&mut ctx.obarray);
+        let global =
+            crate::emacs_core::builtins::keymaps::ensure_global_keymap_in_obarray(&mut ctx.obarray);
         let mut maps = Vec::new();
         if !ctx.buffers.current_local_map().is_nil() {
             maps.push(ctx.buffers.current_local_map());
@@ -2698,7 +2697,8 @@ pub(crate) fn builtin_key_binding_impl(
         return Ok(value);
     }
 
-    if let Some(expanded_events) = expand_meta_prefix_char_events_in_obarray(&mut ctx.obarray, &emacs_events)
+    if let Some(expanded_events) =
+        expand_meta_prefix_char_events_in_obarray(&mut ctx.obarray, &emacs_events)
     {
         if let Some(value) = lookup_binding(&mut ctx.obarray, &expanded_events) {
             return Ok(value);
@@ -3670,10 +3670,7 @@ fn where_is_internal_explicit_keymaps(eval: &Context, value: &Value) -> Result<V
 }
 
 fn where_is_internal_active_keymaps(eval: &mut Context) -> Vec<Value> {
-    match super::builtins::keymaps::builtin_current_active_maps_impl(
-        eval,
-        &[],
-    ) {
+    match super::builtins::keymaps::builtin_current_active_maps_impl(eval, &[]) {
         Ok(value) => list_to_vec(&value).unwrap_or_default(),
         Err(_) => Vec::new(),
     }

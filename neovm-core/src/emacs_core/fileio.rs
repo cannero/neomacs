@@ -1668,10 +1668,7 @@ pub(crate) fn builtin_file_selinux_context_impl(
 }
 
 /// Context-aware variant of `file-selinux-context`.
-pub(crate) fn builtin_file_selinux_context(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_file_selinux_context(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_selinux_context_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1797,10 +1794,7 @@ pub(crate) fn builtin_file_newer_than_file_p_impl(
     Ok(Value::bool(file_newer_than_file_p(&file1, &file2)))
 }
 
-pub(crate) fn builtin_file_newer_than_file_p(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_file_newer_than_file_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_file_newer_than_file_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2060,10 +2054,7 @@ pub(crate) fn builtin_delete_file_internal_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_delete_file_internal(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_delete_file_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_delete_file_internal_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2297,10 +2288,7 @@ pub(crate) fn builtin_make_directory_internal_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_make_directory_internal(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_make_directory_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_make_directory_internal_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2318,10 +2306,7 @@ pub(crate) fn builtin_find_file_name_handler_impl(
 }
 
 /// Context-aware variant of `find-file-name-handler`.
-pub(crate) fn builtin_find_file_name_handler(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_find_file_name_handler(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_find_file_name_handler_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2532,7 +2517,8 @@ fn decode_insert_file_contents(
         matches!(family, "utf-8" | "utf-8-emacs")
     };
 
-    let Some(coding) = coding_system_for_read.filter(|coding| !coding.is_empty() && *coding != "nil")
+    let Some(coding) =
+        coding_system_for_read.filter(|coding| !coding.is_empty() && *coding != "nil")
     else {
         if source_load_context && multibyte {
             return Ok((
@@ -2560,14 +2546,17 @@ fn decode_insert_file_contents(
     }
 
     let decoded = crate::encoding::builtin_decode_coding_string(vec![
-        Value::unibyte_string(crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(
-            bytes,
-        )),
+        Value::unibyte_string(
+            crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(bytes),
+        ),
         Value::symbol(coding),
     ])?;
 
     match decoded {
-        Value::Str(id) => Ok((with_heap(|h| h.get_string(id).to_owned()), coding.to_string())),
+        Value::Str(id) => Ok((
+            with_heap(|h| h.get_string(id).to_owned()),
+            coding.to_string(),
+        )),
         other => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -2663,8 +2652,12 @@ pub(crate) fn builtin_insert_file_contents_impl(
         .get(current_id)
         .map(|buffer| buffer.multibyte)
         .unwrap_or(true);
-    let (contents, used_coding) =
-        decode_insert_file_contents(slice, multibyte, source_load_context, coding_system_for_read)?;
+    let (contents, used_coding) = decode_insert_file_contents(
+        slice,
+        multibyte,
+        source_load_context,
+        coding_system_for_read,
+    )?;
     let char_count = contents.chars().count() as i64;
 
     insert_file_contents_into_current_buffer_in_state(
@@ -2693,7 +2686,8 @@ pub(crate) fn builtin_insert_file_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let coding_system_for_read = match eval.visible_variable_value_or_nil("coding-system-for-read") {
+    let coding_system_for_read = match eval.visible_variable_value_or_nil("coding-system-for-read")
+    {
         Value::Nil => None,
         Value::Symbol(id) => Some(resolve_sym(id).to_owned()),
         Value::Str(id) => Some(with_heap(|h| h.get_string(id).to_owned())),

@@ -758,7 +758,10 @@ pub(crate) fn resolve_print_target_in_state(
 ) -> Value {
     match printcharfun {
         Some(dest) if !dest.is_nil() => *dest,
-        _ => ctx.obarray.symbol_value("standard-output").cloned()
+        _ => ctx
+            .obarray
+            .symbol_value("standard-output")
+            .cloned()
             .unwrap_or(Value::True),
     }
 }
@@ -1029,7 +1032,10 @@ pub(crate) fn print_value_princ_in_state(
     if super::terminal::pure::print_terminal_handle(value).is_some()
         || ctx.threads.thread_id_from_handle(value).is_some()
         || ctx.threads.mutex_id_from_handle(value).is_some()
-        || ctx.threads.condition_variable_id_from_handle(value).is_some()
+        || ctx
+            .threads
+            .condition_variable_id_from_handle(value)
+            .is_some()
     {
         return super::error::print_value_in_state(ctx, value);
     }
@@ -1134,12 +1140,14 @@ pub(crate) fn prin1_to_string_value_in_state(
         }
     } else {
         bytes_to_storage_string(&super::error::print_value_bytes_in_state(
-            &ctx.obarray, &ctx.buffers, &ctx.frames, &ctx.threads, value,
+            &ctx.obarray,
+            &ctx.buffers,
+            &ctx.frames,
+            &ctx.threads,
+            value,
         ))
     }
 }
-
-
 
 pub(crate) fn builtin_princ(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("princ", &args, 1)?;
@@ -1175,10 +1183,7 @@ pub(crate) fn builtin_prin1(eval: &mut super::eval::Context, args: Vec<Value>) -
         return builtin_prin1_impl(eval, args);
     }
 
-    let text = super::error::print_value_in_state(
-        eval,
-        &args[0],
-    );
+    let text = super::error::print_value_in_state(eval, &args[0]);
     let saved_roots = eval.save_temp_roots();
     eval.push_temp_root(target);
     let callback_result =
@@ -1198,7 +1203,6 @@ pub(crate) fn builtin_prin1_impl(
     Ok(args[0])
 }
 
-
 pub(crate) fn builtin_prin1_to_string(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1217,8 +1221,6 @@ pub(crate) fn builtin_prin1_to_string_impl(
     )))
 }
 
-
-
 pub(crate) fn builtin_print(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("print", &args, 1)?;
     let target = resolve_print_target(eval, args.get(1));
@@ -1228,10 +1230,7 @@ pub(crate) fn builtin_print(eval: &mut super::eval::Context, args: Vec<Value>) -
 
     let mut text = String::new();
     text.push('\n');
-    text.push_str(&super::error::print_value_in_state(
-        eval,
-        &args[0],
-    ));
+    text.push_str(&super::error::print_value_in_state(eval, &args[0]));
     text.push('\n');
     let saved_roots = eval.save_temp_roots();
     eval.push_temp_root(target);
@@ -1292,10 +1291,7 @@ pub(super) fn write_char_rendered_text(char_code: i64) -> Option<String> {
         .or_else(|| encode_nonunicode_char_for_storage(code))
 }
 
-pub(crate) fn builtin_write_char(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_write_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = builtin_write_char_impl(eval, args.clone())? {
         return Ok(result);
     }
@@ -1437,7 +1433,6 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     Ok(new_str)
 }
 
-
 pub(crate) fn builtin_current_cpu_time(args: Vec<Value>) -> EvalResult {
     expect_args("current-cpu-time", &args, 0)?;
     use std::sync::OnceLock;
@@ -1447,7 +1442,6 @@ pub(crate) fn builtin_current_cpu_time(args: Vec<Value>) -> EvalResult {
     let ticks = start.elapsed().as_micros() as i64;
     Ok(Value::cons(Value::Int(ticks), Value::Int(1_000_000)))
 }
-
 
 pub(crate) fn builtin_current_idle_time(
     eval: &mut crate::emacs_core::eval::Context,

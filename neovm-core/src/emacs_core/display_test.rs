@@ -1,20 +1,15 @@
 use super::*;
 use crate::emacs_core::dispnew::pure::{
-    builtin_internal_show_cursor_inner, builtin_internal_show_cursor,
-    builtin_internal_show_cursor_p_inner, builtin_internal_show_cursor_p, builtin_open_termscript,
-    builtin_redraw_frame, builtin_send_string_to_terminal_inner,
-    builtin_send_string_to_terminal, reset_dispnew_thread_locals,
+    builtin_internal_show_cursor, builtin_internal_show_cursor_p, builtin_open_termscript,
+    builtin_redraw_frame, builtin_send_string_to_terminal, reset_dispnew_thread_locals,
 };
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::terminal::pure::{
-    builtin_controlling_tty_p, builtin_frame_terminal,
-    builtin_resume_tty,
-    builtin_selected_terminal, builtin_set_terminal_parameter,
-    builtin_suspend_tty, builtin_terminal_live_p,
-    builtin_terminal_name,
-    builtin_terminal_parameter, builtin_terminal_parameters,
-    builtin_tty_top_frame,
-    builtin_tty_type, reset_terminal_thread_locals, terminal_handle_value,
+    builtin_controlling_tty_p, builtin_frame_terminal, builtin_resume_tty,
+    builtin_selected_terminal, builtin_set_terminal_parameter, builtin_suspend_tty,
+    builtin_terminal_live_p, builtin_terminal_name, builtin_terminal_parameter,
+    builtin_terminal_parameters, builtin_tty_top_frame, builtin_tty_type,
+    reset_terminal_thread_locals, terminal_handle_value,
 };
 
 fn clear_terminal_parameters() {
@@ -35,20 +30,23 @@ fn x_window_system_active_falls_back_to_window_system_when_initial_is_nil() {
 fn terminal_parameter_exposes_oracle_defaults() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let normal =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("normal-erase-is-backspace")])
-            .unwrap();
+    let normal = builtin_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("normal-erase-is-backspace")],
+    )
+    .unwrap();
     assert_eq!(normal, Value::Int(0));
 
-    let keyboard = builtin_terminal_parameter(&mut eval, vec![
-        Value::Nil,
-        Value::symbol("keyboard-coding-saved-meta-mode"),
-    ])
+    let keyboard = builtin_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("keyboard-coding-saved-meta-mode")],
+    )
     .unwrap();
     assert_eq!(keyboard, Value::list(vec![Value::True]));
 
     let missing =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("neovm-param")]).unwrap();
+        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("neovm-param")])
+            .unwrap();
     assert!(missing.is_nil());
 }
 
@@ -56,16 +54,16 @@ fn terminal_parameter_exposes_oracle_defaults() {
 fn terminal_parameter_round_trips() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let set_result = builtin_set_terminal_parameter(&mut eval, vec![
-        Value::Nil,
-        Value::symbol("neovm-param"),
-        Value::Int(42),
-    ])
+    let set_result = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("neovm-param"), Value::Int(42)],
+    )
     .unwrap();
     assert!(set_result.is_nil());
 
     let get_result =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("neovm-param")]).unwrap();
+        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("neovm-param")])
+            .unwrap();
     assert_eq!(get_result, Value::Int(42));
 }
 
@@ -73,19 +71,25 @@ fn terminal_parameter_round_trips() {
 fn set_terminal_parameter_returns_previous_default_values() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let previous_normal = builtin_set_terminal_parameter(&mut eval, vec![
-        Value::Nil,
-        Value::symbol("normal-erase-is-backspace"),
-        Value::Int(9),
-    ])
+    let previous_normal = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![
+            Value::Nil,
+            Value::symbol("normal-erase-is-backspace"),
+            Value::Int(9),
+        ],
+    )
     .unwrap();
     assert_eq!(previous_normal, Value::Int(0));
 
-    let previous_keyboard = builtin_set_terminal_parameter(&mut eval, vec![
-        Value::Nil,
-        Value::symbol("keyboard-coding-saved-meta-mode"),
-        Value::Nil,
-    ])
+    let previous_keyboard = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![
+            Value::Nil,
+            Value::symbol("keyboard-coding-saved-meta-mode"),
+            Value::Nil,
+        ],
+    )
     .unwrap();
     assert_eq!(previous_keyboard, Value::list(vec![Value::True]));
 }
@@ -94,11 +98,21 @@ fn set_terminal_parameter_returns_previous_default_values() {
 fn terminal_parameter_distinct_keys_do_not_alias() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k1"), Value::Int(1)]).unwrap();
-    builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k2"), Value::Int(2)]).unwrap();
+    builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("k1"), Value::Int(1)],
+    )
+    .unwrap();
+    builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("k2"), Value::Int(2)],
+    )
+    .unwrap();
 
-    let first = builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k1")]).unwrap();
-    let second = builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k2")]).unwrap();
+    let first =
+        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k1")]).unwrap();
+    let second =
+        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k2")]).unwrap();
     assert_eq!(first, Value::Int(1));
     assert_eq!(second, Value::Int(2));
 }
@@ -115,17 +129,22 @@ fn terminal_parameter_rejects_non_symbol_key() {
 fn set_terminal_parameter_ignores_non_symbol_key() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let set_result =
-        builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::string("k"), Value::Int(9)])
-            .unwrap();
+    let set_result = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::string("k"), Value::Int(9)],
+    )
+    .unwrap();
     assert!(set_result.is_nil());
 
-    let second_result =
-        builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::string("k"), Value::Int(1)])
-            .unwrap();
+    let second_result = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::string("k"), Value::Int(1)],
+    )
+    .unwrap();
     assert!(second_result.is_nil());
 
-    let get_result = builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k")]).unwrap();
+    let get_result =
+        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k")]).unwrap();
     assert!(get_result.is_nil());
 }
 
@@ -134,11 +153,13 @@ fn set_terminal_parameter_returns_previous_for_repeat_non_symbol_key() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let first =
-        builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::Int(1), Value::Int(9)]).unwrap();
+        builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::Int(1), Value::Int(9)])
+            .unwrap();
     assert!(first.is_nil());
 
     let second =
-        builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::Int(1), Value::Int(1)]).unwrap();
+        builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::Int(1), Value::Int(1)])
+            .unwrap();
     assert_eq!(second, Value::Int(9));
 }
 
@@ -154,10 +175,16 @@ fn terminal_parameter_rejects_non_terminal_designator() {
 fn terminal_parameters_lists_mutated_symbol_entries() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let _ = builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k1"), Value::Int(1)])
-        .unwrap();
-    let _ = builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k2"), Value::Int(2)])
-        .unwrap();
+    let _ = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("k1"), Value::Int(1)],
+    )
+    .unwrap();
+    let _ = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Nil, Value::symbol("k2"), Value::Int(2)],
+    )
+    .unwrap();
 
     let params = builtin_terminal_parameters(&mut eval, vec![Value::Nil]).unwrap();
     let entries = list_to_vec(&params).expect("parameter alist");
@@ -207,8 +234,10 @@ fn terminal_parameters_lists_mutated_symbol_entries() {
 fn set_terminal_parameter_rejects_non_terminal_designator() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let result =
-        builtin_set_terminal_parameter(&mut eval, vec![Value::Int(1), Value::symbol("k"), Value::Int(1)]);
+    let result = builtin_set_terminal_parameter(
+        &mut eval,
+        vec![Value::Int(1), Value::symbol("k"), Value::Int(1)],
+    );
     assert!(result.is_err());
 }
 
@@ -239,7 +268,8 @@ fn terminal_live_p_reflects_designator_shape() {
     let mut eval = crate::emacs_core::Context::new();
     let live_nil = builtin_terminal_live_p(&mut eval, vec![Value::Nil]).unwrap();
     let live_handle = builtin_terminal_live_p(&mut eval, vec![terminal_handle_value()]).unwrap();
-    let live_string = builtin_terminal_live_p(&mut eval, vec![Value::string("initial_terminal")]).unwrap();
+    let live_string =
+        builtin_terminal_live_p(&mut eval, vec![Value::string("initial_terminal")]).unwrap();
     let live_int = builtin_terminal_live_p(&mut eval, vec![Value::Int(1)]).unwrap();
     assert_eq!(live_nil, Value::True);
     assert_eq!(live_handle, Value::True);
@@ -399,14 +429,17 @@ fn open_termscript_uses_batch_tty_error_payload() {
 
 #[test]
 fn send_string_to_terminal_rejects_invalid_terminal_designator() {
-    let result = builtin_send_string_to_terminal_inner(vec![Value::string(""), Value::Int(1)]);
+    let mut eval = crate::emacs_core::Context::new();
+    let result = builtin_send_string_to_terminal(&mut eval, vec![Value::string(""), Value::Int(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn send_string_to_terminal_accepts_live_terminal_handle() {
+    let mut eval = crate::emacs_core::Context::new();
     let handle = terminal_handle_value();
-    let result = builtin_send_string_to_terminal_inner(vec![Value::string(""), handle]).unwrap();
+    let result =
+        builtin_send_string_to_terminal(&mut eval, vec![Value::string(""), handle]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -414,32 +447,32 @@ fn send_string_to_terminal_accepts_live_terminal_handle() {
 fn eval_send_string_to_terminal_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_send_string_to_terminal(
-        &mut eval,
-        vec![Value::string(""), Value::Int(frame_id)],
-    )
-    .unwrap();
+    let result =
+        builtin_send_string_to_terminal(&mut eval, vec![Value::string(""), Value::Int(frame_id)])
+            .unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn internal_show_cursor_tracks_visibility_state() {
     reset_dispnew_thread_locals();
-    let default_visible = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
+    let mut eval = crate::emacs_core::Context::new();
+    let default_visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert_eq!(default_visible, Value::True);
 
-    builtin_internal_show_cursor_inner(vec![Value::Nil, Value::Nil]).unwrap();
-    let hidden = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::Nil]).unwrap();
+    let hidden = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert!(hidden.is_nil());
 
-    builtin_internal_show_cursor_inner(vec![Value::Nil, Value::True]).unwrap();
-    let visible = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::True]).unwrap();
+    let visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert_eq!(visible, Value::True);
 }
 
 #[test]
 fn internal_show_cursor_rejects_non_window_designator() {
-    let result = builtin_internal_show_cursor_inner(vec![Value::Int(1), Value::Nil]);
+    let mut eval = crate::emacs_core::Context::new();
+    let result = builtin_internal_show_cursor(&mut eval, vec![Value::Int(1), Value::Nil]);
     assert!(result.is_err());
 }
 
@@ -775,24 +808,15 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
             builtin_x_display_backing_store as PureXQuery,
             builtin_x_display_backing_store as EvalXQuery,
         ),
-        (
-            builtin_x_display_color_cells,
-            builtin_x_display_color_cells,
-        ),
-        (
-            builtin_x_display_mm_height,
-            builtin_x_display_mm_height,
-        ),
+        (builtin_x_display_color_cells, builtin_x_display_color_cells),
+        (builtin_x_display_mm_height, builtin_x_display_mm_height),
         (builtin_x_display_mm_width, builtin_x_display_mm_width),
         (
             builtin_x_display_monitor_attributes_list,
             builtin_x_display_monitor_attributes_list,
         ),
         (builtin_x_display_planes, builtin_x_display_planes),
-        (
-            builtin_x_display_save_under,
-            builtin_x_display_save_under,
-        ),
+        (builtin_x_display_save_under, builtin_x_display_save_under),
         (builtin_x_display_screens, builtin_x_display_screens),
         (
             builtin_x_display_visual_class,
@@ -1049,10 +1073,7 @@ fn x_display_set_last_user_time_eval_uses_user_time_designator_payloads() {
         Value::Int(frame_id),
         term,
     ] {
-        match builtin_x_display_set_last_user_time(
-            &mut eval,
-            vec![display, Value::string("x")],
-        ) {
+        match builtin_x_display_set_last_user_time(&mut eval, vec![display, Value::string("x")]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
                 assert_eq!(sig.data, vec![Value::string("Display x can’t be opened")]);
@@ -1060,10 +1081,7 @@ fn x_display_set_last_user_time_eval_uses_user_time_designator_payloads() {
             other => panic!("expected error signal, got {other:?}"),
         }
 
-        match builtin_x_display_set_last_user_time(
-            &mut eval,
-            vec![display, Value::Int(frame_id)],
-        ) {
+        match builtin_x_display_set_last_user_time(&mut eval, vec![display, Value::Int(frame_id)]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
                 assert_eq!(
@@ -2521,13 +2539,12 @@ fn eval_monitor_queries_accept_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
-    let list = builtin_display_monitor_attributes_list(&mut eval, vec![Value::Int(frame_id)])
-        .unwrap();
+    let list =
+        builtin_display_monitor_attributes_list(&mut eval, vec![Value::Int(frame_id)]).unwrap();
     let monitors = list_to_vec(&list).expect("monitor list");
     assert_eq!(monitors.len(), 1);
 
-    let attrs =
-        builtin_frame_monitor_attributes(&mut eval, vec![Value::Int(frame_id)]).unwrap();
+    let attrs = builtin_frame_monitor_attributes(&mut eval, vec![Value::Int(frame_id)]).unwrap();
     let attr_list = list_to_vec(&attrs).expect("monitor attrs");
     assert!(!attr_list.is_empty());
 }
@@ -2741,18 +2758,12 @@ fn eval_display_queries_string_designator_reports_missing_display() {
         &mut eval,
         vec![Value::string("x")],
     ));
-    assert_missing_display(builtin_display_screens(
-        &mut eval,
-        vec![Value::string("x")],
-    ));
+    assert_missing_display(builtin_display_screens(&mut eval, vec![Value::string("x")]));
     assert_missing_display(builtin_display_color_cells(
         &mut eval,
         vec![Value::string("x")],
     ));
-    assert_missing_display(builtin_display_planes(
-        &mut eval,
-        vec![Value::string("x")],
-    ));
+    assert_missing_display(builtin_display_planes(&mut eval, vec![Value::string("x")]));
     assert_missing_display(builtin_display_visual_class(
         &mut eval,
         vec![Value::string("x")],

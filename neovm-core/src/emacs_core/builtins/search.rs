@@ -1053,10 +1053,7 @@ fn expect_match_data_item_in_manager(
     }
 }
 
-pub(crate) fn builtin_match_data(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_match_data(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_match_data_with_state(Some(&mut eval.buffers), &eval.match_data, &args)
 }
 

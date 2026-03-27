@@ -1,5 +1,7 @@
 use super::*;
-use crate::emacs_core::editfns::{builtin_delete_region, builtin_erase_buffer, builtin_delete_and_extract_region};
+use crate::emacs_core::editfns::{
+    builtin_delete_and_extract_region, builtin_delete_region, builtin_erase_buffer,
+};
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::value::{LambdaData, LambdaParams};
@@ -5348,9 +5350,8 @@ fn defvar_1_binds_only_when_default_is_unbound() {
         Some(Value::Int(7))
     );
 
-    let result =
-        builtin_defvar_1(&mut eval, vec![Value::symbol("vm-defvar-1"), Value::Int(9)])
-            .expect("second defvar-1 should succeed");
+    let result = builtin_defvar_1(&mut eval, vec![Value::symbol("vm-defvar-1"), Value::Int(9)])
+        .expect("second defvar-1 should succeed");
     assert_eq!(result, Value::symbol("vm-defvar-1"));
     assert_eq!(
         eval.obarray()
@@ -6234,8 +6235,7 @@ fn match_data_translate_shifts_groups_in_shared_eval_state() {
     )
     .expect("seed match data");
 
-    builtin_match_data_translate(&mut eval, vec![Value::Int(5)])
-        .expect("translate match data");
+    builtin_match_data_translate(&mut eval, vec![Value::Int(5)]).expect("translate match data");
 
     assert_eq!(
         builtin_match_data(&mut eval, vec![]).expect("read translated match data"),
@@ -7789,8 +7789,7 @@ fn message_nil_returns_nil() {
         .expect("current-message should read stored echo text");
     assert_eq!(current, Value::string("hello echo"));
 
-    let cleared =
-        builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should clear");
+    let cleared = builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should clear");
     assert!(cleared.is_nil());
     let current_after_clear =
         builtin_current_message(&mut eval, vec![]).expect("current-message should clear");
@@ -8617,8 +8616,8 @@ fn macrop_eval_resolves_keyword_designators() {
 
     builtin_fset(&mut eval, vec![keyword, test_macro])
         .expect("fset should bind keyword function cell");
-    let keyword_result = builtin_macrop(&mut eval, vec![keyword])
-        .expect("macrop should resolve keyword designator");
+    let keyword_result =
+        builtin_macrop(&mut eval, vec![keyword]).expect("macrop should resolve keyword designator");
     assert!(keyword_result.is_truthy());
 
     builtin_fset(&mut eval, vec![keyword, orig_keyword]).expect("restore keyword function cell");
@@ -9038,9 +9037,8 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
     .expect("get should return variable doc");
     assert_eq!(doc, Value::string("vm-doc"));
 
-    let direct =
-        builtin_indirect_variable(&mut eval, vec![Value::symbol("vm-defvaralias-new")])
-            .expect("indirect-variable should resolve aliases");
+    let direct = builtin_indirect_variable(&mut eval, vec![Value::symbol("vm-defvaralias-new")])
+        .expect("indirect-variable should resolve aliases");
     assert_eq!(direct, Value::symbol("vm-defvaralias-old"));
 
     let special_new =
@@ -9357,9 +9355,8 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         Value::symbol("b"),
         Value::Int(2),
     ]);
-    let stored =
-        builtin_setplist(&mut eval, vec![Value::symbol("vm-setplist"), initial_plist])
-            .expect("setplist should store plist values");
+    let stored = builtin_setplist(&mut eval, vec![Value::symbol("vm-setplist"), initial_plist])
+        .expect("setplist should store plist values");
     assert_eq!(stored, initial_plist);
 
     let read_plist = builtin_symbol_plist_fn(&mut eval, vec![Value::symbol("vm-setplist")])

@@ -448,7 +448,6 @@ fn format_mode_string(mode: u32, meta: &fs::Metadata) -> String {
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-
 /// Context-backed variant of `directory-files-and-attributes`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
 pub(crate) fn builtin_directory_files_and_attributes(
@@ -543,10 +542,7 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
 /// Context-backed variant of `file-name-completion`.
 /// This supports arbitrary callable predicates and matches Emacs behavior of
 /// binding `default-directory` to DIRECTORY while predicate is invoked.
-pub(crate) fn builtin_file_name_completion(
-    eval: &mut Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_file_name_completion(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     let plan = prepare_file_name_completion_in_state(&eval.obarray, &[], &eval.buffers, &args)?;
     let predicate = args.get(2);
     finish_file_name_completion_with_eval_predicate(
@@ -557,7 +553,6 @@ pub(crate) fn builtin_file_name_completion(
         plan.completions,
     )
 }
-
 
 /// Context-backed variant of `file-name-all-completions`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
@@ -862,7 +857,6 @@ fn predicate_callable_name(predicate: &Value) -> Option<&str> {
         _ => None,
     }
 }
-
 
 /// Context-backed variant of `file-attributes`.
 /// Resolves relative FILENAME against dynamic/default `default-directory`.

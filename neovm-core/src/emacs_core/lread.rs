@@ -146,7 +146,9 @@ fn eval_buffer_filename_in_state(
     arg: Option<&Value>,
 ) -> Result<Option<String>, Flow> {
     match arg {
-        None | Some(Value::Nil) => Ok(buffers.get(buffer_id).and_then(|buffer| buffer.file_name.clone())),
+        None | Some(Value::Nil) => Ok(buffers
+            .get(buffer_id)
+            .and_then(|buffer| buffer.file_name.clone())),
         Some(value) => Ok(Some(expect_string(value)?)),
     }
 }
@@ -283,7 +285,9 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
 
     let result = eval_forms_from_source(eval, &source);
 
-    if result.is_ok() && let Some(filename) = filename.as_deref() {
+    if result.is_ok()
+        && let Some(filename) = filename.as_deref()
+    {
         record_eval_buffer_load_history(eval, filename);
     }
 

@@ -181,7 +181,11 @@ impl Buffer {
     }
 
     fn ensure_local_binding_name(&mut self, name: &str) {
-        if !self.local_binding_names.iter().any(|existing| existing == name) {
+        if !self
+            .local_binding_names
+            .iter()
+            .any(|existing| existing == name)
+        {
             self.local_binding_names.push(name.to_string());
         }
     }
@@ -900,7 +904,11 @@ impl Buffer {
     }
 
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
-        if !self.local_binding_names.iter().any(|existing| existing == name) {
+        if !self
+            .local_binding_names
+            .iter()
+            .any(|existing| existing == name)
+        {
             return None;
         }
         if name == "buffer-file-name" {
@@ -919,7 +927,9 @@ impl Buffer {
     }
 
     pub fn has_buffer_local(&self, name: &str) -> bool {
-        self.local_binding_names.iter().any(|existing| existing == name)
+        self.local_binding_names
+            .iter()
+            .any(|existing| existing == name)
     }
 
     pub fn local_map(&self) -> Value {
@@ -1744,7 +1754,11 @@ impl BufferManager {
         name: &str,
     ) -> Option<Option<RuntimeBindingValue>> {
         let buf = self.buffers.get_mut(&id)?;
-        if let Some(index) = buf.local_binding_names.iter().position(|existing| existing == name) {
+        if let Some(index) = buf
+            .local_binding_names
+            .iter()
+            .position(|existing| existing == name)
+        {
             buf.local_binding_names.remove(index);
         }
         Some(buf.properties.remove(name))

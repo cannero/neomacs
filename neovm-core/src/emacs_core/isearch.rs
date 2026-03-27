@@ -1800,10 +1800,7 @@ pub(crate) fn builtin_query_replace_regexp(
 
 /// `(keep-lines REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed non-interactive line filtering subset.
-pub(crate) fn builtin_keep_lines(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_keep_lines(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_max_args("keep-lines", &args, 1, 4)?;
     let regexp = expect_sequence_string(&args[0])?;
 
@@ -1877,10 +1874,7 @@ pub(crate) fn builtin_keep_lines(
 
 /// `(flush-lines REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed non-interactive line filtering subset.
-pub(crate) fn builtin_flush_lines(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_flush_lines(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_max_args("flush-lines", &args, 1, 4)?;
     let regexp = expect_sequence_string(&args[0])?;
 
@@ -1948,10 +1942,7 @@ pub(crate) fn builtin_flush_lines(
 
 /// `(how-many REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed regexp match counting subset.
-pub(crate) fn builtin_how_many(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_how_many(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_max_args("how-many", &args, 1, 4)?;
     let regexp = expect_sequence_string(&args[0])?;
 

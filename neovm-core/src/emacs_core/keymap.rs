@@ -610,8 +610,7 @@ fn list_keymap_access(keymap: &Value, event: &Value, noinherit: bool, t_ok: bool
                     // create a composed keymap: (keymap child-sub . parent-sub)
                     let parent = get_keymap_tail_parent(&current);
                     if !parent.is_nil() {
-                        let parent_binding =
-                            list_keymap_access(&parent, event, false, t_ok);
+                        let parent_binding = list_keymap_access(&parent, event, false, t_ok);
                         if is_list_keymap(&parent_binding) {
                             return compose_keymaps(&binding, &parent_binding);
                         }

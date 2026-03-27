@@ -479,7 +479,6 @@ fn extract_parent_symbols(value: &Value) -> Result<Vec<String>, Flow> {
 // Builtins: signal wrapper and error-message-string
 // ---------------------------------------------------------------------------
 
-
 /// Eval-aware `signal` — checks error hierarchy and converts
 /// unregistered error symbols to `(error "Invalid error symbol" SYM)`,
 /// matching GNU eval.c:1949-1951.

@@ -615,14 +615,10 @@ pub(crate) fn builtin_font_put(args: Vec<Value>) -> EvalResult {
     }
 }
 
-
 /// Context-aware variant of `list-fonts`.
 ///
 /// Accepts live frame designators in the optional FRAME slot.
-pub(crate) fn builtin_list_fonts(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_list_fonts(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("list-fonts", &args, 1)?;
     expect_max_args("list-fonts", &args, 4)?;
     if !is_font_spec(&args[0]) {
@@ -704,14 +700,10 @@ fn font_spec_resolve_request(
     })
 }
 
-
 /// Context-aware variant of `find-font`.
 ///
 /// Accepts live frame designators in the optional FRAME slot.
-pub(crate) fn builtin_find_font(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_find_font(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("find-font", &args, 1)?;
     expect_max_args("find-font", &args, 2)?;
     if !is_font_spec(&args[0]) {
@@ -740,7 +732,6 @@ pub(crate) fn builtin_clear_font_cache(args: Vec<Value>) -> EvalResult {
     clear_font_cache_state();
     Ok(Value::Nil)
 }
-
 
 /// Context-aware variant of `font-family-list`.
 ///
@@ -1320,10 +1311,7 @@ fn resolve_font_match(
 
 /// `(font-at POSITION &optional WINDOW STRING)` -- resolve the effective font
 /// object for the target buffer or string position.
-pub(crate) fn builtin_font_at(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("font-at", &args, 1)?;
     expect_max_args("font-at", &args, 3)?;
 
@@ -2973,7 +2961,6 @@ pub(crate) fn runtime_face_to_lisp_vector(face: &RuntimeFace) -> Value {
     Value::vector(values)
 }
 
-
 pub(crate) fn builtin_internal_get_lisp_face_attribute(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -3517,10 +3504,7 @@ pub(crate) fn builtin_face_id(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-pub(crate) fn builtin_face_font(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("face-font", &args, 1)?;
     expect_max_args("face-font", &args, 3)?;
 
@@ -3628,10 +3612,7 @@ pub(crate) fn builtin_face_font(
     Ok(font_name_value(&build_font_object(&face)).unwrap_or(Value::Nil))
 }
 
-pub(crate) fn builtin_font_info(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_font_info(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("font-info", &args, 1)?;
     expect_max_args("font-info", &args, 2)?;
 

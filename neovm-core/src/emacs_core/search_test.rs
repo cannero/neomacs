@@ -1,5 +1,10 @@
 use super::*;
 
+fn call_string_match(args: Vec<Value>) -> EvalResult {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    builtin_string_match(&mut eval, args)
+}
+
 fn assert_int(val: Value, expected: i64) {
     match val {
         Value::Int(n) => assert_eq!(n, expected),
@@ -27,13 +32,13 @@ fn assert_str(val: Value, expected: &str) {
 
 #[test]
 fn string_match_basic() {
-    let result = builtin_string_match_inner(vec![Value::string("he..o"), Value::string("hello world")]);
+    let result = call_string_match(vec![Value::string("he..o"), Value::string("hello world")]);
     assert_int(result.unwrap(), 0);
 }
 
 #[test]
 fn string_match_with_start() {
-    let result = builtin_string_match_inner(vec![
+    let result = call_string_match(vec![
         Value::string("world"),
         Value::string("hello world"),
         Value::Int(6),
@@ -43,13 +48,13 @@ fn string_match_with_start() {
 
 #[test]
 fn string_match_no_match() {
-    let result = builtin_string_match_inner(vec![Value::string("xyz"), Value::string("hello world")]);
+    let result = call_string_match(vec![Value::string("xyz"), Value::string("hello world")]);
     assert_nil(result.unwrap());
 }
 
 #[test]
 fn string_match_defaults_to_case_fold() {
-    let result = builtin_string_match_inner(vec![Value::string("a"), Value::string("A")]);
+    let result = call_string_match(vec![Value::string("a"), Value::string("A")]);
     assert_int(result.unwrap(), 0);
 }
 
@@ -94,7 +99,6 @@ fn regexp_quote_all_specials() {
     assert_str(result.unwrap(), "\\.\\*\\+\\?\\[]\\^\\$\\\\");
 }
 
-
 #[test]
 fn match_data_nil_without_match_data() {
     builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
@@ -136,14 +140,13 @@ fn set_match_data_round_trip() {
     );
 }
 
-
 #[test]
 fn string_match_start_nil_and_negative() {
     let with_nil =
-        builtin_string_match_inner(vec![Value::string("a"), Value::string("ba"), Value::Nil]).unwrap();
+        call_string_match(vec![Value::string("a"), Value::string("ba"), Value::Nil]).unwrap();
     assert_int(with_nil, 1);
 
-    let with_negative = builtin_string_match_inner(vec![
+    let with_negative = call_string_match(vec![
         Value::string("a"),
         Value::string("ba"),
         Value::Int(-1),
@@ -152,10 +155,9 @@ fn string_match_start_nil_and_negative() {
     assert_int(with_negative, 1);
 
     let out_of_range =
-        builtin_string_match_inner(vec![Value::string("a"), Value::string("ba"), Value::Int(3)]);
+        call_string_match(vec![Value::string("a"), Value::string("ba"), Value::Int(3)]);
     assert!(out_of_range.is_err());
 }
-
 
 #[test]
 fn replace_regexp_basic() {
@@ -272,13 +274,13 @@ fn replace_regexp_fixedcase_disables_case_preserve() {
 
 #[test]
 fn string_match_wrong_type() {
-    let result = builtin_string_match_inner(vec![Value::Int(42), Value::string("hello")]);
+    let result = call_string_match(vec![Value::Int(42), Value::string("hello")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn string_match_too_few_args() {
-    let result = builtin_string_match_inner(vec![Value::string("foo")]);
+    let result = call_string_match(vec![Value::string("foo")]);
     assert!(result.is_err());
 }
 
@@ -299,7 +301,7 @@ fn regexp_quote_right_bracket_not_escaped() {
 #[test]
 fn string_match_emacs_groups() {
     // Emacs regex with groups: \(foo\|bar\) matching "test bar"
-    let result = builtin_string_match_inner(vec![
+    let result = call_string_match(vec![
         Value::string("\\(foo\\|bar\\)"),
         Value::string("test bar"),
     ]);

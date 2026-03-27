@@ -784,9 +784,6 @@ pub(crate) fn builtin_external_debugging_output(args: Vec<Value>) -> EvalResult 
     Ok(Value::Int(ch))
 }
 
-
-
-
 pub(crate) fn builtin_internal_labeled_narrow_to_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -934,7 +931,6 @@ pub(crate) fn builtin_describe_vector(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-
 pub(crate) fn builtin_frame_set_was_invisible(args: Vec<Value>) -> EvalResult {
     expect_args("frame--set-was-invisible", &args, 2)?;
     expect_frame_live_or_nil(&args[0])?;
@@ -1077,12 +1073,8 @@ pub(crate) fn builtin_frame_window_state_change(args: Vec<Value>) -> EvalResult 
 
 // --- frame.c missing builtins ---
 
-
 /// Eval-dependent variant: defaults to selected frame.
-pub(crate) fn builtin_frame_id(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_frame_id(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("frame-id", &args, 0, 1)?;
     let fid = super::window_cmds::resolve_frame_id_in_state(
         &mut eval.frames,
@@ -1097,7 +1089,6 @@ pub(crate) fn builtin_frame_id(
     };
     Ok(Value::Int(public_id as i64))
 }
-
 
 /// Eval-dependent variant: defaults to selected frame.
 pub(crate) fn builtin_frame_root_frame(
@@ -1261,7 +1252,6 @@ pub(crate) fn builtin_gnutls_asynchronous_parameters(args: Vec<Value>) -> EvalRe
     expect_args("gnutls-asynchronous-parameters", &args, 2)?;
     Ok(Value::Nil)
 }
-
 
 pub(crate) fn builtin_gnutls_bye(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-bye", &args, 2)?;
@@ -1428,7 +1418,6 @@ fn expect_window_live_or_nil_in_state(frames: &FrameManager, value: &Value) -> R
     }
 }
 
-
 pub(crate) fn builtin_font_face_attributes(args: Vec<Value>) -> EvalResult {
     expect_range_args("font-face-attributes", &args, 1, 2)?;
     if !is_font_object(&args[0]) {
@@ -1461,7 +1450,6 @@ pub(crate) fn builtin_font_has_char_p(args: Vec<Value>) -> EvalResult {
     let _ = expect_characterp_from_int(&args[1])?;
     Ok(Value::Nil)
 }
-
 
 pub(crate) fn builtin_font_match_p(args: Vec<Value>) -> EvalResult {
     expect_args("font-match-p", &args, 2)?;
@@ -1570,9 +1558,6 @@ pub(crate) fn builtin_window_bottom_divider_width(args: Vec<Value>) -> EvalResul
     Ok(Value::Int(0))
 }
 
-
-
-
 pub(crate) fn builtin_window_lines_pixel_dimensions(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-lines-pixel-dimensions", &args, 0, 6)?;
     if let Some(window) = args.first() {
@@ -1604,8 +1589,6 @@ pub(crate) fn builtin_window_new_total(args: Vec<Value>) -> EvalResult {
     }
     Ok(window_new_total_value(args.first()))
 }
-
-
 
 pub(crate) fn builtin_window_old_body_pixel_height(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-old-body-pixel-height", &args, 0, 1)?;
@@ -1639,8 +1622,6 @@ pub(crate) fn builtin_window_old_pixel_width(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int(0))
 }
 
-
-
 pub(crate) fn builtin_window_right_divider_width(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-right-divider-width", &args, 0, 1)?;
     if let Some(window) = args.first() {
@@ -1664,7 +1645,6 @@ pub(crate) fn builtin_window_scroll_bar_width(args: Vec<Value>) -> EvalResult {
     }
     Ok(Value::Int(0))
 }
-
 
 thread_local! {
     static INOTIFY_NEXT_WATCH_ID: RefCell<i64> = RefCell::new(0);

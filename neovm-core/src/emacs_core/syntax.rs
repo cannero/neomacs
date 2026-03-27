@@ -1398,7 +1398,6 @@ pub(crate) fn builtin_matching_paren_in_buffers(
     Ok(out.map_or(Value::Nil, Value::Char))
 }
 
-
 /// `(standard-syntax-table)` — return the standard syntax table.
 pub(crate) fn builtin_standard_syntax_table(args: Vec<Value>) -> EvalResult {
     if !args.is_empty() {
@@ -2494,7 +2493,8 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
         }
     };
 
-    let buf = ctx.buffers
+    let buf = ctx
+        .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
@@ -2537,7 +2537,8 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
         }
     };
 
-    let buf = ctx.buffers
+    let buf = ctx
+        .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();

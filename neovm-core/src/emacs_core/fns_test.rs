@@ -161,11 +161,9 @@ fn base64_region_eval_swapped_bounds_and_url_encoding() {
         buf.insert("ab");
     }
 
-    let encoded = builtin_base64url_encode_region(
-        &mut eval,
-        vec![Value::Int(3), Value::Int(1), Value::True],
-    )
-    .expect("url encode region should succeed");
+    let encoded =
+        builtin_base64url_encode_region(&mut eval, vec![Value::Int(3), Value::Int(1), Value::True])
+            .expect("url encode region should succeed");
     assert_eq!(encoded, Value::Int(3));
     let encoded_text = eval
         .buffers
@@ -241,8 +239,7 @@ fn base64_region_eval_error_shapes() {
         other => panic!("expected wrong-type-argument, got {other:?}"),
     }
 
-    let range_error =
-        builtin_base64_encode_region(&mut eval, vec![Value::Int(0), Value::Int(2)]);
+    let range_error = builtin_base64_encode_region(&mut eval, vec![Value::Int(0), Value::Int(2)]);
     match range_error {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
@@ -584,8 +581,7 @@ fn secure_hash_eval_buffer_sha1() {
         buf.insert("abc");
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
-    let r = builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), Value::Buffer(id)])
-        .unwrap();
+    let r = builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), Value::Buffer(id)]).unwrap();
     assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 

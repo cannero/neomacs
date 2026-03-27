@@ -10607,7 +10607,6 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
 // Pure builtins
 // ---------------------------------------------------------------------------
 
-
 /// `(Snarf-documentation FILENAME)` -- load documentation strings from
 /// the internal DOC file.
 ///

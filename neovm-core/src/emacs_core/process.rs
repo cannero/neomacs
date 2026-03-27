@@ -5565,10 +5565,7 @@ pub(crate) fn builtin_get_process(eval: &mut super::eval::Context, args: Vec<Val
     builtin_get_process_impl(&eval.processes, args)
 }
 
-pub(crate) fn builtin_get_process_impl(
-    processes: &ProcessManager,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_get_process_impl(processes: &ProcessManager, args: Vec<Value>) -> EvalResult {
     expect_args("get-process", &args, 1)?;
     let name = expect_string_strict(&args[0])?;
     match processes.find_by_name(&name) {
@@ -5608,10 +5605,7 @@ pub(crate) fn builtin_processp(eval: &mut super::eval::Context, args: Vec<Value>
     builtin_processp_impl(&eval.processes, args)
 }
 
-pub(crate) fn builtin_processp_impl(
-    processes: &ProcessManager,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_processp_impl(processes: &ProcessManager, args: Vec<Value>) -> EvalResult {
     expect_args("processp", &args, 1)?;
     Ok(Value::bool(match &args[0] {
         Value::Int(n) if *n >= 0 => processes.get_any(*n as ProcessId).is_some(),
@@ -5655,10 +5649,7 @@ pub(crate) fn builtin_process_id(eval: &mut super::eval::Context, args: Vec<Valu
     builtin_process_id_impl(&eval.processes, args)
 }
 
-pub(crate) fn builtin_process_id_impl(
-    processes: &ProcessManager,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_process_id_impl(processes: &ProcessManager, args: Vec<Value>) -> EvalResult {
     expect_args("process-id", &args, 1)?;
     let id = match &args[0] {
         Value::Int(n) if *n >= 0 => {
@@ -6160,7 +6151,6 @@ fn getenv_from_list(varname: &str, env_list: Value) -> EvalResult {
     }
     Ok(Value::Nil)
 }
-
 
 /// (set-binary-mode STREAM MODE) -> t
 ///

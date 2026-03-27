@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn test_undo_boundary_no_args() {
-    let result = builtin_undo_boundary_inner(vec![]);
+    let mut eval = super::super::eval::Context::new();
+    let result = builtin_undo_boundary(&mut eval, vec![]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -25,7 +26,8 @@ fn test_undo_boundary_eval_inserts_boundary_marker() {
 
 #[test]
 fn test_undo_boundary_wrong_args() {
-    let result = builtin_undo_boundary_inner(vec![Value::Int(1)]);
+    let mut eval = super::super::eval::Context::new();
+    let result = builtin_undo_boundary(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 

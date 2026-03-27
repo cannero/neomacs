@@ -10,6 +10,11 @@ use crate::window::FRAME_ID_BASE;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+fn call_face_font(args: Vec<Value>) -> EvalResult {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    builtin_face_font(&mut eval, args)
+}
+
 // -----------------------------------------------------------------------
 // Font builtins
 // -----------------------------------------------------------------------
@@ -1558,26 +1563,25 @@ fn face_id_rejects_invalid_face() {
 
 #[test]
 fn face_font_returns_nil_for_known_faces() {
-    let result = builtin_face_font(vec![Value::symbol("default")]).unwrap();
+    let result = call_face_font(vec![Value::symbol("default")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn face_font_accepts_known_string_face() {
-    let result = builtin_face_font(vec![Value::string("default")]).unwrap();
+    let result = call_face_font(vec![Value::string("default")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn face_font_ignores_optional_arguments_for_known_face() {
-    let result =
-        builtin_face_font(vec![Value::symbol("default"), Value::Nil, Value::True]).unwrap();
+    let result = call_face_font(vec![Value::symbol("default"), Value::Nil, Value::True]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn face_font_rejects_invalid_face() {
-    let result = builtin_face_font(vec![Value::Int(1)]);
+    let result = call_face_font(vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 

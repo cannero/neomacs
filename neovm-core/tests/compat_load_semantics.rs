@@ -12,7 +12,9 @@ struct LoadCase {
 #[test]
 fn compat_load_semantics_matches_gnu_emacs() {
     if !oracle_enabled() {
-        eprintln!("skipping load semantics audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo");
+        eprintln!(
+            "skipping load semantics audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo"
+        );
         return;
     }
 

@@ -576,7 +576,6 @@ pub(crate) fn builtin_suspend_tty(
     ))
 }
 
-
 /// (resume-tty &optional TTY) -> error in GUI/non-text terminal context.
 pub(crate) fn builtin_resume_tty(
     eval: &mut crate::emacs_core::eval::Context,
@@ -593,7 +592,6 @@ pub(crate) fn builtin_resume_tty(
         )],
     ))
 }
-
 
 // ---------------------------------------------------------------------------
 // Builtins moved from builtins.rs

@@ -1424,11 +1424,10 @@ fn format_mode_line_recursive_in_vm_runtime(
                     let form_val = cdr.cons_car();
                     let mut extra_roots = args_roots.to_vec();
                     extra_roots.push(form_val);
-                    let val = shared.with_extra_gc_roots(
-                        vm_gc_roots,
-                        &extra_roots,
-                        move |eval| eval.eval_value(&form_val),
-                    )?;
+                    let val =
+                        shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
+                            eval.eval_value(&form_val)
+                        })?;
                     format_mode_line_recursive_in_vm_runtime(
                         shared,
                         vm_gc_roots,
@@ -2275,8 +2274,12 @@ pub(crate) fn builtin_tool_bar_height_ctx(
 ) -> EvalResult {
     expect_args_range("tool-bar-height", &args, 0, 2)?;
     if let Some(frame) = args.first().filter(|frame| !frame.is_nil()) {
-        let _ =
-            super::window_cmds::resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, Some(frame), "framep")?;
+        let _ = super::window_cmds::resolve_frame_id_in_state(
+            &mut eval.frames,
+            &mut eval.buffers,
+            Some(frame),
+            "framep",
+        )?;
     }
     Ok(Value::Int(0))
 }
@@ -2299,12 +2302,19 @@ pub(crate) fn builtin_tab_bar_height_ctx(
 ) -> EvalResult {
     expect_args_range("tab-bar-height", &args, 0, 2)?;
     let fid = match args.first().filter(|frame| !frame.is_nil()) {
-        Some(frame) => {
-            super::window_cmds::resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, Some(frame), "framep")?
-        }
-        None => super::window_cmds::ensure_selected_frame_id_in_state(&mut eval.frames, &mut eval.buffers),
+        Some(frame) => super::window_cmds::resolve_frame_id_in_state(
+            &mut eval.frames,
+            &mut eval.buffers,
+            Some(frame),
+            "framep",
+        )?,
+        None => super::window_cmds::ensure_selected_frame_id_in_state(
+            &mut eval.frames,
+            &mut eval.buffers,
+        ),
     };
-    let frame = eval.frames
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let lines = frame
@@ -2862,8 +2872,12 @@ pub(crate) fn builtin_posn_at_point(
 ) -> EvalResult {
     expect_args_range("posn-at-point", &args, 0, 2)?;
     validate_optional_window_designator_in_state(&eval.frames, args.get(1), "window-live-p")?;
-    let Some((window_id, metrics)) =
-        resolve_exact_visible_metrics(&mut eval.frames, &mut eval.buffers, args.get(1), args.first())?
+    let Some((window_id, metrics)) = resolve_exact_visible_metrics(
+        &mut eval.frames,
+        &mut eval.buffers,
+        args.get(1),
+        args.first(),
+    )?
     else {
         return Ok(Value::Nil);
     };
@@ -2871,10 +2885,7 @@ pub(crate) fn builtin_posn_at_point(
 }
 
 /// `(posn-at-x-y X Y &optional FRAME-OR-WINDOW WHOLE)` evaluator-backed variant.
-pub(crate) fn builtin_posn_at_x_y(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_posn_at_x_y(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     posn_at_x_y_impl(&mut eval.frames, &mut eval.buffers, args)
 }
 

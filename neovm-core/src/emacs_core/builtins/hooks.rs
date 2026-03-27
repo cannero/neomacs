@@ -82,8 +82,7 @@ fn run_hook_value(
     hook_args: &[Value],
     inherit_global: bool,
 ) -> Result<(), Flow> {
-    let funcs =
-        collect_hook_functions_in_state(eval, hook_name, hook_value, inherit_global);
+    let funcs = collect_hook_functions_in_state(eval, hook_name, hook_value, inherit_global);
     // Root all hook functions AND args so GC during apply can't collect them.
     let saved = eval.save_temp_roots();
     for f in &funcs {
@@ -491,23 +490,22 @@ pub(crate) fn builtin_set_window_configuration(
     let snapshot = WINDOW_CONFIGURATION_SNAPSHOTS.with(|slot| slot.borrow().get(&serial).cloned());
 
     if let Some(snapshot) = snapshot {
-        let selected_window_state =
-            if let Some(frame) = eval.frames.get_mut(snapshot.frame_id) {
-                frame.root_window = snapshot.root_window;
-                frame.selected_window = snapshot.selected_window;
-                frame.minibuffer_window = snapshot.minibuffer_window;
-                frame.minibuffer_leaf = snapshot.minibuffer_leaf;
-                frame
-                    .find_window(frame.selected_window)
-                    .and_then(|window| match window {
-                        crate::window::Window::Leaf {
-                            buffer_id, point, ..
-                        } => Some((*buffer_id, *point)),
-                        crate::window::Window::Internal { .. } => None,
-                    })
-            } else {
-                None
-            };
+        let selected_window_state = if let Some(frame) = eval.frames.get_mut(snapshot.frame_id) {
+            frame.root_window = snapshot.root_window;
+            frame.selected_window = snapshot.selected_window;
+            frame.minibuffer_window = snapshot.minibuffer_window;
+            frame.minibuffer_leaf = snapshot.minibuffer_leaf;
+            frame
+                .find_window(frame.selected_window)
+                .and_then(|window| match window {
+                    crate::window::Window::Leaf {
+                        buffer_id, point, ..
+                    } => Some((*buffer_id, *point)),
+                    crate::window::Window::Internal { .. } => None,
+                })
+        } else {
+            None
+        };
         if let Some((buffer_id, point)) = selected_window_state {
             eval.buffers.set_current(buffer_id);
             if let Some(buffer) = eval.buffers.get(buffer_id) {
@@ -638,11 +636,7 @@ pub(crate) fn builtin_featurep(eval: &mut super::eval::Context, args: Vec<Value>
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    if !crate::emacs_core::eval::feature_present_in_state(
-        &eval.obarray,
-        &mut eval.features,
-        name,
-    ) {
+    if !crate::emacs_core::eval::feature_present_in_state(&eval.obarray, &mut eval.features, name) {
         return Ok(Value::Nil);
     }
 

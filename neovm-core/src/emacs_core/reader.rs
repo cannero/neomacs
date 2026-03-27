@@ -591,7 +591,8 @@ pub(crate) fn builtin_read(
             // Read from buffer at point
             let buf_id = *id;
             let (text, pt) = {
-                let buf = &mut ctx.buffers
+                let buf = &mut ctx
+                    .buffers
                     .get(buf_id)
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
                 (buf.buffer_string(), buf.pt)
@@ -622,13 +623,16 @@ pub(crate) fn builtin_read(
                         vec![Value::string("End of file during parsing")],
                     )
                 })?;
-            let value = if let Some(bytecode) = first_form_byte_code_literal_value(&ctx.obarray, &expr) {
-                bytecode
-            } else if let Some(hash_table) = first_form_hash_table_literal_value(&ctx.obarray, &expr) {
-                hash_table
-            } else {
-                super::eval::Context::quote_to_runtime_value_in_state(&ctx.obarray, &expr)
-            };
+            let value =
+                if let Some(bytecode) = first_form_byte_code_literal_value(&ctx.obarray, &expr) {
+                    bytecode
+                } else if let Some(hash_table) =
+                    first_form_hash_table_literal_value(&ctx.obarray, &expr)
+                {
+                    hash_table
+                } else {
+                    super::eval::Context::quote_to_runtime_value_in_state(&ctx.obarray, &expr)
+                };
             // Advance point past the read form
             let new_pt = pt + end_offset;
             let _ = &mut ctx.buffers.goto_buffer_byte(buf_id, new_pt);
@@ -878,10 +882,8 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
             if !read_arg.is_nil() && !result_string.is_empty() {
                 // READ is non-nil: parse the result string as a Lisp expression
                 // (like calling (read STRING)) and return the parsed object.
-                let read_result = read_from_string_impl(
-                    obarray,
-                    vec![Value::string(&result_string)],
-                )?;
+                let read_result =
+                    read_from_string_impl(obarray, vec![Value::string(&result_string)])?;
                 // read-from-string returns (OBJECT . END-POS), extract OBJECT
                 if let Value::Cons(id) = read_result {
                     let snap = super::value::read_cons(id);
@@ -1338,10 +1340,8 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     match edit_result {
         Ok(_) | Err(Flow::Throw { .. }) => {
             if !read_arg.is_nil() && !result_string.is_empty() {
-                let read_result = read_from_string_impl(
-                    &shared.obarray,
-                    vec![Value::string(&result_string)],
-                )?;
+                let read_result =
+                    read_from_string_impl(&shared.obarray, vec![Value::string(&result_string)])?;
                 if let Value::Cons(id) = read_result {
                     let snap = super::value::read_cons(id);
                     return Ok(snap.car);

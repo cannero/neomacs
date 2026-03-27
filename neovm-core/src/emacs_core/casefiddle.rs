@@ -638,10 +638,7 @@ pub(crate) fn builtin_downcase_word(
     )
 }
 
-pub(crate) fn builtin_upcase_word(
-    ctx: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_upcase_word(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     casify_word_in_state(
         &ctx.obarray,
         &[],

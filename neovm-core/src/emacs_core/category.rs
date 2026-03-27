@@ -365,9 +365,6 @@ fn set_current_buffer_category_table(
 // Pure builtins (no evaluator needed)
 // ===========================================================================
 
-
-
-
 /// `(category-table-p OBJ)`
 ///
 /// Return t if OBJ is a category table.  In this implementation, category
@@ -376,8 +373,6 @@ pub(crate) fn builtin_category_table_p(args: Vec<Value>) -> EvalResult {
     expect_args("category-table-p", &args, 1)?;
     Ok(Value::bool(is_category_table_value(&args[0])?))
 }
-
-
 
 /// `(make-category-table)`
 ///
@@ -409,7 +404,6 @@ pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
 
     clone_char_table_object(&source)
 }
-
 
 /// `(make-category-set CATEGORIES)`
 ///

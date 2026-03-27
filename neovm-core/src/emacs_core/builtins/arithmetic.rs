@@ -12,10 +12,7 @@ unsafe extern "C" {
 // ===========================================================================
 
 /// Eval-aware `+` that reads live marker positions from buffers.
-pub(crate) fn builtin_add(
-    eval: &mut super::super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_add(eval: &mut super::super::eval::Context, args: Vec<Value>) -> EvalResult {
     if has_float(&args) {
         let mut sum = 0.0f64;
         for a in &args {
@@ -32,10 +29,7 @@ pub(crate) fn builtin_add(
 }
 
 /// Eval-aware `-` that reads live marker positions from buffers.
-pub(crate) fn builtin_sub(
-    eval: &mut super::super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_sub(eval: &mut super::super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
         return Ok(Value::Int(0));
     }

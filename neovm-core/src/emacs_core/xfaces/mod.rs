@@ -6,8 +6,8 @@
 //! defaults here so Rust startup matches the same ownership boundary.
 
 use crate::emacs_core::error::{EvalResult, signal};
-use crate::emacs_core::symbol::Obarray;
 use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::symbol::Obarray;
 use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap_mut};
 use crate::face::Face as RuntimeFace;
 

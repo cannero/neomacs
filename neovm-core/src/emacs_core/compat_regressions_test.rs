@@ -108,10 +108,8 @@ fn face_attributes_as_vector_shape() {
 
 #[test]
 fn frame_face_hash_table_uses_eq_test() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
-
-    let out = crate::emacs_core::builtins::builtin_frame_face_hash_table_inner(vec![]).unwrap();
+    let mut eval = crate::emacs_core::Context::new();
+    let out = crate::emacs_core::xfaces::builtin_frame_face_hash_table(&mut eval, vec![]).unwrap();
     let Value::HashTable(table) = out else {
         panic!("expected hash table");
     };
@@ -323,8 +321,12 @@ fn handle_switch_frame_requires_frame_object() {
 
 #[test]
 fn interactive_form_for_ignore_returns_interactive_list() {
-    let out = crate::emacs_core::builtins::builtin_interactive_form_inner(vec![Value::symbol("ignore")])
-        .unwrap();
+    let mut eval = crate::emacs_core::Context::new();
+    let out = crate::emacs_core::builtins::symbols::builtin_interactive_form(
+        &mut eval,
+        vec![Value::symbol("ignore")],
+    )
+    .unwrap();
     assert_eq!(
         out,
         Value::list(vec![Value::symbol("interactive"), Value::Nil])
@@ -363,7 +365,6 @@ fn inotify_add_watch_requires_string_path_argument() {
     }
 }
 
-
 #[test]
 fn window_bottom_divider_width_rejects_non_window_designator() {
     let err = crate::emacs_core::builtins::builtin_window_bottom_divider_width(vec![Value::Int(1)])
@@ -401,10 +402,11 @@ fn internal_stack_stats_returns_nil() {
 
 #[test]
 fn internal_labeled_narrow_to_region_validates_arity() {
-    let err = crate::emacs_core::builtins::builtin_internal_labeled_narrow_to_region_inner(vec![
-        Value::Nil,
-        Value::Nil,
-    ])
+    let mut eval = crate::emacs_core::Context::new();
+    let err = crate::emacs_core::builtins::builtin_internal_labeled_narrow_to_region(
+        &mut eval,
+        vec![Value::Nil, Value::Nil],
+    )
     .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),

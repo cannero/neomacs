@@ -220,7 +220,6 @@ pub(crate) fn builtin_defining_kbd_macro(
     Ok(Value::Nil)
 }
 
-
 pub(crate) fn plan_call_last_kbd_macro(
     kmacro: &KmacroManager,
     args: &[Value],
@@ -276,7 +275,6 @@ pub(crate) fn execute_kbd_macro_events(
     }
     Ok(Value::Nil)
 }
-
 
 /// (start-kbd-macro &optional APPEND NO-EXEC) -> nil
 ///

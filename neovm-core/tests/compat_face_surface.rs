@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use common::{oracle_enabled, oracle_emacs_path, run_neovm_eval, run_oracle_eval};
+use common::{oracle_emacs_path, oracle_enabled, run_neovm_eval, run_oracle_eval};
 use regex::Regex;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -132,7 +132,10 @@ fn extract_defsubr_name_and_target(block: &str) -> Option<(String, String)> {
         }
     }
 
-    Some((name, target.split_whitespace().collect::<Vec<_>>().join(" ")))
+    Some((
+        name,
+        target.split_whitespace().collect::<Vec<_>>().join(" "),
+    ))
 }
 
 fn symbol_list_literal(names: &BTreeSet<String>) -> String {
@@ -161,8 +164,7 @@ fn classify_target(target: &str, stubs_source: &str) -> ImplBucket {
     if target.contains("symbols::") {
         return ImplBucket::Symbols;
     }
-    if target.contains("super::builtins::strings::")
-        || target.contains("builtin_clear_face_cache")
+    if target.contains("super::builtins::strings::") || target.contains("builtin_clear_face_cache")
     {
         return ImplBucket::Strings;
     }

@@ -112,7 +112,10 @@ fn extract_defsubr_name_and_target(block: &str) -> Option<(String, String)> {
         }
     }
 
-    Some((name, target.split_whitespace().collect::<Vec<_>>().join(" ")))
+    Some((
+        name,
+        target.split_whitespace().collect::<Vec<_>>().join(" "),
+    ))
 }
 
 fn builtin_ident_in_target(target: &str) -> Option<String> {
@@ -145,7 +148,9 @@ fn symbol_list_literal(names: &BTreeSet<String>) -> String {
 #[test]
 fn compat_window_surface_matches_gnu_emacs() {
     if !oracle_enabled() {
-        eprintln!("skipping window surface audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo");
+        eprintln!(
+            "skipping window surface audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo"
+        );
         return;
     }
 

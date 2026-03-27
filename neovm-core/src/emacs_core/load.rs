@@ -810,10 +810,9 @@ pub(crate) fn builtin_load_in_vm_runtime(
             let nomessage = args.get(2).is_some_and(|v| v.is_truthy());
             shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
                 load_file_with_flags(eval, &path, noerror, nomessage).map_err(|e| match e {
-                    EvalError::Signal { symbol, data } => crate::emacs_core::error::signal(
-                        resolve_sym(symbol),
-                        data,
-                    ),
+                    EvalError::Signal { symbol, data } => {
+                        crate::emacs_core::error::signal(resolve_sym(symbol), data)
+                    }
                     EvalError::UncaughtThrow { tag, value } => {
                         crate::emacs_core::error::signal("no-catch", vec![tag, value])
                     }
@@ -1125,10 +1124,7 @@ where
         let eval_result = eval_one(eval, i, form);
 
         let elapsed = start.elapsed();
-        let (dh, dm) = (
-            eval.macro_cache_hits - h0,
-            eval.macro_cache_misses - m0,
-        );
+        let (dh, dm) = (eval.macro_cache_hits - h0, eval.macro_cache_misses - m0);
         if elapsed.as_millis() > 200 || dm > 0 || dh > 0 {
             tracing::debug!(
                 "  {file_name} FORM[{i}] ({:.2?}) [cache hit={dh} miss={dm}]: {}",
@@ -1206,7 +1202,10 @@ pub fn load_file_with_flags(
             symbol: intern("error"),
             data: vec![
                 Value::string("Recursive load"),
-                Value::cons(Value::string(canonical.to_string_lossy().to_string()), in_progress),
+                Value::cons(
+                    Value::string(canonical.to_string_lossy().to_string()),
+                    in_progress,
+                ),
             ],
         });
     }
@@ -1289,9 +1288,7 @@ fn load_file_body(
         let neobc_path = path.with_extension("neobc");
         if neobc_path.exists() {
             let source_hash = super::file_compile_format::source_sha256(&content);
-            if let Ok(loaded) =
-                super::file_compile_format::read_neobc(&neobc_path, &source_hash)
-            {
+            if let Ok(loaded) = super::file_compile_format::read_neobc(&neobc_path, &source_hash) {
                 tracing::info!(
                     "neobc cache hit for {} ({} forms)",
                     path.display(),

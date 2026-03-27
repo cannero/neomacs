@@ -141,7 +141,6 @@ pub(crate) fn builtin_char_uppercase_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(downcase_char_code_emacs_compat(code) != code))
 }
 
-
 pub(super) fn is_lambda_form_list(value: &Value) -> bool {
     match value {
         Value::Cons(cell) => {
@@ -180,10 +179,7 @@ fn autoload_type_of(value: &Value) -> Option<super::autoload::AutoloadType> {
     Some(super::autoload::AutoloadType::from_value(&type_value))
 }
 
-pub(crate) fn builtin_functionp(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("functionp", &args, 1)?;
     let is_function = if let Some(symbol) = match &args[0] {
         Value::Nil => Some(intern("nil")),

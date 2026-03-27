@@ -930,9 +930,6 @@ pub(crate) fn finish_read_variable_in_vm_runtime(
     })
 }
 
-
-
-
 /// `(minibuffer-prompt)` — returns the current minibuffer prompt or nil.
 ///
 /// Stub: returns nil (no active minibuffer in non-interactive mode).
@@ -946,7 +943,8 @@ pub(crate) fn builtin_minibuffer_prompt_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer-prompt", &args, 0)?;
-    Ok(eval.minibuffers
+    Ok(eval
+        .minibuffers
         .current()
         .map(|state| Value::string(&state.prompt))
         .unwrap_or(Value::Nil))
@@ -1037,7 +1035,8 @@ pub(crate) fn builtin_minibufferp_ctx(
     };
     let is_live = eval.minibuffers.has_buffer(buffer_id);
     let is_minibuffer = is_live
-        || eval.buffers
+        || eval
+            .buffers
             .get(buffer_id)
             .is_some_and(|buffer| is_minibuffer_buffer_name(&buffer.name));
     Ok(Value::bool(if live_only { is_live } else { is_minibuffer }))
@@ -1052,7 +1051,8 @@ pub(crate) fn builtin_minibuffer_innermost_command_loop_p_ctx(
         return Ok(Value::Nil);
     };
     let recursive_depth = eval.command_loop.recursive_depth;
-    let command_loop_depth = eval.minibuffers
+    let command_loop_depth = eval
+        .minibuffers
         .state_stack
         .iter()
         .find(|state| state.buffer_id == buffer_id)
@@ -1097,7 +1097,6 @@ fn validate_minibufferp_args(args: &[Value]) -> Result<(), Flow> {
     }
     Ok(())
 }
-
 
 /// Eval-aware `(recursive-edit)` — enters the command loop.
 ///
@@ -1170,7 +1169,8 @@ pub(crate) fn builtin_abort_minibuffers_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("abort-minibuffers", &args, 0)?;
-    let in_active_minibuffer = eval.buffers
+    let in_active_minibuffer = eval
+        .buffers
         .current_buffer_id()
         .is_some_and(|buffer_id| eval.minibuffers.has_buffer(buffer_id));
     if !in_active_minibuffer {

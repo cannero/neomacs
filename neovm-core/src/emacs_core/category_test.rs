@@ -177,7 +177,8 @@ fn manager_standard_and_current_are_same_initially() {
 #[test]
 fn builtin_define_category_basic() {
     reset_pure_category_manager_for_tests();
-    let result = builtin_define_category_inner(vec![Value::Char('a'), Value::string("ASCII letters")]);
+    let result =
+        builtin_define_category_inner(vec![Value::Char('a'), Value::string("ASCII letters")]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -223,7 +224,9 @@ fn builtin_category_docstring_basic() {
 #[test]
 fn builtin_category_docstring_wrong_args() {
     assert!(builtin_category_docstring_inner(vec![]).is_err());
-    assert!(builtin_category_docstring_inner(vec![Value::Char('a'), Value::Nil, Value::Nil,]).is_err());
+    assert!(
+        builtin_category_docstring_inner(vec![Value::Char('a'), Value::Nil, Value::Nil,]).is_err()
+    );
 }
 
 #[test]

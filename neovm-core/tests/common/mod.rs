@@ -3,7 +3,9 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use neovm_core::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use neovm_core::emacs_core::load::{
+    apply_runtime_startup_state, create_bootstrap_evaluator_cached,
+};
 use neovm_core::emacs_core::{format_eval_result_with_eval, parse_forms};
 
 pub fn oracle_emacs_path() -> Option<PathBuf> {

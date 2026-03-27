@@ -211,7 +211,6 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
     Ok(text)
 }
 
-
 /// `(insert-before-markers &rest ARGS)` — insert at point, advancing ALL
 /// markers at that position past the inserted text (regardless of their
 /// InsertionType).
@@ -301,14 +300,17 @@ pub(crate) fn builtin_delete_region(
     let Some(current_id) = ctx.buffers.current_buffer_id() else {
         return Ok(Value::Nil);
     };
-    let read_only = ctx.buffers
+    let read_only = ctx
+        .buffers
         .get(current_id)
         .is_some_and(|buf| buffer_read_only_active_in_state(&ctx.obarray, &[], buf));
     if read_only {
         return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
     }
 
-    let _ = ctx.buffers.delete_buffer_region(current_id, start_byte, end_byte);
+    let _ = ctx
+        .buffers
+        .delete_buffer_region(current_id, start_byte, end_byte);
     Ok(Value::Nil)
 }
 
@@ -340,7 +342,9 @@ pub(crate) fn builtin_delete_and_extract_region(
         Value::string(buf.buffer_substring(start_byte, end_byte))
     };
 
-    let _ = ctx.buffers.delete_buffer_region(current_id, start_byte, end_byte);
+    let _ = ctx
+        .buffers
+        .delete_buffer_region(current_id, start_byte, end_byte);
     Ok(deleted)
 }
 
@@ -386,7 +390,6 @@ pub(crate) fn erase_buffer_impl(
     }
     Ok(Value::Nil)
 }
-
 
 /// `(buffer-substring-no-properties START END)` — same as buffer-substring
 /// (text properties not yet implemented at the Lisp value level).

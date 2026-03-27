@@ -474,7 +474,8 @@ fn find_charset_region_ascii_default() {
 
 #[test]
 fn find_charset_region_with_table() {
-    let r = builtin_find_charset_region_inner(vec![Value::Int(1), Value::Int(100), Value::Nil]).unwrap();
+    let r = builtin_find_charset_region_inner(vec![Value::Int(1), Value::Int(100), Value::Nil])
+        .unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
 }
@@ -483,8 +484,13 @@ fn find_charset_region_with_table() {
 fn find_charset_region_wrong_arg_count() {
     assert!(builtin_find_charset_region_inner(vec![Value::Int(1)]).is_err());
     assert!(
-        builtin_find_charset_region_inner(vec![Value::Int(1), Value::Int(2), Value::Nil, Value::Nil,])
-            .is_err()
+        builtin_find_charset_region_inner(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Nil,
+            Value::Nil,
+        ])
+        .is_err()
     );
 }
 
@@ -529,12 +535,8 @@ fn find_charset_region_eval_out_of_range_errors() {
             .expect("current buffer must exist");
         buf.insert("abc");
     }
-    assert!(
-        builtin_find_charset_region(&mut eval, vec![Value::Int(0), Value::Int(2)]).is_err()
-    );
-    assert!(
-        builtin_find_charset_region(&mut eval, vec![Value::Int(1), Value::Int(5)]).is_err()
-    );
+    assert!(builtin_find_charset_region(&mut eval, vec![Value::Int(0), Value::Int(2)]).is_err());
+    assert!(builtin_find_charset_region(&mut eval, vec![Value::Int(1), Value::Int(5)]).is_err());
 }
 
 // -----------------------------------------------------------------------

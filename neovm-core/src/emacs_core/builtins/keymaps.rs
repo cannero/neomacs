@@ -138,10 +138,7 @@ pub(super) fn builtin_accessible_keymaps(
     builtin_accessible_keymaps_impl(eval.obarray(), &args)
 }
 
-pub(crate) fn builtin_accessible_keymaps_impl(
-    obarray: &Obarray,
-    args: &[Value],
-) -> EvalResult {
+pub(crate) fn builtin_accessible_keymaps_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     use super::value::with_heap;
 
     expect_min_args("accessible-keymaps", &args, 1)?;
@@ -312,21 +309,29 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
     } else if let Value::Cons(_) = args[0] {
         // Could be a list of keymaps
         if let Some(items) = list_to_vec(&args[0]) {
-            if !items.is_empty() && items.iter().all(|v| {
-                is_list_keymap(v) || v.as_symbol_name().is_some_and(|n| {
-                    obarray.symbol_function(n).is_some_and(|f| is_list_keymap(f))
+            if !items.is_empty()
+                && items.iter().all(|v| {
+                    is_list_keymap(v)
+                        || v.as_symbol_name().is_some_and(|n| {
+                            obarray
+                                .symbol_function(n)
+                                .is_some_and(|f| is_list_keymap(f))
+                        })
                 })
-            }) {
+            {
                 // It's a list of keymaps — resolve each one
-                items.iter().map(|v| {
-                    if is_list_keymap(v) {
-                        *v
-                    } else if let Some(sym_name) = v.as_symbol_name() {
-                        obarray.symbol_function(sym_name).copied().unwrap_or(*v)
-                    } else {
-                        *v
-                    }
-                }).collect()
+                items
+                    .iter()
+                    .map(|v| {
+                        if is_list_keymap(v) {
+                            *v
+                        } else if let Some(sym_name) = v.as_symbol_name() {
+                            obarray.symbol_function(sym_name).copied().unwrap_or(*v)
+                        } else {
+                            *v
+                        }
+                    })
+                    .collect()
             } else {
                 // Not a list of keymaps — try as a single keymap
                 vec![expect_keymap_in_obarray(obarray, &args[0])?]
@@ -476,10 +481,7 @@ pub(super) fn builtin_use_global_map(
     builtin_use_global_map_impl(&mut eval.obarray, &args)
 }
 
-pub(crate) fn builtin_use_global_map_impl(
-    obarray: &mut Obarray,
-    args: &[Value],
-) -> EvalResult {
+pub(crate) fn builtin_use_global_map_impl(obarray: &mut Obarray, args: &[Value]) -> EvalResult {
     expect_args("use-global-map", args, 1)?;
     let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
     obarray.set_symbol_value("global-map", keymap);
@@ -848,10 +850,7 @@ pub(super) fn builtin_set_keymap_parent(
     builtin_set_keymap_parent_impl(eval.obarray(), &args)
 }
 
-pub(crate) fn builtin_set_keymap_parent_impl(
-    obarray: &Obarray,
-    args: &[Value],
-) -> EvalResult {
+pub(crate) fn builtin_set_keymap_parent_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("set-keymap-parent", &args, 2)?;
     let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
     let parent = if args[1].is_nil() {
