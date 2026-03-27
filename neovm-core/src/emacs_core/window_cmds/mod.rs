@@ -18,6 +18,27 @@ use crate::window::{
 };
 use std::collections::HashSet;
 
+pub(crate) use super::builtins::{
+    builtin_coordinates_in_window_p, builtin_split_window_internal,
+    builtin_current_window_configuration, builtin_run_window_configuration_change_hook,
+    builtin_run_window_scroll_functions, builtin_set_window_configuration,
+    builtin_window_configuration_equal_p, builtin_window_configuration_frame,
+    builtin_window_configuration_p,
+};
+pub(crate) use super::builtins::symbols::{
+    builtin_resize_mini_window_internal, builtin_set_window_new_normal,
+    builtin_set_window_new_pixel, builtin_set_window_new_total,
+};
+pub(crate) use super::builtins::{
+    builtin_combine_windows, builtin_uncombine_window, builtin_window_bottom_divider_width,
+    builtin_window_cursor_info, builtin_window_discard_buffer_from_window,
+    builtin_window_lines_pixel_dimensions, builtin_window_new_normal, builtin_window_new_pixel,
+    builtin_window_new_total, builtin_window_old_body_pixel_height,
+    builtin_window_old_body_pixel_width, builtin_window_old_pixel_height,
+    builtin_window_old_pixel_width, builtin_window_right_divider_width,
+    builtin_window_scroll_bar_height, builtin_window_scroll_bar_width,
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

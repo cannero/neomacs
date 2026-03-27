@@ -1,0 +1,111 @@
+mod common;
+
+use std::fs;
+
+use common::{elisp_string, oracle_enabled, run_neovm_eval, run_oracle_eval};
+
+struct LoadCase {
+    name: &'static str,
+    form: String,
+}
+
+#[test]
+fn compat_load_semantics_matches_gnu_emacs() {
+    if !oracle_enabled() {
+        eprintln!("skipping load semantics audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo");
+        return;
+    }
+
+    let fixture_dir = tempfile::tempdir().expect("load semantics tempdir");
+
+    let context_path = fixture_dir.path().join("load-context.el");
+    fs::write(
+        &context_path,
+        ";; -*- lexical-binding: t; -*-\n(list load-file-name load-in-progress lexical-binding)\n",
+    )
+    .expect("write load-context fixture");
+
+    let history_path = fixture_dir.path().join("load-history.el");
+    fs::write(
+        &history_path,
+        ";; -*- lexical-binding: t; -*-\n'load-history-body\n",
+    )
+    .expect("write load-history fixture");
+
+    let hook_path = fixture_dir.path().join("load-hook.el");
+    fs::write(
+        &hook_path,
+        ";; -*- lexical-binding: t; -*-\n(setq neovm--load-body 'file-body)\n'body-ran\n",
+    )
+    .expect("write load-hook fixture");
+
+    let recursive_path = fixture_dir.path().join("recursive-load.el");
+    fs::write(
+        &recursive_path,
+        format!(
+            ";; -*- lexical-binding: t; -*-\n(load {} nil nil t)\n",
+            elisp_string(&recursive_path)
+        ),
+    )
+    .expect("write recursive-load fixture");
+
+    let missing_path = fixture_dir.path().join("missing-load.el");
+
+    let cases = vec![
+        LoadCase {
+            name: "load_context_visibility",
+            form: format!("(load {} nil nil t)", elisp_string(&context_path)),
+        },
+        LoadCase {
+            name: "load_noerror_missing_file",
+            form: format!("(load {} t nil t)", elisp_string(&missing_path)),
+        },
+        LoadCase {
+            name: "load_history_pushes_entry",
+            form: format!(
+                r#"(let ((before load-history))
+  (load {path} nil nil t)
+  (let ((entry (car load-history)))
+    (list (equal before (cdr load-history))
+          (consp entry)
+          (equal (car entry) {path}))))"#,
+                path = elisp_string(&history_path)
+            ),
+        },
+        LoadCase {
+            name: "load_source_file_function_intercepts_source",
+            form: format!(
+                r#"(setq neovm--load-intercept-args nil
+       neovm--load-body nil)
+(let ((load-source-file-function
+       (lambda (fullname file noerror nomessage)
+         (setq neovm--load-intercept-args
+               (list fullname file noerror nomessage))
+         'intercepted)))
+  (list (load {path} nil nil t)
+        neovm--load-intercept-args
+        neovm--load-body))"#,
+                path = elisp_string(&hook_path)
+            ),
+        },
+        LoadCase {
+            name: "recursive_load_cycle_limit",
+            form: format!(
+                r#"(condition-case err
+    (load {path} nil nil t)
+  (error (car err)))"#,
+                path = elisp_string(&recursive_path)
+            ),
+        },
+    ];
+
+    for case in cases {
+        let gnu = run_oracle_eval(&case.form).expect("GNU Emacs evaluation");
+        let neovm = run_neovm_eval(&case.form).expect("NeoVM evaluation");
+        assert_eq!(
+            neovm, gnu,
+            "load semantics mismatch for {}:\nGNU: {}\nNeoVM: {}",
+            case.name, gnu, neovm
+        );
+    }
+}

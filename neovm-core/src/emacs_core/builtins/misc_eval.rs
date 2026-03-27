@@ -505,9 +505,13 @@ pub(crate) fn builtin_load(eval: &mut super::eval::Context, args: Vec<Value>) ->
         args.get(4).copied(),
     )? {
         super::load::LoadPlan::Return(value) => Ok(value),
-        super::load::LoadPlan::Load { path } => {
-            super::load::load_file(eval, &path).map_err(eval_error_to_flow)
-        }
+        super::load::LoadPlan::Load { path } => super::load::load_file_with_flags(
+            eval,
+            &path,
+            args.get(1).is_some_and(|v| v.is_truthy()),
+            args.get(2).is_some_and(|v| v.is_truthy()),
+        )
+        .map_err(eval_error_to_flow),
     }
 }
 

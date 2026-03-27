@@ -1962,14 +1962,23 @@ impl Context {
         // GNU DEFVAR_LISP variables from lread.c that must be bound to nil
         // before any Elisp runs (code may test `boundp` or read them directly).
         obarray.set_symbol_value("eval-buffer-list", Value::Nil);
+        obarray.make_special("eval-buffer-list");
         obarray.set_symbol_value("lread--unescaped-character-literals", Value::Nil);
+        obarray.make_special("lread--unescaped-character-literals");
         obarray.set_symbol_value("load-read-function", Value::symbol("read"));
+        obarray.make_special("load-read-function");
         obarray.set_symbol_value("load-source-file-function", Value::Nil);
+        obarray.make_special("load-source-file-function");
         obarray.set_symbol_value("load-true-file-name", Value::Nil);
+        obarray.make_special("load-true-file-name");
         obarray.set_symbol_value("current-load-list", Value::Nil);
+        obarray.make_special("current-load-list");
         obarray.set_symbol_value("preloaded-file-list", Value::Nil);
+        obarray.make_special("preloaded-file-list");
         obarray.set_symbol_value("byte-boolean-vars", Value::Nil);
+        obarray.make_special("byte-boolean-vars");
         obarray.set_symbol_value("load-path-filter-function", Value::Nil);
+        obarray.make_special("load-path-filter-function");
         // GNU DEFVAR_LISP variables from eval.c
         obarray.set_symbol_value("quit-flag", Value::Nil);
         obarray.set_symbol_value("inhibit-debugger", Value::Nil);

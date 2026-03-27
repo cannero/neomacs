@@ -747,8 +747,18 @@ pub(crate) fn builtin_load_in_vm_runtime(
         LoadPlan::Return(value) => Ok(value),
         LoadPlan::Load { path } => {
             let extra_roots = args.to_vec();
+            let noerror = args.get(1).is_some_and(|v| v.is_truthy());
+            let nomessage = args.get(2).is_some_and(|v| v.is_truthy());
             shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
-                eval.load_file_internal(&path)
+                load_file_with_flags(eval, &path, noerror, nomessage).map_err(|e| match e {
+                    EvalError::Signal { symbol, data } => crate::emacs_core::error::signal(
+                        resolve_sym(symbol),
+                        data,
+                    ),
+                    EvalError::UncaughtThrow { tag, value } => {
+                        crate::emacs_core::error::signal("no-catch", vec![tag, value])
+                    }
+                })
             })
         }
     }
@@ -1092,6 +1102,17 @@ where
 /// Load and evaluate a file. Returns the last result.
 #[tracing::instrument(level = "info", skip(eval), err(Debug))]
 pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
+    load_file_with_flags(eval, path, false, false)
+}
+
+/// Load and evaluate a file with the caller-visible `load` flags.
+#[tracing::instrument(level = "info", skip(eval), err(Debug))]
+pub fn load_file_with_flags(
+    eval: &mut super::eval::Context,
+    path: &Path,
+    noerror: bool,
+    nomessage: bool,
+) -> Result<Value, EvalError> {
     // Expand tilde in case the path comes from Elisp with ~ prefix
     let expanded = expand_tilde(&path.to_string_lossy());
     let path = std::path::Path::new(&expanded);
@@ -1106,30 +1127,29 @@ pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, 
         });
     }
 
-    // Check for recursive load (mirrors lread.c:1202-1220).
-    //
-    // Official Emacs allows up to 3 recursive loads (erroring on the 4th).
-    // However, NeoVM always loads .el source files, not .elc bytecode.
-    // This matters because macro expansion of .el forms (e.g. define-inline,
-    // cl-defstruct) triggers eager macroexpand-all, which can recursively
-    // load the same file.  With .elc, pre-compiled bodies never trigger
-    // re-loads.
-    //
-    // To match effective .elc behaviour: if a file is already being loaded,
-    // silently skip the recursive load.  This prevents infinite recursion
-    // from eager expansion of compile-time constructs like define-inline.
+    // GNU Emacs allows three nested loads of the same file and signals an
+    // error on the fourth.  Matching that behavior matters because Lisp
+    // sometimes depends on the signal shape rather than on silent skipping.
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let load_count = eval
         .loads_in_progress
         .iter()
         .filter(|p| **p == canonical)
         .count();
-    if load_count > 0 {
-        tracing::debug!(
-            "Skipping recursive load of {} (already in progress)",
-            path.display()
+    if load_count > 3 {
+        let in_progress = Value::list(
+            eval.loads_in_progress
+                .iter()
+                .map(|p| Value::string(p.to_string_lossy().to_string()))
+                .collect(),
         );
-        return Ok(Value::True);
+        return Err(EvalError::Signal {
+            symbol: intern("error"),
+            data: vec![
+                Value::string("Recursive load"),
+                Value::cons(Value::string(canonical.to_string_lossy().to_string()), in_progress),
+            ],
+        });
     }
     eval.loads_in_progress.push(canonical);
 
@@ -1142,15 +1162,42 @@ pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, 
         .unwrap_or(Value::Nil);
     eval.set_variable("load-in-progress", Value::True);
 
-    let result = stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || load_file_body(eval, path));
+    let result = stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
+        load_file_body(eval, path, noerror, nomessage)
+    });
 
     eval.set_variable("load-in-progress", old_load_in_progress);
     eval.loads_in_progress.pop();
     result
 }
 
-fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
+fn load_file_body(
+    eval: &mut super::eval::Context,
+    path: &Path,
+    noerror: bool,
+    nomessage: bool,
+) -> Result<Value, EvalError> {
     let is_elc = path.extension().and_then(|e| e.to_str()) == Some("elc");
+
+    if !is_elc
+        && let load_source_file_function =
+            eval.visible_variable_value_or_nil("load-source-file-function")
+        && !load_source_file_function.is_nil()
+    {
+        let full_name = Value::string(path.to_string_lossy().to_string());
+        let hist_file_name = full_name;
+        return eval
+            .apply(
+                load_source_file_function,
+                vec![
+                    full_name,
+                    hist_file_name,
+                    Value::bool(noerror),
+                    Value::bool(nomessage),
+                ],
+            )
+            .map_err(crate::emacs_core::error::map_flow);
+    }
 
     // Read raw bytes and decode (with Emacs-extended UTF-8 for .el,
     // or header-skipping for .elc).
@@ -1361,7 +1408,21 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
         .symbol_value("load-history")
         .cloned()
         .unwrap_or(Value::Nil);
-    eval.set_variable("load-history", Value::cons(entry, history));
+    let filtered_history = Value::list(
+        list_to_vec(&history)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|existing| match existing {
+                Value::Cons(id) => with_heap(|heap| {
+                    heap.cons_car(*id)
+                        .as_str()
+                        .is_none_or(|loaded| loaded != path_str)
+                }),
+                _ => true,
+            })
+            .collect(),
+    );
+    eval.set_variable("load-history", Value::cons(entry, filtered_history));
 
     // GNU Emacs lread.c:1540-1541: after loading a file, call
     // (do-after-load-evaluation FILENAME) to run eval-after-load hooks.

@@ -703,13 +703,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("run-hook-wrapped", builtin_run_hook_wrapped, 0, None);
     ctx.defsubr(
         "run-window-configuration-change-hook",
-        builtin_run_window_configuration_change_hook,
+        super::window_cmds::builtin_run_window_configuration_change_hook,
         0,
         None,
     );
     ctx.defsubr(
         "run-window-scroll-functions",
-        builtin_run_window_scroll_functions,
+        super::window_cmds::builtin_run_window_scroll_functions,
         0,
         None,
     );
@@ -979,7 +979,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "coordinates-in-window-p",
-        builtin_coordinates_in_window_p,
+        super::window_cmds::builtin_coordinates_in_window_p,
         0,
         None,
     );
@@ -2092,7 +2092,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "split-window-internal",
-        builtin_split_window_internal,
+        super::window_cmds::builtin_split_window_internal,
         0,
         None,
     );
@@ -2161,13 +2161,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "current-window-configuration",
-        builtin_current_window_configuration,
+        super::window_cmds::builtin_current_window_configuration,
         0,
         None,
     );
     ctx.defsubr(
         "set-window-configuration",
-        builtin_set_window_configuration,
+        super::window_cmds::builtin_set_window_configuration,
         0,
         None,
     );
@@ -4646,7 +4646,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "resize-mini-window-internal",
-        |_ctx, args| builtin_resize_mini_window_internal(args),
+        |_ctx, args| super::window_cmds::builtin_resize_mini_window_internal(args),
         0,
         None,
     );
@@ -4718,19 +4718,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set-window-new-normal",
-        |_ctx, args| builtin_set_window_new_normal(args),
+        |_ctx, args| super::window_cmds::builtin_set_window_new_normal(args),
         0,
         None,
     );
     ctx.defsubr(
         "set-window-new-pixel",
-        |_ctx, args| builtin_set_window_new_pixel(args),
+        |_ctx, args| super::window_cmds::builtin_set_window_new_pixel(args),
         0,
         None,
     );
     ctx.defsubr(
         "set-window-new-total",
-        |_ctx, args| builtin_set_window_new_total(args),
+        |_ctx, args| super::window_cmds::builtin_set_window_new_total(args),
         0,
         None,
     );
@@ -4969,73 +4969,73 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "window-bottom-divider-width",
-        |_ctx, args| builtin_window_bottom_divider_width(args),
+        |_ctx, args| super::window_cmds::builtin_window_bottom_divider_width(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-lines-pixel-dimensions",
-        |_ctx, args| builtin_window_lines_pixel_dimensions(args),
+        |_ctx, args| super::window_cmds::builtin_window_lines_pixel_dimensions(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-new-normal",
-        |_ctx, args| builtin_window_new_normal(args),
+        |_ctx, args| super::window_cmds::builtin_window_new_normal(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-new-pixel",
-        |_ctx, args| builtin_window_new_pixel(args),
+        |_ctx, args| super::window_cmds::builtin_window_new_pixel(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-new-total",
-        |_ctx, args| builtin_window_new_total(args),
+        |_ctx, args| super::window_cmds::builtin_window_new_total(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-old-body-pixel-height",
-        |_ctx, args| builtin_window_old_body_pixel_height(args),
+        |_ctx, args| super::window_cmds::builtin_window_old_body_pixel_height(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-old-body-pixel-width",
-        |_ctx, args| builtin_window_old_body_pixel_width(args),
+        |_ctx, args| super::window_cmds::builtin_window_old_body_pixel_width(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-old-pixel-height",
-        |_ctx, args| builtin_window_old_pixel_height(args),
+        |_ctx, args| super::window_cmds::builtin_window_old_pixel_height(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-old-pixel-width",
-        |_ctx, args| builtin_window_old_pixel_width(args),
+        |_ctx, args| super::window_cmds::builtin_window_old_pixel_width(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-right-divider-width",
-        |_ctx, args| builtin_window_right_divider_width(args),
+        |_ctx, args| super::window_cmds::builtin_window_right_divider_width(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-scroll-bar-height",
-        |_ctx, args| builtin_window_scroll_bar_height(args),
+        |_ctx, args| super::window_cmds::builtin_window_scroll_bar_height(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-scroll-bar-width",
-        |_ctx, args| builtin_window_scroll_bar_width(args),
+        |_ctx, args| super::window_cmds::builtin_window_scroll_bar_width(args),
         0,
         None,
     );
@@ -5769,25 +5769,25 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "window-discard-buffer-from-window",
-        |_ctx, args| builtin_window_discard_buffer_from_window(args),
+        |_ctx, args| super::window_cmds::builtin_window_discard_buffer_from_window(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-cursor-info",
-        |_ctx, args| builtin_window_cursor_info(args),
+        |_ctx, args| super::window_cmds::builtin_window_cursor_info(args),
         0,
         None,
     );
     ctx.defsubr(
         "combine-windows",
-        |_ctx, args| builtin_combine_windows(args),
+        |_ctx, args| super::window_cmds::builtin_combine_windows(args),
         0,
         None,
     );
     ctx.defsubr(
         "uncombine-window",
-        |_ctx, args| builtin_uncombine_window(args),
+        |_ctx, args| super::window_cmds::builtin_uncombine_window(args),
         0,
         None,
     );
@@ -5849,19 +5849,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "window-configuration-p",
-        |_ctx, args| builtin_window_configuration_p(args),
+        |_ctx, args| super::window_cmds::builtin_window_configuration_p(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-configuration-frame",
-        |_ctx, args| builtin_window_configuration_frame(args),
+        |_ctx, args| super::window_cmds::builtin_window_configuration_frame(args),
         0,
         None,
     );
     ctx.defsubr(
         "window-configuration-equal-p",
-        |_ctx, args| builtin_window_configuration_equal_p(args),
+        |_ctx, args| super::window_cmds::builtin_window_configuration_equal_p(args),
         0,
         None,
     );
