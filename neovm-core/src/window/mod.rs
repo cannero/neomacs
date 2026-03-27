@@ -13,6 +13,7 @@ use crate::face::Face as RuntimeFace;
 use crate::gc::GcTrace;
 use std::collections::{HashMap, HashSet};
 
+mod display;
 mod history;
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,48 @@ pub enum SplitDirection {
 }
 
 // ---------------------------------------------------------------------------
+// Window display state
+// ---------------------------------------------------------------------------
+
+/// Per-window display settings that GNU Emacs stores on `struct window`.
+#[derive(Clone, Debug)]
+pub struct WindowDisplayState {
+    /// Window-local display table; nil means inherit from the buffer/frame.
+    pub display_table: Value,
+    /// Window-local cursor type; t means use the buffer-local value.
+    pub cursor_type: Value,
+    /// Raw fringe widths; `-1` means use the frame default.
+    pub left_fringe_width: i32,
+    pub right_fringe_width: i32,
+    pub fringes_outside_margins: bool,
+    pub fringes_persistent: bool,
+    /// Raw scroll bar sizes; `-1` means use the frame default.
+    pub scroll_bar_width: i32,
+    pub vertical_scroll_bar_type: Value,
+    pub scroll_bar_height: i32,
+    pub horizontal_scroll_bar_type: Value,
+    pub scroll_bars_persistent: bool,
+}
+
+impl Default for WindowDisplayState {
+    fn default() -> Self {
+        Self {
+            display_table: Value::Nil,
+            cursor_type: Value::True,
+            left_fringe_width: -1,
+            right_fringe_width: -1,
+            fringes_outside_margins: false,
+            fringes_persistent: false,
+            scroll_bar_width: -1,
+            vertical_scroll_bar_type: Value::True,
+            scroll_bar_height: -1,
+            horizontal_scroll_bar_type: Value::True,
+            scroll_bars_persistent: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
 
@@ -122,8 +165,8 @@ pub enum Window {
         hscroll: usize,
         /// Window margins (left, right) in columns.
         margins: (usize, usize),
-        /// Fringes (left_width, right_width) in pixels.
-        fringes: (u32, u32),
+        /// Window-local display settings mirrored from GNU `struct window`.
+        display: WindowDisplayState,
     },
 
     /// Internal node: contains children split in a direction.
@@ -157,7 +200,7 @@ impl Window {
             fixed_width: 0,
             hscroll: 0,
             margins: (0, 0),
-            fringes: (8, 8),
+            display: WindowDisplayState::default(),
         }
     }
 
@@ -194,6 +237,22 @@ impl Window {
     /// Whether this is a leaf window.
     pub fn is_leaf(&self) -> bool {
         matches!(self, Window::Leaf { .. })
+    }
+
+    /// Return this leaf window's display state.
+    pub fn display(&self) -> Option<&WindowDisplayState> {
+        match self {
+            Window::Leaf { display, .. } => Some(display),
+            Window::Internal { .. } => None,
+        }
+    }
+
+    /// Return a mutable reference to this leaf window's display state.
+    pub fn display_mut(&mut self) -> Option<&mut WindowDisplayState> {
+        match self {
+            Window::Leaf { display, .. } => Some(display),
+            Window::Internal { .. } => None,
+        }
     }
 
     /// Get the combination limit for an internal window.
@@ -932,8 +991,6 @@ pub struct FrameManager {
     old_selected_window: Option<WindowId>,
     deleted_windows: HashSet<WindowId>,
     window_parameters: HashMap<WindowId, Vec<(Value, Value)>>,
-    window_display_tables: HashMap<WindowId, Value>,
-    window_cursor_types: HashMap<WindowId, Value>,
     window_prev_buffers: HashMap<WindowId, Value>,
     window_next_buffers: HashMap<WindowId, Value>,
     window_buffer_positions: HashMap<WindowId, HashMap<BufferId, (usize, usize)>>,
@@ -951,8 +1008,6 @@ impl FrameManager {
             old_selected_window: None,
             deleted_windows: HashSet::new(),
             window_parameters: HashMap::new(),
-            window_display_tables: HashMap::new(),
-            window_cursor_types: HashMap::new(),
             window_prev_buffers: HashMap::new(),
             window_next_buffers: HashMap::new(),
             window_buffer_positions: HashMap::new(),
@@ -1201,42 +1256,6 @@ impl FrameManager {
             .collect::<Vec<_>>();
         Value::list(alist)
     }
-
-    /// Return window display table object for WINDOW-ID, or nil when unset.
-    pub fn window_display_table(&self, window_id: WindowId) -> Value {
-        self.window_display_tables
-            .get(&window_id)
-            .cloned()
-            .unwrap_or(Value::Nil)
-    }
-
-    /// Set window display table object for WINDOW-ID.
-    pub fn set_window_display_table(&mut self, window_id: WindowId, table: Value) {
-        if table.is_nil() {
-            self.window_display_tables.remove(&window_id);
-        } else {
-            self.window_display_tables.insert(window_id, table);
-        }
-    }
-
-    /// Return window cursor-type object for WINDOW-ID.
-    ///
-    /// GNU Emacs defaults to `t` when no explicit per-window cursor-type is set.
-    pub fn window_cursor_type(&self, window_id: WindowId) -> Value {
-        self.window_cursor_types
-            .get(&window_id)
-            .cloned()
-            .unwrap_or(Value::True)
-    }
-
-    /// Set window cursor-type object for WINDOW-ID.
-    pub fn set_window_cursor_type(&mut self, window_id: WindowId, cursor_type: Value) {
-        if cursor_type == Value::True {
-            self.window_cursor_types.remove(&window_id);
-        } else {
-            self.window_cursor_types.insert(window_id, cursor_type);
-        }
-    }
 }
 
 impl Default for FrameManager {
@@ -1259,12 +1278,14 @@ fn split_window_in_tree(
     new_buffer_id: BufferId,
 ) -> Option<()> {
     if tree.id() == target {
-        // Extract what we need before mutating.
         let old_id = tree.id();
         let old_bounds = *tree.bounds();
-        let old_buffer = tree.buffer_id();
+        let old_window = tree.clone();
 
-        if let Some(buf_id) = old_buffer {
+        if let Window::Leaf {
+            buffer_id: buf_id, ..
+        } = old_window
+        {
             let (left_bounds, right_bounds) = match direction {
                 SplitDirection::Horizontal => {
                     let half = old_bounds.width / 2.0;
@@ -1292,8 +1313,33 @@ fn split_window_in_tree(
                 }
             };
 
-            let old_leaf = Window::new_leaf(old_id, buf_id, left_bounds);
-            let new_leaf = Window::new_leaf(new_id, new_buffer_id, right_bounds);
+            let mut old_leaf = old_window;
+            old_leaf.set_bounds(left_bounds);
+
+            let mut new_leaf = old_leaf.clone();
+            if let Window::Leaf {
+                id,
+                buffer_id,
+                bounds,
+                window_start,
+                window_end_pos,
+                window_end_bytepos,
+                window_end_vpos,
+                window_end_valid,
+                point,
+                ..
+            } = &mut new_leaf
+            {
+                *id = new_id;
+                *buffer_id = new_buffer_id;
+                *bounds = right_bounds;
+                *window_start = 1;
+                *window_end_pos = 0;
+                *window_end_bytepos = 0;
+                *window_end_vpos = 0;
+                *window_end_valid = false;
+                *point = 1;
+            }
 
             *tree = Window::Internal {
                 id: internal_id,
@@ -1712,12 +1758,6 @@ impl GcTrace for FrameManager {
                 roots.push(*v);
             }
         }
-        for v in self.window_display_tables.values() {
-            roots.push(*v);
-        }
-        for v in self.window_cursor_types.values() {
-            roots.push(*v);
-        }
         for v in self.window_prev_buffers.values() {
             roots.push(*v);
         }
@@ -1740,10 +1780,18 @@ impl GcTrace for FrameManager {
 
 fn trace_window(window: &Window, roots: &mut Vec<Value>) {
     match window {
-        Window::Leaf { parameters, .. } => {
+        Window::Leaf {
+            parameters,
+            display,
+            ..
+        } => {
             for v in parameters.values() {
                 roots.push(*v);
             }
+            roots.push(display.display_table);
+            roots.push(display.cursor_type);
+            roots.push(display.vertical_scroll_bar_type);
+            roots.push(display.horizontal_scroll_bar_type);
         }
         Window::Internal { children, .. } => {
             for child in children {
@@ -1796,6 +1844,72 @@ mod tests {
 
         let frame = mgr.get(fid).unwrap();
         assert_eq!(frame.window_count(), 2);
+    }
+
+    #[test]
+    fn split_window_copies_window_display_state() {
+        let mut heap = crate::gc::LispHeap::new();
+        crate::emacs_core::value::set_current_heap(&mut heap);
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        {
+            let frame = mgr.get_mut(fid).unwrap();
+            frame.set_window_system(Some(Value::symbol("neo")));
+            let wid = frame.window_list()[0];
+            let display = frame
+                .find_window_mut(wid)
+                .and_then(Window::display_mut)
+                .expect("leaf display");
+            display.display_table = Value::Int(17);
+            display.cursor_type = Value::Nil;
+            display.left_fringe_width = 3;
+            display.right_fringe_width = 5;
+            display.fringes_outside_margins = true;
+            display.fringes_persistent = true;
+            display.scroll_bar_width = 11;
+            display.vertical_scroll_bar_type = Value::True;
+            display.scroll_bar_height = 7;
+            display.horizontal_scroll_bar_type = Value::Nil;
+            display.scroll_bars_persistent = true;
+        }
+
+        let original_wid = mgr.get(fid).unwrap().window_list()[0];
+        let new_wid = mgr
+            .split_window(fid, original_wid, SplitDirection::Horizontal, BufferId(2))
+            .expect("split");
+
+        let frame = mgr.get(fid).unwrap();
+        let original_display = frame
+            .find_window(original_wid)
+            .and_then(Window::display)
+            .expect("original display");
+        let new_display = frame
+            .find_window(new_wid)
+            .and_then(Window::display)
+            .expect("new display");
+
+        assert_eq!(original_display.display_table, Value::Int(17));
+        assert_eq!(new_display.display_table, Value::Int(17));
+        assert_eq!(original_display.cursor_type, Value::Nil);
+        assert_eq!(new_display.cursor_type, Value::Nil);
+        assert_eq!(original_display.left_fringe_width, 3);
+        assert_eq!(new_display.left_fringe_width, 3);
+        assert_eq!(original_display.right_fringe_width, 5);
+        assert_eq!(new_display.right_fringe_width, 5);
+        assert!(original_display.fringes_outside_margins);
+        assert!(new_display.fringes_outside_margins);
+        assert!(original_display.fringes_persistent);
+        assert!(new_display.fringes_persistent);
+        assert_eq!(original_display.scroll_bar_width, 11);
+        assert_eq!(new_display.scroll_bar_width, 11);
+        assert_eq!(original_display.vertical_scroll_bar_type, Value::True);
+        assert_eq!(new_display.vertical_scroll_bar_type, Value::True);
+        assert_eq!(original_display.scroll_bar_height, 7);
+        assert_eq!(new_display.scroll_bar_height, 7);
+        assert_eq!(original_display.horizontal_scroll_bar_type, Value::Nil);
+        assert_eq!(new_display.horizontal_scroll_bar_type, Value::Nil);
+        assert!(original_display.scroll_bars_persistent);
+        assert!(new_display.scroll_bars_persistent);
     }
 
     #[test]

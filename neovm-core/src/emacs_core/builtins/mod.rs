@@ -4991,13 +4991,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "window-scroll-bar-height",
-        |_ctx, args| super::window_cmds::builtin_window_scroll_bar_height(args),
+        super::window_cmds::builtin_window_scroll_bar_height,
         0,
         None,
     );
     ctx.defsubr(
         "window-scroll-bar-width",
-        |_ctx, args| super::window_cmds::builtin_window_scroll_bar_width(args),
+        super::window_cmds::builtin_window_scroll_bar_width,
         0,
         None,
     );

@@ -790,6 +790,73 @@ fn gui_window_fringes_default_to_frame_defaults_when_reset() {
 }
 
 #[test]
+fn gui_window_scroll_bars_round_trip_explicit_state() {
+    let out = eval_with_gui_frame(
+        "(let ((w (selected-window)))
+           (list (window-scroll-bars w)
+                 (set-window-scroll-bars w 13 'left 9 'bottom t)
+                 (window-scroll-bars w)
+                 (window-scroll-bar-width w)
+                 (window-scroll-bar-height w)))",
+    );
+    assert_eq!(
+        out[0],
+        "OK ((nil 1 t nil 0 t nil) t (13 2 left 9 1 bottom t) 13 9)"
+    );
+}
+
+#[test]
+fn gui_set_window_buffer_applies_buffer_local_display_defaults() {
+    let mut ev = Context::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(scratch);
+    let fid = ev.frames.create_frame("F1", 800, 600, scratch);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.set_window_system(Some(Value::symbol("neo")));
+    }
+    let buffer_name = " *gui-swb-display*";
+    let buffer_id = ev.buffers.create_buffer(buffer_name);
+    ev.buffers
+        .set_buffer_local_property(buffer_id, "left-fringe-width", Value::Int(3))
+        .expect("left fringe");
+    ev.buffers
+        .set_buffer_local_property(buffer_id, "right-fringe-width", Value::Int(5))
+        .expect("right fringe");
+    ev.buffers
+        .set_buffer_local_property(buffer_id, "fringes-outside-margins", Value::True)
+        .expect("outside margins");
+    ev.buffers
+        .set_buffer_local_property(buffer_id, "scroll-bar-width", Value::Int(11))
+        .expect("scroll bar width");
+    ev.buffers
+        .set_buffer_local_property(buffer_id, "vertical-scroll-bar", Value::symbol("left"))
+        .expect("vertical scroll bar");
+    ev.buffers
+        .set_buffer_local_property(buffer_id, "scroll-bar-height", Value::Int(7))
+        .expect("scroll bar height");
+    ev.buffers
+        .set_buffer_local_property(buffer_id, "horizontal-scroll-bar", Value::symbol("bottom"))
+        .expect("horizontal scroll bar");
+
+    let forms = parse_forms(
+        "(let ((w (selected-window)))
+           (set-window-buffer w \" *gui-swb-display*\")
+           (list (window-fringes w)
+                 (window-scroll-bars w)
+                 (window-scroll-bar-width w)
+                 (window-scroll-bar-height w)))",
+    )
+    .expect("parse");
+    let out = ev
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(out[0], "OK ((3 5 t nil) (11 2 left 7 1 bottom nil) 11 7)");
+}
+
+#[test]
 fn window_total_size_queries_work() {
     let results = eval_with_frame(
         "(list (integerp (window-total-height))

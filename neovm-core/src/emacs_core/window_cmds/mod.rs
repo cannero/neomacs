@@ -28,7 +28,6 @@ pub(crate) use super::builtins::{
     builtin_window_new_pixel, builtin_window_new_total, builtin_window_old_body_pixel_height,
     builtin_window_old_body_pixel_width, builtin_window_old_pixel_height,
     builtin_window_old_pixel_width, builtin_window_right_divider_width,
-    builtin_window_scroll_bar_height, builtin_window_scroll_bar_width,
 };
 pub(crate) use super::builtins::{
     builtin_coordinates_in_window_p, builtin_current_window_configuration,
@@ -258,6 +257,41 @@ fn buffer_margin_width(
         .and_then(|buffer| buffer.buffer_local_value(name))
         .unwrap_or(Value::Nil);
     expect_margin_width(&value)
+}
+
+fn buffer_local_value(buffers: &BufferManager, buffer_id: BufferId, name: &str) -> Value {
+    buffers
+        .get(buffer_id)
+        .and_then(|buffer| buffer.buffer_local_value(name))
+        .unwrap_or(Value::Nil)
+}
+
+fn buffer_local_optional_dimension(
+    buffers: &BufferManager,
+    buffer_id: BufferId,
+    name: &str,
+) -> Result<Option<i32>, Flow> {
+    let value = buffer_local_value(buffers, buffer_id, name);
+    if value.is_nil() {
+        Ok(None)
+    } else {
+        Ok(Some(i32::try_from(expect_int(&value)?).map_err(|_| {
+            signal(
+                "args-out-of-range",
+                vec![value, Value::Int(0), Value::Int(i64::from(i32::MAX))],
+            )
+        })?))
+    }
+}
+
+fn valid_vertical_scroll_bar_type(value: Value) -> bool {
+    value.is_nil()
+        || value == Value::True
+        || matches!(value.as_symbol_name(), Some("left" | "right"))
+}
+
+fn valid_horizontal_scroll_bar_type(value: Value) -> bool {
+    value.is_nil() || value == Value::True || matches!(value.as_symbol_name(), Some("bottom"))
 }
 
 fn window_value(wid: WindowId) -> Value {
@@ -748,15 +782,16 @@ fn window_body_horizontal_offsets_pixels(
         return (0, 0);
     }
     match w {
-        Window::Leaf {
-            margins, fringes, ..
-        } => {
+        Window::Leaf { margins, .. } => {
             let char_width = frame.char_width.max(1.0);
             let left_margin = (margins.0 as f32 * char_width).round().max(0.0) as i64;
             let right_margin = (margins.1 as f32 * char_width).round().max(0.0) as i64;
+            let (left_fringe, right_fringe, _, _) = frames
+                .window_fringes(w.id())
+                .unwrap_or((0, 0, false, false));
             (
-                i64::from(fringes.0).saturating_add(left_margin),
-                i64::from(fringes.1).saturating_add(right_margin),
+                left_fringe.saturating_add(left_margin),
+                right_fringe.saturating_add(right_margin),
             )
         }
         Window::Internal { .. } => (0, 0),
@@ -2268,25 +2303,15 @@ pub(crate) fn builtin_window_fringes(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-fringes", &args, 1)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (fid, wid) =
+    let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    let window = get_leaf(frames, fid, wid)?;
-    let (left, right) = if frames
-        .get(fid)
-        .is_some_and(|frame| frame.effective_window_system().is_some())
-    {
-        match window {
-            Window::Leaf { fringes, .. } => (i64::from(fringes.0), i64::from(fringes.1)),
-            Window::Internal { .. } => (0, 0),
-        }
-    } else {
-        (0, 0)
-    };
+    let (left, right, outside, persistent) =
+        frames.window_fringes(wid).unwrap_or((0, 0, false, false));
     Ok(Value::list(vec![
         Value::Int(left),
         Value::Int(right),
-        Value::Nil,
-        Value::Nil,
+        if outside { Value::True } else { Value::Nil },
+        if persistent { Value::True } else { Value::Nil },
     ]))
 }
 /// `(set-window-fringes WINDOW LEFT &optional RIGHT OUTSIDE-MARGINS PERSISTENT)` -> nil.
@@ -2305,59 +2330,43 @@ pub(crate) fn builtin_set_window_fringes(
     {
         return Ok(Value::Nil);
     }
-    let (default_left, default_right) = frames
-        .get(fid)
-        .map(|frame| {
-            let left = frame
-                .parameters
-                .get("left-fringe")
-                .and_then(Value::as_int)
-                .and_then(|value| u32::try_from(value).ok())
-                .unwrap_or(8);
-            let right = frame
-                .parameters
-                .get("right-fringe")
-                .and_then(Value::as_int)
-                .and_then(|value| u32::try_from(value).ok())
-                .unwrap_or(8);
-            (left, right)
-        })
-        .unwrap_or((8, 8));
     let left = if args[1].is_nil() {
-        default_left
+        None
     } else {
-        u32::try_from(expect_int(&args[1])?).map_err(|_| {
+        Some(i32::try_from(expect_int(&args[1])?).map_err(|_| {
             signal(
                 "args-out-of-range",
                 vec![args[1], Value::Int(0), Value::Int(i64::from(i32::MAX))],
             )
-        })?
+        })?)
     };
     let right = if let Some(arg) = args.get(2) {
         if arg.is_nil() {
-            default_right
+            None
         } else {
-            u32::try_from(expect_int(arg)?).map_err(|_| {
+            Some(i32::try_from(expect_int(arg)?).map_err(|_| {
                 signal(
                     "args-out-of-range",
                     vec![*arg, Value::Int(0), Value::Int(i64::from(i32::MAX))],
                 )
-            })?
+            })?)
         }
     } else {
         left
     };
-    if let Some(Window::Leaf { fringes, .. }) = frames
-        .get_mut(fid)
-        .and_then(|frame| frame.find_window_mut(wid))
-    {
-        let next = (left, right);
-        if *fringes != next {
-            *fringes = next;
-            return Ok(Value::True);
-        }
-    }
-    Ok(Value::Nil)
+    Ok(
+        if frames.set_window_fringes(
+            wid,
+            left,
+            right,
+            args.get(3).is_some_and(|value| value.is_truthy()),
+            args.get(4).is_some_and(|value| value.is_truthy()),
+        ) {
+            Value::True
+        } else {
+            Value::Nil
+        },
+    )
 }
 /// `(window-scroll-bars &optional WINDOW)` -> scroll-bar tuple.
 pub(crate) fn builtin_window_scroll_bars(
@@ -2367,17 +2376,26 @@ pub(crate) fn builtin_window_scroll_bars(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-scroll-bars", &args, 1)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (_fid, _wid) =
+    let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    // Batch GNU Emacs startup reports no scroll-bars with default sizing payload.
+    let (width, columns, vertical_type, height, lines, horizontal_type, persistent) =
+        frames.window_scroll_bars(wid).unwrap_or((
+            Value::Nil,
+            0,
+            Value::True,
+            Value::Nil,
+            0,
+            Value::True,
+            false,
+        ));
     Ok(Value::list(vec![
-        Value::Nil,
-        Value::Int(0),
-        Value::True,
-        Value::Nil,
-        Value::Int(0),
-        Value::True,
-        Value::Nil,
+        width,
+        Value::Int(columns),
+        vertical_type,
+        height,
+        Value::Int(lines),
+        horizontal_type,
+        if persistent { Value::True } else { Value::Nil },
     ]))
 }
 /// `(set-window-scroll-bars WINDOW &optional WIDTH VERTICAL-TYPE HEIGHT HORIZONTAL-TYPE)` -> nil.
@@ -2388,9 +2406,102 @@ pub(crate) fn builtin_set_window_scroll_bars(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("set-window-scroll-bars", &args, 1)?;
     expect_max_args("set-window-scroll-bars", &args, 6)?;
-    let (_fid, _wid) =
+    let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Nil)
+    if frames
+        .get(fid)
+        .is_none_or(|frame| frame.effective_window_system().is_none())
+    {
+        return Ok(Value::Nil);
+    }
+    let width = if let Some(arg) = args.get(1) {
+        if arg.is_nil() {
+            None
+        } else {
+            Some(i32::try_from(expect_int(arg)?).map_err(|_| {
+                signal(
+                    "args-out-of-range",
+                    vec![*arg, Value::Int(0), Value::Int(i64::from(i32::MAX))],
+                )
+            })?)
+        }
+    } else {
+        None
+    };
+    let vertical_type = args.get(2).copied().unwrap_or(Value::True);
+    if !(vertical_type.is_nil()
+        || vertical_type == Value::True
+        || matches!(vertical_type.as_symbol_name(), Some("left" | "right")))
+    {
+        return Err(signal(
+            "error",
+            vec![Value::string("Invalid type of vertical scroll bar")],
+        ));
+    }
+    let height = if let Some(arg) = args.get(3) {
+        if arg.is_nil() {
+            None
+        } else {
+            Some(i32::try_from(expect_int(arg)?).map_err(|_| {
+                signal(
+                    "args-out-of-range",
+                    vec![*arg, Value::Int(0), Value::Int(i64::from(i32::MAX))],
+                )
+            })?)
+        }
+    } else {
+        None
+    };
+    let horizontal_type = args.get(4).copied().unwrap_or(Value::True);
+    if !(horizontal_type.is_nil()
+        || horizontal_type == Value::True
+        || matches!(horizontal_type.as_symbol_name(), Some("bottom")))
+    {
+        return Err(signal(
+            "error",
+            vec![Value::string("Invalid type of horizontal scroll bar")],
+        ));
+    }
+    Ok(
+        if frames.set_window_scroll_bars(
+            wid,
+            width,
+            vertical_type,
+            height,
+            horizontal_type,
+            args.get(5).is_some_and(|value| value.is_truthy()),
+        ) {
+            Value::True
+        } else {
+            Value::Nil
+        },
+    )
+}
+
+/// `(window-scroll-bar-width &optional WINDOW)` -> integer.
+pub(crate) fn builtin_window_scroll_bar_width(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("window-scroll-bar-width", &args, 1)?;
+    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(Value::Int(frames.window_scroll_bar_area_width(wid)))
+}
+
+/// `(window-scroll-bar-height &optional WINDOW)` -> integer.
+pub(crate) fn builtin_window_scroll_bar_height(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("window-scroll-bar-height", &args, 1)?;
+    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(Value::Int(frames.window_scroll_bar_area_height(wid)))
 }
 /// `(window-mode-line-height &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_mode_line_height(
@@ -3480,6 +3591,39 @@ pub(crate) fn builtin_set_window_buffer(
             buffer_margin_width(buffers, buf_id, "right-margin-width")?,
         ))
     };
+    let next_fringes = if keep_margins {
+        None
+    } else {
+        Some((
+            buffer_local_optional_dimension(buffers, buf_id, "left-fringe-width")?,
+            buffer_local_optional_dimension(buffers, buf_id, "right-fringe-width")?,
+            buffer_local_value(buffers, buf_id, "fringes-outside-margins").is_truthy(),
+        ))
+    };
+    let next_scroll_bars = if keep_margins {
+        None
+    } else {
+        let vertical_type = buffer_local_value(buffers, buf_id, "vertical-scroll-bar");
+        if !valid_vertical_scroll_bar_type(vertical_type) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Invalid type of vertical scroll bar")],
+            ));
+        }
+        let horizontal_type = buffer_local_value(buffers, buf_id, "horizontal-scroll-bar");
+        if !valid_horizontal_scroll_bar_type(horizontal_type) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Invalid type of horizontal scroll bar")],
+            ));
+        }
+        Some((
+            buffer_local_optional_dimension(buffers, buf_id, "scroll-bar-width")?,
+            vertical_type,
+            buffer_local_optional_dimension(buffers, buf_id, "scroll-bar-height")?,
+            horizontal_type,
+        ))
+    };
     let target_point = buffers
         .get(buf_id)
         .map(|buf| buf.point_char().saturating_add(1))
@@ -3559,6 +3703,12 @@ pub(crate) fn builtin_set_window_buffer(
     let (next_window_start, next_point) = frames
         .window_buffer_position(wid, buf_id)
         .unwrap_or((1, target_point));
+    let (fringes_persistent, scroll_bars_persistent) = frames
+        .get(fid)
+        .and_then(|frame| frame.find_window(wid))
+        .and_then(Window::display)
+        .map(|display| (display.fringes_persistent, display.scroll_bars_persistent))
+        .unwrap_or((false, false));
     if let Some(Window::Leaf {
         buffer_id,
         window_start,
@@ -3574,8 +3724,24 @@ pub(crate) fn builtin_set_window_buffer(
             *margins = next_margins;
         }
     }
-    if old_state
-        .is_some_and(|(old_buffer_id, _, _, _)| old_buffer_id == buf_id)
+    if let Some((left_width, right_width, outside_margins)) = next_fringes
+        && !fringes_persistent
+    {
+        let _ = frames.set_window_fringes(wid, left_width, right_width, outside_margins, false);
+    }
+    if let Some((width, vertical_type, height, horizontal_type)) = next_scroll_bars
+        && !scroll_bars_persistent
+    {
+        let _ = frames.set_window_scroll_bars(
+            wid,
+            width,
+            vertical_type,
+            height,
+            horizontal_type,
+            false,
+        );
+    }
+    if old_state.is_some_and(|(old_buffer_id, _, _, _)| old_buffer_id == buf_id)
         && !keep_margins
         && selected_window != Some(wid)
         && let Some(buffer) = buffers.get_mut(buf_id)

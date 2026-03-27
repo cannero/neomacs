@@ -1,0 +1,355 @@
+use super::{Frame, FrameManager, Window, WindowDisplayState, WindowId};
+use crate::emacs_core::value::Value;
+
+fn symbol_name(value: &Value) -> Option<&str> {
+    value.as_symbol_name()
+}
+
+fn frame_default_left_fringe_width(frame: &Frame) -> i32 {
+    frame
+        .parameters
+        .get("left-fringe")
+        .and_then(Value::as_int)
+        .and_then(|value| i32::try_from(value).ok())
+        .unwrap_or(8)
+}
+
+fn frame_default_right_fringe_width(frame: &Frame) -> i32 {
+    frame
+        .parameters
+        .get("right-fringe")
+        .and_then(Value::as_int)
+        .and_then(|value| i32::try_from(value).ok())
+        .unwrap_or(8)
+}
+
+fn frame_vertical_scroll_bar_side(frame: &Frame) -> Option<Value> {
+    let raw = frame
+        .parameters
+        .get("vertical-scroll-bars")
+        .copied()
+        .unwrap_or_else(|| {
+            if frame.effective_window_system().is_some() {
+                Value::symbol("right")
+            } else {
+                Value::Nil
+            }
+        });
+    match symbol_name(&raw) {
+        Some("left") => Some(Value::symbol("left")),
+        Some("right") => Some(Value::symbol("right")),
+        _ if raw.is_nil() => None,
+        _ if raw.is_truthy() => Some(Value::symbol("right")),
+        _ => None,
+    }
+}
+
+fn frame_has_horizontal_scroll_bar(frame: &Frame) -> bool {
+    let raw = frame
+        .parameters
+        .get("horizontal-scroll-bars")
+        .copied()
+        .unwrap_or(Value::Nil);
+    matches!(symbol_name(&raw), Some("bottom")) || raw.is_truthy()
+}
+
+fn frame_config_scroll_bar_width(frame: &Frame) -> i32 {
+    frame
+        .parameters
+        .get("scroll-bar-width")
+        .and_then(Value::as_int)
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| frame.char_width.max(1.0).round() as i32)
+}
+
+fn frame_config_scroll_bar_height(frame: &Frame) -> i32 {
+    frame
+        .parameters
+        .get("scroll-bar-height")
+        .and_then(Value::as_int)
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| frame.char_height.max(1.0).round() as i32)
+}
+
+fn effective_vertical_scroll_bar_type(
+    frame: &Frame,
+    display: &WindowDisplayState,
+) -> Option<Value> {
+    match symbol_name(&display.vertical_scroll_bar_type) {
+        Some("left") => Some(Value::symbol("left")),
+        Some("right") => Some(Value::symbol("right")),
+        _ if display.vertical_scroll_bar_type.is_nil() => None,
+        _ if display.vertical_scroll_bar_type.is_truthy() => frame_vertical_scroll_bar_side(frame),
+        _ => None,
+    }
+}
+
+fn effective_horizontal_scroll_bar_enabled(
+    frame: &Frame,
+    display: &WindowDisplayState,
+    is_minibuffer: bool,
+) -> bool {
+    match symbol_name(&display.horizontal_scroll_bar_type) {
+        Some("bottom") => true,
+        _ if display.horizontal_scroll_bar_type.is_nil() => false,
+        _ if is_minibuffer => false,
+        _ if display.horizontal_scroll_bar_type.is_truthy() => {
+            frame_has_horizontal_scroll_bar(frame)
+        }
+        _ => false,
+    }
+}
+
+fn vertical_scroll_bar_area_width(frame: &Frame, display: &WindowDisplayState) -> i64 {
+    if effective_vertical_scroll_bar_type(frame, display).is_some() {
+        i64::from(if display.scroll_bar_width >= 0 {
+            display.scroll_bar_width
+        } else {
+            frame_config_scroll_bar_width(frame)
+        })
+    } else {
+        0
+    }
+}
+
+fn horizontal_scroll_bar_area_height(
+    frame: &Frame,
+    display: &WindowDisplayState,
+    is_minibuffer: bool,
+) -> i64 {
+    if effective_horizontal_scroll_bar_enabled(frame, display, is_minibuffer) {
+        i64::from(if display.scroll_bar_height >= 0 {
+            display.scroll_bar_height
+        } else {
+            frame_config_scroll_bar_height(frame)
+        })
+    } else {
+        0
+    }
+}
+
+fn vertical_scroll_bar_cols(frame: &Frame, display: &WindowDisplayState) -> i64 {
+    let width = vertical_scroll_bar_area_width(frame, display);
+    if width == 0 {
+        0
+    } else {
+        (width + frame.char_width.max(1.0).round() as i64 - 1)
+            / frame.char_width.max(1.0).round() as i64
+    }
+}
+
+fn horizontal_scroll_bar_lines(
+    frame: &Frame,
+    display: &WindowDisplayState,
+    is_minibuffer: bool,
+) -> i64 {
+    let height = horizontal_scroll_bar_area_height(frame, display, is_minibuffer);
+    if height == 0 {
+        0
+    } else {
+        (height + frame.char_height.max(1.0).round() as i64 - 1)
+            / frame.char_height.max(1.0).round() as i64
+    }
+}
+
+impl FrameManager {
+    fn window_display_state(
+        &self,
+        window_id: WindowId,
+    ) -> Option<(&Frame, &WindowDisplayState, bool)> {
+        self.frames.values().find_map(|frame| {
+            frame.find_window(window_id).and_then(|window| {
+                window
+                    .display()
+                    .map(|display| (frame, display, frame.minibuffer_window == Some(window_id)))
+            })
+        })
+    }
+
+    fn window_display_location(&self, window_id: WindowId) -> Option<(super::FrameId, bool)> {
+        let frame_id = self.find_window_frame_id(window_id)?;
+        let frame = self.get(frame_id)?;
+        Some((frame_id, frame.minibuffer_window == Some(window_id)))
+    }
+
+    /// Return window display table object for WINDOW-ID, or nil when unset.
+    pub fn window_display_table(&self, window_id: WindowId) -> Value {
+        self.window_display_state(window_id)
+            .map(|(_, display, _)| display.display_table)
+            .unwrap_or(Value::Nil)
+    }
+
+    /// Set window display table object for WINDOW-ID.
+    pub fn set_window_display_table(&mut self, window_id: WindowId, table: Value) {
+        if let Some((frame_id, _)) = self.window_display_location(window_id)
+            && let Some(display) = self
+                .get_mut(frame_id)
+                .and_then(|frame| frame.find_window_mut(window_id))
+                .and_then(Window::display_mut)
+        {
+            display.display_table = table;
+        }
+    }
+
+    /// Return window cursor-type object for WINDOW-ID.
+    ///
+    /// GNU Emacs defaults to `t` when no explicit per-window cursor-type is set.
+    pub fn window_cursor_type(&self, window_id: WindowId) -> Value {
+        self.window_display_state(window_id)
+            .map(|(_, display, _)| display.cursor_type)
+            .unwrap_or(Value::True)
+    }
+
+    /// Set window cursor-type object for WINDOW-ID.
+    pub fn set_window_cursor_type(&mut self, window_id: WindowId, cursor_type: Value) {
+        if let Some((frame_id, _)) = self.window_display_location(window_id)
+            && let Some(display) = self
+                .get_mut(frame_id)
+                .and_then(|frame| frame.find_window_mut(window_id))
+                .and_then(Window::display_mut)
+        {
+            display.cursor_type = cursor_type;
+        }
+    }
+
+    /// Return the effective fringe widths and raw flags for WINDOW-ID.
+    pub fn window_fringes(&self, window_id: WindowId) -> Option<(i64, i64, bool, bool)> {
+        let (frame, display, _) = self.window_display_state(window_id)?;
+        if frame.effective_window_system().is_none() {
+            return Some((0, 0, false, false));
+        }
+        Some((
+            i64::from(if display.left_fringe_width >= 0 {
+                display.left_fringe_width
+            } else {
+                frame_default_left_fringe_width(frame)
+            }),
+            i64::from(if display.right_fringe_width >= 0 {
+                display.right_fringe_width
+            } else {
+                frame_default_right_fringe_width(frame)
+            }),
+            display.fringes_outside_margins,
+            display.fringes_persistent,
+        ))
+    }
+
+    /// Set raw window fringe settings. Returns true when the visible fringe state changed.
+    pub fn set_window_fringes(
+        &mut self,
+        window_id: WindowId,
+        left_width: Option<i32>,
+        right_width: Option<i32>,
+        outside_margins: bool,
+        persistent: bool,
+    ) -> bool {
+        let previous = self.window_fringes(window_id);
+        let Some((frame_id, _)) = self.window_display_location(window_id) else {
+            return false;
+        };
+        if self
+            .get(frame_id)
+            .is_none_or(|frame| frame.effective_window_system().is_none())
+        {
+            return false;
+        }
+        if let Some(display) = self
+            .get_mut(frame_id)
+            .and_then(|frame| frame.find_window_mut(window_id))
+            .and_then(Window::display_mut)
+        {
+            display.left_fringe_width = left_width.unwrap_or(-1);
+            display.right_fringe_width = right_width.unwrap_or(-1);
+            display.fringes_outside_margins = outside_margins;
+            display.fringes_persistent = persistent;
+        }
+        self.window_fringes(window_id) != previous
+    }
+
+    /// Return raw window scroll-bar settings plus effective area metrics.
+    pub fn window_scroll_bars(
+        &self,
+        window_id: WindowId,
+    ) -> Option<(Value, i64, Value, Value, i64, Value, bool)> {
+        let (frame, display, is_minibuffer) = self.window_display_state(window_id)?;
+        Some((
+            if display.scroll_bar_width >= 0 {
+                Value::Int(i64::from(display.scroll_bar_width))
+            } else {
+                Value::Nil
+            },
+            vertical_scroll_bar_cols(frame, display),
+            display.vertical_scroll_bar_type,
+            if display.scroll_bar_height >= 0 {
+                Value::Int(i64::from(display.scroll_bar_height))
+            } else {
+                Value::Nil
+            },
+            horizontal_scroll_bar_lines(frame, display, is_minibuffer),
+            display.horizontal_scroll_bar_type,
+            display.scroll_bars_persistent,
+        ))
+    }
+
+    /// Return the effective vertical scroll-bar area width in pixels.
+    pub fn window_scroll_bar_area_width(&self, window_id: WindowId) -> i64 {
+        self.window_display_state(window_id)
+            .map(|(frame, display, _)| vertical_scroll_bar_area_width(frame, display))
+            .unwrap_or(0)
+    }
+
+    /// Return the effective horizontal scroll-bar area height in pixels.
+    pub fn window_scroll_bar_area_height(&self, window_id: WindowId) -> i64 {
+        self.window_display_state(window_id)
+            .map(|(frame, display, is_minibuffer)| {
+                horizontal_scroll_bar_area_height(frame, display, is_minibuffer)
+            })
+            .unwrap_or(0)
+    }
+
+    /// Set raw window scroll-bar settings. Returns true when the visible scroll-bar state changed.
+    pub fn set_window_scroll_bars(
+        &mut self,
+        window_id: WindowId,
+        width: Option<i32>,
+        vertical_type: Value,
+        height: Option<i32>,
+        horizontal_type: Value,
+        persistent: bool,
+    ) -> bool {
+        let previous = self.window_scroll_bars(window_id);
+        let Some((frame_id, is_minibuffer)) = self.window_display_location(window_id) else {
+            return false;
+        };
+        if self
+            .get(frame_id)
+            .is_none_or(|frame| frame.effective_window_system().is_none())
+        {
+            return false;
+        }
+        let mut next_vertical_type = vertical_type;
+        if width == Some(0) {
+            next_vertical_type = Value::Nil;
+        }
+        let mut next_horizontal_type = horizontal_type;
+        if height == Some(0)
+            || (is_minibuffer && !matches!(symbol_name(&next_horizontal_type), Some("bottom")))
+        {
+            next_horizontal_type = Value::Nil;
+        }
+        if let Some(display) = self
+            .get_mut(frame_id)
+            .and_then(|frame| frame.find_window_mut(window_id))
+            .and_then(Window::display_mut)
+        {
+            display.scroll_bar_width = width.unwrap_or(-1);
+            display.vertical_scroll_bar_type = next_vertical_type;
+            display.scroll_bar_height = height.unwrap_or(-1);
+            display.horizontal_scroll_bar_type = next_horizontal_type;
+            display.scroll_bars_persistent = persistent;
+        }
+        self.window_scroll_bars(window_id) != previous
+    }
+}
