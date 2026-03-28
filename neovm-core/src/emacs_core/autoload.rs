@@ -1,10 +1,8 @@
-//! Autoload, compile-time evaluation, obsolete function/variable support.
+//! Autoload and deferred after-load support.
 //!
 //! Provides:
 //! - **Autoload system**: Deferred function loading — register a function as
 //!   autoloaded so that its file is loaded on first use.
-//! - **eval-when-compile / eval-and-compile**: Compile-time evaluation stubs
-//!   (in the interpreter they just evaluate normally).
 //! - **with-eval-after-load**: Deferred form execution after a file loads.
 //! - **Obsolete aliases**: `define-obsolete-function-alias`,
 //!   `define-obsolete-variable-alias`, `make-obsolete`, `make-obsolete-variable`.
@@ -562,56 +560,6 @@ pub(crate) fn sf_autoload(
         args.push(eval.eval(expr)?);
     }
     register_autoload_in_state(&mut eval.obarray, &mut eval.autoloads, &args)
-}
-
-/// `(eval-when-compile &rest BODY)`
-///
-/// In the interpreter, evaluates BODY sequentially and returns the last
-/// result.  This mirrors GNU Emacs's interpreter semantics: the macro
-/// expansion of `eval-when-compile` in `byte-run.el` ultimately computes
-/// the body via `eval` and exposes the result as a quoted constant.
-///
-/// Swallowing errors here is wrong because it hides real bootstrap
-/// dependency/order bugs.  Source bootstrap relies on forms like
-/// `(eval-when-compile (require 'cl-lib))` actually running; if they fail,
-/// the failure must surface so bootstrap can be fixed rather than masked.
-pub(crate) fn sf_eval_when_compile(
-    eval: &mut super::eval::Context,
-    tail: &[super::expr::Expr],
-) -> super::error::EvalResult {
-    // In GNU Emacs, eval-when-compile evaluates BODY during byte-compilation
-    // and replaces the form with the result constant in the .elc file.
-    // When loading .elc, the body was already evaluated and the result is
-    // inlined as a constant — the body does NOT run at load time.
-    //
-    // NeoVM loads .el source, so it evaluates the body (same as progn).
-    // BUT: .el files like eieio-core.el use eval-when-compile to set
-    // compile-time-only state (e.g., safety=0) that should NOT affect
-    // runtime code generation. In GNU Emacs, these files ship as .elc
-    // where eval-when-compile was already folded to a constant.
-    //
-    // To match .elc semantics: when loading a file, return nil instead
-    // of evaluating the body. This prevents compile-time side effects
-    // (like cl-declaim safety settings) from leaking into runtime
-    // struct accessor generation.
-    // NOTE: In GNU Emacs, eval-when-compile is a MACRO defined in
-    // byte-run.el that evaluates its body during macro expansion and
-    // returns (quote RESULT). The Rust special form handler here is
-    // only reached if the Elisp macro is not yet loaded (early bootstrap).
-    // Once byte-run.el loads, the macro takes priority and this code
-    // is never called.
-    eval.sf_progn(tail)
-}
-
-/// `(eval-and-compile &rest BODY)`
-///
-/// In the interpreter, simply evaluates BODY sequentially and returns the last
-/// result (identical to `progn`).
-pub(crate) fn sf_eval_and_compile(
-    eval: &mut super::eval::Context,
-    tail: &[super::expr::Expr],
-) -> super::error::EvalResult {
-    eval.sf_progn(tail)
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,13 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
+fn bootstrap_eval_one(src: &str) -> String {
+    bootstrap_eval_all(src)
+        .into_iter()
+        .last()
+        .expect("bootstrap eval result")
+}
+
 // -----------------------------------------------------------------------
 // AutoloadManager unit tests
 // -----------------------------------------------------------------------
@@ -287,19 +294,19 @@ fn autoload_funcall_type_checks_first_argument() {
 
 #[test]
 fn eval_when_compile_evaluates_body() {
-    let result = eval_one("(eval-when-compile (+ 1 2))");
+    let result = bootstrap_eval_one("(eval-when-compile (+ 1 2))");
     assert_eq!(result, "OK 3");
 }
 
 #[test]
 fn eval_when_compile_multiple_forms() {
-    let result = eval_one("(eval-when-compile 1 2 (+ 3 4))");
+    let result = bootstrap_eval_one("(eval-when-compile 1 2 (+ 3 4))");
     assert_eq!(result, "OK 7");
 }
 
 #[test]
 fn eval_when_compile_propagates_errors() {
-    let result = eval_one(
+    let result = bootstrap_eval_one(
         r#"(condition-case err
               (eval-when-compile (signal 'error '("boom")))
             (error (list (car err) (cdr err))))"#,
@@ -309,14 +316,14 @@ fn eval_when_compile_propagates_errors() {
 
 #[test]
 fn eval_and_compile_evaluates_body() {
-    let result = eval_one("(eval-and-compile (+ 10 20))");
+    let result = bootstrap_eval_one("(eval-and-compile (+ 10 20))");
     assert_eq!(result, "OK 30");
 }
 
 #[test]
 fn eval_and_compile_multiple_forms() {
     // Should return the last form's value
-    let result = eval_one("(eval-and-compile (setq x 1) (setq y 2) (+ x y))");
+    let result = bootstrap_eval_one("(eval-and-compile (setq x 1) (setq y 2) (+ x y))");
     assert_eq!(result, "OK 3");
 }
 
