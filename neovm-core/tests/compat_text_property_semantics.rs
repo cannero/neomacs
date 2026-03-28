@@ -113,6 +113,27 @@ fn compat_text_property_semantics_matches_gnu_emacs() {
      (get-text-property 2 'left-only)
      (get-text-property 2 'right-only))))"#,
         },
+        TextPropertyCase {
+            name: "char_property_lookup_uses_alias_category_and_defaults",
+            form: r#"(let ((default-text-properties '(fallback 7))
+      (char-property-alias-alist '((face font-lock-face))))
+  (with-temp-buffer
+    (insert "ab")
+    (put-text-property 1 2 'font-lock-face 'keyword)
+    (put-text-property 1 2 'category 'neo-cat)
+    (put 'neo-cat 'cat-prop 'catv)
+    (list
+     (get-text-property 1 'face)
+     (get-char-property 1 'face)
+     (get-text-property 1 'cat-prop)
+     (get-char-property 1 'cat-prop)
+     (get-text-property 2 'fallback)
+     (text-property-any 1 3 'face 'keyword)
+     (text-property-any 1 3 'fallback 7)
+     (text-property-not-all 1 3 'fallback 7)
+     (next-single-property-change 1 'face)
+     (previous-single-property-change 3 'face))))"#,
+        },
     ];
 
     for case in cases {

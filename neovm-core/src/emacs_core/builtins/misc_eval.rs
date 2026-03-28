@@ -10,7 +10,7 @@ pub(crate) fn builtin_get_pos_property(
 
 pub(crate) fn builtin_get_pos_property_impl(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -23,9 +23,15 @@ pub(crate) fn builtin_get_pos_property_impl(
         let s = with_heap(|h| h.get_string(str_id).to_owned());
         if let Some(table) = get_string_text_properties_table(str_id) {
             let byte_pos = super::textprop::string_elisp_pos_to_byte(&s, pos);
-            if let Some(value) = table.get_property(byte_pos, &prop) {
-                return Ok(*value);
-            }
+            return Ok(super::textprop::builtin_get_text_property_in_state(
+                obarray,
+                buffers,
+                vec![
+                    Value::Int(pos),
+                    Value::symbol(prop.clone()),
+                    Value::Str(str_id),
+                ],
+            )?);
         }
         return Ok(Value::Nil);
     }
@@ -53,11 +59,17 @@ pub(crate) fn builtin_get_pos_property_impl(
         return Ok(value);
     }
 
-    match text_property_stickiness_in_state(obarray, dynamic, buf, pos, &prop) {
-        1 => Ok(text_property_value_at_char_pos(buf, pos, &prop)),
-        -1 if pos > buf.point_min_char() as i64 + 1 => {
-            Ok(text_property_value_at_char_pos(buf, pos - 1, &prop))
-        }
+    match text_property_stickiness_in_state(obarray, buffers, buf, pos, &prop) {
+        1 => Ok(text_property_value_at_char_pos(
+            obarray, buffers, buf, pos, &prop,
+        )),
+        -1 if pos > buf.point_min_char() as i64 + 1 => Ok(text_property_value_at_char_pos(
+            obarray,
+            buffers,
+            buf,
+            pos - 1,
+            &prop,
+        )),
         _ => Ok(Value::Nil),
     }
 }
@@ -266,10 +278,11 @@ pub(crate) fn builtin_next_single_char_property_change(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_next_single_char_property_change_in_buffers(&eval.buffers, args)
+    builtin_next_single_char_property_change_in_buffers(&eval.obarray, &eval.buffers, args)
 }
 
 pub(crate) fn builtin_next_single_char_property_change_in_buffers(
+    obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -287,8 +300,11 @@ pub(crate) fn builtin_next_single_char_property_change_in_buffers(
         ));
     }
 
-    let result =
-        super::textprop::builtin_next_single_property_change_in_buffers(buffers, args.clone())?;
+    let result = super::textprop::builtin_next_single_property_change_in_state(
+        obarray,
+        buffers,
+        args.clone(),
+    )?;
     if !result.is_nil() {
         return Ok(result);
     }
@@ -314,10 +330,11 @@ pub(crate) fn builtin_previous_single_char_property_change(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_previous_single_char_property_change_in_buffers(&eval.buffers, args)
+    builtin_previous_single_char_property_change_in_buffers(&eval.obarray, &eval.buffers, args)
 }
 
 pub(crate) fn builtin_previous_single_char_property_change_in_buffers(
+    obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -333,8 +350,11 @@ pub(crate) fn builtin_previous_single_char_property_change_in_buffers(
         return Ok(Value::Int(0));
     }
 
-    let result =
-        super::textprop::builtin_previous_single_property_change_in_buffers(buffers, args.clone())?;
+    let result = super::textprop::builtin_previous_single_property_change_in_state(
+        obarray,
+        buffers,
+        args.clone(),
+    )?;
     if !result.is_nil() {
         return Ok(result);
     }
@@ -548,18 +568,15 @@ pub(super) fn dynamic_or_global_symbol_value_in_state(
 
 fn text_property_stickiness_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
     buf: &crate::buffer::Buffer,
     pos: i64,
     prop: &str,
 ) -> i8 {
     let ignore_previous_character = pos <= buf.point_min_char() as i64 + 1;
 
-    let default_nonsticky = dynamic_or_global_symbol_value_in_state(
-        obarray,
-        dynamic,
-        "text-property-default-nonsticky",
-    );
+    let default_nonsticky =
+        dynamic_or_global_symbol_value_in_state(obarray, &[], "text-property-default-nonsticky");
 
     let mut rear_sticky = !(ignore_previous_character
         || default_nonsticky
@@ -567,14 +584,15 @@ fn text_property_stickiness_in_state(
             .is_some_and(|value| value.is_truthy()));
 
     if rear_sticky && !ignore_previous_character {
-        let previous_props = text_property_value_at_char_pos(buf, pos - 1, "rear-nonsticky");
+        let previous_props =
+            text_property_value_at_char_pos(obarray, buffers, buf, pos - 1, "rear-nonsticky");
         if matches_rear_nonsticky(previous_props, prop) {
             rear_sticky = false;
         }
     }
 
     let front_sticky = matches_front_sticky(
-        text_property_value_at_char_pos(buf, pos, "front-sticky"),
+        text_property_value_at_char_pos(obarray, buffers, buf, pos, "front-sticky"),
         prop,
     );
 
@@ -588,7 +606,9 @@ fn text_property_stickiness_in_state(
         return 0;
     }
 
-    if ignore_previous_character || text_property_value_at_char_pos(buf, pos - 1, prop).is_nil() {
+    if ignore_previous_character
+        || text_property_value_at_char_pos(obarray, buffers, buf, pos - 1, prop).is_nil()
+    {
         1
     } else {
         -1
@@ -741,11 +761,15 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
     merged_props
 }
 
-fn text_property_value_at_char_pos(buf: &crate::buffer::Buffer, pos: i64, prop: &str) -> Value {
+fn text_property_value_at_char_pos(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    buf: &crate::buffer::Buffer,
+    pos: i64,
+    prop: &str,
+) -> Value {
     let byte_pos = buf.lisp_pos_to_byte(pos);
-    buf.text
-        .text_props_get_property(byte_pos, prop)
-        .unwrap_or(Value::Nil)
+    super::textprop::lookup_buffer_text_property(obarray, buffers, buf, byte_pos, prop)
 }
 
 fn matches_front_sticky(value: Value, prop: &str) -> bool {

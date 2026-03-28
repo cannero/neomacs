@@ -7,6 +7,7 @@ use super::builtins::builtin_copy_sequence;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
+use super::symbol::Obarray;
 use super::value::*;
 use crate::buffer::overlay::plist_put_eq;
 use crate::buffer::text_props::TextPropertyTable;
@@ -169,6 +170,154 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
             Value::cons(Value::symbol("display"), Value::True),
         ]),
     );
+}
+
+fn current_textprop_variable_value(
+    obarray: &Obarray,
+    buffers: &BufferManager,
+    name: &str,
+) -> Option<Value> {
+    if let Some(buf) = buffers.current_buffer()
+        && let Some(binding) = buf.get_buffer_local_binding(name)
+    {
+        return binding.as_value();
+    }
+    obarray.symbol_value(name).copied()
+}
+
+fn plist_get_named_value(plist: Value, prop_name: &str) -> Option<Value> {
+    let mut tail = plist;
+    loop {
+        let Value::Cons(cell) = tail else {
+            return None;
+        };
+        let pair = read_cons(cell);
+        let Value::Cons(value_cell) = pair.cdr else {
+            return None;
+        };
+        if pair.car.as_symbol_name() == Some(prop_name) {
+            return Some(read_cons(value_cell).car);
+        }
+        tail = read_cons(value_cell).cdr;
+    }
+}
+
+fn assq_rest(list: Value, prop_name: &str) -> Option<Value> {
+    let mut cursor = list;
+    while let Value::Cons(cell) = cursor {
+        let pair = read_cons(cell);
+        if let Value::Cons(entry_cell) = pair.car {
+            let entry = read_cons(entry_cell);
+            if entry.car.as_symbol_name() == Some(prop_name) {
+                return Some(entry.cdr);
+            }
+        }
+        cursor = pair.cdr;
+    }
+    None
+}
+
+fn lookup_char_property_from_direct<F>(
+    obarray: &Obarray,
+    buffers: &BufferManager,
+    mut direct_get: F,
+    prop: &str,
+    textprop: bool,
+) -> Value
+where
+    F: FnMut(&str) -> Option<Value>,
+{
+    if let Some(value) = direct_get(prop) {
+        return value;
+    }
+
+    let mut fallback = Value::Nil;
+
+    if let Some(category) = direct_get("category")
+        && let Some(category_name) = category.as_symbol_name()
+        && let Some(value) = obarray.get_property(category_name, prop).copied()
+    {
+        fallback = value;
+    }
+
+    if !fallback.is_nil() {
+        return fallback;
+    }
+
+    if let Some(aliases) =
+        current_textprop_variable_value(obarray, buffers, "char-property-alias-alist")
+            .and_then(|value| assq_rest(value, prop))
+    {
+        let mut cursor = aliases;
+        while let Value::Cons(cell) = cursor {
+            let pair = read_cons(cell);
+            if let Some(alias_name) = pair.car.as_symbol_name()
+                && let Some(value) = direct_get(alias_name)
+                && !value.is_nil()
+            {
+                return value;
+            }
+            cursor = pair.cdr;
+        }
+    }
+
+    if textprop
+        && let Some(defaults) =
+            current_textprop_variable_value(obarray, buffers, "default-text-properties")
+        && defaults.is_cons()
+        && let Some(value) = plist_get_named_value(defaults, prop)
+    {
+        return value;
+    }
+
+    fallback
+}
+
+fn lookup_string_text_property(
+    obarray: &Obarray,
+    buffers: &BufferManager,
+    table: &TextPropertyTable,
+    byte_pos: usize,
+    prop: &str,
+) -> Value {
+    lookup_char_property_from_direct(
+        obarray,
+        buffers,
+        |name| table.get_property(byte_pos, name).copied(),
+        prop,
+        true,
+    )
+}
+
+pub(crate) fn lookup_buffer_text_property(
+    obarray: &Obarray,
+    buffers: &BufferManager,
+    buf: &crate::buffer::buffer::Buffer,
+    byte_pos: usize,
+    prop: &str,
+) -> Value {
+    lookup_char_property_from_direct(
+        obarray,
+        buffers,
+        |name| buf.text.text_props_get_property(byte_pos, name),
+        prop,
+        true,
+    )
+}
+
+fn lookup_overlay_property(
+    obarray: &Obarray,
+    buffers: &BufferManager,
+    overlay: crate::gc::ObjId,
+    prop: &str,
+) -> Value {
+    lookup_char_property_from_direct(
+        obarray,
+        buffers,
+        |name| with_heap(|h| plist_get_named_value(h.get_overlay(overlay).plist, name)),
+        prop,
+        false,
+    )
 }
 
 /// Convert a 1-based Elisp char position to a 0-based byte position,
@@ -372,10 +521,11 @@ pub(crate) fn builtin_get_text_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_text_property_in_buffers(&eval.buffers, args)
+    builtin_get_text_property_in_state(&eval.obarray, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_get_text_property_in_buffers(
+pub(crate) fn builtin_get_text_property_in_state(
+    obarray: &Obarray,
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -388,11 +538,17 @@ pub(crate) fn builtin_get_text_property_in_buffers(
         let s = with_heap(|h| h.get_string(str_id).to_owned());
         if let Some(table) = get_string_text_properties_table(str_id) {
             let byte_pos = string_elisp_pos_to_byte(&s, pos);
-            if let Some(v) = table.get_property(byte_pos, &prop) {
-                return Ok(*v);
-            }
+            return Ok(lookup_string_text_property(
+                obarray, buffers, &table, byte_pos, &prop,
+            ));
         }
-        return Ok(Value::Nil);
+        return Ok(lookup_char_property_from_direct(
+            obarray,
+            buffers,
+            |_| None,
+            &prop,
+            true,
+        ));
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
@@ -401,20 +557,28 @@ pub(crate) fn builtin_get_text_property_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
-    match buf.text.text_props_get_property(byte_pos, &prop) {
-        Some(v) => Ok(v),
-        None => Ok(Value::Nil),
-    }
+    Ok(lookup_buffer_text_property(
+        obarray, buffers, buf, byte_pos, &prop,
+    ))
 }
 
 pub(crate) fn buffer_overlay_property_at_byte_pos(
+    obarray: &Obarray,
+    buffers: &BufferManager,
     buf: &crate::buffer::buffer::Buffer,
     byte_pos: usize,
     prop: &str,
 ) -> Option<(Value, crate::gc::ObjId)> {
-    let overlay_id = buf.overlays.highest_priority_overlay_at(byte_pos, prop)?;
-    let value = buf.overlays.overlay_get_named(overlay_id, prop)?;
-    Some((value, overlay_id))
+    let mut overlays = buf.overlays.overlays_at(byte_pos);
+    buf.overlays
+        .sort_overlay_ids_by_priority_desc(&mut overlays);
+    for overlay in overlays {
+        let value = lookup_overlay_property(obarray, buffers, overlay, prop);
+        if !value.is_nil() {
+            return Some((value, overlay));
+        }
+    }
+    None
 }
 
 pub(crate) fn buffer_overlay_property_for_inserted_char_at_byte_pos(
@@ -435,10 +599,11 @@ pub(crate) fn builtin_get_char_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_char_property_in_buffers(&eval.buffers, args)
+    builtin_get_char_property_in_state(&eval.obarray, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_get_char_property_in_buffers(
+pub(crate) fn builtin_get_char_property_in_state(
+    obarray: &Obarray,
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -448,7 +613,7 @@ pub(crate) fn builtin_get_char_property_in_buffers(
     let prop = expect_symbol_name(&args[1])?;
 
     if is_string_object(args.get(2)).is_some() {
-        return builtin_get_text_property_in_buffers(buffers, args);
+        return builtin_get_text_property_in_state(obarray, buffers, args);
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
@@ -457,14 +622,15 @@ pub(crate) fn builtin_get_char_property_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
     let byte_pos = elisp_pos_to_byte(buf, pos);
 
-    if let Some((value, _overlay_id)) = buffer_overlay_property_at_byte_pos(buf, byte_pos, &prop) {
+    if let Some((value, _overlay_id)) =
+        buffer_overlay_property_at_byte_pos(obarray, buffers, buf, byte_pos, &prop)
+    {
         return Ok(value);
     }
 
-    match buf.text.text_props_get_property(byte_pos, &prop) {
-        Some(value) => Ok(value),
-        None => Ok(Value::Nil),
-    }
+    Ok(lookup_buffer_text_property(
+        obarray, buffers, buf, byte_pos, &prop,
+    ))
 }
 
 /// (add-text-properties BEG END PROPS &optional OBJECT)
@@ -806,10 +972,11 @@ pub(crate) fn builtin_next_single_property_change(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_next_single_property_change_in_buffers(&eval.buffers, args)
+    builtin_next_single_property_change_in_state(&eval.obarray, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_next_single_property_change_in_buffers(
+pub(crate) fn builtin_next_single_property_change_in_state(
+    obarray: &Obarray,
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -829,7 +996,7 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
             }
             _ => (None, None),
         };
-        let current_val = table.get_property(byte_pos, &prop).cloned();
+        let current_val = lookup_string_text_property(obarray, buffers, &table, byte_pos, &prop);
         let str_len = s.len();
         let mut cursor = byte_pos;
         loop {
@@ -846,12 +1013,9 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
                     if next >= str_len {
                         break;
                     }
-                    let new_val = table.get_property(next, &prop).cloned();
-                    let changed = match (&current_val, &new_val) {
-                        (None, None) => false,
-                        (Some(a), Some(b)) => !equal_value(a, b, 0),
-                        _ => true,
-                    };
+                    let new_val =
+                        lookup_string_text_property(obarray, buffers, &table, next, &prop);
+                    let changed = !equal_value(&current_val, &new_val, 0);
                     if changed {
                         return Ok(Value::Int(string_byte_to_elisp_pos(&s, next)));
                     }
@@ -881,7 +1045,7 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
         _ => (None, None),
     };
 
-    let current_val = buf.text.text_props_get_property(byte_pos, &prop);
+    let current_val = lookup_buffer_text_property(obarray, buffers, buf, byte_pos, &prop);
     let buf_end = buf.point_max();
     let mut cursor = byte_pos;
 
@@ -899,12 +1063,8 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
                 if next >= buf_end {
                     break;
                 }
-                let new_val = buf.text.text_props_get_property(next, &prop);
-                let changed = match (&current_val, &new_val) {
-                    (None, None) => false,
-                    (Some(a), Some(b)) => !equal_value(a, b, 0),
-                    _ => true,
-                };
+                let new_val = lookup_buffer_text_property(obarray, buffers, buf, next, &prop);
+                let changed = !equal_value(&current_val, &new_val, 0);
                 if changed {
                     return Ok(Value::Int(byte_to_elisp_pos(buf, next)));
                 }
@@ -925,10 +1085,11 @@ pub(crate) fn builtin_previous_single_property_change(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_previous_single_property_change_in_buffers(&eval.buffers, args)
+    builtin_previous_single_property_change_in_state(&eval.obarray, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_previous_single_property_change_in_buffers(
+pub(crate) fn builtin_previous_single_property_change_in_state(
+    obarray: &Obarray,
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -949,7 +1110,7 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
             _ => (None, None),
         };
         let ref_byte = if byte_pos > 0 { byte_pos - 1 } else { 0 };
-        let current_val = table.get_property(ref_byte, &prop).cloned();
+        let current_val = lookup_string_text_property(obarray, buffers, &table, ref_byte, &prop);
         let mut cursor = byte_pos;
         loop {
             match table.previous_property_change(cursor) {
@@ -963,12 +1124,9 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
                         }
                     }
                     let check = if prev > 0 { prev - 1 } else { 0 };
-                    let new_val = table.get_property(check, &prop).cloned();
-                    let changed = match (&current_val, &new_val) {
-                        (None, None) => false,
-                        (Some(a), Some(b)) => !equal_value(a, b, 0),
-                        _ => true,
-                    };
+                    let new_val =
+                        lookup_string_text_property(obarray, buffers, &table, check, &prop);
+                    let changed = !equal_value(&current_val, &new_val, 0);
                     if changed {
                         return Ok(Value::Int(string_byte_to_elisp_pos(&s, prev)));
                     }
@@ -1002,7 +1160,7 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
     };
 
     let ref_byte = if byte_pos > 0 { byte_pos - 1 } else { 0 };
-    let current_val = buf.text.text_props_get_property(ref_byte, &prop);
+    let current_val = lookup_buffer_text_property(obarray, buffers, buf, ref_byte, &prop);
     let mut cursor = byte_pos;
 
     loop {
@@ -1017,12 +1175,8 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
                     }
                 }
                 let check = if prev > 0 { prev - 1 } else { 0 };
-                let new_val = buf.text.text_props_get_property(check, &prop);
-                let changed = match (&current_val, &new_val) {
-                    (None, None) => false,
-                    (Some(a), Some(b)) => !equal_value(a, b, 0),
-                    _ => true,
-                };
+                let new_val = lookup_buffer_text_property(obarray, buffers, buf, check, &prop);
+                let changed = !equal_value(&current_val, &new_val, 0);
                 if changed {
                     return Ok(Value::Int(byte_to_elisp_pos(buf, prev)));
                 }
@@ -1146,10 +1300,11 @@ pub(crate) fn builtin_text_property_any(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_text_property_any_in_buffers(&eval.buffers, args)
+    builtin_text_property_any_in_state(&eval.obarray, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_text_property_any_in_buffers(
+pub(crate) fn builtin_text_property_any_in_state(
+    obarray: &Obarray,
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1167,10 +1322,9 @@ pub(crate) fn builtin_text_property_any_in_buffers(
         let byte_end = string_elisp_pos_to_byte(&s, end);
         let mut cursor = byte_beg;
         while cursor < byte_end {
-            if let Some(found) = table.get_property(cursor, &prop) {
-                if equal_value(found, val, 0) {
-                    return Ok(Value::Int(string_byte_to_elisp_pos(&s, cursor)));
-                }
+            let found = lookup_string_text_property(obarray, buffers, &table, cursor, &prop);
+            if equal_value(&found, val, 0) {
+                return Ok(Value::Int(string_byte_to_elisp_pos(&s, cursor)));
             }
             match table.next_property_change(cursor) {
                 Some(next) if next <= byte_end => cursor = next,
@@ -1191,10 +1345,9 @@ pub(crate) fn builtin_text_property_any_in_buffers(
 
     let mut cursor = byte_beg;
     while cursor < byte_end {
-        if let Some(found) = buf.text.text_props_get_property(cursor, &prop) {
-            if equal_value(&found, val, 0) {
-                return Ok(Value::Int(byte_to_elisp_pos(buf, cursor)));
-            }
+        let found = lookup_buffer_text_property(obarray, buffers, buf, cursor, &prop);
+        if equal_value(&found, val, 0) {
+            return Ok(Value::Int(byte_to_elisp_pos(buf, cursor)));
         }
         match buf.text.text_props_next_change(cursor) {
             Some(next) if next <= byte_end => {
@@ -1211,10 +1364,11 @@ pub(crate) fn builtin_text_property_not_all(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_text_property_not_all_in_buffers(&eval.buffers, args)
+    builtin_text_property_not_all_in_state(&eval.obarray, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_text_property_not_all_in_buffers(
+pub(crate) fn builtin_text_property_not_all_in_state(
+    obarray: &Obarray,
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1232,10 +1386,8 @@ pub(crate) fn builtin_text_property_not_all_in_buffers(
         let byte_end = string_elisp_pos_to_byte(&s, end);
         let mut cursor = byte_beg;
         while cursor < byte_end {
-            let matches = match table.get_property(cursor, &prop) {
-                Some(found) => equal_value(found, val, 0),
-                None => val.is_nil(),
-            };
+            let found = lookup_string_text_property(obarray, buffers, &table, cursor, &prop);
+            let matches = equal_value(&found, val, 0);
             if !matches {
                 return Ok(Value::Int(string_byte_to_elisp_pos(&s, cursor)));
             }
@@ -1258,10 +1410,8 @@ pub(crate) fn builtin_text_property_not_all_in_buffers(
     let mut cursor = byte_beg;
 
     while cursor < byte_end {
-        let matches = match buf.text.text_props_get_property(cursor, &prop) {
-            Some(found) => equal_value(&found, val, 0),
-            None => val.is_nil(),
-        };
+        let found = lookup_buffer_text_property(obarray, buffers, buf, cursor, &prop);
+        let matches = equal_value(&found, val, 0);
         if !matches {
             return Ok(Value::Int(byte_to_elisp_pos(buf, cursor)));
         }
@@ -1280,10 +1430,11 @@ pub(crate) fn builtin_get_char_property_and_overlay(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_char_property_and_overlay_in_buffers(&eval.buffers, args)
+    builtin_get_char_property_and_overlay_in_state(&eval.obarray, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_get_char_property_and_overlay_in_buffers(
+pub(crate) fn builtin_get_char_property_and_overlay_in_state(
+    obarray: &Obarray,
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1294,7 +1445,7 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_buffers(
 
     // For strings, no overlays — just return (text-prop-value . nil)
     if is_string_object(args.get(2)).is_some() {
-        let value = builtin_get_text_property_in_buffers(buffers, args)?;
+        let value = builtin_get_text_property_in_state(obarray, buffers, args)?;
         return Ok(Value::cons(value, Value::Nil));
     }
 
@@ -1302,12 +1453,14 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_buffers(
 
     if let Some(buf) = buffers.get(buf_id) {
         let byte_pos = elisp_pos_to_byte(buf, pos);
-        if let Some((value, ov_id)) = buffer_overlay_property_at_byte_pos(buf, byte_pos, &prop) {
+        if let Some((value, ov_id)) =
+            buffer_overlay_property_at_byte_pos(obarray, buffers, buf, byte_pos, &prop)
+        {
             return Ok(Value::cons(value, Value::Overlay(ov_id)));
         }
     }
 
-    let value = builtin_get_char_property_in_buffers(buffers, args)?;
+    let value = builtin_get_char_property_in_state(obarray, buffers, args)?;
     Ok(Value::cons(value, Value::Nil))
 }
 
@@ -1316,10 +1469,11 @@ pub(crate) fn builtin_get_display_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_get_display_property_in_buffers(&eval.buffers, args)
+    builtin_get_display_property_in_state(&eval.obarray, &eval.buffers, args)
 }
 
-pub(crate) fn builtin_get_display_property_in_buffers(
+pub(crate) fn builtin_get_display_property_in_state(
+    obarray: &Obarray,
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1333,7 +1487,7 @@ pub(crate) fn builtin_get_display_property_in_buffers(
     if let Some(object) = args.get(2) {
         forwarded.push(*object);
     }
-    builtin_get_char_property_in_buffers(buffers, forwarded)
+    builtin_get_char_property_in_state(obarray, buffers, forwarded)
 }
 
 // ===========================================================================

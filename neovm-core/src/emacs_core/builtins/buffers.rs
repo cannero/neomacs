@@ -1699,37 +1699,54 @@ pub(crate) fn builtin_constrain_to_field(
         )?;
         old_capture.is_nil()
             && (old_pos <= point_min
-                || char_property_in_current_buffer(&mut eval.buffers, old_pos, *capture_prop)?
-                    .is_nil()
-                || char_property_in_current_buffer(&mut eval.buffers, old_pos - 1, *capture_prop)?
-                    .is_nil())
+                || char_property_in_current_buffer(
+                    &eval.obarray,
+                    &mut eval.buffers,
+                    old_pos,
+                    *capture_prop,
+                )?
+                .is_nil()
+                || char_property_in_current_buffer(
+                    &eval.obarray,
+                    &mut eval.buffers,
+                    old_pos - 1,
+                    *capture_prop,
+                )?
+                .is_nil())
     } else {
         true
     };
 
-    let field_boundaries_present =
-        !char_property_in_current_buffer(&mut eval.buffers, new_pos, Value::symbol("field"))?
-            .is_nil()
-            || !char_property_in_current_buffer(
+    let field_boundaries_present = !char_property_in_current_buffer(
+        &eval.obarray,
+        &mut eval.buffers,
+        new_pos,
+        Value::symbol("field"),
+    )?
+    .is_nil()
+        || !char_property_in_current_buffer(
+            &eval.obarray,
+            &mut eval.buffers,
+            old_pos,
+            Value::symbol("field"),
+        )?
+        .is_nil()
+        || (new_pos > point_min
+            && !char_property_in_current_buffer(
+                &eval.obarray,
                 &mut eval.buffers,
-                old_pos,
+                new_pos - 1,
                 Value::symbol("field"),
             )?
-            .is_nil()
-            || (new_pos > point_min
-                && !char_property_in_current_buffer(
-                    &mut eval.buffers,
-                    new_pos - 1,
-                    Value::symbol("field"),
-                )?
-                .is_nil())
-            || (old_pos > point_min
-                && !char_property_in_current_buffer(
-                    &mut eval.buffers,
-                    old_pos - 1,
-                    Value::symbol("field"),
-                )?
-                .is_nil());
+            .is_nil())
+        || (old_pos > point_min
+            && !char_property_in_current_buffer(
+                &eval.obarray,
+                &mut eval.buffers,
+                old_pos - 1,
+                Value::symbol("field"),
+            )?
+            .is_nil());
 
     let inhibit_field_text_motion = super::misc_eval::dynamic_or_global_symbol_value_in_state(
         &eval.obarray,
@@ -1799,11 +1816,13 @@ pub(crate) fn builtin_constrain_to_field(
 }
 
 fn char_property_in_current_buffer(
+    obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &BufferManager,
     pos: i64,
     property: Value,
 ) -> Result<Value, Flow> {
-    crate::emacs_core::textprop::builtin_get_char_property_in_buffers(
+    crate::emacs_core::textprop::builtin_get_char_property_in_state(
+        obarray,
         buffers,
         vec![Value::Int(pos), property],
     )
@@ -1847,8 +1866,13 @@ fn resolve_field_position_in_buffers(
     Ok((pos, point_min, point_max))
 }
 
-fn field_property_after_char_in_buffers(buffers: &BufferManager, pos: i64) -> Result<Value, Flow> {
-    let value = crate::emacs_core::textprop::builtin_get_char_property_and_overlay_in_buffers(
+fn field_property_after_char_in_buffers(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &BufferManager,
+    pos: i64,
+) -> Result<Value, Flow> {
+    let value = crate::emacs_core::textprop::builtin_get_char_property_and_overlay_in_state(
+        obarray,
         buffers,
         vec![Value::Int(pos), Value::symbol("field")],
     )?;
@@ -1873,6 +1897,7 @@ fn field_property_at_position_in_state(
 }
 
 fn previous_field_change_in_buffers(
+    obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &BufferManager,
     pos: i64,
     limit: Option<i64>,
@@ -1882,10 +1907,15 @@ fn previous_field_change_in_buffers(
         args.push(Value::Nil);
         args.push(Value::Int(limit));
     }
-    expect_int(&crate::emacs_core::builtins::misc_eval::builtin_previous_single_char_property_change_in_buffers(buffers, args)?)
+    expect_int(
+        &crate::emacs_core::builtins::misc_eval::builtin_previous_single_char_property_change_in_buffers(
+            obarray, buffers, args,
+        )?,
+    )
 }
 
 fn next_field_change_in_buffers(
+    obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &BufferManager,
     pos: i64,
     limit: Option<i64>,
@@ -1895,7 +1925,11 @@ fn next_field_change_in_buffers(
         args.push(Value::Nil);
         args.push(Value::Int(limit));
     }
-    expect_int(&crate::emacs_core::builtins::misc_eval::builtin_next_single_char_property_change_in_buffers(buffers, args)?)
+    expect_int(
+        &crate::emacs_core::builtins::misc_eval::builtin_next_single_char_property_change_in_buffers(
+            obarray, buffers, args,
+        )?,
+    )
 }
 
 fn find_field_bounds_in_state(
@@ -1908,9 +1942,9 @@ fn find_field_bounds_in_state(
     end_limit: Option<i64>,
 ) -> Result<(i64, i64), Flow> {
     let (pos, point_min, _point_max) = resolve_field_position_in_buffers(buffers, position_value)?;
-    let after_field = field_property_after_char_in_buffers(buffers, pos)?;
+    let after_field = field_property_after_char_in_buffers(obarray, buffers, pos)?;
     let before_field = if pos > point_min {
-        field_property_after_char_in_buffers(buffers, pos - 1)?
+        field_property_after_char_in_buffers(obarray, buffers, pos - 1)?
     } else {
         after_field
     };
@@ -1937,18 +1971,18 @@ fn find_field_bounds_in_state(
     } else {
         let mut cursor = pos;
         if merge_at_boundary && eq_value(&before_field, &boundary) {
-            cursor = previous_field_change_in_buffers(buffers, cursor, beg_limit)?;
+            cursor = previous_field_change_in_buffers(obarray, buffers, cursor, beg_limit)?;
         }
-        previous_field_change_in_buffers(buffers, cursor, beg_limit)?
+        previous_field_change_in_buffers(obarray, buffers, cursor, beg_limit)?
     };
     let end = if at_field_end {
         pos
     } else {
         let mut cursor = pos;
         if merge_at_boundary && eq_value(&after_field, &boundary) {
-            cursor = next_field_change_in_buffers(buffers, cursor, end_limit)?;
+            cursor = next_field_change_in_buffers(obarray, buffers, cursor, end_limit)?;
         }
-        next_field_change_in_buffers(buffers, cursor, end_limit)?
+        next_field_change_in_buffers(obarray, buffers, cursor, end_limit)?
     };
 
     Ok((beg, end))
