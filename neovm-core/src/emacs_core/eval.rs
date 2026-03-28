@@ -277,7 +277,6 @@ fn rebuild_trimmed_interpreted_closure_env(
 enum NamedCallTarget {
     Obarray(Value),
     ContextCallable,
-    Probe,
     Builtin,
     SpecialForm,
     Void,
@@ -7545,7 +7544,7 @@ impl Context {
                     } else if super::subr_info::is_special_form(name) {
                         NamedCallTarget::SpecialForm
                     } else {
-                        NamedCallTarget::Probe
+                        NamedCallTarget::Builtin
                     }
                 }
                 _ => NamedCallTarget::Obarray(func),
@@ -7673,20 +7672,6 @@ impl Context {
                 }
             }
             NamedCallTarget::ContextCallable => self.apply_evaluator_callable_by_id(sym_id, args),
-            NamedCallTarget::Probe => {
-                if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
-                    self.store_named_call_cache(sym_id, NamedCallTarget::Builtin);
-                    let result = result.map_err(|flow| self.validate_throw(flow));
-                    if rewrite_builtin_wrong_arity {
-                        result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
-                    } else {
-                        result
-                    }
-                } else {
-                    self.store_named_call_cache(sym_id, NamedCallTarget::Void);
-                    Err(signal("void-function", vec![Value::symbol(name)]))
-                }
-            }
             NamedCallTarget::Builtin => {
                 if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
                     let result = result.map_err(|flow| self.validate_throw(flow));
@@ -7751,20 +7736,6 @@ impl Context {
                 }
             }
             NamedCallTarget::ContextCallable => self.apply_evaluator_callable(name, args),
-            NamedCallTarget::Probe => {
-                if let Some(result) = builtins::dispatch_builtin(self, name, args) {
-                    self.store_named_call_cache(intern(name), NamedCallTarget::Builtin);
-                    let result = result.map_err(|flow| self.validate_throw(flow));
-                    if rewrite_builtin_wrong_arity {
-                        result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
-                    } else {
-                        result
-                    }
-                } else {
-                    self.store_named_call_cache(intern(name), NamedCallTarget::Void);
-                    Err(signal("void-function", vec![Value::symbol(name)]))
-                }
-            }
             NamedCallTarget::Builtin => {
                 if let Some(result) = builtins::dispatch_builtin(self, name, args) {
                     let result = result.map_err(|flow| self.validate_throw(flow));
