@@ -273,7 +273,43 @@ pub(crate) fn builtin_call_interactively(eval: &mut Context, args: Vec<Value>) -
         let obarray = &eval.obarray;
         let interactive = &eval.interactive;
         let read_command_keys = eval.read_command_keys();
-        plan_call_interactively_in_state(obarray, interactive, read_command_keys, &args)?
+        match plan_call_interactively_in_state(obarray, interactive, read_command_keys, &args) {
+            Ok(plan) => plan,
+            Err(e) => {
+                // GNU Emacs (eval.c:2304-2314): For oclosures (closures with
+                // non-docstring doc_form), commandp sets genfun=true and calls
+                // `(interactive-form fun)` to determine interactivity.
+                // The fast _in_state check can't do this, so we fall back
+                // to calling interactive-form here.
+                if args.first().is_some() {
+                    let func_val = args[0];
+                    let iform = eval.apply(Value::symbol("interactive-form"), vec![func_val]);
+                    if iform.is_ok_and(|v| !v.is_nil()) {
+                        // The function IS interactive via genfun dispatch.
+                        // Re-plan without the commandp check.
+                        let obarray = &eval.obarray;
+                        let read_command_keys = eval.read_command_keys();
+                        if let Some((resolved_name, func)) =
+                            resolve_command_target_in_state(obarray, &func_val)
+                        {
+                            let context = InteractiveInvocationContext::from_keys_arg_in_state(
+                                read_command_keys,
+                                args.get(2),
+                            );
+                            return finish_call_interactively_in_eval(
+                                eval,
+                                CallInteractivelyPlan {
+                                    resolved_name,
+                                    func,
+                                    context,
+                                },
+                            );
+                        }
+                    }
+                }
+                return Err(e);
+            }
+        }
     };
     finish_call_interactively_in_eval(eval, plan)
 }
@@ -862,7 +898,28 @@ fn command_object_p_in_state(
                 // to detect interactive closures.  We check the dedicated field first,
                 // then fall back to body scanning for closures created without
                 // the field (e.g., dynamically-scoped lambdas, pdump closures).
-                lambda.interactive.is_some() || lambda_body_has_interactive_form(&lambda.body)
+                if lambda.interactive.is_some() || lambda_body_has_interactive_form(&lambda.body) {
+                    return true;
+                }
+                // GNU Emacs (eval.c:2304-2314): For closures where doc_form
+                // is not a valid docstring (i.e., an oclosure type symbol),
+                // GNU sets genfun=true and calls `(interactive-form fun)`.
+                // This handles advice wrappers and other oclosures.
+                // We can't call Elisp from _in_state, so approximate:
+                // if this is an oclosure (doc_form is a symbol), treat it
+                // as potentially interactive if the resolved symbol name
+                // is registered as interactive.
+                if lambda
+                    .doc_form
+                    .is_some_and(|v| v.as_symbol_name().is_some())
+                {
+                    if let Some(name) = resolved_name {
+                        if interactive.is_interactive(name) {
+                            return true;
+                        }
+                    }
+                }
+                false
             } else {
                 false
             }
