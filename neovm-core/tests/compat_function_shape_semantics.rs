@@ -117,3 +117,47 @@ fn compat_gnu_lisp_macro_surface_matches_gnu_emacs() {
         gnu, neovm
     );
 }
+
+#[test]
+fn compat_gnu_owned_callables_masking_matches_gnu_emacs() {
+    if !oracle_enabled() {
+        eprintln!(
+            "skipping GNU-owned callable masking audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo"
+        );
+        return;
+    }
+
+    let form = r#"(let ((cases
+         '((setq-default . (setq-default vm-mask-a 1))
+           (define-error . (define-error 'vm-mask-error "Mask error"))
+           (defcustom . (defcustom vm-mask-opt 1 "Mask opt"))
+           (defgroup . (defgroup vm-mask-group nil "Mask group"))
+           (autoload . (autoload 'vm-mask-fn "vm-mask-file")))))
+  (mapcar
+   (lambda (entry)
+     (let* ((sym (car entry))
+            (call-form (cdr entry))
+            (saved (symbol-function sym))
+            (before (list (fboundp sym)
+                          (macrop sym)
+                          (special-form-p sym))))
+       (unwind-protect
+           (progn
+             (fmakunbound sym)
+             (list sym
+                   before
+                   (list (fboundp sym)
+                         (condition-case err
+                             (eval call-form t)
+                           (error err)))))
+         (fset sym saved))))
+   cases))"#;
+
+    let gnu = run_oracle_eval(form).expect("GNU Emacs evaluation");
+    let neovm = run_neovm_eval(form).expect("NeoVM evaluation");
+    assert_eq!(
+        neovm, gnu,
+        "GNU-owned callable masking mismatch:\nGNU: {}\nNeoVM: {}",
+        gnu, neovm
+    );
+}

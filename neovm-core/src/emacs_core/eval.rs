@@ -5797,14 +5797,6 @@ impl Context {
             // ---- NeoVM-specific ----
             "byte-code-literal" => self.sf_byte_code_literal(tail),
             "byte-code" => self.sf_byte_code(tail),
-            // Custom system
-            "defcustom" => super::custom::sf_defcustom(self, tail),
-            "defgroup" => super::custom::sf_defgroup(self, tail),
-            "setq-default" => super::custom::sf_setq_default(self, tail),
-            // Autoload
-            "autoload" => super::autoload::sf_autoload(self, tail),
-            // Error hierarchy
-            "define-error" => super::errors::sf_define_error(self, tail),
             _ => return None,
         })
     }

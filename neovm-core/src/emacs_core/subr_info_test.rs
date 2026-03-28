@@ -2154,6 +2154,10 @@ fn gnu_lisp_macro_forms_are_not_evaluator_special_forms() {
         "declare",
         "eval-when-compile",
         "eval-and-compile",
+        "setq-default",
+        "defcustom",
+        "defgroup",
+        "define-error",
         "defvar-local",
         "track-mouse",
         "with-current-buffer",
@@ -2161,6 +2165,7 @@ fn gnu_lisp_macro_forms_are_not_evaluator_special_forms() {
         "with-output-to-string",
         "with-syntax-table",
         "with-mutex",
+        "autoload",
     ] {
         assert!(
             !is_evaluator_special_form_name(name),

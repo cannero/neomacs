@@ -122,14 +122,6 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
             // NeoVM-specific: bytecode handling
             | "byte-code-literal"
             | "byte-code"
-            // NeoVM-specific: custom/defcustom system (should eventually be Elisp)
-            | "defcustom"
-            | "defgroup"
-            | "setq-default"
-            // NeoVM-specific: autoload system
-            | "autoload"
-            // NeoVM-specific: error hierarchy
-            | "define-error"
     )
 }
 
