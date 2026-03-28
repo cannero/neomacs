@@ -58,6 +58,23 @@ fn compat_text_property_semantics_matches_gnu_emacs() {
          (previous-property-change 7)))
     (kill-buffer buf)))"#,
         },
+        TextPropertyCase {
+            name: "plain_insert_splits_text_properties_around_new_text",
+            form: r#"(with-temp-buffer
+  (insert "abcd")
+  (put-text-property 1 3 'foo 'bar)
+  (goto-char 2)
+  (insert "X")
+  (list
+   (buffer-string)
+   (get-text-property 1 'foo)
+   (get-text-property 2 'foo)
+   (get-text-property 3 'foo)
+   (get-text-property 4 'foo)
+   (next-property-change 1)
+   (next-property-change 2)
+   (previous-property-change 4)))"#,
+        },
     ];
 
     for case in cases {

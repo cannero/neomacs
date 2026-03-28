@@ -1974,6 +1974,35 @@ fn insert_and_inherit_copies_previous_text_properties() {
 }
 
 #[test]
+fn plain_insert_does_not_inherit_spanning_text_properties() {
+    let mut eval = super::super::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.insert("ab");
+        buf.text
+            .text_props_put_property(0, 2, "foo", Value::symbol("bar"));
+        buf.goto_char(1);
+    }
+
+    assert_eq!(
+        builtin_insert(&mut eval, vec![Value::string("X")]).unwrap(),
+        Value::Nil
+    );
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "aXb");
+    assert_eq!(
+        buf.text.text_props_get_property(0, "foo"),
+        Some(Value::symbol("bar"))
+    );
+    assert_eq!(buf.text.text_props_get_property(1, "foo"), None);
+    assert_eq!(
+        buf.text.text_props_get_property(2, "foo"),
+        Some(Value::symbol("bar"))
+    );
+}
+
+#[test]
 fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
     let mut eval = super::super::eval::Context::new();
     {

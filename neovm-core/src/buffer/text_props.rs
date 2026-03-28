@@ -289,20 +289,32 @@ impl TextPropertyTable {
     /// Adjust all intervals after text is inserted at `pos` with `len` bytes.
     ///
     /// Intervals starting at or after the insertion point are shifted right.
-    /// An interval spanning the insertion point is expanded.
+    /// An interval spanning the insertion point is split around the inserted
+    /// gap, matching GNU Emacs `insert` semantics where plain insertion does
+    /// not inherit text properties by default.
     pub fn adjust_for_insert(&mut self, pos: usize, len: usize) {
         if len == 0 {
             return;
         }
         let mut shifted = BTreeMap::new();
-        for mut interval in self.intervals_snapshot() {
+        for interval in self.intervals_snapshot() {
             if interval.start >= pos {
-                interval.start += len;
-                interval.end += len;
+                let mut shifted_interval = interval;
+                shifted_interval.start += len;
+                shifted_interval.end += len;
+                shifted.insert(shifted_interval.start, shifted_interval);
             } else if interval.end > pos {
-                interval.end += len;
+                let mut left = interval.clone();
+                left.end = pos;
+                shifted.insert(left.start, left);
+
+                let mut right = interval;
+                right.start = pos + len;
+                right.end += len;
+                shifted.insert(right.start, right);
+            } else {
+                shifted.insert(interval.start, interval);
             }
-            shifted.insert(interval.start, interval);
         }
         self.intervals = shifted;
     }
@@ -805,16 +817,19 @@ mod tests {
     }
 
     #[test]
-    fn adjust_insert_expands_spanning_interval() {
+    fn adjust_insert_splits_spanning_interval_around_plain_inserted_text() {
         let mut table = TextPropertyTable::new();
         table.put_property(5, 15, "face", Value::symbol("bold"));
 
         table.adjust_for_insert(10, 5);
 
-        // Interval should now be [5, 20)
+        // Plain insert should leave the inserted range [10, 15) without properties.
         assert!(table.get_property(5, "face").is_some());
-        assert!(table.get_property(12, "face").is_some());
-        assert!(table.get_property(19, "face").is_some());
+        assert!(table.get_property(9, "face").is_some());
+        assert!(table.get_property(10, "face").is_none());
+        assert!(table.get_property(12, "face").is_none());
+        assert!(table.get_property(14, "face").is_none());
+        assert!(table.get_property(15, "face").is_some());
         assert!(table.get_property(20, "face").is_none());
     }
 
