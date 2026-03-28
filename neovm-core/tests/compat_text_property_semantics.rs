@@ -134,6 +134,20 @@ fn compat_text_property_semantics_matches_gnu_emacs() {
      (next-single-property-change 1 'face)
      (previous-single-property-change 3 'face))))"#,
         },
+        TextPropertyCase {
+            name: "buffer_local_default_nonsticky_controls_insert_inherit",
+            form: r#"(with-temp-buffer
+  (setq-local text-property-default-nonsticky '((carry . t)))
+  (insert "ab")
+  (put-text-property 1 2 'carry 'left)
+  (goto-char 2)
+  (insert-and-inherit "X")
+  (list
+   (buffer-string)
+   (get-text-property 2 'carry)
+   (text-properties-at 2)
+   (text-properties-at 3)))"#,
+        },
     ];
 
     for case in cases {

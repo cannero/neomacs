@@ -566,6 +566,17 @@ pub(super) fn dynamic_or_global_symbol_value_in_state(
     obarray.symbol_value(name).cloned()
 }
 
+fn buffer_local_or_global_symbol_value(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buf: &crate::buffer::Buffer,
+    name: &str,
+) -> Option<Value> {
+    if let Some(binding) = buf.get_buffer_local_binding(name) {
+        return binding.as_value();
+    }
+    obarray.symbol_value(name).cloned()
+}
+
 fn text_property_stickiness_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &crate::buffer::BufferManager,
@@ -576,7 +587,7 @@ fn text_property_stickiness_in_state(
     let ignore_previous_character = pos <= buf.point_min_char() as i64 + 1;
 
     let default_nonsticky =
-        dynamic_or_global_symbol_value_in_state(obarray, &[], "text-property-default-nonsticky");
+        buffer_local_or_global_symbol_value(obarray, buf, "text-property-default-nonsticky");
 
     let mut rear_sticky = !(ignore_previous_character
         || default_nonsticky
@@ -647,11 +658,8 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
         .get("rear-nonsticky")
         .copied()
         .unwrap_or(Value::Nil);
-    let default_nonsticky = dynamic_or_global_symbol_value_in_state(
-        obarray,
-        dynamic,
-        "text-property-default-nonsticky",
-    );
+    let default_nonsticky =
+        buffer_local_or_global_symbol_value(obarray, buf, "text-property-default-nonsticky");
 
     let mut merged_props = Vec::new();
     let mut front_sticky = Vec::new();
