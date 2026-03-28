@@ -3889,7 +3889,33 @@ pub(crate) fn builtin_interactive_form(
     loop {
         let plan = plan_interactive_form_in_state(&eval.obarray, &eval.interactive, target)?;
         match plan {
-            InteractiveFormPlan::Return(value) => return Ok(value),
+            InteractiveFormPlan::Return(value) => {
+                if !value.is_nil() {
+                    return Ok(value);
+                }
+                // GNU Emacs (data.c:1195-1209): For oclosures (closures with
+                // non-docstring doc_form), call `(oclosure-interactive-form fun)`
+                // via cl-generic dispatch.  This handles advice wrappers etc.
+                let is_genfun = match target {
+                    Value::Lambda(id) | Value::Macro(id) => {
+                        let lambda = with_heap(|h| h.get_lambda(id).clone());
+                        lambda
+                            .doc_form
+                            .is_some_and(|v| !v.is_nil() && !v.is_string())
+                    }
+                    _ => false,
+                };
+                if is_genfun {
+                    if let Ok(result) =
+                        eval.apply(Value::symbol("oclosure-interactive-form"), vec![target])
+                    {
+                        if !result.is_nil() {
+                            return Ok(result);
+                        }
+                    }
+                }
+                return Ok(Value::Nil);
+            }
             InteractiveFormPlan::Autoload { fundef, funname } => {
                 let mut load_args = vec![fundef];
                 if !funname.is_nil() {
