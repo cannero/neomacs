@@ -1283,6 +1283,33 @@ impl BufferManager {
             .collect()
     }
 
+    fn modified_state_root_id(&self, id: BufferId) -> Option<BufferId> {
+        self.shared_text_root_id(id)
+    }
+
+    fn sync_shared_modification_state(&mut self, root_id: BufferId) -> Option<()> {
+        // GNU shares MODIFF/SAVE_MODIFF across indirect buffers via the
+        // underlying text, but BUF_AUTOSAVE_MODIFF stays per-buffer.
+        let (modified, modified_tick, chars_modified_tick, save_modified_tick) = {
+            let root = self.buffers.get(&root_id)?;
+            (
+                root.modified,
+                root.modified_tick,
+                root.chars_modified_tick,
+                root.save_modified_tick,
+            )
+        };
+
+        for shared_id in self.buffers_sharing_root_ids(root_id) {
+            let buf = self.buffers.get_mut(&shared_id)?;
+            buf.modified = modified;
+            buf.modified_tick = modified_tick;
+            buf.chars_modified_tick = chars_modified_tick;
+            buf.save_modified_tick = save_modified_tick;
+        }
+        Some(())
+    }
+
     fn adjust_shared_insert_metadata(
         buf: &mut Buffer,
         insert_pos: usize,
@@ -1595,12 +1622,16 @@ impl BufferManager {
     }
 
     pub fn set_buffer_modified_flag(&mut self, id: BufferId, flag: bool) -> Option<()> {
-        self.buffers.get_mut(&id)?.set_modified(flag);
-        Some(())
+        let root_id = self.modified_state_root_id(id)?;
+        self.buffers.get_mut(&root_id)?.set_modified(flag);
+        self.sync_shared_modification_state(root_id)
     }
 
     pub fn restore_buffer_modified_state(&mut self, id: BufferId, flag: Value) -> Option<Value> {
-        Some(self.buffers.get_mut(&id)?.restore_modified_state(flag))
+        let root_id = self.modified_state_root_id(id)?;
+        let out = self.buffers.get_mut(&root_id)?.restore_modified_state(flag);
+        self.sync_shared_modification_state(root_id)?;
+        Some(out)
     }
 
     pub fn set_buffer_auto_saved(&mut self, id: BufferId) -> Option<()> {
@@ -1609,10 +1640,11 @@ impl BufferManager {
     }
 
     pub fn set_buffer_modified_tick(&mut self, id: BufferId, tick: i64) -> Option<()> {
-        let buf = self.buffers.get_mut(&id)?;
+        let root_id = self.modified_state_root_id(id)?;
+        let buf = self.buffers.get_mut(&root_id)?;
         buf.modified_tick = tick;
         buf.sync_modified_flag();
-        Some(())
+        self.sync_shared_modification_state(root_id)
     }
 
     pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Option<String>) -> Option<()> {

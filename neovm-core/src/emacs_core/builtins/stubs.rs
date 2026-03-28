@@ -834,20 +834,6 @@ pub(crate) fn builtin_internal_obarray_buckets(args: Vec<Value>) -> EvalResult {
     Ok(Value::list(buckets))
 }
 
-pub(crate) fn builtin_internal_set_buffer_modified_tick(args: Vec<Value>) -> EvalResult {
-    expect_range_args("internal--set-buffer-modified-tick", &args, 1, 2)?;
-    let _ = expect_fixnum(&args[0])?;
-    if let Some(buffer) = args.get(1) {
-        if !buffer.is_nil() && !matches!(buffer, Value::Buffer(_)) {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("bufferp"), *buffer],
-            ));
-        }
-    }
-    Ok(Value::Nil)
-}
-
 pub(crate) fn builtin_handle_save_session(args: Vec<Value>) -> EvalResult {
     expect_args("handle-save-session", &args, 1)?;
     Ok(Value::Nil)

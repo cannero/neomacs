@@ -2667,7 +2667,7 @@ pub(crate) fn builtin_set_buffer_modified_p(
     let _ = eval
         .buffers
         .restore_buffer_modified_state(current_id, args[0]);
-    Ok(args[0])
+    super::misc_pure::builtin_force_mode_line_update(vec![Value::Nil])
 }
 
 pub(crate) fn builtin_restore_buffer_modified_p(
@@ -2723,6 +2723,29 @@ pub(crate) fn builtin_buffer_chars_modified_tick(
         return Ok(Value::Int(buf.chars_modified_tick));
     }
     Ok(Value::Int(1))
+}
+
+pub(crate) fn builtin_internal_set_buffer_modified_tick(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("internal--set-buffer-modified-tick", &args, 1, 2)?;
+    let tick = expect_fixnum(&args[0])?;
+    let target = if let Some(buffer) = args.get(1) {
+        if buffer.is_nil() {
+            eval.buffers.current_buffer_id()
+        } else {
+            Some(expect_buffer_id(buffer)?)
+        }
+    } else {
+        eval.buffers.current_buffer_id()
+    }
+    .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+
+    eval.buffers
+        .set_buffer_modified_tick(target, tick)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_recent_auto_save_p(

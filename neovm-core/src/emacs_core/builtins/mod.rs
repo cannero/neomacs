@@ -4089,7 +4089,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "internal--set-buffer-modified-tick",
-        |_ctx, args| builtin_internal_set_buffer_modified_tick(args),
+        |ctx, args| builtin_internal_set_buffer_modified_tick(ctx, args),
         0,
         None,
     );

@@ -152,6 +152,108 @@ fn compat_buffer_semantics_matches_gnu_emacs() {
             (kill-buffer indirect))))
     (kill-buffer base)))"#,
         },
+        BufferCase {
+            name: "set_buffer_modified_p_returns_nil_and_updates_indirect_base_state",
+            form: r#"(let ((base (get-buffer-create " *compat-buffer-modified-base*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "x"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-buffer-modified-indirect*" nil)))
+          (unwind-protect
+              (list
+               (with-current-buffer indirect
+                 (set-buffer-modified-p nil))
+               (with-current-buffer base
+                 (list (buffer-modified-p)
+                       (buffer-modified-tick)
+                       (recent-auto-save-p)))
+               (with-current-buffer indirect
+                 (list (buffer-modified-p)
+                       (buffer-modified-tick)
+                       (recent-auto-save-p))))
+            (kill-buffer indirect))))
+    (kill-buffer base)))"#,
+        },
+        BufferCase {
+            name: "indirect_buffer_autosave_state_is_buffer_local",
+            form: r#"(let ((base (get-buffer-create " *compat-buffer-autosave-base*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "xy"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-buffer-autosave-indirect*" nil)))
+          (unwind-protect
+              (list
+               (with-current-buffer indirect
+                 (set-buffer-auto-saved))
+               (with-current-buffer base
+                 (list (buffer-modified-p)
+                       (buffer-modified-tick)
+                       (recent-auto-save-p)))
+               (with-current-buffer indirect
+                 (list (buffer-modified-p)
+                       (buffer-modified-tick)
+                       (recent-auto-save-p))))
+            (kill-buffer indirect))))
+    (kill-buffer base)))"#,
+        },
+        BufferCase {
+            name: "restore_buffer_modified_p_autosaved_targets_indirect_base",
+            form: r#"(let ((base (get-buffer-create " *compat-buffer-restore-base*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "xy"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-buffer-restore-indirect*" nil)))
+          (unwind-protect
+              (list
+               (with-current-buffer indirect
+                 (restore-buffer-modified-p 'autosaved))
+               (with-current-buffer base
+                 (list (buffer-modified-p)
+                       (buffer-modified-tick)
+                       (recent-auto-save-p)))
+               (with-current-buffer indirect
+                 (list (buffer-modified-p)
+                       (buffer-modified-tick)
+                       (recent-auto-save-p))))
+            (kill-buffer indirect))))
+    (kill-buffer base)))"#,
+        },
+        BufferCase {
+            name: "internal_set_buffer_modified_tick_shares_modiff_not_autosave",
+            form: r#"(let ((base (get-buffer-create " *compat-buffer-modiff-base*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "xy"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-buffer-modiff-indirect*" nil)))
+          (unwind-protect
+              (progn
+                (with-current-buffer indirect
+                  (set-buffer-auto-saved)
+                  (internal--set-buffer-modified-tick 77))
+                (list
+                 (with-current-buffer base
+                   (list (buffer-modified-p)
+                         (buffer-modified-tick)
+                         (recent-auto-save-p)))
+                 (with-current-buffer indirect
+                   (list (buffer-modified-p)
+                         (buffer-modified-tick)
+                         (recent-auto-save-p)))))
+            (kill-buffer indirect))))
+    (kill-buffer base)))"#,
+        },
     ];
 
     for case in cases {
