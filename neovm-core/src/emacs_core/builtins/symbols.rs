@@ -4641,7 +4641,12 @@ pub(crate) fn make_byte_code_from_parts(
         gnu_byte_offset_map: Some(gnu_byte_offset_map),
         docstring: doc,
         doc_form,
-        interactive: interactive.copied().filter(|v| !v.is_nil()),
+        // GNU Emacs (eval.c:2301-2303): "Bytecode objects are interactive if
+        // they are long enough to have an element where the interactive spec
+        // is stored."  The mere PRESENCE of the slot (even if nil) means the
+        // function is interactive.  We mirror this: if the caller provided an
+        // interactive argument at all (even nil), store Some(value).
+        interactive: interactive.copied(),
     };
 
     Ok(Value::make_bytecode(bc))
