@@ -1051,11 +1051,36 @@ impl BufferManager {
         self.current
     }
 
-    /// Switch the current buffer.
-    pub fn set_current(&mut self, id: BufferId) {
-        if self.buffers.contains_key(&id) {
-            self.current = Some(id);
+    /// Switch the current buffer and run buffer-manager-owned transition work.
+    ///
+    /// This is the closest NeoVM equivalent of GNU Emacs's
+    /// `set_buffer_internal_1/2` boundary inside the buffer subsystem.
+    pub fn switch_current(&mut self, id: BufferId) -> bool {
+        if !self.buffers.contains_key(&id) {
+            return false;
         }
+        if self.current == Some(id) {
+            if let Some(root_id) = self.shared_text_root_id(id) {
+                let _ = self.sync_shared_undo_binding_cache(root_id);
+            }
+            return true;
+        }
+
+        if let Some(old_id) = self.current
+            && let Some(root_id) = self.shared_text_root_id(old_id)
+        {
+            let _ = self.sync_shared_undo_binding_cache(root_id);
+        }
+        self.current = Some(id);
+        if let Some(root_id) = self.shared_text_root_id(id) {
+            let _ = self.sync_shared_undo_binding_cache(root_id);
+        }
+        true
+    }
+
+    /// Backwards-compatible alias while call sites migrate to `switch_current`.
+    pub fn set_current(&mut self, id: BufferId) {
+        let _ = self.switch_current(id);
     }
 
     /// Find a buffer by name, returning its id if it exists.
@@ -2903,6 +2928,39 @@ mod tests {
         assert_eq!(mgr.current_buffer().unwrap().name, "a");
         mgr.set_current(b);
         assert_eq!(mgr.current_buffer().unwrap().name, "b");
+    }
+
+    #[test]
+    fn switch_current_refreshes_indirect_undo_binding_cache() {
+        let mut mgr = BufferManager::new();
+        let base_id = mgr.current_buffer_id().expect("scratch buffer");
+        let indirect_id = mgr
+            .create_indirect_buffer(base_id, "*switch-current-indirect*", false)
+            .expect("indirect buffer");
+        let _ = mgr.insert_into_buffer(base_id, "abc");
+
+        let stale = mgr
+            .get(indirect_id)
+            .expect("indirect buffer")
+            .get_undo_list();
+        mgr.get_mut(indirect_id)
+            .expect("indirect buffer")
+            .locals
+            .set_raw_binding("buffer-undo-list", RuntimeBindingValue::Bound(Value::Nil));
+        assert_eq!(
+            mgr.get(indirect_id)
+                .expect("indirect buffer")
+                .get_buffer_local("buffer-undo-list"),
+            Some(&Value::Nil)
+        );
+
+        assert!(mgr.switch_current(indirect_id));
+        assert_eq!(
+            mgr.get(indirect_id)
+                .expect("indirect buffer")
+                .get_buffer_local("buffer-undo-list"),
+            Some(&stale)
+        );
     }
 
     #[test]

@@ -1144,6 +1144,23 @@ fn current_buffer_syntax_table_object(eval: &mut super::eval::Context) -> Result
     current_buffer_syntax_table_object_in_buffers(&mut eval.buffers)
 }
 
+pub(crate) fn sync_current_buffer_syntax_table_state(
+    ctx: &mut super::eval::Context,
+) -> Result<(), Flow> {
+    let table = current_buffer_syntax_table_object_in_buffers(&mut ctx.buffers)?;
+    let compiled = syntax_table_from_chartable(table)?;
+    let current_id = ctx
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let buf = ctx
+        .buffers
+        .get_mut(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    buf.syntax_table = compiled;
+    Ok(())
+}
+
 fn set_current_buffer_syntax_table_object_in_buffers(
     buffers: &mut BufferManager,
     table: Value,

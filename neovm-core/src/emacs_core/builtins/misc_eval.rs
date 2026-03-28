@@ -834,7 +834,7 @@ fn write_print_output_to_target(
             let saved_current = buffers.current_buffer_id();
             let saved_point = saved_current.and_then(|id| buffers.get(id).map(|buf| buf.point()));
 
-            buffers.set_current(buffer_id);
+            buffers.switch_current(buffer_id);
             let _ = buffers.goto_buffer_byte(buffer_id, marker_byte);
             let _ = buffers.insert_into_buffer(buffer_id, text);
 
@@ -853,7 +853,7 @@ fn write_print_output_to_target(
             )?;
 
             if let Some(saved_id) = saved_current {
-                buffers.set_current(saved_id);
+                buffers.switch_current(saved_id);
                 if let Some(old_point) = saved_point {
                     let restore_point = if saved_id == buffer_id && old_point >= marker_byte {
                         old_point + text.len()

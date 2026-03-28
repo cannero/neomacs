@@ -2933,7 +2933,7 @@ impl<'a> Vm<'a> {
             args.to_vec(),
         )?;
         if plan.run_clone_hook {
-            self.ctx.buffers.set_current(plan.id);
+            self.ctx.switch_current_buffer(plan.id)?;
             let hook_value =
                 crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
                     &*self.ctx,
@@ -2950,7 +2950,7 @@ impl<'a> Vm<'a> {
             if let Some(saved_id) = plan.saved_current
                 && self.ctx.buffers.get(saved_id).is_some()
             {
-                self.ctx.buffers.set_current(saved_id);
+                self.ctx.restore_current_buffer_if_live(saved_id);
             }
             clone_result?;
         }
@@ -3715,14 +3715,14 @@ impl<'a> Vm<'a> {
                 self.with_extra_roots(&cleanup_root, |vm| vm.call_function(cleanup, vec![]))?;
             }
             VmUnwindEntry::CurrentBuffer { buffer_id } => {
-                self.ctx.buffers.set_current(buffer_id);
+                self.ctx.restore_current_buffer_if_live(buffer_id);
             }
             VmUnwindEntry::Excursion {
                 buffer_id,
                 marker_id,
             } => {
                 if self.ctx.buffers.get(buffer_id).is_some() {
-                    self.ctx.buffers.set_current(buffer_id);
+                    self.ctx.restore_current_buffer_if_live(buffer_id);
                     if let Some(saved_pt) = self.ctx.buffers.marker_position(buffer_id, marker_id) {
                         let _ = self.ctx.buffers.goto_buffer_byte(buffer_id, saved_pt);
                     }

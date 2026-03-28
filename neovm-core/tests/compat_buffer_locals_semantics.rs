@@ -151,3 +151,37 @@ fn compat_make_indirect_buffer_clone_metadata_matches_gnu_emacs() {
     (kill-buffer base)))"#,
     });
 }
+
+#[test]
+fn compat_save_current_buffer_restores_current_buffer_locals_matches_gnu_emacs() {
+    run_case(BufferLocalsCase {
+        name: "save_current_buffer_restores_current_buffer_locals",
+        form: r#"(let ((a (get-buffer-create " *compat-current-a*"))
+      (b (get-buffer-create " *compat-current-b*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer a
+          (setq default-directory "/tmp/compat-current-a/")
+          (erase-buffer)
+          (insert "A"))
+        (with-current-buffer b
+          (setq default-directory "/tmp/compat-current-b/")
+          (erase-buffer)
+          (insert "B"))
+        (set-buffer a)
+        (list
+         (buffer-name (current-buffer))
+         default-directory
+         (save-current-buffer
+           (set-buffer b)
+           (list
+            (buffer-name (current-buffer))
+            default-directory
+            (buffer-string)))
+         (buffer-name (current-buffer))
+         default-directory
+         (buffer-string)))
+    (kill-buffer b)
+    (kill-buffer a)))"#,
+    });
+}

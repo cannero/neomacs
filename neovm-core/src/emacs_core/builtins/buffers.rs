@@ -185,13 +185,11 @@ pub(crate) fn finish_make_indirect_buffer_hooks(
     plan: MakeIndirectBufferPlan,
 ) -> EvalResult {
     if plan.run_clone_hook {
-        eval.buffers.set_current(plan.id);
+        eval.switch_current_buffer(plan.id)?;
         let clone_result =
             builtin_run_hooks(eval, vec![Value::symbol("clone-indirect-buffer-hook")]);
         if let Some(saved_id) = plan.saved_current {
-            if eval.buffers.get(saved_id).is_some() {
-                eval.buffers.set_current(saved_id);
-            }
+            eval.restore_current_buffer_if_live(saved_id);
         }
         clone_result?;
     }
@@ -393,14 +391,14 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
     if was_current {
         if let Some(next) = replacement {
             if buffers.get(next).is_some() {
-                buffers.set_current(next);
+                buffers.switch_current(next);
             }
         }
         if buffers.current_buffer().is_none() {
             if let Some(next) = buffers.buffer_list().into_iter().next() {
-                buffers.set_current(next);
+                buffers.switch_current(next);
             } else {
-                buffers.set_current(scratch);
+                buffers.switch_current(scratch);
             }
         }
     }
@@ -409,11 +407,10 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
 }
 
 pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let buffers = &mut eval.buffers;
     expect_args("set-buffer", &args, 1)?;
     let id = match &args[0] {
         Value::Buffer(id) => {
-            if buffers.get(*id).is_none() {
+            if eval.buffers.get(*id).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Selecting deleted buffer")],
@@ -423,7 +420,7 @@ pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Valu
         }
         Value::Str(str_id) => {
             let s = with_heap(|h| h.get_string(*str_id).to_owned());
-            buffers.find_buffer_by_name(&s).ok_or_else(|| {
+            eval.buffers.find_buffer_by_name(&s).ok_or_else(|| {
                 signal("error", vec![Value::string(format!("No buffer named {s}"))])
             })?
         }
@@ -434,7 +431,7 @@ pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Valu
             ));
         }
     };
-    buffers.set_current(id);
+    eval.switch_current_buffer(id)?;
     Ok(Value::Buffer(id))
 }
 

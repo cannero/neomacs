@@ -3238,7 +3238,7 @@ pub(crate) fn builtin_delete_window(
         .and_then(|frame| frame.find_window(frame.selected_window))
         .and_then(|w| w.buffer_id());
     if let Some(buffer_id) = selected_buffer {
-        buffers.set_current(buffer_id);
+        buffers.switch_current(buffer_id);
     }
     note_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Nil)
@@ -3271,7 +3271,7 @@ pub(crate) fn builtin_delete_other_windows(
         None
     };
     if let Some(buffer_id) = selected_buffer {
-        buffers.set_current(buffer_id);
+        buffers.switch_current(buffer_id);
     }
     note_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Nil)
@@ -3349,7 +3349,7 @@ pub(crate) fn builtin_delete_other_windows_internal(
         None
     };
     if let Some(buffer_id) = selected_buffer {
-        buffers.set_current(buffer_id);
+        buffers.switch_current(buffer_id);
     }
     Ok(Value::Nil)
 }
@@ -3405,7 +3405,7 @@ fn sync_selected_window_buffer_in_state(
     else {
         return;
     };
-    buffers.set_current(buffer_id);
+    buffers.switch_current(buffer_id);
     if let Some(buffer) = buffers.get(buffer_id) {
         let byte_pos = buffer.lisp_pos_to_byte(point as i64);
         let _ = buffers.goto_buffer_byte(buffer_id, byte_pos);
@@ -3854,7 +3854,7 @@ pub(crate) fn builtin_switch_to_buffer(
         w.set_buffer(buf_id);
     }
     // Also switch the buffer manager's current buffer.
-    eval.buffers.set_current(buf_id);
+    eval.switch_current_buffer(buf_id)?;
     Ok(Value::Buffer(buf_id))
 }
 
@@ -3950,7 +3950,7 @@ pub(crate) fn builtin_pop_to_buffer(
     {
         w.set_buffer(buf_id);
     }
-    eval.buffers.set_current(buf_id);
+    eval.switch_current_buffer(buf_id)?;
     Ok(Value::Buffer(buf_id))
 }
 
@@ -5382,7 +5382,7 @@ pub(crate) fn x_create_frame_impl(
         if let Some(selected_wid) = frames.get(fid).map(|frame| frame.selected_window) {
             let _ = frames.note_window_selected(selected_wid);
         }
-        buffers.set_current(current_buffer_id);
+        buffers.switch_current(current_buffer_id);
     }
     Ok(Value::Frame(fid.0))
 }

@@ -2812,7 +2812,7 @@ pub(crate) fn builtin_find_file_noselect(
         // Save and restore current buffer around the insert
         let saved_current = eval.buffers.current_buffer_id();
 
-        eval.buffers.set_current(buf_id);
+        eval.switch_current_buffer(buf_id)?;
         let _ = eval.buffers.insert_into_buffer(buf_id, &contents);
         let _ = eval.buffers.goto_buffer_byte(buf_id, 0);
         let _ = eval
@@ -2822,7 +2822,7 @@ pub(crate) fn builtin_find_file_noselect(
 
         // Restore the previous current buffer
         if let Some(prev_id) = saved_current {
-            eval.buffers.set_current(prev_id);
+            eval.restore_current_buffer_if_live(prev_id);
         }
     } else {
         // File doesn't exist — create an empty buffer with the file name set

@@ -428,6 +428,13 @@ fn current_case_table_for_buffer_in_state(
     Ok(fallback)
 }
 
+pub(crate) fn sync_current_buffer_case_table_state(
+    ctx: &mut crate::emacs_core::eval::Context,
+) -> Result<(), Flow> {
+    let _ = current_case_table_for_buffer_in_state(&mut ctx.obarray, &mut ctx.buffers)?;
+    Ok(())
+}
+
 fn set_current_case_table_for_buffer_in_state(
     buffers: &mut crate::buffer::BufferManager,
     table: Value,

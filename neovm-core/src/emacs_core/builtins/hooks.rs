@@ -507,7 +507,7 @@ pub(crate) fn builtin_set_window_configuration(
             None
         };
         if let Some((buffer_id, point)) = selected_window_state {
-            eval.buffers.set_current(buffer_id);
+            eval.switch_current_buffer(buffer_id)?;
             if let Some(buffer) = eval.buffers.get(buffer_id) {
                 let byte_pos = buffer.lisp_pos_to_byte(point as i64);
                 let _ = eval.buffers.goto_buffer_byte(buffer_id, byte_pos);
@@ -579,7 +579,7 @@ pub(super) fn builtin_internal_after_save_selected_window(
     let _ = super::window_cmds::builtin_select_window(eval, vec![saved_window, Value::Nil]);
     if let Some(buffer_id) = saved_buffer {
         if eval.buffers.get(buffer_id).is_some() {
-            eval.buffers.set_current(buffer_id);
+            eval.restore_current_buffer_if_live(buffer_id);
         }
     }
     Ok(Value::Nil)

@@ -166,7 +166,7 @@ fn activate_minibuffer_window_in_state(
         }
         let _ = frame.select_window(minibuffer_window_id);
     }
-    buffers.set_current(minibuf_id);
+    buffers.switch_current(minibuf_id);
     *minibuffer_selected_window = Some(previous_selected_window);
     *active_minibuffer_window = Some(minibuffer_window_id);
     Some(saved)
@@ -783,7 +783,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     if active_window_state.is_none() {
         // Batch/no-frame fallback: still switch current buffer so tests without
         // a realized GUI frame can exercise the minibuffer logic.
-        buffers.set_current(minibuf_id);
+        buffers.switch_current(minibuf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
@@ -864,7 +864,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         );
     }
     if let Some(buf_id) = saved_buffer_id {
-        buffers.set_current(buf_id);
+        buffers.switch_current(buf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: restored current_buffer={:?} active_window={:?} selected_window={:?}",
@@ -1232,7 +1232,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         minibuf_id,
     );
     if active_window_state.is_none() {
-        shared.buffers.set_current(minibuf_id);
+        shared.buffers.switch_current(minibuf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
@@ -1321,7 +1321,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         );
     }
     if let Some(buf_id) = saved_buffer_id {
-        shared.buffers.set_current(buf_id);
+        shared.buffers.switch_current(buf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: restored current_buffer={:?} active_window={:?} selected_window={:?}",

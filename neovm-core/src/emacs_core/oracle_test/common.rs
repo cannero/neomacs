@@ -474,7 +474,7 @@ fn run_neovm_eval_in_temp_buffer(
     let killed = eval.buffers.kill_buffer(temp_id);
     debug_assert!(killed, "temp oracle buffer should be killable");
     if let Some(saved_id) = saved_buf {
-        eval.buffers.set_current(saved_id);
+        eval.restore_current_buffer_if_live(saved_id);
     }
 
     Ok(result)

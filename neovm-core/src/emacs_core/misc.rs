@@ -139,7 +139,7 @@ pub(crate) fn sf_with_temp_buffer(eval: &mut super::eval::Context, tail: &[Expr]
     // undo disabled (buffer.c:667 — matches GNU behavior).
     let temp_name = eval.buffers.generate_new_buffer_name(" *temp*");
     let temp_id = eval.buffers.create_buffer(&temp_name);
-    eval.buffers.set_current(temp_id);
+    eval.switch_current_buffer(temp_id)?;
 
     // Execute body
     let result = eval.sf_progn(tail);
@@ -147,7 +147,7 @@ pub(crate) fn sf_with_temp_buffer(eval: &mut super::eval::Context, tail: &[Expr]
     // Kill temp buffer and restore
     eval.buffers.kill_buffer(temp_id);
     if let Some(saved_id) = saved_buf {
-        eval.buffers.set_current(saved_id);
+        eval.restore_current_buffer_if_live(saved_id);
     }
     result
 }
@@ -158,7 +158,7 @@ pub(crate) fn sf_save_current_buffer(eval: &mut super::eval::Context, tail: &[Ex
     let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
     let result = eval.sf_progn(tail);
     if let Some(saved_id) = saved_buf {
-        eval.buffers.set_current(saved_id);
+        eval.restore_current_buffer_if_live(saved_id);
     }
     result
 }

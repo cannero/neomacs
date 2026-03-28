@@ -3223,6 +3223,33 @@ impl Context {
         super::syntax::restore_standard_syntax_table_object(self.standard_syntax_table);
     }
 
+    fn sync_current_buffer_runtime_state(&mut self) -> Result<(), Flow> {
+        super::casetab::sync_current_buffer_case_table_state(self)?;
+        super::syntax::sync_current_buffer_syntax_table_state(self)?;
+        Ok(())
+    }
+
+    pub(crate) fn switch_current_buffer(
+        &mut self,
+        id: crate::buffer::BufferId,
+    ) -> Result<(), Flow> {
+        if !self.buffers.switch_current(id) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Selecting deleted buffer")],
+            ));
+        }
+        self.sync_current_buffer_runtime_state()
+    }
+
+    pub(crate) fn restore_current_buffer_if_live(&mut self, id: crate::buffer::BufferId) {
+        if self.buffers.get(id).is_none() {
+            return;
+        }
+        let _ = self.buffers.switch_current(id);
+        let _ = self.sync_current_buffer_runtime_state();
+    }
+
     /// Connect the input system for interactive mode.
     ///
     /// This mirrors GNU Emacs's `init_keyboard()` — it connects the evaluator
@@ -4388,7 +4415,7 @@ impl Context {
                     // Restore match-data and current-buffer.
                     self.match_data = saved_match_data;
                     if let Some(buf_id) = saved_current_buffer {
-                        self.buffers.set_current(buf_id);
+                        self.restore_current_buffer_if_live(buf_id);
                     }
                 }
                 None if is_network => {
@@ -4417,7 +4444,7 @@ impl Context {
 
                         self.match_data = saved_match_data;
                         if let Some(buf_id) = saved_current_buffer {
-                            self.buffers.set_current(buf_id);
+                            self.restore_current_buffer_if_live(buf_id);
                         }
                     }
                     // Skip the normal exited check below — we already handled it.
@@ -4467,7 +4494,7 @@ impl Context {
                     // Restore match-data and current-buffer.
                     self.match_data = saved_match_data;
                     if let Some(buf_id) = saved_current_buffer {
-                        self.buffers.set_current(buf_id);
+                        self.restore_current_buffer_if_live(buf_id);
                     }
                 }
             }
@@ -6856,7 +6883,7 @@ impl Context {
         });
         let result = self.sf_progn(tail);
         if let Some(buf_id) = saved_buf {
-            self.buffers.set_current(buf_id);
+            self.restore_current_buffer_if_live(buf_id);
             if let Some(marker_id) = saved_marker {
                 if let Some(saved_pt) = self.buffers.marker_position(buf_id, marker_id) {
                     let _ = self.buffers.goto_buffer_byte(buf_id, saved_pt);
