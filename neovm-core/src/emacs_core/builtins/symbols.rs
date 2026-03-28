@@ -3880,39 +3880,87 @@ pub(crate) fn plan_interactive_form_in_state(
     }
 }
 
+/// `(interactive-form CMD)` — matching GNU Emacs data.c:1127-1209 exactly.
+///
+/// Returns (interactive SPEC) or nil.
+/// Handles: symbols (with `interactive-form` property), subrs, closures
+/// (including oclosures via genfun dispatch), bytecode, autoloads, and
+/// quoted lambda forms.
 pub(crate) fn builtin_interactive_form(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("interactive-form", &args, 1)?;
-    let mut target = args[0];
-    loop {
-        let plan = plan_interactive_form_in_state(&eval.obarray, &eval.interactive, target)?;
-        match plan {
-            InteractiveFormPlan::Return(value) => {
-                if !value.is_nil() {
-                    return Ok(value);
-                }
-                // GNU Emacs (data.c:1195-1209): For oclosures (closures with
-                // non-docstring doc_form), call `(oclosure-interactive-form fun)`
-                // via cl-generic dispatch.  This handles advice wrappers etc.
-                // Resolve target to the actual function value (target may be
-                // a symbol name).
-                let fun = if let Some(name) = target.as_symbol_name() {
-                    resolve_indirect_symbol(eval, name).unwrap_or(target)
-                } else {
-                    target
-                };
-                let is_genfun = match fun {
-                    Value::Lambda(id) | Value::Macro(id) => {
-                        let lambda = with_heap(|h| h.get_lambda(id).clone());
-                        lambda
-                            .doc_form
-                            .is_some_and(|v| !v.is_nil() && !v.is_string())
-                    }
-                    _ => false,
-                };
-                if is_genfun {
+    let cmd = args[0];
+
+    // GNU (data.c:1133): Check indirect-function first for nil.
+    let indirect = resolve_indirect_symbol(eval, &format!("{}", cmd));
+    if indirect.is_none() && cmd.as_symbol_name().is_some() {
+        return Ok(Value::Nil);
+    }
+
+    // GNU (data.c:1141-1149): Walk symbol chain checking `interactive-form`
+    // property on each symbol in the chain.
+    let mut fun = cmd;
+    let mut genfun = false;
+    while let Some(name) = fun.as_symbol_name() {
+        if let Some(prop) = eval
+            .obarray
+            .get_property(name, "interactive-form")
+            .copied()
+            .filter(|v| !v.is_nil())
+        {
+            return Ok(prop);
+        }
+        match symbol_function_cell_in_obarray(&eval.obarray, intern(name)) {
+            Some(next) => fun = next,
+            None => return Ok(Value::Nil),
+        }
+    }
+
+    // Now `fun` is the resolved function value (not a symbol).
+    match fun {
+        // GNU (data.c:1151-1161): SUBRP
+        Value::Subr(id) => {
+            let name = resolve_sym(id);
+            let result =
+                crate::emacs_core::interactive::registry_interactive_form(&eval.interactive, name)
+                    .or_else(|| crate::emacs_core::interactive::builtin_subr_interactive_form(name))
+                    .unwrap_or(Value::Nil);
+            Ok(result)
+        }
+
+        // GNU (data.c:1162-1177): CLOSUREP — check slot 5, then genfun
+        Value::Lambda(id) | Value::Macro(id) => {
+            let lambda = with_heap(|h| h.get_lambda(id).clone());
+
+            // Check LambdaData.interactive (mirrors closure vector slot 5)
+            if let Some(iform_val) = &lambda.interactive {
+                return Ok(Value::list(vec![Value::symbol("interactive"), *iform_val]));
+            }
+
+            // Check body for (interactive ...)
+            if let Some(body_iform) = interactive_form_from_expr_body(&lambda.body) {
+                return Ok(body_iform);
+            }
+
+            // GNU (data.c:1172-1177): Check for oclosure (non-docstring doc_form)
+            if lambda
+                .doc_form
+                .is_some_and(|v| !v.is_nil() && !v.is_string())
+            {
+                genfun = true;
+            }
+
+            // Fall through to genfun check below
+            if genfun {
+                // GNU (data.c:1203-1206): Call (oclosure-interactive-form fun)
+                // if available (avoid burping during bootstrap).
+                // GNU (data.c:1205): "Avoid burping during bootstrap"
+                if !eval
+                    .obarray
+                    .is_function_unbound("oclosure-interactive-form")
+                {
                     if let Ok(result) =
                         eval.apply(Value::symbol("oclosure-interactive-form"), vec![fun])
                     {
@@ -3921,16 +3969,29 @@ pub(crate) fn builtin_interactive_form(
                         }
                     }
                 }
-                return Ok(Value::Nil);
             }
-            InteractiveFormPlan::Autoload { fundef, funname } => {
-                let mut load_args = vec![fundef];
-                if !funname.is_nil() {
-                    load_args.push(funname);
-                }
-                target = super::autoload::builtin_autoload_do_load(eval, load_args)?;
-            }
+            Ok(Value::Nil)
         }
+
+        // GNU (data.c:1162-1177 for COMPILED_FUNCTION_P): bytecode
+        Value::ByteCode(_) => Ok(interactive_form_from_bytecode_value(fun).unwrap_or(Value::Nil)),
+
+        // GNU (data.c:1188-1189): autoload → load then retry
+        Value::Cons(_) if super::autoload::is_autoload_value(&fun) => {
+            let funname = if cmd.as_symbol_name().is_some() {
+                cmd
+            } else {
+                Value::Nil
+            };
+            let loaded = super::autoload::builtin_autoload_do_load(eval, vec![fun, funname])?;
+            // Retry with the loaded definition
+            builtin_interactive_form(eval, vec![loaded])
+        }
+
+        // GNU (data.c:1190-1202): lambda list (cons starting with `lambda`)
+        Value::Cons(_) => Ok(interactive_form_from_quoted_lambda(&fun)?.unwrap_or(Value::Nil)),
+
+        _ => Ok(Value::Nil),
     }
 }
 

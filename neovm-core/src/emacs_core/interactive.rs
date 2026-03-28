@@ -269,49 +269,53 @@ fn expect_optional_command_keys_vector(keys: Option<&Value>) -> Result<(), Flow>
 /// Call FUNCTION interactively, reading arguments according to its
 /// interactive spec.
 pub(crate) fn builtin_call_interactively(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    let plan = {
-        let obarray = &eval.obarray;
-        let interactive = &eval.interactive;
-        let read_command_keys = eval.read_command_keys();
-        match plan_call_interactively_in_state(obarray, interactive, read_command_keys, &args) {
-            Ok(plan) => plan,
-            Err(e) => {
-                // GNU Emacs (eval.c:2304-2314): For oclosures (closures with
-                // non-docstring doc_form), commandp sets genfun=true and calls
-                // `(interactive-form fun)` to determine interactivity.
-                // The fast _in_state check can't do this, so we fall back
-                // to calling interactive-form here.
-                if args.first().is_some() {
-                    let func_val = args[0];
-                    let iform = eval.apply(Value::symbol("interactive-form"), vec![func_val]);
-                    if iform.is_ok_and(|v| !v.is_nil()) {
-                        // The function IS interactive via genfun dispatch.
-                        // Re-plan without the commandp check.
-                        let obarray = &eval.obarray;
-                        let read_command_keys = eval.read_command_keys();
-                        if let Some((resolved_name, func)) =
-                            resolve_command_target_in_state(obarray, &func_val)
-                        {
-                            let context = InteractiveInvocationContext::from_keys_arg_in_state(
-                                read_command_keys,
-                                args.get(2),
-                            );
-                            return finish_call_interactively_in_eval(
-                                eval,
-                                CallInteractivelyPlan {
-                                    resolved_name,
-                                    func,
-                                    context,
-                                },
-                            );
-                        }
-                    }
-                }
-                return Err(e);
-            }
+    expect_min_args("call-interactively", &args, 1)?;
+    expect_max_args("call-interactively", &args, 3)?;
+    expect_optional_command_keys_vector(args.get(2))?;
+
+    let func_val = args[0];
+
+    // GNU Emacs (callint.c:310-315, eval.c:2268-2376):
+    // `call-interactively` checks `commandp` which itself may call
+    // `(interactive-form fun)` for genfun dispatch (oclosures, advice
+    // wrappers, etc.).  The _in_state commandp can't call Elisp, so we
+    // do the full check here: first try the fast _in_state path, then
+    // fall back to calling `(interactive-form fun)` which handles ALL
+    // cases — oclosures, advice, nadvice wrappers, etc.
+    let is_command = {
+        let fast =
+            command_designator_p_in_state(&eval.obarray, &eval.interactive, &func_val, false);
+        if fast {
+            true
+        } else {
+            // Evaluator-backed fallback: call `(interactive-form fun)`.
+            // This mirrors GNU's genfun path and handles any function type
+            // that declares interactivity via cl-generic methods.
+            eval.apply(Value::symbol("interactive-form"), vec![func_val])
+                .is_ok_and(|v| !v.is_nil())
         }
     };
-    finish_call_interactively_in_eval(eval, plan)
+
+    if !is_command {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("commandp"), func_val],
+        ));
+    }
+
+    let Some((resolved_name, func)) = resolve_command_target(&eval, &func_val) else {
+        return Err(signal("void-function", vec![func_val]));
+    };
+    let context =
+        InteractiveInvocationContext::from_keys_arg_in_state(eval.read_command_keys(), args.get(2));
+    finish_call_interactively_in_eval(
+        eval,
+        CallInteractivelyPlan {
+            resolved_name,
+            func,
+            context,
+        },
+    )
 }
 
 /// `(interactive-p)` -> t if the calling function was called interactively.
@@ -355,8 +359,39 @@ pub(crate) fn builtin_called_interactively_p(eval: &mut Context, args: Vec<Value
 
 /// `(commandp FUNCTION &optional FOR-CALL-INTERACTIVELY)`
 /// Return non-nil if FUNCTION is a command (i.e., can be called interactively).
+///
+/// Matches GNU Emacs eval.c:2268-2376.  Uses the fast _in_state check first,
+/// then falls back to `(interactive-form fun)` for genfun/oclosure dispatch.
 pub(crate) fn builtin_commandp_interactive(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_commandp_impl(&eval.obarray, &eval.interactive, &args)
+    expect_min_args("commandp", &args, 1)?;
+    expect_max_args("commandp", &args, 2)?;
+    let for_call_interactively = args.get(1).is_some_and(|value| !value.is_nil());
+
+    // Fast path: _in_state check (handles most cases without Elisp calls)
+    let fast = command_designator_p_in_state(
+        &eval.obarray,
+        &eval.interactive,
+        &args[0],
+        for_call_interactively,
+    );
+    if fast {
+        return Ok(Value::True);
+    }
+
+    // Slow path: call `(interactive-form fun)` which handles genfun
+    // dispatch (oclosures, advice wrappers, etc.)
+    // GNU Emacs (eval.c:2348-2364): genfun path calls interactive-form.
+    if let Ok(iform) = eval.apply(Value::symbol("interactive-form"), vec![args[0]]) {
+        if !iform.is_nil() {
+            return Ok(if for_call_interactively {
+                Value::Nil
+            } else {
+                Value::True
+            });
+        }
+    }
+
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_commandp_impl(
