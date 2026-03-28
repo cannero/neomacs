@@ -599,7 +599,6 @@ fn text_property_value_at_char_pos(buf: &crate::buffer::Buffer, pos: i64, prop: 
     let byte_pos = buf.lisp_pos_to_byte(pos);
     buf.text_props
         .get_property(byte_pos, prop)
-        .copied()
         .unwrap_or(Value::Nil)
 }
 
@@ -711,7 +710,7 @@ pub(crate) fn builtin_barf_if_buffer_read_only_impl(
     if buf
         .text_props
         .get_property(prop_byte, "inhibit-read-only")
-        .is_some_and(Value::is_truthy)
+        .is_some_and(|value| value.is_truthy())
     {
         return Ok(Value::Nil);
     }

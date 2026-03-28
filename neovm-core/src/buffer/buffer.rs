@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use super::buffer_text::BufferText;
 use super::locals::BufferLocals;
 use super::overlay::OverlayList;
+use super::shared::{BufferTextProperties, SharedUndoState};
 use super::text_props::TextPropertyTable;
 use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
@@ -155,16 +156,15 @@ pub struct Buffer {
     /// Buffer-local state, split between builtin slot-backed locals and
     /// ordinary Lisp locals.
     pub locals: BufferLocals,
-    /// Text properties attached to ranges of text.
-    pub text_props: TextPropertyTable,
+    /// Text properties attached to ranges of text. GNU stores these on the
+    /// shared buffer text object; indirect buffers share this owner.
+    pub text_props: BufferTextProperties,
     /// Overlays attached to the buffer.
     pub overlays: OverlayList,
     /// Syntax table for character classification.
     pub syntax_table: SyntaxTable,
-    /// True when `primitive-undo` is executing (suppress re-recording).
-    pub undo_in_progress: bool,
-    /// Whether we have already recorded the first-change sentinel.
-    pub undo_recorded_first_change: bool,
+    /// Shared undo owner for this text.
+    pub undo_state: SharedUndoState,
 }
 
 impl Buffer {
@@ -198,11 +198,10 @@ impl Buffer {
             auto_save_file_name: None,
             markers: Vec::new(),
             locals: BufferLocals::new(),
-            text_props: TextPropertyTable::new(),
+            text_props: BufferTextProperties::new(),
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
-            undo_in_progress: false,
-            undo_recorded_first_change: false,
+            undo_state: SharedUndoState::new(),
         }
     }
 
@@ -329,6 +328,7 @@ impl Buffer {
         char_len: usize,
         shift_begv: bool,
         advance_point_at_insert: bool,
+        adjust_shared_text_props: bool,
     ) {
         if byte_len == 0 {
             return;
@@ -367,7 +367,9 @@ impl Buffer {
             insert_char_pos,
             "insert-side-effect char position drifted from the source edit site"
         );
-        self.text_props.adjust_for_insert(insert_pos, byte_len);
+        if adjust_shared_text_props {
+            self.text_props.adjust_for_insert(insert_pos, byte_len);
+        }
         self.overlays.adjust_for_insert(insert_pos, byte_len);
         self.modified_tick += 1;
         self.chars_modified_tick += 1;
@@ -381,6 +383,7 @@ impl Buffer {
         start_char: usize,
         end_char: usize,
         shift_begv: bool,
+        adjust_shared_text_props: bool,
     ) {
         if start >= end {
             return;
@@ -434,7 +437,9 @@ impl Buffer {
             }
         }
 
-        self.text_props.adjust_for_delete(start, end);
+        if adjust_shared_text_props {
+            self.text_props.adjust_for_delete(start, end);
+        }
         self.overlays.adjust_for_delete(start, end);
         self.modified_tick += 1;
         self.chars_modified_tick += 1;
@@ -455,14 +460,12 @@ impl Buffer {
 
     /// Get the current `buffer-undo-list` value from buffer-local properties.
     pub fn get_undo_list(&self) -> Value {
-        match self.locals.raw_binding("buffer-undo-list") {
-            Some(RuntimeBindingValue::Bound(v)) => v,
-            _ => Value::Nil,
-        }
+        self.undo_state.list()
     }
 
     /// Store the `buffer-undo-list` value into buffer-local properties.
     pub fn set_undo_list(&mut self, value: Value) {
+        self.undo_state.set_list(value);
         self.locals
             .set_raw_binding("buffer-undo-list", RuntimeBindingValue::Bound(value));
     }
@@ -470,7 +473,7 @@ impl Buffer {
     /// Prepare to record a buffer change: ensure the first-change sentinel
     /// has been recorded if needed.
     fn undo_ensure_first_change(&mut self) {
-        if self.undo_recorded_first_change {
+        if self.undo_state.recorded_first_change() {
             return;
         }
         let mut ul = self.get_undo_list();
@@ -479,13 +482,13 @@ impl Buffer {
         }
         undo::undo_list_record_first_change(&mut ul);
         self.set_undo_list(ul);
-        self.undo_recorded_first_change = true;
+        self.undo_state.set_recorded_first_change(true);
     }
 
     /// Prepare undo recording for a buffer edit at `beg` with point at `pt`.
     fn undo_prepare_change(&mut self, beg: usize, pt: usize) {
         let ul = self.get_undo_list();
-        if undo::undo_list_is_disabled(&ul) || self.undo_in_progress {
+        if undo::undo_list_is_disabled(&ul) || self.undo_state.in_progress() {
             return;
         }
         self.undo_ensure_first_change();
@@ -506,7 +509,7 @@ impl Buffer {
         let char_len = text.chars().count();
 
         // Record undo before modifying.
-        if !self.undo_in_progress {
+        if !self.undo_state.in_progress() {
             self.undo_prepare_change(insert_pos, self.pt);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
@@ -523,6 +526,7 @@ impl Buffer {
             char_len,
             false,
             true,
+            true,
         );
     }
 
@@ -537,7 +541,7 @@ impl Buffer {
         let end_char = self.text.byte_to_char(end);
         // Record undo: save the deleted text for restoration.
         let deleted_text = self.text.text_range(start, end);
-        if !self.undo_in_progress {
+        if !self.undo_state.in_progress() {
             self.undo_prepare_change(start, self.pt);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
@@ -547,7 +551,7 @@ impl Buffer {
         }
 
         self.text.delete_range(start, end);
-        self.apply_byte_delete_side_effects(start, end, start_char, end_char, false);
+        self.apply_byte_delete_side_effects(start, end, start_char, end_char, false, true);
     }
 
     /// Replace every occurrence of `from` with `to` in the byte range
@@ -580,7 +584,7 @@ impl Buffer {
             return false;
         }
 
-        if !noundo && !self.undo_in_progress {
+        if !noundo && !self.undo_state.in_progress() {
             self.undo_prepare_change(start, self.pt);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
@@ -780,6 +784,12 @@ impl Buffer {
                 _ => self.auto_save_file_name.take(),
             };
         }
+        if name == "buffer-undo-list" {
+            self.undo_state.set_list(value);
+            if value.is_nil() {
+                self.undo_state.set_recorded_first_change(false);
+            }
+        }
         self.locals
             .set_raw_binding(name, RuntimeBindingValue::Bound(value));
     }
@@ -791,10 +801,17 @@ impl Buffer {
         if name == "buffer-auto-save-file-name" {
             self.auto_save_file_name = None;
         }
+        if name == "buffer-undo-list" {
+            self.undo_state.set_list(Value::Nil);
+            self.undo_state.set_recorded_first_change(false);
+        }
         self.locals.set_raw_binding(name, RuntimeBindingValue::Void);
     }
 
     pub fn kill_buffer_local(&mut self, name: &str) -> Option<RuntimeBindingValue> {
+        if name == "buffer-undo-list" {
+            return None;
+        }
         self.locals.remove(name)
     }
 
@@ -809,6 +826,9 @@ impl Buffer {
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
         if !self.locals.has_local(name) {
             return None;
+        }
+        if name == "buffer-undo-list" {
+            return Some(RuntimeBindingValue::Bound(self.get_undo_list()));
         }
         if name == "buffer-file-name" {
             return Some(match &self.file_name {
@@ -845,7 +865,17 @@ impl Buffer {
     }
 
     pub fn ordered_buffer_local_bindings(&self) -> Vec<(String, RuntimeBindingValue)> {
-        self.locals.ordered_runtime_bindings()
+        self.locals
+            .ordered_runtime_bindings()
+            .into_iter()
+            .map(|(name, binding)| {
+                if name == "buffer-undo-list" {
+                    (name, RuntimeBindingValue::Bound(self.get_undo_list()))
+                } else {
+                    (name, binding)
+                }
+            })
+            .collect()
     }
 
     pub fn ordered_buffer_local_names(&self) -> Vec<String> {
@@ -974,6 +1004,8 @@ impl BufferManager {
 
         indirect.base_buffer = Some(root_id);
         indirect.text = shared_text;
+        indirect.text_props = root.text_props.clone();
+        indirect.undo_state = root.undo_state.clone();
         indirect.narrow_to_byte_region(root.begv, root.zv);
         indirect.goto_byte(root.pt);
         indirect.multibyte = root.multibyte;
@@ -983,19 +1015,14 @@ impl BufferManager {
         indirect.save_modified_tick = root.save_modified_tick;
         indirect.autosave_modified_tick = root.autosave_modified_tick;
         indirect.file_name = None;
-        indirect.text_props = root.text_props.clone();
         if !clone {
             indirect.overlays = OverlayList::new();
             indirect.mark = None;
             indirect.markers.clear();
-            // Copy undo list from root buffer via buffer-local property
-            let root_undo = root.get_undo_list();
-            indirect.set_undo_list(root_undo);
-            indirect.undo_in_progress = root.undo_in_progress;
-            indirect.undo_recorded_first_change = root.undo_recorded_first_change;
         }
 
         self.buffers.insert(id, indirect);
+        let _ = self.sync_shared_undo_binding_cache(root_id);
         Some(id)
     }
 
@@ -1245,6 +1272,7 @@ impl BufferManager {
             char_len,
             true,
             false,
+            false,
         );
     }
 
@@ -1255,26 +1283,21 @@ impl BufferManager {
         start_char: usize,
         end_char: usize,
     ) {
-        buf.apply_byte_delete_side_effects(start, end, start_char, end_char, true);
+        buf.apply_byte_delete_side_effects(start, end, start_char, end_char, true, false);
     }
 
     fn adjust_shared_same_len_edit_metadata(buf: &mut Buffer, preserve_modified_state: bool) {
         buf.apply_same_len_edit_side_effects(preserve_modified_state);
     }
 
-    fn sync_shared_undo_lists(&mut self, root_id: BufferId, source_id: BufferId) -> Option<()> {
-        let source = self.buffers.get(&source_id)?;
-        let source_undo = source.get_undo_list();
-        let source_in_progress = source.undo_in_progress;
-        let source_first_change = source.undo_recorded_first_change;
-        for shared_id in self.buffers_sharing_root_ids(root_id) {
-            if shared_id == source_id {
-                continue;
-            }
-            let shared = self.buffers.get_mut(&shared_id)?;
-            shared.set_undo_list(source_undo);
-            shared.undo_in_progress = source_in_progress;
-            shared.undo_recorded_first_change = source_first_change;
+    fn sync_shared_undo_binding_cache(&mut self, root_id: BufferId) -> Option<()> {
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let authoritative = self.buffers.get(&root_id)?.get_undo_list();
+        for shared_id in shared_ids {
+            self.buffers.get_mut(&shared_id)?.locals.set_raw_binding(
+                "buffer-undo-list",
+                RuntimeBindingValue::Bound(authoritative),
+            );
         }
         Some(())
     }
@@ -1318,7 +1341,7 @@ impl BufferManager {
                 char_len,
             );
         }
-        self.sync_shared_undo_lists(root_id, id)?;
+        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -1358,7 +1381,7 @@ impl BufferManager {
             let sibling = self.buffers.get_mut(&sibling_id)?;
             Self::adjust_shared_delete_metadata(sibling, start, end, start_char, end_char);
         }
-        self.sync_shared_undo_lists(root_id, id)?;
+        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -1393,7 +1416,7 @@ impl BufferManager {
             Self::adjust_shared_same_len_edit_metadata(sibling, noundo);
         }
         if !noundo {
-            self.sync_shared_undo_lists(root_id, id)?;
+            self.sync_shared_undo_binding_cache(root_id)?;
         }
         Some(true)
     }
@@ -1492,20 +1515,12 @@ impl BufferManager {
         name: &str,
         value: Value,
     ) -> Option<bool> {
-        let root_id = self.shared_text_root_id(id)?;
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        let mut any_changed = false;
-        for shared_id in shared_ids {
-            if self
-                .buffers
-                .get_mut(&shared_id)?
+        Some(
+            self.buffers
+                .get_mut(&id)?
                 .text_props
-                .put_property(start, end, name, value)
-            {
-                any_changed = true;
-            }
-        }
-        Some(any_changed)
+                .put_property(start, end, name, value),
+        )
     }
 
     pub fn append_buffer_text_properties(
@@ -1514,14 +1529,10 @@ impl BufferManager {
         table: &TextPropertyTable,
         byte_offset: usize,
     ) -> Option<()> {
-        let root_id = self.shared_text_root_id(id)?;
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        for shared_id in shared_ids {
-            self.buffers
-                .get_mut(&shared_id)?
-                .text_props
-                .append_shifted(table, byte_offset);
-        }
+        self.buffers
+            .get_mut(&id)?
+            .text_props
+            .append_shifted(table, byte_offset);
         Some(())
     }
 
@@ -1532,20 +1543,12 @@ impl BufferManager {
         end: usize,
         name: &str,
     ) -> Option<bool> {
-        let root_id = self.shared_text_root_id(id)?;
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        let mut removed_any = false;
-        for shared_id in shared_ids {
-            if self
-                .buffers
-                .get_mut(&shared_id)?
+        Some(
+            self.buffers
+                .get_mut(&id)?
                 .text_props
-                .remove_property(start, end, name)
-            {
-                removed_any = true;
-            }
-        }
-        Some(removed_any)
+                .remove_property(start, end, name),
+        )
     }
 
     pub fn clear_buffer_text_properties(
@@ -1554,14 +1557,10 @@ impl BufferManager {
         start: usize,
         end: usize,
     ) -> Option<()> {
-        let root_id = self.shared_text_root_id(id)?;
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        for shared_id in shared_ids {
-            self.buffers
-                .get_mut(&shared_id)?
-                .text_props
-                .remove_all_properties(start, end);
-        }
+        self.buffers
+            .get_mut(&id)?
+            .text_props
+            .remove_all_properties(start, end);
         Some(())
     }
 
@@ -1684,7 +1683,7 @@ impl BufferManager {
         let mut ul = buf.get_undo_list();
         undo::undo_list_boundary(&mut ul);
         buf.set_undo_list(ul);
-        self.sync_shared_undo_lists(root_id, id)?;
+        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -1836,14 +1835,14 @@ impl BufferManager {
                 }
                 Value::Nil => {
                     buf.set_buffer_local("buffer-undo-list", Value::Nil);
-                    buf.undo_recorded_first_change = false;
+                    buf.undo_state.set_recorded_first_change(false);
                 }
                 other => {
                     buf.set_buffer_local("buffer-undo-list", other);
                 }
             }
         }
-        self.sync_shared_undo_lists(root_id, id)?;
+        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -1868,8 +1867,8 @@ impl BufferManager {
                 count = 1;
             }
 
-            let previous_undoing = buffer.undo_in_progress;
-            buffer.undo_in_progress = true;
+            let previous_undoing = buffer.undo_state.in_progress();
+            buffer.undo_state.set_in_progress(true);
             let groups_to_undo = if had_trailing_boundary {
                 count as usize
             } else {
@@ -1939,9 +1938,12 @@ impl BufferManager {
             }
         }
 
-        self.buffers.get_mut(&id)?.undo_in_progress = previous_undoing;
+        self.buffers
+            .get_mut(&id)?
+            .undo_state
+            .set_in_progress(previous_undoing);
         let root_id = self.shared_text_root_id(id)?;
-        self.sync_shared_undo_lists(root_id, id)?;
+        self.sync_shared_undo_binding_cache(root_id)?;
         Some(UndoExecutionResult {
             had_any_records,
             had_boundary,
@@ -2075,19 +2077,44 @@ impl BufferManager {
         self.next_marker_id
     }
     pub(crate) fn from_dump(
-        buffers: HashMap<BufferId, Buffer>,
+        mut buffers: HashMap<BufferId, Buffer>,
         current: Option<BufferId>,
         next_id: u64,
         next_marker_id: u64,
     ) -> Self {
-        Self {
+        let indirect_buffers: Vec<(BufferId, BufferId)> = buffers
+            .iter()
+            .filter_map(|(id, buffer)| buffer.base_buffer.map(|base_id| (*id, base_id)))
+            .collect();
+        for (buffer_id, base_id) in indirect_buffers {
+            let Some(root) = buffers.get(&base_id).cloned() else {
+                continue;
+            };
+            let Some(buffer) = buffers.get_mut(&buffer_id) else {
+                continue;
+            };
+            buffer.text = root.text.shared_clone();
+            buffer.text_props = root.text_props.clone();
+            buffer.undo_state = root.undo_state.clone();
+        }
+
+        let mut manager = Self {
             buffers,
             current,
             next_id,
             next_marker_id,
             labeled_restrictions: HashMap::new(),
             dead_buffer_last_names: HashMap::new(),
+        };
+        let root_ids: Vec<BufferId> = manager
+            .buffers
+            .values()
+            .map(|buffer| buffer.base_buffer.unwrap_or(buffer.id))
+            .collect();
+        for root_id in root_ids {
+            let _ = manager.sync_shared_undo_binding_cache(root_id);
         }
+        manager
     }
 }
 
@@ -2102,9 +2129,8 @@ impl GcTrace for BufferManager {
         for buffer in self.buffers.values() {
             buffer.locals.trace_roots(roots);
             buffer.text_props.trace_roots(roots);
+            buffer.undo_state.trace_roots(roots);
             buffer.overlays.trace_roots(roots);
-            // The undo list is stored in buffer locals, so it's already traced
-            // by `BufferLocals::trace_roots`.
         }
         for restrictions in self.labeled_restrictions.values() {
             for restriction in restrictions {
@@ -2231,6 +2257,44 @@ mod tests {
         assert!(result.applied_any);
         assert_eq!(mgr.get(base_id).unwrap().buffer_string(), "");
         assert_eq!(mgr.get(indirect_id).unwrap().buffer_string(), "");
+    }
+
+    #[test]
+    fn from_dump_restores_indirect_buffer_shared_text_state() {
+        let mut mgr = BufferManager::new();
+        let base_id = mgr.current_buffer_id().expect("scratch buffer");
+        let _ = mgr.insert_into_buffer(base_id, "abcdef");
+        let indirect_id = mgr
+            .create_indirect_buffer(base_id, "*indirect-restored*", false)
+            .expect("indirect buffer");
+        let _ = mgr.put_buffer_text_property(base_id, 1, 4, "face", Value::symbol("bold"));
+        let _ = mgr.insert_into_buffer(base_id, "z");
+
+        let mut dumped = mgr.dump_buffers().clone();
+        let independent_indirect = dumped.get(&indirect_id).expect("indirect buffer").clone();
+        let indirect = dumped.get_mut(&indirect_id).expect("indirect buffer");
+        indirect.text = BufferText::from_dump(independent_indirect.text.dump_text());
+        indirect.text_props =
+            BufferTextProperties::from_table(independent_indirect.text_props.snapshot());
+        indirect.undo_state =
+            SharedUndoState::from_parts(independent_indirect.get_undo_list(), false, false);
+
+        let restored = BufferManager::from_dump(
+            dumped,
+            mgr.dump_current(),
+            mgr.dump_next_id(),
+            mgr.dump_next_marker_id(),
+        );
+
+        let base = restored.get(base_id).expect("base buffer");
+        let indirect = restored.get(indirect_id).expect("indirect buffer");
+        assert!(base.text.shares_storage_with(&indirect.text));
+        assert!(base.text_props.shares_with(&indirect.text_props));
+        assert!(base.undo_state.shares_with(&indirect.undo_state));
+        assert_eq!(
+            indirect.text_props.get_property(1, "face"),
+            Some(Value::symbol("bold"))
+        );
     }
 
     #[test]

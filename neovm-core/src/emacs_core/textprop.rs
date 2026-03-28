@@ -380,10 +380,7 @@ pub(crate) fn builtin_get_text_property_in_buffers(
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
     match buf.text_props.get_property(byte_pos, &prop) {
-        Some(v) => {
-            let val: Value = *v;
-            Ok(val)
-        }
+        Some(v) => Ok(v),
         None => Ok(Value::Nil),
     }
 }
@@ -443,7 +440,7 @@ pub(crate) fn builtin_get_char_property_in_buffers(
     }
 
     match buf.text_props.get_property(byte_pos, &prop) {
-        Some(value) => Ok(*value),
+        Some(value) => Ok(value),
         None => Ok(Value::Nil),
     }
 }
@@ -572,7 +569,7 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let existing = buf.text_props.get_property(byte_beg, "face").cloned();
+    let existing = buf.text_props.get_property(byte_beg, "face");
     let merged = merge_face_property(existing, new_face, append);
     let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, "face", merged);
     Ok(Value::Nil)
@@ -862,7 +859,7 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
         _ => (None, None),
     };
 
-    let current_val = buf.text_props.get_property(byte_pos, &prop).cloned();
+    let current_val = buf.text_props.get_property(byte_pos, &prop);
     let buf_end = buf.point_max();
     let mut cursor = byte_pos;
 
@@ -880,7 +877,7 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
                 if next >= buf_end {
                     break;
                 }
-                let new_val = buf.text_props.get_property(next, &prop).cloned();
+                let new_val = buf.text_props.get_property(next, &prop);
                 let changed = match (&current_val, &new_val) {
                     (None, None) => false,
                     (Some(a), Some(b)) => !equal_value(a, b, 0),
@@ -983,7 +980,7 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
     };
 
     let ref_byte = if byte_pos > 0 { byte_pos - 1 } else { 0 };
-    let current_val = buf.text_props.get_property(ref_byte, &prop).cloned();
+    let current_val = buf.text_props.get_property(ref_byte, &prop);
     let mut cursor = byte_pos;
 
     loop {
@@ -998,7 +995,7 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
                     }
                 }
                 let check = if prev > 0 { prev - 1 } else { 0 };
-                let new_val = buf.text_props.get_property(check, &prop).cloned();
+                let new_val = buf.text_props.get_property(check, &prop);
                 let changed = match (&current_val, &new_val) {
                     (None, None) => false,
                     (Some(a), Some(b)) => !equal_value(a, b, 0),
@@ -1173,7 +1170,7 @@ pub(crate) fn builtin_text_property_any_in_buffers(
     let mut cursor = byte_beg;
     while cursor < byte_end {
         if let Some(found) = buf.text_props.get_property(cursor, &prop) {
-            if equal_value(found, val, 0) {
+            if equal_value(&found, val, 0) {
                 return Ok(Value::Int(byte_to_elisp_pos(buf, cursor)));
             }
         }
@@ -1240,7 +1237,7 @@ pub(crate) fn builtin_text_property_not_all_in_buffers(
 
     while cursor < byte_end {
         let matches = match buf.text_props.get_property(cursor, &prop) {
-            Some(found) => equal_value(found, val, 0),
+            Some(found) => equal_value(&found, val, 0),
             None => val.is_nil(),
         };
         if !matches {

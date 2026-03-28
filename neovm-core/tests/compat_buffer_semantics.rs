@@ -126,6 +126,32 @@ fn compat_buffer_semantics_matches_gnu_emacs() {
             (kill-buffer indirect))))
     (kill-buffer base)))"#,
         },
+        BufferCase {
+            name: "indirect_buffer_undo_list_follows_shared_text_history",
+            form: r#"(let ((base (get-buffer-create " *compat-buffer-undo-base*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (setq buffer-undo-list nil)
+          (insert "abc"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-buffer-undo-indirect*" nil)))
+          (unwind-protect
+              (list
+               (with-current-buffer base
+                 (prin1-to-string buffer-undo-list))
+               (with-current-buffer indirect
+                 (prin1-to-string buffer-undo-list))
+               (with-current-buffer indirect
+                 (let ((buffer-undo-list buffer-undo-list))
+                   (primitive-undo 1 buffer-undo-list)
+                   (buffer-string)))
+               (with-current-buffer base
+                 (buffer-string)))
+            (kill-buffer indirect))))
+    (kill-buffer base)))"#,
+        },
     ];
 
     for case in cases {

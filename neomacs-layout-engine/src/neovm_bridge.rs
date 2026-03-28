@@ -816,7 +816,7 @@ impl<'a> RustTextPropAccess<'a> {
     ///
     /// Returns the display property value if present, along with the
     /// next position where display properties change.
-    pub fn check_display_prop(&self, charpos: i64) -> (Option<&Value>, i64) {
+    pub fn check_display_prop(&self, charpos: i64) -> (Option<Value>, i64) {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         let display = self.buffer.text_props.get_property(bytepos, "display");
 
@@ -836,13 +836,13 @@ impl<'a> RustTextPropAccess<'a> {
     pub fn check_line_spacing(&self, charpos: i64, base_height: f32) -> f32 {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         match self.buffer.text_props.get_property(bytepos, "line-spacing") {
-            Some(Value::Int(n)) => *n as f32,
+            Some(Value::Int(n)) => n as f32,
             Some(Value::Float(f, _)) => {
-                if *f < 1.0 {
+                if f < 1.0 {
                     // Fraction of base height
-                    base_height * (*f as f32)
+                    base_height * (f as f32)
                 } else {
-                    *f as f32
+                    f as f32
                 }
             }
             _ => 0.0,
@@ -933,7 +933,7 @@ impl<'a> RustTextPropAccess<'a> {
     }
 
     /// Get a specific text property at a position.
-    pub fn get_property(&self, charpos: i64, name: &str) -> Option<&Value> {
+    pub fn get_property(&self, charpos: i64, name: &str) -> Option<Value> {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         self.buffer.text_props.get_property(bytepos, name)
     }
@@ -1450,7 +1450,7 @@ impl FaceResolver {
         // 1. "face" text property
         if let Some(val) = buffer.text_props.get_property(bytepos, "face") {
             if let Some(next) =
-                self.resolve_buffer_face_value_over(buffer, &resolved, val, &mut remap_stack)
+                self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
             {
                 resolved = next;
             }
@@ -1463,7 +1463,7 @@ impl FaceResolver {
         // 2. "font-lock-face" text property
         if let Some(val) = buffer.text_props.get_property(bytepos, "font-lock-face") {
             if let Some(next) =
-                self.resolve_buffer_face_value_over(buffer, &resolved, val, &mut remap_stack)
+                self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
             {
                 resolved = next;
             }

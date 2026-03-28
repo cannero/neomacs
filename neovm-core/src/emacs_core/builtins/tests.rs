@@ -1940,11 +1940,11 @@ fn insert_copies_string_text_properties_into_buffer() {
     assert_eq!(buf.buffer_string(), "xy");
     assert_eq!(
         buf.text_props.get_property(0, "face"),
-        Some(&Value::symbol("bold"))
+        Some(Value::symbol("bold"))
     );
     assert_eq!(
         buf.text_props.get_property(1, "face"),
-        Some(&Value::symbol("bold"))
+        Some(Value::symbol("bold"))
     );
 }
 
@@ -1967,7 +1967,7 @@ fn insert_and_inherit_copies_previous_text_properties() {
     assert_eq!(buf.buffer_string(), "abX");
     assert_eq!(
         buf.text_props.get_property(2, "face"),
-        Some(&Value::symbol("bold"))
+        Some(Value::symbol("bold"))
     );
 }
 
@@ -1994,7 +1994,7 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
     assert_eq!(buf.buffer_string(), "abX");
     assert_eq!(
         buf.text_props.get_property(2, "face"),
-        Some(&Value::symbol("bold"))
+        Some(Value::symbol("bold"))
     );
 }
 
@@ -2029,11 +2029,11 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
     assert_eq!(buf.buffer_string(), "aX");
     assert_eq!(
         buf.text_props.get_property(1, "face"),
-        Some(&Value::symbol("bold"))
+        Some(Value::symbol("bold"))
     );
     assert_eq!(
         buf.text_props.get_property(1, "mouse-face"),
-        Some(&Value::symbol("highlight"))
+        Some(Value::symbol("highlight"))
     );
 }
 

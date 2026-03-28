@@ -2756,7 +2756,7 @@ impl LayoutEngine {
                     let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
                     let (dp, next_change) = text_props.check_display_prop(charpos);
                     display_next_check = next_change;
-                    dp.copied() // Value is Copy, so extract from reference
+                    dp
                 };
 
                 if let Some(prop_val) = display_prop_val {
@@ -4403,7 +4403,7 @@ impl LayoutEngine {
                             let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
                             let (dp, next_change) = text_props.check_display_prop(cpos);
                             cdisplay_next_check = next_change;
-                            dp.copied()
+                            dp
                         };
 
                         if let Some(prop_val) = display_prop_val {

@@ -7,6 +7,7 @@ use super::types::*;
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType, MarkerEntry};
 use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
+use crate::buffer::shared::{BufferTextProperties, SharedUndoState};
 use crate::buffer::text_props::{PropertyInterval, TextPropertyTable};
 // Undo state is now stored directly as a Lisp Value in buffer-local properties.
 use crate::emacs_core::abbrev::{Abbrev, AbbrevManager, AbbrevTable};
@@ -567,7 +568,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
             .collect(),
         local_binding_names: buf.ordered_buffer_local_names(),
         local_map: dump_value(&buf.local_map()),
-        text_props: dump_text_property_table(&buf.text_props),
+        text_props: dump_text_property_table(&buf.text_props.snapshot()),
         overlays: dump_overlay_list(&buf.overlays),
         syntax_table: dump_syntax_table(&buf.syntax_table),
         undo_list: None,
@@ -1839,6 +1840,18 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         .iter()
         .map(|marker| load_marker(marker, &text))
         .collect();
+    let locals = crate::buffer::BufferLocals::from_dump(
+        db.properties
+            .iter()
+            .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
+            .collect(),
+        &db.local_binding_names,
+        load_value(&db.local_map),
+    );
+    let undo_list = match locals.raw_binding("buffer-undo-list") {
+        Some(RuntimeBindingValue::Bound(value)) => value,
+        _ => Value::Nil,
+    };
 
     let save_modified_tick = db.save_modified_tick.unwrap_or_else(|| {
         if db.modified {
@@ -1875,21 +1888,14 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         file_name: db.file_name.clone(),
         auto_save_file_name: db.auto_save_file_name.clone(),
         markers,
-        locals: crate::buffer::BufferLocals::from_dump(
-            db.properties
-                .iter()
-                .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
-                .collect(),
-            &db.local_binding_names,
-            load_value(&db.local_map),
-        ),
-        text_props: TextPropertyTable::from_dump(
+        locals,
+        text_props: BufferTextProperties::from_table(TextPropertyTable::from_dump(
             db.text_props
                 .intervals
                 .iter()
                 .map(load_property_interval)
                 .collect(),
-        ),
+        )),
         overlays: OverlayList::from_dump(
             db.overlays
                 .overlays
@@ -1910,8 +1916,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             db.overlays.next_id,
         ),
         syntax_table: load_syntax_table(&db.syntax_table),
-        undo_in_progress: false,
-        undo_recorded_first_change: false,
+        undo_state: SharedUndoState::from_parts(undo_list, false, false),
     }
 }
 
