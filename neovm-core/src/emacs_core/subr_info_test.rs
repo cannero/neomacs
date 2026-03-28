@@ -2128,6 +2128,33 @@ fn fallback_macro_with_demoted_errors_no_longer_present() {
 }
 
 #[test]
+fn fallback_macro_only_keeps_source_bootstrap_shims() {
+    for name in [
+        "eval-when-compile",
+        "track-mouse",
+        "with-syntax-table",
+        "with-mutex",
+    ] {
+        assert!(
+            fallback_macro_value(name).is_none(),
+            "{name} should be owned by GNU Lisp macros, not fallback placeholders"
+        );
+    }
+
+    for name in [
+        "eval-and-compile",
+        "defvar-local",
+        "with-temp-buffer",
+        "with-output-to-string",
+    ] {
+        assert!(
+            fallback_macro_value(name).is_some(),
+            "{name} should remain available as a source-bootstrap shim"
+        );
+    }
+}
+
+#[test]
 fn func_arity_error_for_non_callable() {
     let result = builtin_func_arity_impl(vec![Value::Int(42)]);
     assert!(result.is_err());

@@ -77,3 +77,41 @@ fn compat_public_evaluator_subr_masking_matches_gnu_emacs() {
         gnu, neovm
     );
 }
+
+#[test]
+fn compat_gnu_lisp_macro_surface_matches_gnu_emacs() {
+    if !oracle_enabled() {
+        eprintln!(
+            "skipping GNU Lisp macro surface audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo"
+        );
+        return;
+    }
+
+    let form = r#"(let ((symbols '(eval-when-compile
+                        eval-and-compile
+                        defvar-local
+                        with-temp-buffer
+                        with-output-to-string
+                        track-mouse
+                        with-syntax-table
+                        with-mutex)))
+  (mapcar
+   (lambda (sym)
+     (let ((fn (symbol-function sym)))
+       (list sym
+             (fboundp sym)
+             (macrop sym)
+             (special-form-p sym)
+             (subrp fn)
+             (car-safe fn)
+             (car-safe (cdr-safe fn)))))
+   symbols))"#;
+
+    let gnu = run_oracle_eval(form).expect("GNU Emacs evaluation");
+    let neovm = run_neovm_eval(form).expect("NeoVM evaluation");
+    assert_eq!(
+        neovm, gnu,
+        "GNU Lisp macro surface mismatch:\nGNU: {}\nNeoVM: {}",
+        gnu, neovm
+    );
+}

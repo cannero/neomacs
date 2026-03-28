@@ -126,21 +126,17 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
             | "defcustom"
             | "defgroup"
             | "setq-default"
-            | "defvar-local"
             // NeoVM-specific: autoload system
             | "autoload"
-            | "eval-when-compile"
-            | "eval-and-compile"
             // NeoVM-specific: error hierarchy
             | "define-error"
-            // NeoVM-specific: reader/printer
+            // Source-bootstrap shims for GNU Lisp macros that are used
+            // before their own definitions when NeoVM loads byte-run.el and
+            // subr.el as .el source instead of precompiled .elc.
+            | "eval-and-compile"
+            | "defvar-local"
             | "with-output-to-string"
-            // NeoVM-specific: threading
-            | "with-mutex"
-            // NeoVM-specific: misc
             | "with-temp-buffer"
-            | "track-mouse"
-            | "with-syntax-table"
             // declare is a stub (ignored)
             | "declare"
     )
@@ -188,16 +184,11 @@ struct FallbackMacroSpec {
 
 fn fallback_macro_spec(name: &str) -> Option<FallbackMacroSpec> {
     match name {
-        // Forms that are NeoVM-specific special forms AND need fallback macro
-        // introspection values for `fboundp`/`macrop` compatibility.
-        "with-mutex" => Some(FallbackMacroSpec { min: 1, max: None }),
-        "with-syntax-table" => Some(FallbackMacroSpec { min: 1, max: None }),
-        "with-temp-buffer"
-        | "with-output-to-string"
-        | "track-mouse"
-        | "declare"
-        | "eval-when-compile"
-        | "eval-and-compile" => Some(FallbackMacroSpec { min: 0, max: None }),
+        // Bootstrap-only macro placeholders for GNU Lisp macros that must be
+        // callable before their defining file has reached the defmacro form.
+        "with-temp-buffer" | "with-output-to-string" | "declare" | "eval-and-compile" => {
+            Some(FallbackMacroSpec { min: 0, max: None })
+        }
         "defvar-local" => Some(FallbackMacroSpec {
             min: 2,
             max: Some(3),

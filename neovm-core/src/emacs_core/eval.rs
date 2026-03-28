@@ -5805,18 +5805,13 @@ impl Context {
             "defvar-local" => super::custom::sf_defvar_local(self, tail),
             // Autoload
             "autoload" => super::autoload::sf_autoload(self, tail),
-            "eval-when-compile" => super::autoload::sf_eval_when_compile(self, tail),
             "eval-and-compile" => super::autoload::sf_eval_and_compile(self, tail),
             // Error hierarchy
             "define-error" => super::errors::sf_define_error(self, tail),
             // Reader/printer
             "with-output-to-string" => super::reader::sf_with_output_to_string(self, tail),
-            // Threading
-            "with-mutex" => super::threads::sf_with_mutex(self, tail),
             // Misc
             "with-temp-buffer" => super::misc::sf_with_temp_buffer(self, tail),
-            "track-mouse" => super::misc::sf_track_mouse(self, tail),
-            "with-syntax-table" => super::misc::sf_with_syntax_table(self, tail),
             _ => return None,
         })
     }
