@@ -943,19 +943,6 @@ pub struct DumpFaceTable {
     pub faces: Vec<(String, DumpFace)>,
 }
 
-// Category
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpCategoryTable {
-    pub entries: Vec<(char, Vec<char>)>,
-    pub descriptions: Vec<(char, String)>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpCategoryManager {
-    pub tables: Vec<(String, DumpCategoryTable)>,
-    pub current_table: String,
-}
-
 // Rectangle
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpRectangleState {
@@ -1034,11 +1021,11 @@ pub struct DumpContextState {
     pub charset_registry: DumpCharsetRegistry,
     pub fontset_registry: DumpFontsetRegistry,
     pub face_table: DumpFaceTable,
-    pub category_manager: DumpCategoryManager,
     pub abbrevs: DumpAbbrevManager,
     pub interactive: DumpInteractiveRegistry,
     pub rectangle: DumpRectangleState,
     pub standard_syntax_table: DumpValue,
+    pub standard_category_table: DumpValue,
     pub current_local_map: DumpValue,
     pub kmacro: DumpKmacroManager,
     pub registers: DumpRegisterManager,

@@ -1081,35 +1081,6 @@ pub(crate) fn dump_face_table(ft: &FaceTable) -> DumpFaceTable {
     }
 }
 
-pub(crate) fn dump_category_manager(
-    cm: &crate::emacs_core::category::CategoryManager,
-) -> DumpCategoryManager {
-    DumpCategoryManager {
-        tables: cm
-            .tables
-            .iter()
-            .map(|(k, t)| {
-                (
-                    k.clone(),
-                    DumpCategoryTable {
-                        entries: t
-                            .entries
-                            .iter()
-                            .map(|(c, set)| (*c, set.iter().cloned().collect()))
-                            .collect(),
-                        descriptions: t
-                            .descriptions
-                            .iter()
-                            .map(|(c, s)| (*c, s.clone()))
-                            .collect(),
-                    },
-                )
-            })
-            .collect(),
-        current_table: cm.current_table.clone(),
-    }
-}
-
 pub(crate) fn dump_rectangle(r: &RectangleState) -> DumpRectangleState {
     DumpRectangleState {
         killed: r.killed.clone(),
@@ -1311,11 +1282,11 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         charset_registry: dump_charset_registry(),
         fontset_registry: dump_fontset_registry(),
         face_table: dump_face_table(&eval.face_table),
-        category_manager: dump_category_manager(&eval.category_manager),
         abbrevs: dump_abbrev_manager(&eval.abbrevs),
         interactive: dump_interactive_registry(&eval.interactive),
         rectangle: dump_rectangle(&eval.rectangle),
         standard_syntax_table: dump_value(&eval.standard_syntax_table),
+        standard_category_table: dump_value(&eval.standard_category_table),
         current_local_map: dump_value(&eval.current_local_map),
         kmacro: dump_kmacro(&eval.kmacro),
         registers: dump_register_manager(&eval.registers),
@@ -2408,35 +2379,6 @@ pub(crate) fn load_face_table(dft: &DumpFaceTable) -> FaceTable {
             .map(|(k, f)| (k.clone(), load_face(f)))
             .collect(),
     )
-}
-
-pub(crate) fn load_category_manager(
-    dcm: &DumpCategoryManager,
-) -> crate::emacs_core::category::CategoryManager {
-    crate::emacs_core::category::CategoryManager {
-        tables: dcm
-            .tables
-            .iter()
-            .map(|(k, t)| {
-                (
-                    k.clone(),
-                    crate::emacs_core::category::CategoryTable {
-                        entries: t
-                            .entries
-                            .iter()
-                            .map(|(c, cats)| (*c, cats.iter().cloned().collect()))
-                            .collect(),
-                        descriptions: t
-                            .descriptions
-                            .iter()
-                            .map(|(c, s)| (*c, s.clone()))
-                            .collect(),
-                    },
-                )
-            })
-            .collect(),
-        current_table: dcm.current_table.clone(),
-    }
 }
 
 pub(crate) fn load_rectangle(dr: &DumpRectangleState) -> RectangleState {

@@ -443,6 +443,12 @@ fn ct_lookup_and_range(table: &Value, ch: i64) -> Result<(Value, i64, i64), Flow
     Ok((Value::Nil, 0, MAX_CHAR))
 }
 
+/// GNU `char-table-ref-and-range`-style helper used by subsystems that need
+/// the effective value together with the maximal contiguous run covering `ch`.
+pub(crate) fn char_table_ref_and_range(table: &Value, ch: i64) -> Result<(Value, i64, i64), Flow> {
+    ct_lookup_and_range(table, ch)
+}
+
 /// `(char-table-parent CHAR-TABLE)` -- return the parent table (or nil).
 pub(crate) fn builtin_char_table_parent(args: Vec<Value>) -> EvalResult {
     expect_args("char-table-parent", &args, 1)?;

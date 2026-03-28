@@ -1528,10 +1528,9 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 }
 
 // Bump when bootstrap image semantics change in ways an older dump cannot
-// represent correctly. V15 invalidates older caches because GUI startup now
-// boots through term/neo-win with window-system `neo`; older dumps preserve
-// the previous backend identity surface.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 15;
+// represent correctly. V16 invalidates older caches because category-table
+// ownership moved from a parallel manager into dumped Lisp objects.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 16;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",

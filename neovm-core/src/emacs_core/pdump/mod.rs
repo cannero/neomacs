@@ -27,7 +27,7 @@ use crate::emacs_core::intern::{self, set_current_interner};
 use crate::emacs_core::value::{self, set_current_heap};
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]
@@ -211,11 +211,11 @@ fn reconstruct_evaluator(state: DumpContextState) -> Result<Context, DumpError> 
         load_mode_registry(&state.modes),
         load_coding_system_manager(&state.coding_systems),
         load_face_table(&state.face_table),
-        load_category_manager(&state.category_manager),
         load_abbrev_manager(&state.abbrevs),
         load_interactive_registry(&state.interactive),
         load_rectangle(&state.rectangle),
         load_value(&state.standard_syntax_table),
+        load_value(&state.standard_category_table),
         load_value(&state.current_local_map),
         load_kmacro(&state.kmacro),
         load_register_manager(&state.registers),

@@ -11,7 +11,6 @@ use super::autoload::AutoloadManager;
 use super::bookmark::BookmarkManager;
 use super::builtins;
 use super::bytecode::Compiler;
-use super::category::CategoryManager;
 use super::coding::CodingSystemManager;
 use super::custom::CustomManager;
 use super::doc::{STARTUP_VARIABLE_DOC_STRING_PROPERTIES, STARTUP_VARIABLE_DOC_STUBS};
@@ -597,6 +596,12 @@ pub struct Context {
     /// authoritative identity here and mirrors it into thread-local state for
     /// no-evaluator syntax builtins.
     pub(crate) standard_syntax_table: Value,
+    /// Canonical Lisp object returned by `standard-category-table`.
+    ///
+    /// Like `standard_syntax_table`, this is mirrored into thread-local state
+    /// because the category-table helpers currently expose some no-evaluator
+    /// entry points.
+    pub(crate) standard_category_table: Value,
     /// Current buffer-local keymap (set by `use-local-map`).
     pub(crate) current_local_map: Value,
     /// Register manager — quick storage and retrieval of text, positions, etc.
@@ -642,8 +647,6 @@ pub struct Context {
     pub(crate) modes: ModeRegistry,
     /// Thread manager — cooperative threading primitives.
     pub(crate) threads: ThreadManager,
-    /// Category manager — character category tables.
-    pub(crate) category_manager: CategoryManager,
     /// Keyboard macro manager — recording, playback, macro ring.
     pub(crate) kmacro: KmacroManager,
     /// Command loop state — event queue, prefix args, kbd macros, quit flag.
@@ -1472,7 +1475,6 @@ impl Context {
         ev.frames = FrameManager::new();
         ev.modes = ModeRegistry::new();
         ev.threads = ThreadManager::new();
-        ev.category_manager = CategoryManager::new();
         ev.kmacro = KmacroManager::new();
         ev.command_loop = crate::keyboard::CommandLoop::default();
         ev.input_rx = None;
@@ -1577,6 +1579,8 @@ impl Context {
 
         let standard_syntax_table = super::syntax::builtin_standard_syntax_table(Vec::new())
             .expect("startup seeding requires standard syntax table");
+        let standard_category_table = super::category::ensure_standard_category_table_object()
+            .expect("startup seeding requires standard category table");
 
         // Set up standard global variables
         // Match GNU Emacs: MOST_POSITIVE_FIXNUM = EMACS_INT_MAX >> INTTYPEBITS (>> 2)
@@ -2938,6 +2942,7 @@ impl Context {
             timers: TimerManager::new(),
             watchers: VariableWatcherList::new(),
             standard_syntax_table,
+            standard_category_table,
             current_local_map: Value::Nil,
             registers: RegisterManager::new(),
             bookmarks: BookmarkManager::new(),
@@ -2960,7 +2965,6 @@ impl Context {
             frames: FrameManager::new(),
             modes: ModeRegistry::new(),
             threads: ThreadManager::new(),
-            category_manager: CategoryManager::new(),
             kmacro: KmacroManager::new(),
             command_loop: crate::keyboard::CommandLoop::new(),
             input_rx: None,
@@ -2997,6 +3001,7 @@ impl Context {
         set_current_interner(&mut ev.interner);
         set_current_heap(&mut ev.heap);
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
+        super::category::restore_standard_category_table_object(ev.standard_category_table);
         ev
     }
 
@@ -3022,11 +3027,11 @@ impl Context {
         modes: ModeRegistry,
         coding_systems: CodingSystemManager,
         face_table: FaceTable,
-        category_manager: CategoryManager,
         abbrevs: AbbrevManager,
         interactive: InteractiveRegistry,
         rectangle: RectangleState,
         standard_syntax_table: Value,
+        standard_category_table: Value,
         current_local_map: Value,
         kmacro: KmacroManager,
         registers: RegisterManager,
@@ -3049,6 +3054,7 @@ impl Context {
             timers: TimerManager::new(),
             watchers,
             standard_syntax_table,
+            standard_category_table,
             current_local_map,
             registers,
             bookmarks,
@@ -3071,7 +3077,6 @@ impl Context {
             frames: FrameManager::new(),
             modes,
             threads: ThreadManager::new(),
-            category_manager,
             kmacro,
             command_loop: crate::keyboard::CommandLoop::new(),
             input_rx: None,
@@ -3107,6 +3112,7 @@ impl Context {
         set_current_interner(&mut ev.interner);
         set_current_heap(&mut ev.heap);
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
+        super::category::restore_standard_category_table_object(ev.standard_category_table);
 
         // init_builtins is called by Context::new() after new_inner returns.
         ev
@@ -3221,6 +3227,7 @@ impl Context {
         set_current_interner(&mut self.interner);
         set_current_heap(&mut self.heap);
         super::syntax::restore_standard_syntax_table_object(self.standard_syntax_table);
+        super::category::restore_standard_category_table_object(self.standard_category_table);
     }
 
     fn sync_current_buffer_runtime_state(&mut self) -> Result<(), Flow> {

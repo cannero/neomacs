@@ -7,7 +7,6 @@ use super::opcode::Op;
 use crate::buffer::{BufferId, BufferManager, InsertionType, SavedRestrictionState};
 use crate::emacs_core::advice::VariableWatcherList;
 use crate::emacs_core::builtins;
-use crate::emacs_core::category::CategoryManager;
 use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;

@@ -1,30 +1,33 @@
-//! Character category system for the Elisp VM.
+//! Character category tables.
 //!
-//! Implements Emacs-compatible character categories.  Each character can
-//! belong to zero or more *categories*, where a category is a single ASCII
-//! letter (`a`-`z`, `A`-`Z`).  Categories are organized into *category
-//! tables*; a `CategoryManager` keeps track of named tables and the
-//! current table.
+//! GNU Emacs stores category semantics on category-table char-tables:
+//! - the char-table contents are category-set bool-vectors
+//! - extra slot 0 stores the category docstring vector
+//! - the current buffer's `category-table` slot selects the active table
+//!
+//! NeoVM now mirrors that ownership model instead of routing semantics
+//! through a parallel Rust-side manager.
+
+use std::cell::RefCell;
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{intern, resolve_sym};
-use super::value::*;
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use super::intern::resolve_sym;
+use super::value::{RuntimeBindingValue, Value, read_cons, with_heap, with_heap_mut};
 
 thread_local! {
-    static STANDARD_CATEGORY_TABLE: RefCell<Option<Value>> = const { RefCell::new(None) };
-    static PURE_CATEGORY_MANAGER: RefCell<CategoryManager> = RefCell::new(CategoryManager::new());
+    static STANDARD_CATEGORY_TABLE_OBJECT: RefCell<Option<Value>> = const { RefCell::new(None) };
 }
 
-/// Clear cached thread-local category table (must be called when heap changes).
 pub fn reset_category_thread_locals() {
-    STANDARD_CATEGORY_TABLE.with(|slot| *slot.borrow_mut() = None);
+    STANDARD_CATEGORY_TABLE_OBJECT.with(|slot| *slot.borrow_mut() = None);
 }
 
-/// Collect GC roots from the cached category table.
+pub(crate) fn restore_standard_category_table_object(table: Value) {
+    STANDARD_CATEGORY_TABLE_OBJECT.with(|slot| *slot.borrow_mut() = Some(table));
+}
+
 pub fn collect_category_gc_roots(roots: &mut Vec<Value>) {
-    STANDARD_CATEGORY_TABLE.with(|slot| {
+    STANDARD_CATEGORY_TABLE_OBJECT.with(|slot| {
         if let Some(v) = *slot.borrow() {
             roots.push(v);
         }
@@ -32,179 +35,56 @@ pub fn collect_category_gc_roots(roots: &mut Vec<Value>) {
 }
 
 const CATEGORY_TABLE_PROPERTY: &str = "category-table";
+const CATEGORY_DOCSTRING_SLOT: i64 = 0;
+const CATEGORY_VERSION_SLOT: i64 = 1;
+const CATEGORY_DOCSTRING_COUNT: usize = 95;
+const CATEGORY_MIN: i64 = 0x20;
+const CATEGORY_MAX: i64 = 0x7e;
 
-// ===========================================================================
-// CategoryTable
-// ===========================================================================
-
-/// A single category table mapping characters to sets of category letters
-/// and storing per-category descriptions.
-#[derive(Clone, Debug)]
-pub struct CategoryTable {
-    /// Char -> set of category letters the char belongs to.
-    pub entries: HashMap<char, HashSet<char>>,
-    /// Category letter -> human-readable description string.
-    pub descriptions: HashMap<char, String>,
-}
-
-impl CategoryTable {
-    /// Create a new, empty category table.
-    pub fn new() -> Self {
-        let mut descriptions = HashMap::new();
-        // Emacs ships pre-defined category entries, including digit classes.
-        descriptions.insert('1', "decimal digit".to_string());
-        Self {
-            entries: HashMap::new(),
-            descriptions,
-        }
-    }
-
-    /// Define a category letter with a description.
-    ///
-    /// Returns an error string if `cat` is not a valid category letter.
-    pub fn define_category(&mut self, cat: char, docstring: &str) -> Result<(), String> {
-        if !is_category_letter(cat) {
-            return Err(format!(
-                "Invalid category character '{}': must be ASCII graphic",
-                cat
-            ));
-        }
-        // Match official Emacs: redefining a category silently updates
-        // the docstring rather than erroring.
-        self.descriptions.insert(cat, docstring.to_string());
+fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
+    if args.len() < min {
+        Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+        ))
+    } else {
         Ok(())
     }
+}
 
-    /// Return the description for a category letter, or `None`.
-    pub fn category_docstring(&self, cat: char) -> Option<&str> {
-        self.descriptions.get(&cat).map(|s| s.as_str())
-    }
-
-    /// Find an unused category letter (one that has no description defined).
-    /// Searches `a`-`z` then `A`-`Z`.  Returns `None` if all 52 are in use.
-    pub fn get_unused_category(&self) -> Option<char> {
-        for ch in 'a'..='z' {
-            if !self.descriptions.contains_key(&ch) {
-                return Some(ch);
-            }
-        }
-        for ch in 'A'..='Z' {
-            if !self.descriptions.contains_key(&ch) {
-                return Some(ch);
-            }
-        }
-        None
-    }
-
-    /// Add `cat` to the category set of `ch`.
-    pub fn modify_entry(&mut self, ch: char, cat: char, reset: bool) -> Result<(), String> {
-        if !is_category_letter(cat) {
-            return Err(format!(
-                "Invalid category character '{}': must be ASCII graphic",
-                cat
-            ));
-        }
-        let set = self.entries.entry(ch).or_default();
-        if reset {
-            set.remove(&cat);
-        } else {
-            set.insert(cat);
-        }
+fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
+    if args.len() != n {
+        Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+        ))
+    } else {
         Ok(())
     }
+}
 
-    /// Return the set of category letters for `ch` (empty set if none).
-    pub fn char_category_set(&self, ch: char) -> HashSet<char> {
-        self.entries.get(&ch).cloned().unwrap_or_default()
+fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
+    if args.len() > max {
+        Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+        ))
+    } else {
+        Ok(())
     }
 }
 
-impl Default for CategoryTable {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ===========================================================================
-// CategoryManager
-// ===========================================================================
-
-/// Manages named category tables and tracks the current table.
-#[derive(Clone, Debug)]
-pub struct CategoryManager {
-    /// Named tables.  The `"standard"` table is always present.
-    pub tables: HashMap<String, CategoryTable>,
-    /// Name of the currently active table.
-    pub current_table: String,
-}
-
-impl CategoryManager {
-    /// Create a new manager with a pre-created `"standard"` table.
-    pub fn new() -> Self {
-        let mut tables = HashMap::new();
-        tables.insert("standard".to_string(), CategoryTable::new());
-        Self {
-            tables,
-            current_table: "standard".to_string(),
-        }
-    }
-
-    /// Return a reference to the current table.
-    pub fn current(&self) -> &CategoryTable {
-        self.tables
-            .get(&self.current_table)
-            .expect("current_table must exist in tables")
-    }
-
-    /// Return a mutable reference to the current table.
-    pub fn current_mut(&mut self) -> &mut CategoryTable {
-        self.tables
-            .get_mut(&self.current_table)
-            .expect("current_table must exist in tables")
-    }
-
-    /// Return a reference to the standard table.
-    pub fn standard(&self) -> &CategoryTable {
-        self.tables
-            .get("standard")
-            .expect("standard table must always exist")
-    }
-
-    /// Return a mutable reference to the standard table.
-    pub fn standard_mut(&mut self) -> &mut CategoryTable {
-        self.tables
-            .get_mut("standard")
-            .expect("standard table must always exist")
-    }
-}
-
-impl Default for CategoryManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ===========================================================================
-// Helpers
-// ===========================================================================
-
-/// Return `true` if `ch` is a valid category code (0x20..=0x7E).
-/// Matches official Emacs `CATEGORYP` which uses `RANGED_FIXNUMP(0x20, x, 0x7E)`.
 fn is_category_letter(ch: char) -> bool {
-    ('\x20'..='\x7E').contains(&ch)
+    (CATEGORY_MIN as u8 as char..=CATEGORY_MAX as u8 as char).contains(&ch)
 }
 
-/// Extract a character argument from a `Value`, accepting both `Char` and
-/// `Int` (code-point) forms.  Returns `Ok(None)` for internal Emacs codes
-/// above the Unicode range (0x10FFFF < code <= 0x3FFFFF).
 fn extract_char_opt(value: &Value, fn_name: &str) -> Result<Option<char>, Flow> {
     match value {
         Value::Char(c) => Ok(Some(*c)),
         Value::Int(n) => {
             if let Some(c) = char::from_u32(*n as u32) {
                 Ok(Some(c))
-            } else if (0..=0x3FFFFF).contains(n) {
-                // Internal Emacs char code above Unicode range
+            } else if (0..=0x3F_FFFF).contains(n) {
                 Ok(None)
             } else {
                 Err(signal(
@@ -223,7 +103,6 @@ fn extract_char_opt(value: &Value, fn_name: &str) -> Result<Option<char>, Flow> 
     }
 }
 
-/// Extract a character argument, signaling an error for non-Unicode codes.
 fn extract_char(value: &Value, fn_name: &str) -> Result<char, Flow> {
     extract_char_opt(value, fn_name)?.ok_or_else(|| {
         signal(
@@ -236,48 +115,36 @@ fn extract_char(value: &Value, fn_name: &str) -> Result<char, Flow> {
     })
 }
 
-/// Expect at least `min` arguments, signalling `wrong-number-of-arguments`
-/// otherwise.
-fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
-    if args.len() < min {
-        Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
-        ))
-    } else {
-        Ok(())
+fn extract_char_code(value: &Value, fn_name: &str) -> Result<i64, Flow> {
+    match value {
+        Value::Char(c) => Ok(*c as i64),
+        Value::Int(n) if (0..=0x3F_FFFF).contains(n) => Ok(*n),
+        Value::Int(n) => Err(signal(
+            "error",
+            vec![Value::string(format!(
+                "{}: Invalid character code: {}",
+                fn_name, n
+            ))],
+        )),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("characterp"), *other],
+        )),
     }
 }
 
-/// Expect exactly `n` arguments.
-fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
-    if args.len() != n {
-        Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
-        ))
-    } else {
-        Ok(())
-    }
+fn make_empty_category_set() -> EvalResult {
+    super::chartable::builtin_make_bool_vector(vec![Value::Int(128), Value::Nil])
 }
 
-/// Expect at most `max` arguments.
-fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
-    if args.len() > max {
-        Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
-        ))
-    } else {
-        Ok(())
+fn clone_vector_value(value: &Value) -> EvalResult {
+    match value {
+        Value::Vector(v) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("vectorp"), *other],
+        )),
     }
-}
-
-fn make_category_table_object() -> EvalResult {
-    Ok(super::chartable::make_char_table_value(
-        Value::symbol("category-table"),
-        Value::Nil,
-    ))
 }
 
 fn is_category_table_value(value: &Value) -> Result<bool, Flow> {
@@ -287,6 +154,38 @@ fn is_category_table_value(value: &Value) -> Result<bool, Flow> {
     }
     let subtype = super::chartable::builtin_char_table_subtype(vec![*value])?;
     Ok(matches!(subtype, Value::Symbol(id) if resolve_sym(id) == "category-table"))
+}
+
+fn make_category_table_object() -> EvalResult {
+    let default = make_empty_category_set()?;
+    let table = super::chartable::make_char_table_with_extra_slots(
+        Value::symbol("category-table"),
+        default,
+        2,
+    );
+    super::chartable::builtin_set_char_table_extra_slot(vec![
+        table,
+        Value::Int(CATEGORY_DOCSTRING_SLOT),
+        Value::vector(vec![Value::Nil; CATEGORY_DOCSTRING_COUNT]),
+    ])?;
+    super::chartable::builtin_set_char_table_extra_slot(vec![
+        table,
+        Value::Int(CATEGORY_VERSION_SLOT),
+        Value::Nil,
+    ])?;
+    Ok(table)
+}
+
+pub(crate) fn ensure_standard_category_table_object() -> EvalResult {
+    STANDARD_CATEGORY_TABLE_OBJECT.with(|slot| {
+        if let Some(table) = slot.borrow().as_ref() {
+            return Ok(*table);
+        }
+
+        let table = make_category_table_object()?;
+        *slot.borrow_mut() = Some(table);
+        Ok(table)
+    })
 }
 
 fn clone_char_table_object(value: &Value) -> EvalResult {
@@ -299,29 +198,97 @@ fn clone_char_table_object(value: &Value) -> EvalResult {
     }
 }
 
-fn ensure_standard_category_table() -> EvalResult {
-    STANDARD_CATEGORY_TABLE.with(|slot| {
-        if let Some(table) = slot.borrow().as_ref() {
-            return Ok(*table);
-        }
+fn deep_copy_category_table(source: &Value) -> EvalResult {
+    if !is_category_table_value(source)? {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("category-table-p"), *source],
+        ));
+    }
 
-        let table = make_category_table_object()?;
-        *slot.borrow_mut() = Some(table);
-        Ok(table)
-    })
+    let copy = clone_char_table_object(source)?;
+    let default = super::chartable::builtin_char_table_range(vec![*source, Value::Nil])?;
+    if matches!(default, Value::Vector(_)) {
+        super::chartable::builtin_set_char_table_range(vec![
+            copy,
+            Value::Nil,
+            clone_vector_value(&default)?,
+        ])?;
+    }
+
+    let docstrings = super::chartable::builtin_char_table_extra_slot(vec![
+        *source,
+        Value::Int(CATEGORY_DOCSTRING_SLOT),
+    ])?;
+    super::chartable::builtin_set_char_table_extra_slot(vec![
+        copy,
+        Value::Int(CATEGORY_DOCSTRING_SLOT),
+        clone_vector_value(&docstrings)?,
+    ])?;
+
+    for (key, value) in super::chartable::char_table_local_entries(source)? {
+        let copied = if matches!(value, Value::Vector(_)) {
+            clone_vector_value(&value)?
+        } else {
+            value
+        };
+        super::chartable::builtin_set_char_table_range(vec![copy, key, copied])?;
+    }
+
+    Ok(copy)
 }
 
-fn category_table_pointer_eq(lhs: &Value, rhs: &Value) -> bool {
-    match (lhs, rhs) {
-        (Value::Vector(a), Value::Vector(b)) => a == b,
-        _ => false,
-    }
+fn category_doc_index(category: char) -> usize {
+    (category as usize) - (CATEGORY_MIN as usize)
+}
+
+fn category_docstrings(table: Value) -> Result<Value, Flow> {
+    super::chartable::builtin_char_table_extra_slot(vec![
+        table,
+        Value::Int(CATEGORY_DOCSTRING_SLOT),
+    ])
+}
+
+fn category_docstring_in_table(table: Value, category: char) -> Result<Value, Flow> {
+    let docs = category_docstrings(table)?;
+    let Value::Vector(arc) = docs else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("vectorp"), docs],
+        ));
+    };
+    let docs = with_heap(|h| h.get_vector(arc).clone());
+    Ok(docs
+        .get(category_doc_index(category))
+        .copied()
+        .unwrap_or(Value::Nil))
+}
+
+fn set_category_docstring_in_table(
+    table: Value,
+    category: char,
+    docstring: Value,
+) -> Result<(), Flow> {
+    let docs = category_docstrings(table)?;
+    let Value::Vector(arc) = docs else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("vectorp"), docs],
+        ));
+    };
+    with_heap_mut(|h| {
+        let vec = h.get_vector_mut(arc);
+        let idx = category_doc_index(category);
+        if idx < vec.len() {
+            vec[idx] = docstring;
+        }
+    });
+    Ok(())
 }
 
 fn current_buffer_category_table_in_buffers(
     buffers: &mut crate::buffer::BufferManager,
 ) -> Result<Value, Flow> {
-    let fallback = ensure_standard_category_table()?;
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
@@ -332,17 +299,37 @@ fn current_buffer_category_table_in_buffers(
     if let Some(RuntimeBindingValue::Bound(table)) =
         buf.get_buffer_local_binding(CATEGORY_TABLE_PROPERTY)
     {
-        if is_category_table_value(&table)? {
-            return Ok(table);
-        }
+        return Ok(table);
     }
 
+    let fallback = ensure_standard_category_table_object()?;
     let _ = buffers.set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, fallback);
     Ok(fallback)
 }
 
-fn current_buffer_category_table(eval: &mut super::eval::Context) -> Result<Value, Flow> {
-    current_buffer_category_table_in_buffers(&mut eval.buffers)
+fn check_category_table_in_buffers(
+    buffers: &mut crate::buffer::BufferManager,
+    table: Option<Value>,
+) -> Result<Value, Flow> {
+    match table {
+        None | Some(Value::Nil) => current_buffer_category_table_in_buffers(buffers),
+        Some(table) => {
+            if !is_category_table_value(&table)? {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("category-table-p"), table],
+                ));
+            }
+            Ok(table)
+        }
+    }
+}
+
+fn check_category_table(
+    eval: &mut super::eval::Context,
+    table: Option<Value>,
+) -> Result<Value, Flow> {
+    check_category_table_in_buffers(&mut eval.buffers, table)
 }
 
 fn set_current_buffer_category_table_in_buffers(
@@ -356,43 +343,54 @@ fn set_current_buffer_category_table_in_buffers(
     Ok(())
 }
 
-fn set_current_buffer_category_table(
-    eval: &mut super::eval::Context,
-    table: Value,
-) -> Result<(), Flow> {
-    set_current_buffer_category_table_in_buffers(&mut eval.buffers, table)
+fn category_set_contains(category_set: &Value, category: char) -> Result<bool, Flow> {
+    let Value::Vector(arc) = category_set else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("categorysetp"), *category_set],
+        ));
+    };
+    let vec = with_heap(|h| h.get_vector(*arc).clone());
+    let bit_idx = 2 + (category as usize);
+    Ok(matches!(vec.get(bit_idx), Some(Value::Int(n)) if *n != 0))
 }
 
-// ===========================================================================
-// Pure builtins (no evaluator needed)
-// ===========================================================================
+fn set_category_set_member(
+    category_set: &Value,
+    category: char,
+    present: bool,
+) -> Result<(), Flow> {
+    let Value::Vector(arc) = category_set else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("categorysetp"), *category_set],
+        ));
+    };
+    with_heap_mut(|h| {
+        let vec = h.get_vector_mut(*arc);
+        let bit_idx = 2 + (category as usize);
+        if bit_idx < vec.len() {
+            vec[bit_idx] = Value::Int(if present { 1 } else { 0 });
+        }
+    });
+    Ok(())
+}
 
-/// `(category-table-p OBJ)`
-///
-/// Return t if OBJ is a category table.  In this implementation, category
-/// tables are represented as char-tables with subtype `category-table`.
 pub(crate) fn builtin_category_table_p(args: Vec<Value>) -> EvalResult {
     expect_args("category-table-p", &args, 1)?;
     Ok(Value::bool(is_category_table_value(&args[0])?))
 }
 
-/// `(make-category-table)`
-///
-/// Create a new (empty) category table.
 pub(crate) fn builtin_make_category_table(args: Vec<Value>) -> EvalResult {
     expect_max_args("make-category-table", &args, 0)?;
     make_category_table_object()
 }
 
-/// `(copy-category-table &optional TABLE)`
-///
-/// Return a fresh copy of TABLE.  When TABLE is omitted or nil, copy the
-/// process-wide standard category table.
 pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
     expect_max_args("copy-category-table", &args, 1)?;
 
     let source = match args.first() {
-        None | Some(Value::Nil) => ensure_standard_category_table()?,
+        None | Some(Value::Nil) => ensure_standard_category_table_object()?,
         Some(table) => {
             if !is_category_table_value(table)? {
                 return Err(signal(
@@ -404,19 +402,13 @@ pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
         }
     };
 
-    clone_char_table_object(&source)
+    deep_copy_category_table(&source)
 }
 
-/// `(make-category-set CATEGORIES)`
-///
-/// Return a bool-vector representing a set of categories.
-/// CATEGORIES is a string of category letters.
-/// The resulting bool-vector has 128 slots (one per ASCII code);
-/// positions corresponding to the given category letters are set to t.
 pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
     expect_args("make-category-set", &args, 1)?;
 
-    let cats = match &args[0] {
+    let categories = match &args[0] {
         Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
@@ -426,31 +418,20 @@ pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
         }
     };
 
-    // Build a bool-vector of 128 slots (matching Emacs behavior).
     let mut bits = vec![Value::Int(0); 128];
-    for ch in cats.chars() {
+    for ch in categories.chars() {
         if is_category_letter(ch) {
-            let idx = ch as usize;
-            if idx < 128 {
-                bits[idx] = Value::Int(1);
-            }
+            bits[ch as usize] = Value::Int(1);
         }
     }
 
-    // Return as a plain list of 0/1 values wrapped in a cons.
-    // In Emacs this would be a bool-vector, but for compatibility with our
-    // bool-vector implementation we construct one using the tagged-vector
-    // convention from chartable.rs.
-    let mut vec = Vec::with_capacity(2 + 128);
-    vec.push(Value::Symbol(intern("--bool-vector--")));
+    let mut vec = Vec::with_capacity(130);
+    vec.push(Value::symbol("--bool-vector--"));
     vec.push(Value::Int(128));
     vec.extend(bits);
     Ok(Value::vector(vec))
 }
 
-/// `(category-set-mnemonics CATEGORY-SET)`
-///
-/// Return CATEGORY-SET as a sorted mnemonic string.
 pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
     expect_args("category-set-mnemonics", &args, 1)?;
 
@@ -473,106 +454,85 @@ pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
     }
 
     let mut out = String::new();
-    for idx in 0..128usize {
-        let is_set = match &bits[2 + idx] {
-            Value::Nil => false,
-            Value::Int(0) => false,
+    for idx in CATEGORY_MIN as usize..=CATEGORY_MAX as usize {
+        let is_set = match bits.get(2 + idx) {
+            Some(Value::Nil) => false,
+            Some(Value::Int(0)) | None => false,
             _ => true,
         };
         if is_set {
-            let ch = idx as u8 as char;
-            if is_category_letter(ch) {
-                out.push(ch);
-            }
+            out.push(idx as u8 as char);
         }
     }
 
     Ok(Value::string(&out))
 }
 
-// ===========================================================================
-// Eval-dependent builtins (require evaluator / CategoryManager access)
-// ===========================================================================
-
-/// `(modify-category-entry CHAR CATEGORY &optional TABLE RESET)`
-///
-/// Add (or remove when RESET is non-nil) CATEGORY from the category set
-/// of CHAR in the current category table.
 pub(crate) fn builtin_modify_category_entry(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    modify_category_entry_in_manager(&mut eval.category_manager, &args)
-}
-
-pub(crate) fn modify_category_entry_in_manager(
-    category_manager: &mut CategoryManager,
-    args: &[Value],
-) -> EvalResult {
     expect_min_args("modify-category-entry", &args, 2)?;
     expect_max_args("modify-category-entry", &args, 4)?;
 
-    let cat = extract_char(&args[1], "modify-category-entry")?;
-
-    // TABLE (arg 2) is ignored — we always use the current table.
-    let reset = if args.len() >= 4 {
-        args[3].is_truthy()
-    } else {
-        false
-    };
-
-    if !is_category_letter(cat) {
+    let category = extract_char(&args[1], "modify-category-entry")?;
+    if !is_category_letter(category) {
         return Err(signal(
             "error",
             vec![Value::string(format!(
                 "Invalid category character '{}': must be 0x20..0x7E",
-                cat
+                category
             ))],
         ));
     }
 
-    // First argument: single character OR range (FROM . TO).
-    match &args[0] {
+    let table = check_category_table(eval, args.get(2).copied())?;
+    if category_docstring_in_table(table, category)?.is_nil() {
+        return Err(signal(
+            "error",
+            vec![Value::string(format!("Undefined category: {}", category))],
+        ));
+    }
+    let reset = args.get(3).is_some_and(Value::is_truthy);
+
+    let (start, end) = match &args[0] {
         Value::Cons(cell) => {
-            // Range: (FROM . TO)
             let pair = read_cons(*cell);
-            let from = extract_char_opt(&pair.car, "modify-category-entry")?;
-            let to = extract_char_opt(&pair.cdr, "modify-category-entry")?;
-            match (from, to) {
-                (Some(f), Some(t)) => {
-                    let table = category_manager.current_mut();
-                    for cp in (f as u32)..=(t as u32) {
-                        if let Some(ch) = char::from_u32(cp) {
-                            table
-                                .modify_entry(ch, cat, reset)
-                                .map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
-                        }
-                    }
-                }
-                _ => {
-                    // Range endpoints are non-Unicode Emacs internal codes;
-                    // silently skip.
-                }
-            }
+            (
+                extract_char_code(&pair.car, "modify-category-entry")?,
+                extract_char_code(&pair.cdr, "modify-category-entry")?,
+            )
         }
-        _ => {
-            if let Some(ch) = extract_char_opt(&args[0], "modify-category-entry")? {
-                category_manager
-                    .current_mut()
-                    .modify_entry(ch, cat, reset)
-                    .map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
-            }
-            // Non-Unicode internal code: silently skip.
+        value => {
+            let ch = extract_char_code(value, "modify-category-entry")?;
+            (ch, ch)
         }
+    };
+
+    if start > end {
+        return Ok(Value::Nil);
+    }
+
+    let mut cursor = start;
+    while cursor <= end {
+        let (existing, _from, to) = super::chartable::char_table_ref_and_range(&table, cursor)?;
+        let has_category = category_set_contains(&existing, category)?;
+        if has_category == reset {
+            let updated = clone_vector_value(&existing)?;
+            set_category_set_member(&updated, category, !reset)?;
+            let key = if cursor == to {
+                Value::Int(cursor)
+            } else {
+                Value::cons(Value::Int(cursor), Value::Int(to))
+            };
+            super::chartable::builtin_set_char_table_range(vec![table, key, updated])?;
+        }
+        cursor = to.saturating_add(1);
     }
 
     Ok(Value::Nil)
 }
 
-/// `(define-category CHAR DOCSTRING &optional TABLE)` (evaluator-backed).
-///
-/// Stores the category docstring in the active category manager table and
-/// returns nil.
 pub(crate) fn builtin_define_category(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -580,9 +540,18 @@ pub(crate) fn builtin_define_category(
     expect_min_args("define-category", &args, 2)?;
     expect_max_args("define-category", &args, 3)?;
 
-    let cat = extract_char(&args[0], "define-category")?;
+    let category = extract_char(&args[0], "define-category")?;
+    if !is_category_letter(category) {
+        return Err(signal(
+            "error",
+            vec![Value::string(format!(
+                "Invalid category character '{}': must be ASCII graphic",
+                category
+            ))],
+        ));
+    }
     let docstring = match &args[1] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+        Value::Str(id) => Value::string(with_heap(|h| h.get_string(*id).to_owned())),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -590,30 +559,21 @@ pub(crate) fn builtin_define_category(
             ));
         }
     };
-
-    if !is_category_letter(cat) {
+    let table = check_category_table(eval, args.get(2).copied())?;
+    if !category_docstring_in_table(table, category)?.is_nil() {
         return Err(signal(
             "error",
             vec![Value::string(format!(
-                "Invalid category character '{}': must be ASCII graphic",
-                cat
+                "Category ‘{}’ is already defined",
+                category
             ))],
         ));
     }
 
-    // TABLE (arg 2) is currently ignored; category tables are not first-class.
-    eval.category_manager
-        .current_mut()
-        .define_category(cat, &docstring)
-        .map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
-
-    let _ = docstring;
+    set_category_docstring_in_table(table, category, docstring)?;
     Ok(Value::Nil)
 }
 
-/// `(category-docstring CATEGORY &optional TABLE)` (evaluator-backed).
-///
-/// Returns the category docstring from the active table, or nil when absent.
 pub(crate) fn builtin_category_docstring(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -621,66 +581,37 @@ pub(crate) fn builtin_category_docstring(
     expect_min_args("category-docstring", &args, 1)?;
     expect_max_args("category-docstring", &args, 2)?;
 
-    let cat = extract_char(&args[0], "category-docstring")?;
-    // TABLE (arg 1) is currently ignored; category tables are not first-class.
-    let _ = args.get(1);
-
-    match eval.category_manager.current().category_docstring(cat) {
-        Some(doc) => Ok(Value::string(doc)),
-        None => Ok(Value::Nil),
-    }
+    let category = extract_char(&args[0], "category-docstring")?;
+    let table = check_category_table(eval, args.get(1).copied())?;
+    category_docstring_in_table(table, category)
 }
 
-/// `(get-unused-category &optional TABLE)` (evaluator-backed).
-///
-/// Returns the first unused category letter in the active table, or nil.
 pub(crate) fn builtin_get_unused_category(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("get-unused-category", &args, 1)?;
-    // TABLE (arg 0) is currently ignored; category tables are not first-class.
-    let _ = args.first();
 
-    match eval.category_manager.current().get_unused_category() {
-        Some(cat) => Ok(Value::Char(cat)),
-        None => Ok(Value::Nil),
+    let table = check_category_table(eval, args.first().copied())?;
+    for code in CATEGORY_MIN..=CATEGORY_MAX {
+        let category = char::from_u32(code as u32).expect("ASCII category code");
+        if category_docstring_in_table(table, category)?.is_nil() {
+            return Ok(Value::Char(category));
+        }
     }
+    Ok(Value::Nil)
 }
 
-/// `(char-category-set CHAR)`
-///
-/// Return a bool-vector of 128 elements indicating which categories CHAR
-/// belongs to in the current category table.
 pub(crate) fn builtin_char_category_set(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("char-category-set", &args, 1)?;
-
-    let ch = extract_char(&args[0], "char-category-set")?;
-
-    let cats = eval.category_manager.current().char_category_set(ch);
-
-    // Build a 128-element bool-vector.
-    let mut bits = vec![Value::Int(0); 128];
-    for &cat in &cats {
-        let idx = cat as usize;
-        if idx < 128 {
-            bits[idx] = Value::Int(1);
-        }
-    }
-
-    let mut vec = Vec::with_capacity(2 + 128);
-    vec.push(Value::Symbol(intern("--bool-vector--")));
-    vec.push(Value::Int(128));
-    vec.extend(bits);
-    Ok(Value::vector(vec))
+    let _ = extract_char_code(&args[0], "char-category-set")?;
+    let table = current_buffer_category_table_in_buffers(&mut eval.buffers)?;
+    super::chartable::builtin_char_table_range(vec![table, args[0]])
 }
 
-/// `(category-table)` (evaluator-backed).
-///
-/// Return the current buffer's category table object.
 pub(crate) fn builtin_category_table(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -696,20 +627,14 @@ pub(crate) fn builtin_category_table_in_buffers(
     current_buffer_category_table_in_buffers(buffers)
 }
 
-/// `(standard-category-table)` (evaluator-backed).
-///
-/// Return the process-wide standard category table object.
 pub(crate) fn builtin_standard_category_table(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("standard-category-table", &args, 0)?;
-    ensure_standard_category_table()
+    ensure_standard_category_table_object()
 }
 
-/// `(set-category-table TABLE)` (evaluator-backed).
-///
-/// Install TABLE in the current buffer and return the installed table.
 pub(crate) fn builtin_set_category_table(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -723,31 +648,11 @@ pub(crate) fn builtin_set_category_table_in_buffers(
 ) -> EvalResult {
     expect_args("set-category-table", &args, 1)?;
 
-    let installed = if args[0].is_nil() {
-        let current = current_buffer_category_table_in_buffers(buffers)?;
-        let standard = ensure_standard_category_table()?;
-        if category_table_pointer_eq(&current, &standard) {
-            standard
-        } else {
-            clone_char_table_object(&standard)?
-        }
-    } else {
-        if !is_category_table_value(&args[0])? {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("category-table-p"), args[0]],
-            ));
-        }
-        args[0]
-    };
-
+    let installed = check_category_table_in_buffers(buffers, args.first().copied())?;
     set_current_buffer_category_table_in_buffers(buffers, installed)?;
     Ok(installed)
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
 #[cfg(test)]
 #[path = "category_test.rs"]
 mod tests;
