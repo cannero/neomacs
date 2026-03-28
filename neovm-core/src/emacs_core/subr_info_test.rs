@@ -2130,45 +2130,39 @@ fn fallback_macro_with_demoted_errors_no_longer_present() {
 #[test]
 fn fallback_macro_only_keeps_source_bootstrap_shims() {
     for name in [
+        "eval-and-compile",
         "eval-when-compile",
+        "defvar-local",
         "track-mouse",
+        "with-current-buffer",
+        "with-temp-buffer",
+        "with-output-to-string",
         "with-syntax-table",
         "with-mutex",
     ] {
         assert!(
             fallback_macro_value(name).is_none(),
-            "{name} should be owned by GNU Lisp macros, not fallback placeholders"
-        );
-    }
-
-    for name in [
-        "eval-and-compile",
-        "defvar-local",
-        "with-temp-buffer",
-        "with-output-to-string",
-    ] {
-        assert!(
-            fallback_macro_value(name).is_some(),
-            "{name} should remain available as a source-bootstrap shim"
+            "{name} should remain GNU Lisp-owned, not a fallback placeholder"
         );
     }
 }
 
 #[test]
-fn source_bootstrap_magic_forms_are_not_evaluator_special_forms() {
+fn gnu_lisp_macro_forms_are_not_evaluator_special_forms() {
     for name in [
+        "eval-when-compile",
         "eval-and-compile",
         "defvar-local",
+        "track-mouse",
+        "with-current-buffer",
         "with-temp-buffer",
         "with-output-to-string",
+        "with-syntax-table",
+        "with-mutex",
     ] {
         assert!(
-            is_source_bootstrap_magic_form_name(name),
-            "{name} should be recognized as a source-bootstrap shim"
-        );
-        assert!(
             !is_evaluator_special_form_name(name),
-            "{name} should not remain in the evaluator special-form table"
+            "{name} should remain a GNU Lisp macro, not an evaluator special form"
         );
     }
 }

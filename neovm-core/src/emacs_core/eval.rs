@@ -1522,6 +1522,7 @@ impl Context {
         ev.interpreted_closure_filter_fn = None;
         ev.interpreted_closure_trim_cache.clear();
         ev.materialize_public_evaluator_function_cells();
+        super::bootstrap_macros::install_bootstrap_macro_function_cells(&mut ev);
         ev
     }
 
@@ -5514,13 +5515,6 @@ impl Context {
             // because they are not public GNU subrs. Public special forms are
             // materialized into the function cell during init and should not be
             // recreated here.
-            if self.obarray.symbol_function_id(sym_id).is_none()
-                && !self.obarray.is_function_unbound_id(sym_id)
-                && let Some(result) = self.try_source_bootstrap_magic_form(name, tail)
-            {
-                return result;
-            }
-
             if !self.obarray.is_function_unbound_id(sym_id)
                 && !super::subr_info::is_special_form(name)
             {
@@ -5769,23 +5763,6 @@ impl Context {
         // accumulate depth beyond the initial call's increment.
         let saved_depth = self.depth;
         let result = self.try_special_form_inner(name, tail);
-        self.depth = saved_depth;
-        result
-    }
-
-    fn try_source_bootstrap_magic_form(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
-        if !super::subr_info::is_source_bootstrap_magic_form_name(name) {
-            return None;
-        }
-
-        let saved_depth = self.depth;
-        let result = Some(match name {
-            "defvar-local" => super::custom::sf_defvar_local(self, tail),
-            "eval-and-compile" => super::autoload::sf_eval_and_compile(self, tail),
-            "with-output-to-string" => super::reader::sf_with_output_to_string(self, tail),
-            "with-temp-buffer" => super::misc::sf_with_temp_buffer(self, tail),
-            _ => return None,
-        });
         self.depth = saved_depth;
         result
     }

@@ -135,15 +135,6 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
     )
 }
 
-/// GNU Lisp macros that NeoVM still has to support before their defining file
-/// reaches the real `defmacro` during source bootstrap.
-pub(crate) fn is_source_bootstrap_magic_form_name(name: &str) -> bool {
-    matches!(
-        name,
-        "eval-and-compile" | "defvar-local" | "with-output-to-string" | "with-temp-buffer"
-    )
-}
-
 /// Returns true for special forms exposed by `special-form-p`.
 ///
 /// Emacs distinguishes evaluator internals from public special forms:
@@ -168,7 +159,7 @@ pub(crate) fn is_evaluator_sf_skip_macroexpand(_name: &str) -> bool {
 
 pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {
     let is_macro = has_fallback_macro(name) || name == "declare";
-    debug_assert!(!is_macro || is_source_bootstrap_magic_form_name(name) || name == "declare");
+    debug_assert!(!is_macro || name == "declare");
     is_macro
 }
 
@@ -186,15 +177,9 @@ struct FallbackMacroSpec {
 
 fn fallback_macro_spec(name: &str) -> Option<FallbackMacroSpec> {
     match name {
-        // Bootstrap-only macro placeholders for GNU Lisp macros that must be
-        // callable before their defining file has reached the defmacro form.
-        "with-temp-buffer" | "with-output-to-string" | "declare" | "eval-and-compile" => {
-            Some(FallbackMacroSpec { min: 0, max: None })
-        }
-        "defvar-local" => Some(FallbackMacroSpec {
-            min: 2,
-            max: Some(3),
-        }),
+        // `declare` remains evaluator-internal; GNU Lisp bootstrap macros now
+        // come from temporary macro function cells instead of placeholders.
+        "declare" => Some(FallbackMacroSpec { min: 0, max: None }),
         _ => None,
     }
 }
@@ -228,9 +213,8 @@ fn fallback_macro_params(spec: FallbackMacroSpec) -> LambdaParams {
 
 /// Return a placeholder macro object for evaluator-integrated macro names.
 ///
-/// This keeps `fboundp`/`symbol-function`/`indirect-function`/`macrop`
-/// introspection aligned with Emacs for core macros even when they are not
-/// materialized via Elisp bootstrap code in the function cell.
+/// Today this is only used for `declare`; GNU Lisp bootstrap macros are
+/// installed as temporary real macro cells by `bootstrap_macros.rs`.
 pub(crate) fn fallback_macro_value(name: &str) -> Option<Value> {
     let spec = fallback_macro_spec(name)?;
     Some(Value::make_macro(LambdaData {

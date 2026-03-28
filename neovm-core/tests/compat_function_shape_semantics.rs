@@ -90,6 +90,7 @@ fn compat_gnu_lisp_macro_surface_matches_gnu_emacs() {
     let form = r#"(let ((symbols '(eval-when-compile
                         eval-and-compile
                         defvar-local
+                        with-current-buffer
                         with-temp-buffer
                         with-output-to-string
                         track-mouse
