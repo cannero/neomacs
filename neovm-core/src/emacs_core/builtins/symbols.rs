@@ -3896,7 +3896,14 @@ pub(crate) fn builtin_interactive_form(
                 // GNU Emacs (data.c:1195-1209): For oclosures (closures with
                 // non-docstring doc_form), call `(oclosure-interactive-form fun)`
                 // via cl-generic dispatch.  This handles advice wrappers etc.
-                let is_genfun = match target {
+                // Resolve target to the actual function value (target may be
+                // a symbol name).
+                let fun = if let Some(name) = target.as_symbol_name() {
+                    resolve_indirect_symbol(eval, name).unwrap_or(target)
+                } else {
+                    target
+                };
+                let is_genfun = match fun {
                     Value::Lambda(id) | Value::Macro(id) => {
                         let lambda = with_heap(|h| h.get_lambda(id).clone());
                         lambda
@@ -3907,7 +3914,7 @@ pub(crate) fn builtin_interactive_form(
                 };
                 if is_genfun {
                     if let Ok(result) =
-                        eval.apply(Value::symbol("oclosure-interactive-form"), vec![target])
+                        eval.apply(Value::symbol("oclosure-interactive-form"), vec![fun])
                     {
                         if !result.is_nil() {
                             return Ok(result);
