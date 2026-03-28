@@ -1,5 +1,23 @@
 use super::super::intern::intern;
 use super::*;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
+
+fn bootstrap_context() -> Context {
+    let mut evaluator = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut evaluator).expect("runtime startup state");
+    evaluator
+}
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut evaluator = bootstrap_context();
+    let forms = parse_forms(src).expect("parse");
+    evaluator
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
 
 // =======================================================================
 // ErrorRegistry (standalone HashMap-based) tests
@@ -276,23 +294,14 @@ fn obarray_unknown_signal_no_conditions() {
 }
 
 // =======================================================================
-// sf_define_error tests (via Context)
+// define-error runtime tests (via bootstrapped GNU Lisp)
 // =======================================================================
 
 #[test]
-fn sf_define_error_basic() {
-    let mut evaluator = super::super::eval::Context::new();
-    init_standard_errors(&mut evaluator.obarray);
-
-    // (define-error 'my-error "My error")
-    let tail = vec![
-        Expr::List(vec![
-            Expr::Symbol(intern("quote")),
-            Expr::Symbol(intern("my-error")),
-        ]),
-        Expr::Str("My error".to_string()),
-    ];
-    let result = sf_define_error(&mut evaluator, &tail);
+fn define_error_basic() {
+    let mut evaluator = bootstrap_context();
+    let forms = parse_forms(r#"(define-error 'my-error "My error")"#).expect("parse");
+    let result = evaluator.eval_expr(&forms[0]);
     assert!(result.is_ok());
 
     // Check plist.
@@ -312,23 +321,11 @@ fn sf_define_error_basic() {
 }
 
 #[test]
-fn sf_define_error_with_parent() {
-    let mut evaluator = super::super::eval::Context::new();
-    init_standard_errors(&mut evaluator.obarray);
-
-    // (define-error 'my-file-error "My file error" 'file-error)
-    let tail = vec![
-        Expr::List(vec![
-            Expr::Symbol(intern("quote")),
-            Expr::Symbol(intern("my-file-error")),
-        ]),
-        Expr::Str("My file error".to_string()),
-        Expr::List(vec![
-            Expr::Symbol(intern("quote")),
-            Expr::Symbol(intern("file-error")),
-        ]),
-    ];
-    let result = sf_define_error(&mut evaluator, &tail);
+fn define_error_with_parent() {
+    let mut evaluator = bootstrap_context();
+    let forms =
+        parse_forms(r#"(define-error 'my-file-error "My file error" 'file-error)"#).expect("parse");
+    let result = evaluator.eval_expr(&forms[0]);
     assert!(result.is_ok());
 
     assert!(signal_matches_hierarchical(
@@ -344,26 +341,11 @@ fn sf_define_error_with_parent() {
 }
 
 #[test]
-fn sf_define_error_with_parent_list() {
-    let mut evaluator = super::super::eval::Context::new();
-    init_standard_errors(&mut evaluator.obarray);
-
-    // (define-error 'multi-error "Multi" '(file-error arith-error))
-    let tail = vec![
-        Expr::List(vec![
-            Expr::Symbol(intern("quote")),
-            Expr::Symbol(intern("multi-error")),
-        ]),
-        Expr::Str("Multi".to_string()),
-        Expr::List(vec![
-            Expr::Symbol(intern("quote")),
-            Expr::List(vec![
-                Expr::Symbol(intern("file-error")),
-                Expr::Symbol(intern("arith-error")),
-            ]),
-        ]),
-    ];
-    let result = sf_define_error(&mut evaluator, &tail);
+fn define_error_with_parent_list() {
+    let mut evaluator = bootstrap_context();
+    let forms = parse_forms(r#"(define-error 'multi-error "Multi" '(file-error arith-error))"#)
+        .expect("parse");
+    let result = evaluator.eval_expr(&forms[0]);
     assert!(result.is_ok());
 
     assert!(signal_matches_hierarchical(
@@ -384,51 +366,22 @@ fn sf_define_error_with_parent_list() {
 }
 
 #[test]
-fn sf_define_error_wrong_type_name() {
-    let mut evaluator = super::super::eval::Context::new();
-    init_standard_errors(&mut evaluator.obarray);
-
-    // (define-error 42 "Bad") — name is not a symbol.
-    let tail = vec![Expr::Int(42), Expr::Str("Bad".to_string())];
-    let result = sf_define_error(&mut evaluator, &tail);
-    assert!(result.is_err());
+fn define_error_wrong_type_name() {
+    let results = bootstrap_eval_all(r#"(condition-case err (define-error 42 "Bad") (error err))"#);
+    assert_eq!(results[0], "OK (wrong-type-argument symbolp 42)");
 }
 
 #[test]
-fn sf_define_error_wrong_type_message() {
-    let mut evaluator = super::super::eval::Context::new();
-    init_standard_errors(&mut evaluator.obarray);
-
-    // (define-error 'foo 42) — message is not a string.
-    let tail = vec![
-        Expr::List(vec![
-            Expr::Symbol(intern("quote")),
-            Expr::Symbol(intern("foo")),
-        ]),
-        Expr::Int(42),
-    ];
-    let result = sf_define_error(&mut evaluator, &tail);
-    assert!(result.is_err());
+fn define_error_wrong_type_message() {
+    let results = bootstrap_eval_all(r#"(condition-case err (define-error 'foo 42) (error err))"#);
+    assert_eq!(results[0], "OK (wrong-type-argument stringp 42)");
 }
 
 #[test]
-fn sf_define_error_too_many_args() {
-    let mut evaluator = super::super::eval::Context::new();
-
-    let tail = vec![
-        Expr::List(vec![
-            Expr::Symbol(intern("quote")),
-            Expr::Symbol(intern("x")),
-        ]),
-        Expr::Str("X".to_string()),
-        Expr::List(vec![
-            Expr::Symbol(intern("quote")),
-            Expr::Symbol(intern("error")),
-        ]),
-        Expr::Int(99), // extra arg
-    ];
-    let result = sf_define_error(&mut evaluator, &tail);
-    assert!(result.is_err());
+fn define_error_too_many_args() {
+    let results =
+        bootstrap_eval_all(r#"(condition-case err (define-error 'x "X" 'error 99) (error err))"#);
+    assert_eq!(results[0], "OK (wrong-number-of-arguments define-error 4)");
 }
 
 // =======================================================================
