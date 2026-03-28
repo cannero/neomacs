@@ -2066,14 +2066,27 @@ impl Context {
         obarray.make_special("macroexp--dynvars");
         // GNU DEFVAR_LISP variables from eval.c
         obarray.set_symbol_value("quit-flag", Value::Nil);
+        obarray.make_special("quit-flag");
+        obarray.set_symbol_value("inhibit-quit", Value::Nil);
+        obarray.make_special("inhibit-quit");
         obarray.set_symbol_value("inhibit-debugger", Value::Nil);
+        obarray.make_special("inhibit-debugger");
+        obarray.set_symbol_value("debug-on-error", Value::Nil);
+        obarray.make_special("debug-on-error");
         obarray.set_symbol_value("debug-on-signal", Value::Nil);
+        obarray.make_special("debug-on-signal");
         obarray.set_symbol_value("debug-ignored-errors", Value::Nil);
+        obarray.make_special("debug-ignored-errors");
         obarray.set_symbol_value("signal-hook-function", Value::Nil);
+        obarray.make_special("signal-hook-function");
         obarray.set_symbol_value("internal-interpreter-environment", Value::Nil);
+        obarray.make_special("internal-interpreter-environment");
+        obarray.set_symbol_value("internal-make-interpreted-closure-function", Value::Nil);
+        obarray.make_special("internal-make-interpreted-closure-function");
         // GNU seeds `debugger` from eval.c before Lisp startup.
         // `eval-expression` relies on it.
         obarray.set_symbol_value("debugger", Value::symbol("debug-early"));
+        obarray.make_special("debugger");
         obarray.set_symbol_value("standard-output", Value::True);
         // GNU DEFVAR_INT from dispnew.c — used by bytecomp.el
         obarray.set_symbol_value("baud-rate", Value::Int(38400));
