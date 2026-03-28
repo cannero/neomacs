@@ -143,18 +143,18 @@ fn defgroup_with_parent_records_parent_group() {
     assert_eq!(results[2], "OK ((child-group custom-group))");
 }
 
-// -- defvar-local special form tests ------------------------------------
+// -- defvar-local GNU macro tests ---------------------------------------
 
 #[test]
 fn defvar_local_basic() {
-    let results = eval_all(r#"(defvar-local my-local 42) my-local"#);
+    let results = bootstrap_eval_all(r#"(defvar-local my-local 42) my-local"#);
     assert_eq!(results[0], "OK my-local");
     assert_eq!(results[1], "OK 42");
 }
 
 #[test]
 fn defvar_local_marks_special() {
-    let mut ev = Context::new();
+    let mut ev = bootstrap_context();
     let forms = parse_forms(r#"(defvar-local my-local 42)"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
     assert!(ev.obarray().is_special("my-local"));
@@ -162,21 +162,22 @@ fn defvar_local_marks_special() {
 
 #[test]
 fn defvar_local_marks_buffer_local() {
-    let mut ev = Context::new();
+    let mut ev = bootstrap_context();
     let forms = parse_forms(r#"(defvar-local my-local 42)"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
+    assert!(ev.obarray().is_buffer_local("my-local"));
     assert!(ev.custom.is_auto_buffer_local("my-local"));
 }
 
 #[test]
 fn defvar_local_does_not_override() {
-    let results = eval_all(r#"(setq my-local 99) (defvar-local my-local 42) my-local"#);
+    let results = bootstrap_eval_all(r#"(setq my-local 99) (defvar-local my-local 42) my-local"#);
     assert_eq!(results[2], "OK 99");
 }
 
 #[test]
 fn defvar_local_with_docstring() {
-    let results = eval_all(r#"(defvar-local my-local 42 "Documentation.") my-local"#);
+    let results = bootstrap_eval_all(r#"(defvar-local my-local 42 "Documentation.") my-local"#);
     assert_eq!(results[1], "OK 42");
 }
 
@@ -822,13 +823,14 @@ fn defcustom_then_setq_default() {
 
 #[test]
 fn defvar_local_then_buffer_local_check() {
-    let mut ev = Context::new();
+    let mut ev = bootstrap_context();
     let forms = parse_forms(
         r#"(defvar-local my-local-var 99)
            (make-variable-buffer-local 'other-var)"#,
     )
     .expect("parse");
     let _results: Vec<_> = ev.eval_forms(&forms);
+    assert!(ev.obarray().is_buffer_local("my-local-var"));
     assert!(ev.custom.is_auto_buffer_local("my-local-var"));
     assert!(ev.custom.is_auto_buffer_local("other-var"));
 }

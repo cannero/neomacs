@@ -416,63 +416,6 @@ pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Val
     Ok(value)
 }
 
-/// `(defvar-local NAME VALUE &optional DOCSTRING)`
-///
-/// Like `defvar`: only sets the variable if it is not already bound, marks it
-/// as special (dynamically scoped).  Additionally marks the variable as
-/// automatically buffer-local via the [`CustomManager`].  Returns the symbol
-/// name.
-pub(crate) fn sf_defvar_local(
-    eval: &mut super::eval::Context,
-    tail: &[super::expr::Expr],
-) -> super::error::EvalResult {
-    use super::eval::quote_to_value;
-    use super::expr::Expr;
-
-    if tail.is_empty() {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("defvar-local"), Value::Int(tail.len() as i64)],
-        ));
-    }
-
-    // 1. Extract the symbol name (unevaluated).
-    let name = match &tail[0] {
-        Expr::Symbol(id) => resolve_sym(*id).to_owned(),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), quote_to_value(other)],
-            ));
-        }
-    };
-
-    // 2. Evaluate the default value expression.
-    let default_value = if tail.len() > 1 {
-        eval.eval(&tail[1])?
-    } else {
-        Value::Nil
-    };
-
-    // 3. Optional docstring (ignored for now, but consumed so we don't error).
-    // (defvar-local NAME VALUE "docstring") — third element may be a string.
-
-    // 4. Like defvar: only set if not already bound.
-    if !eval.obarray().boundp(&name) {
-        eval.obarray_mut().set_symbol_value(&name, default_value);
-    }
-
-    // 5. Mark as special (dynamically scoped).
-    eval.obarray_mut().make_special(&name);
-
-    // 6. Mark as automatically buffer-local (primary: obarray enum).
-    eval.obarray_mut().make_buffer_local(&name, true);
-    // Keep CustomManager in sync during the transition period.
-    eval.custom.make_variable_buffer_local(&name);
-
-    Ok(Value::symbol(name))
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
