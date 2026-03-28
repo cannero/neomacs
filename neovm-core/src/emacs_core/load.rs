@@ -610,6 +610,10 @@ fn is_unsupported_compiled_path(path: &Path) -> bool {
 /// Requires both `internal-macroexpand-for-load` and the pcase backquote
 /// macroexpander (`--pcase-macroexpander`) to be defined, since
 /// `macroexpand-all` uses pcase backquote patterns internally.
+///
+/// This mirrors GNU `loadup.el`, which loads `macroexp`, then loads `pcase`
+/// under `(let ((macroexp--pending-eager-loads '(skip))) ...)`, then reloads
+/// `macroexp` once the pcase backquote macroexpander exists.
 #[tracing::instrument(level = "debug", skip(eval))]
 pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Value> {
     // Respect the Elisp `macroexp--pending-eager-loads` variable.
@@ -1519,6 +1523,112 @@ struct LoaddefsSurfaceState {
     property_keys: std::collections::BTreeSet<(String, String)>,
 }
 
+#[derive(Default)]
+struct SourceFileSurfaceState {
+    function_names: std::collections::BTreeSet<String>,
+    variable_names: std::collections::BTreeSet<String>,
+    property_keys: std::collections::BTreeSet<(String, String)>,
+    features: std::collections::BTreeSet<String>,
+}
+
+fn source_surface_insert_property(
+    state: &mut SourceFileSurfaceState,
+    name: impl Into<String>,
+    prop: impl Into<String>,
+) {
+    state.property_keys.insert((name.into(), prop.into()));
+}
+
+fn collect_source_surface(expr: &Expr, state: &mut SourceFileSurfaceState) {
+    let Expr::List(items) = expr else {
+        return;
+    };
+    let Some(Expr::Symbol(head_id)) = items.first() else {
+        return;
+    };
+
+    match resolve_sym(*head_id) {
+        "progn" | "eval-and-compile" => {
+            for item in items.iter().skip(1) {
+                collect_source_surface(item, state);
+            }
+        }
+        "defun" | "defmacro" | "defsubst" | "define-inline" => {
+            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+                state.function_names.insert(name);
+            }
+        }
+        "defalias" => {
+            if let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) {
+                state.function_names.insert(name);
+            }
+        }
+        "defvar" | "defconst" | "defcustom" => {
+            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+                state.variable_names.insert(name);
+            }
+        }
+        "put" | "function-put" | "define-symbol-prop" => {
+            if let Some(name) = items.get(1).and_then(expr_quoted_symbol_name)
+                && let Some(prop) = items.get(2).and_then(expr_symbol_name)
+            {
+                source_surface_insert_property(state, name, prop);
+            }
+        }
+        "def-edebug-elem-spec" => {
+            if let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) {
+                source_surface_insert_property(state, name, "edebug-form-spec");
+            }
+        }
+        "provide" => {
+            if let Some(feature) = items.get(1).and_then(expr_quoted_symbol_name) {
+                state.features.insert(feature);
+            }
+        }
+        "pcase-defmacro" => {
+            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+                let macroexpander = format!("{name}--pcase-macroexpander");
+                state.function_names.insert(macroexpander.clone());
+                source_surface_insert_property(state, &macroexpander, "edebug-form-spec");
+                source_surface_insert_property(state, name, "pcase-macroexpander");
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_source_surface_from_paths(
+    paths: &[PathBuf],
+    error_context: &str,
+) -> Result<SourceFileSurfaceState, EvalError> {
+    let mut state = SourceFileSurfaceState::default();
+
+    for path in paths {
+        let bytes = fs::read(path).map_err(|err| EvalError::Signal {
+            symbol: intern("error"),
+            data: vec![Value::string(format!(
+                "{error_context}: failed reading {}: {err}",
+                path.display()
+            ))],
+        })?;
+        let source = decode_emacs_utf8(&bytes);
+        let forms =
+            crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
+                symbol: intern("error"),
+                data: vec![Value::string(format!(
+                    "{error_context}: failed parsing {}: {err}",
+                    path.display()
+                ))],
+            })?;
+
+        for form in &forms {
+            collect_source_surface(form, &mut state);
+        }
+    }
+
+    Ok(state)
+}
+
 fn collect_loaddefs_autoload_args(
     expr: &Expr,
     allowed_files: Option<&std::collections::BTreeSet<String>>,
@@ -1639,7 +1749,7 @@ fn compile_only_cl_loaddefs_state(project_root: &Path) -> Result<LoaddefsSurface
 }
 
 fn runtime_loaddefs_restore_state(project_root: &Path) -> Result<LoaddefsSurfaceState, EvalError> {
-    let runtime_files = ["gv", "icons"]
+    let runtime_files = ["gv", "icons", "pcase"]
         .into_iter()
         .map(str::to_string)
         .collect::<std::collections::BTreeSet<_>>();
@@ -1709,6 +1819,15 @@ fn runtime_loaded_source_restore_state(
         &paths,
         None,
         Some(allowed_names),
+        "bootstrap runtime cleanup",
+    )
+}
+
+fn runtime_source_bootstrap_surface_state(
+    project_root: &Path,
+) -> Result<SourceFileSurfaceState, EvalError> {
+    collect_source_surface_from_paths(
+        &[project_root.join("lisp/emacs-lisp/pcase.el")],
         "bootstrap runtime cleanup",
     )
 }
@@ -1791,6 +1910,7 @@ fn normalize_bootstrap_runtime_surface(
     let compile_only_features = ["cl-lib", "cl-macs", "cl-seq", "cl-extra", "gv"];
     let compile_only_state = compile_only_cl_loaddefs_state(project_root)?;
     let runtime_loaddefs_state = runtime_loaddefs_restore_state(project_root)?;
+    let runtime_source_state = runtime_source_bootstrap_surface_state(project_root)?;
     let runtime_loaded_state =
         runtime_loaded_source_restore_state(eval, project_root, &compile_only_state.names)?;
     let mut strip_names = compile_only_state.names.clone();
@@ -1800,6 +1920,13 @@ fn normalize_bootstrap_runtime_surface(
     for feature in compile_only_features {
         eval.remove_feature(feature);
     }
+    for feature in &runtime_source_state.features {
+        eval.remove_feature(feature);
+    }
+    // GNU's dumped runtime starts `gensym-counter` at 0.  Source bootstrap
+    // expands many macros while loading core Lisp, so NeoVM must explicitly
+    // drop that transient expansion count from the runtime surface.
+    eval.set_variable("gensym-counter", Value::Int(0));
     strip_runtime_icons_surface(eval);
 
     for (name, prop) in compile_only_state
@@ -1807,6 +1934,7 @@ fn normalize_bootstrap_runtime_surface(
         .iter()
         .chain(runtime_loaddefs_state.property_keys.iter())
         .chain(runtime_loaded_state.property_keys.iter())
+        .chain(runtime_source_state.property_keys.iter())
     {
         let _ = super::builtins::builtin_put(
             eval,
@@ -1825,6 +1953,21 @@ fn normalize_bootstrap_runtime_surface(
                 Value::Nil,
             ],
         );
+    }
+    for name in &runtime_source_state.function_names {
+        eval.obarray_mut().fmakunbound(name);
+        eval.autoloads.remove(name);
+        let _ = super::builtins::builtin_put(
+            eval,
+            vec![
+                Value::symbol(name),
+                Value::symbol("autoload-macro"),
+                Value::Nil,
+            ],
+        );
+    }
+    for name in &runtime_source_state.variable_names {
+        eval.obarray_mut().makunbound(name);
     }
 
     let autoload_entries = eval.autoloads.entries_snapshot();
