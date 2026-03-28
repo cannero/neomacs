@@ -87,6 +87,9 @@ pub struct DumpLambdaData {
     pub env: Option<DumpValue>,
     pub docstring: Option<String>,
     pub doc_form: Option<DumpValue>,
+    /// Interactive spec (mirrors GNU closure vector slot 5).
+    #[serde(default)]
+    pub interactive: Option<DumpValue>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
