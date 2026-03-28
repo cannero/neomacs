@@ -6,7 +6,8 @@
 //! text is inserted at the boundary.
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::ops::Bound::{Excluded, Unbounded};
 
 use crate::emacs_core::value::Value;
 use crate::gc::GcTrace;
@@ -41,7 +42,9 @@ pub struct Overlay {
 /// Manages all overlays for a single buffer.
 #[derive(Clone)]
 pub struct OverlayList {
-    overlays: Vec<Overlay>,
+    overlays: HashMap<u64, Overlay>,
+    by_start: BTreeMap<usize, BTreeSet<u64>>,
+    by_end: BTreeMap<usize, BTreeSet<u64>>,
     next_id: u64,
 }
 
@@ -49,7 +52,9 @@ impl OverlayList {
     /// Create an empty overlay list.
     pub fn new() -> Self {
         Self {
-            overlays: Vec::new(),
+            overlays: HashMap::new(),
+            by_start: BTreeMap::new(),
+            by_end: BTreeMap::new(),
             next_id: 1,
         }
     }
@@ -61,7 +66,7 @@ impl OverlayList {
     pub fn make_overlay(&mut self, start: usize, end: usize) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
-        self.overlays.push(Overlay {
+        self.insert_overlay(Overlay {
             id,
             start,
             end,
@@ -72,18 +77,26 @@ impl OverlayList {
         id
     }
 
+    pub(crate) fn insert_overlay_with_id(&mut self, overlay: Overlay) {
+        self.next_id = self.next_id.max(overlay.id.saturating_add(1));
+        self.insert_overlay(overlay);
+    }
+
     /// Delete the overlay with the given id.
     ///
     /// Returns `true` if the overlay was found and removed.
     pub fn delete_overlay(&mut self, id: u64) -> bool {
-        let before = self.overlays.len();
-        self.overlays.retain(|ov| ov.id != id);
-        self.overlays.len() < before
+        let Some(overlay) = self.overlays.remove(&id) else {
+            return false;
+        };
+        Self::remove_index_entry(&mut self.by_start, overlay.start, id);
+        Self::remove_index_entry(&mut self.by_end, overlay.end, id);
+        true
     }
 
     /// Set a property on an overlay.
     pub fn overlay_put(&mut self, id: u64, name: &str, value: Value) {
-        if let Some(ov) = self.overlays.iter_mut().find(|ov| ov.id == id) {
+        if let Some(ov) = self.overlays.get_mut(&id) {
             ov.properties.insert(name.to_string(), value);
         }
     }
@@ -91,52 +104,76 @@ impl OverlayList {
     /// Get a property from an overlay.
     pub fn overlay_get(&self, id: u64, name: &str) -> Option<&Value> {
         self.overlays
-            .iter()
-            .find(|ov| ov.id == id)
+            .get(&id)
             .and_then(|ov| ov.properties.get(name))
     }
 
     /// Get the start position of an overlay.
     pub fn overlay_start(&self, id: u64) -> Option<usize> {
-        self.overlays
-            .iter()
-            .find(|ov| ov.id == id)
-            .map(|ov| ov.start)
+        self.overlays.get(&id).map(|ov| ov.start)
     }
 
     /// Get the end position of an overlay.
     pub fn overlay_end(&self, id: u64) -> Option<usize> {
-        self.overlays.iter().find(|ov| ov.id == id).map(|ov| ov.end)
+        self.overlays.get(&id).map(|ov| ov.end)
     }
 
     /// Move an overlay to cover a new range `[start, end)`.
     pub fn move_overlay(&mut self, id: u64, start: usize, end: usize) {
-        if let Some(ov) = self.overlays.iter_mut().find(|ov| ov.id == id) {
+        let Some((old_start, old_end)) = self.overlays.get(&id).map(|ov| (ov.start, ov.end)) else {
+            return;
+        };
+        if let Some(ov) = self.overlays.get_mut(&id) {
             ov.start = start;
             ov.end = end;
         }
+        Self::remove_index_entry(&mut self.by_start, old_start, id);
+        Self::remove_index_entry(&mut self.by_end, old_end, id);
+        Self::insert_index_entry(&mut self.by_start, start, id);
+        Self::insert_index_entry(&mut self.by_end, end, id);
     }
 
     /// Return all overlay ids whose range covers position `pos`.
     ///
     /// An overlay covers `pos` if `overlay.start <= pos < overlay.end`.
     pub fn overlays_at(&self, pos: usize) -> Vec<u64> {
-        self.overlays
-            .iter()
-            .filter(|ov| ov.start <= pos && pos < ov.end)
-            .map(|ov| ov.id)
-            .collect()
+        let mut ids = Vec::new();
+        for (_, start_ids) in self.by_start.range(..=pos) {
+            for id in start_ids {
+                let Some(overlay) = self.overlays.get(id) else {
+                    continue;
+                };
+                if overlay.start <= pos && pos < overlay.end {
+                    ids.push(*id);
+                }
+            }
+        }
+        ids
     }
 
     /// Return all overlay ids that overlap the range `[start, end)`.
     ///
-    /// An overlay overlaps if `overlay.start < end && overlay.end > start`.
+    /// Matches GNU Emacs `overlays-in`: non-empty overlays overlap if they
+    /// share at least one character with the region; empty overlays are
+    /// included at BEG, between BEG and END, and at END only when END is the
+    /// accessible end of the scanned buffer.
     pub fn overlays_in(&self, start: usize, end: usize) -> Vec<u64> {
-        self.overlays
-            .iter()
-            .filter(|ov| ov.start < end && ov.end > start)
-            .map(|ov| ov.id)
-            .collect()
+        self.overlays_in_region(start, end, end)
+    }
+
+    pub fn overlays_in_region(&self, start: usize, end: usize, accessible_end: usize) -> Vec<u64> {
+        let mut ids = Vec::new();
+        for (_, start_ids) in self.by_start.range(..=end) {
+            for id in start_ids {
+                let Some(overlay) = self.overlays.get(id) else {
+                    continue;
+                };
+                if overlay_overlaps_region(overlay, start, end, accessible_end) {
+                    ids.push(*id);
+                }
+            }
+        }
+        ids
     }
 
     pub fn highest_priority_overlay_at(&self, pos: usize, property: &str) -> Option<u64> {
@@ -176,7 +213,7 @@ impl OverlayList {
         if len == 0 {
             return;
         }
-        for ov in &mut self.overlays {
+        for ov in self.overlays.values_mut() {
             // Adjust start.
             if ov.start > pos {
                 ov.start += len;
@@ -191,6 +228,7 @@ impl OverlayList {
                 ov.end += len;
             }
         }
+        self.rebuild_indexes();
     }
 
     /// Adjust all overlay positions after text in `[start, end)` is deleted.
@@ -205,7 +243,7 @@ impl OverlayList {
         }
         let len = end - start;
 
-        for ov in &mut self.overlays {
+        for ov in self.overlays.values_mut() {
             // Adjust start.
             if ov.start >= end {
                 ov.start -= len;
@@ -223,7 +261,7 @@ impl OverlayList {
 
         // GNU Emacs: overlays with the `evaporate` property are deleted when
         // they become empty (start == end) after text deletion.
-        self.overlays.retain(|ov| {
+        self.overlays.retain(|_, ov| {
             if ov.start == ov.end {
                 if let Some(val) = ov.properties.get("evaporate") {
                     if val.is_truthy() {
@@ -233,25 +271,26 @@ impl OverlayList {
             }
             true
         });
+        self.rebuild_indexes();
     }
 
     /// Set the `front_advance` flag on an overlay.
     pub fn set_front_advance(&mut self, id: u64, advance: bool) {
-        if let Some(ov) = self.overlays.iter_mut().find(|ov| ov.id == id) {
+        if let Some(ov) = self.overlays.get_mut(&id) {
             ov.front_advance = advance;
         }
     }
 
     /// Set the `rear_advance` flag on an overlay.
     pub fn set_rear_advance(&mut self, id: u64, advance: bool) {
-        if let Some(ov) = self.overlays.iter_mut().find(|ov| ov.id == id) {
+        if let Some(ov) = self.overlays.get_mut(&id) {
             ov.rear_advance = advance;
         }
     }
 
     /// Return a reference to an overlay by id, if it exists.
     pub fn get(&self, id: u64) -> Option<&Overlay> {
-        self.overlays.iter().find(|ov| ov.id == id)
+        self.overlays.get(&id)
     }
 
     /// Return the number of overlays.
@@ -266,34 +305,78 @@ impl OverlayList {
 
     /// Remove all overlays that have a given property set.
     pub fn remove_overlays_by_property(&mut self, name: &str) {
-        self.overlays.retain(|ov| !ov.properties.contains_key(name));
+        let ids: Vec<u64> = self
+            .overlays
+            .values()
+            .filter(|ov| ov.properties.contains_key(name))
+            .map(|ov| ov.id)
+            .collect();
+        for id in ids {
+            let _ = self.delete_overlay(id);
+        }
     }
 
     /// Return the smallest overlay start or end position that is strictly
     /// greater than `pos`.  Used by the layout engine to ensure `next_check`
     /// doesn't skip over overlay boundaries.
     pub fn next_boundary_after(&self, pos: usize) -> Option<usize> {
-        let mut best: Option<usize> = None;
-        for ov in &self.overlays {
-            if ov.start > pos {
-                best = Some(best.map_or(ov.start, |b: usize| b.min(ov.start)));
-            }
-            if ov.end > pos {
-                best = Some(best.map_or(ov.end, |b: usize| b.min(ov.end)));
-            }
+        let next_start = self
+            .by_start
+            .range((Excluded(pos), Unbounded))
+            .next()
+            .map(|(boundary, _)| *boundary);
+        let next_end = self
+            .by_end
+            .range((Excluded(pos), Unbounded))
+            .next()
+            .map(|(boundary, _)| *boundary);
+        match (next_start, next_end) {
+            (Some(start), Some(end)) => Some(start.min(end)),
+            (Some(start), None) => Some(start),
+            (None, Some(end)) => Some(end),
+            (None, None) => None,
         }
-        best
+    }
+
+    pub fn previous_boundary_before(&self, pos: usize) -> Option<usize> {
+        let prev_start = self
+            .by_start
+            .range(..pos)
+            .next_back()
+            .map(|(boundary, _)| *boundary);
+        let prev_end = self
+            .by_end
+            .range(..pos)
+            .next_back()
+            .map(|(boundary, _)| *boundary);
+        match (prev_start, prev_end) {
+            (Some(start), Some(end)) => Some(start.max(end)),
+            (Some(start), None) => Some(start),
+            (None, Some(end)) => Some(end),
+            (None, None) => None,
+        }
     }
 
     // pdump accessors
-    pub(crate) fn dump_overlays(&self) -> &[Overlay] {
-        &self.overlays
+    pub(crate) fn dump_overlays(&self) -> Vec<Overlay> {
+        let mut overlays: Vec<Overlay> = self.overlays.values().cloned().collect();
+        overlays.sort_by_key(|overlay| overlay.id);
+        overlays
     }
     pub(crate) fn dump_next_id(&self) -> u64 {
         self.next_id
     }
     pub(crate) fn from_dump(overlays: Vec<Overlay>, next_id: u64) -> Self {
-        Self { overlays, next_id }
+        let mut list = Self {
+            overlays: HashMap::new(),
+            by_start: BTreeMap::new(),
+            by_end: BTreeMap::new(),
+            next_id,
+        };
+        for overlay in overlays {
+            list.insert_overlay(overlay);
+        }
+        list
     }
 
     fn best_overlay_for<F>(&self, property: &str, predicate: F) -> Option<u64>
@@ -301,7 +384,7 @@ impl OverlayList {
         F: Fn(&Overlay) -> bool,
     {
         let mut best: Option<&Overlay> = None;
-        for overlay in &self.overlays {
+        for overlay in self.overlays.values() {
             if !predicate(overlay) {
                 continue;
             }
@@ -321,6 +404,59 @@ impl OverlayList {
         }
         best.map(|overlay| overlay.id)
     }
+
+    fn insert_overlay(&mut self, overlay: Overlay) {
+        let id = overlay.id;
+        let start = overlay.start;
+        let end = overlay.end;
+        self.overlays.insert(id, overlay);
+        Self::insert_index_entry(&mut self.by_start, start, id);
+        Self::insert_index_entry(&mut self.by_end, end, id);
+    }
+
+    fn insert_index_entry(index: &mut BTreeMap<usize, BTreeSet<u64>>, boundary: usize, id: u64) {
+        index.entry(boundary).or_default().insert(id);
+    }
+
+    fn remove_index_entry(index: &mut BTreeMap<usize, BTreeSet<u64>>, boundary: usize, id: u64) {
+        if let Some(ids) = index.get_mut(&boundary) {
+            ids.remove(&id);
+            if ids.is_empty() {
+                index.remove(&boundary);
+            }
+        }
+    }
+
+    fn rebuild_indexes(&mut self) {
+        self.by_start.clear();
+        self.by_end.clear();
+        let boundaries: Vec<(u64, usize, usize)> = self
+            .overlays
+            .values()
+            .map(|overlay| (overlay.id, overlay.start, overlay.end))
+            .collect();
+        for (id, start, end) in boundaries {
+            self.by_start.entry(start).or_default().insert(id);
+            self.by_end.entry(end).or_default().insert(id);
+        }
+    }
+}
+
+fn overlay_overlaps_region(
+    overlay: &Overlay,
+    start: usize,
+    end: usize,
+    accessible_end: usize,
+) -> bool {
+    if overlay.start == overlay.end {
+        return overlay.start == start
+            || (start < overlay.start && overlay.start < end)
+            || (overlay.start == end && end == accessible_end);
+    }
+    if start == end {
+        return overlay.start <= start && start < overlay.end;
+    }
+    overlay.start < end && overlay.end > start
 }
 
 fn compare_overlay_precedence(left: &Overlay, right: &Overlay) -> Ordering {
@@ -388,7 +524,7 @@ impl Default for OverlayList {
 
 impl GcTrace for OverlayList {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
-        for overlay in &self.overlays {
+        for overlay in self.overlays.values() {
             for value in overlay.properties.values() {
                 roots.push(*value);
             }
@@ -868,5 +1004,27 @@ mod tests {
     fn default_creates_empty_list() {
         let list = OverlayList::default();
         assert!(list.is_empty());
+    }
+
+    #[test]
+    fn overlays_in_region_includes_empty_overlay_at_query_start() {
+        let mut list = OverlayList::new();
+        let empty = list.make_overlay(7, 7);
+        let spanning = list.make_overlay(7, 10);
+
+        let ids = list.overlays_in_region(7, 7, 10);
+        assert!(ids.contains(&empty));
+        assert!(ids.contains(&spanning));
+    }
+
+    #[test]
+    fn previous_boundary_before_uses_indexed_boundaries() {
+        let mut list = OverlayList::new();
+        list.make_overlay(3, 8);
+        list.make_overlay(10, 12);
+
+        assert_eq!(list.previous_boundary_before(10), Some(8));
+        assert_eq!(list.previous_boundary_before(3), None);
+        assert_eq!(list.next_boundary_after(8), Some(10));
     }
 }

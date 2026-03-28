@@ -483,7 +483,11 @@ fn dump_overlay(o: &Overlay) -> DumpOverlay {
 
 fn dump_overlay_list(ol: &OverlayList) -> DumpOverlayList {
     DumpOverlayList {
-        overlays: ol.dump_overlays().iter().map(dump_overlay).collect(),
+        overlays: ol
+            .dump_overlays()
+            .into_iter()
+            .map(|overlay| dump_overlay(&overlay))
+            .collect(),
         next_id: ol.dump_next_id(),
     }
 }

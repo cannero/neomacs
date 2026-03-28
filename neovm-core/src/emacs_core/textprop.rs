@@ -1339,22 +1339,7 @@ pub(crate) fn builtin_next_overlay_change_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
-    let all_ids = buf.overlays.overlays_in(buf.point_min(), buf.point_max());
-    let mut best: Option<usize> = None;
-    for ov_id in all_ids {
-        if let Some(start) = buf.overlays.overlay_start(ov_id) {
-            if start > byte_pos {
-                best = Some(best.map_or(start, |cur| cur.min(start)));
-            }
-        }
-        if let Some(end) = buf.overlays.overlay_end(ov_id) {
-            if end > byte_pos {
-                best = Some(best.map_or(end, |cur| cur.min(end)));
-            }
-        }
-    }
-
-    match best {
+    match buf.overlays.next_boundary_after(byte_pos) {
         Some(next) => Ok(Value::Int(byte_to_elisp_pos(buf, next))),
         None => Ok(Value::Int(byte_to_elisp_pos(buf, buf.point_max()))),
     }
@@ -1380,22 +1365,7 @@ pub(crate) fn builtin_previous_overlay_change_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
-    let all_ids = buf.overlays.overlays_in(buf.point_min(), buf.point_max());
-    let mut best: Option<usize> = None;
-    for ov_id in all_ids {
-        if let Some(start) = buf.overlays.overlay_start(ov_id) {
-            if start < byte_pos {
-                best = Some(best.map_or(start, |cur| cur.max(start)));
-            }
-        }
-        if let Some(end) = buf.overlays.overlay_end(ov_id) {
-            if end < byte_pos {
-                best = Some(best.map_or(end, |cur| cur.max(end)));
-            }
-        }
-    }
-
-    match best {
+    match buf.overlays.previous_boundary_before(byte_pos) {
         Some(prev) => Ok(Value::Int(byte_to_elisp_pos(buf, prev))),
         None => Ok(Value::Int(byte_to_elisp_pos(buf, buf.point_min()))),
     }
@@ -1583,7 +1553,9 @@ pub(crate) fn builtin_overlays_in_in_buffers(
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let ids = buf.overlays.overlays_in(byte_beg, byte_end);
+    let ids = buf
+        .overlays
+        .overlays_in_region(byte_beg, byte_end, buf.point_max_byte());
     let overlays: Vec<Value> = ids
         .into_iter()
         .map(|id| make_overlay_value(id, buf_id))
@@ -1652,27 +1624,30 @@ pub(crate) fn builtin_move_overlay_in_buffers(
         let byte_beg = elisp_pos_to_byte(new_buf, beg);
         let byte_end = elisp_pos_to_byte(new_buf, end);
 
-        // Create new overlay in the new buffer with the same id.
-        let new_ov_id = new_buf.overlays.make_overlay(byte_beg, byte_end);
-
-        // Copy properties from old overlay.
-        if let Some(old_ov) = old_overlay {
-            for (key, val) in &old_ov.properties {
-                new_buf.overlays.overlay_put(new_ov_id, key, *val);
-            }
-            new_buf
-                .overlays
-                .set_front_advance(new_ov_id, old_ov.front_advance);
-            new_buf
-                .overlays
-                .set_rear_advance(new_ov_id, old_ov.rear_advance);
-        }
+        let moved_overlay = old_overlay.unwrap_or(crate::buffer::Overlay {
+            id: ov_id,
+            start: byte_beg,
+            end: byte_end,
+            properties: std::collections::HashMap::new(),
+            front_advance: false,
+            rear_advance: false,
+        });
+        new_buf
+            .overlays
+            .insert_overlay_with_id(crate::buffer::Overlay {
+                id: ov_id,
+                start: byte_beg,
+                end: byte_end,
+                properties: moved_overlay.properties,
+                front_advance: moved_overlay.front_advance,
+                rear_advance: moved_overlay.rear_advance,
+            });
 
         // Update the overlay value's cons cell to point to the new buffer
-        // and new overlay id.
+        // while preserving the overlay id.
         if let Value::Cons(cell) = &args[0] {
             with_heap_mut(|h| {
-                h.set_car(*cell, Value::Int(new_ov_id as i64));
+                h.set_car(*cell, Value::Int(ov_id as i64));
                 h.set_cdr(*cell, Value::Buffer(new_buf_id));
             });
         }
@@ -1823,7 +1798,9 @@ pub(crate) fn builtin_remove_overlays(
     };
 
     // Collect overlay ids in range.
-    let ids = buf.overlays.overlays_in(start_pos, end_pos);
+    let ids = buf
+        .overlays
+        .overlays_in_region(start_pos, end_pos, buf.point_max_byte());
 
     // Filter and delete.
     for ov_id in ids {
