@@ -55,7 +55,7 @@ fn compat_bootstrap_runtime_generated_loaddefs_surface_matches_gnu_emacs() {
 
     let root = repo_root();
     let mut symbols = collect_autoload_symbols(&root.join("lisp/emacs-lisp/cl-loaddefs.el"), None);
-    let runtime_files = BTreeSet::from(["gv", "icons"]);
+    let runtime_files = BTreeSet::from(["gv", "icons", "pcase"]);
     symbols.extend(collect_autoload_symbols(
         &root.join("lisp/ldefs-boot.el"),
         Some(&runtime_files),

@@ -360,6 +360,14 @@ fn is_runtime_dynamically_special(obarray: &Obarray, sym_id: SymId) -> bool {
     obarray.is_special_id(sym_id) && !obarray.is_constant_id(sym_id)
 }
 
+fn symbol_sets_constant_error(sym_id: SymId) -> Option<&'static str> {
+    match resolve_sym(sym_id) {
+        "nil" => Some("nil"),
+        "t" => Some("t"),
+        _ => None,
+    }
+}
+
 pub(crate) fn sync_features_variable_in_state(obarray: &mut Obarray, features: &[SymId]) {
     let values: Vec<Value> = features.iter().map(|id| Value::Symbol(*id)).collect();
     obarray.set_symbol_value("features", Value::list(values));
@@ -575,9 +583,13 @@ pub struct SubrObject {
 }
 
 pub struct Context {
-    /// Builtin function registry — indexed by SymId, stores function pointers.
-    /// Replaces the giant match-by-name dispatch tables.
-    pub(crate) subr_registry: HashMap<SymId, SubrObject>,
+    /// Builtin function registry — directly indexed by `SymId`.
+    ///
+    /// GNU Emacs dispatches subrs from the function object itself rather than
+    /// paying an extra hash-table lookup. NeoVM's function cells still store
+    /// `Value::Subr(sym_id)`, but the registry backing that value is a direct
+    /// slot table so builtin dispatch follows symbol identity, not name hashing.
+    pub(crate) subr_registry: Vec<Option<SubrObject>>,
     /// String interner for symbol/keyword/subr names (SymId handles).
     pub(crate) interner: Box<StringInterner>,
     /// GC-managed heap for cycle-forming Lisp objects (cons, vector, hash-table).
@@ -1446,6 +1458,26 @@ impl Drop for Context {
 }
 
 impl Context {
+    #[inline]
+    fn subr_slot(&self, sym_id: SymId) -> Option<&SubrObject> {
+        self.subr_registry
+            .get(sym_id.0 as usize)
+            .and_then(|slot| slot.as_ref())
+    }
+
+    #[inline]
+    fn has_registered_subr(&self, sym_id: SymId) -> bool {
+        self.subr_slot(sym_id).is_some()
+    }
+
+    fn register_subr_slot(&mut self, sym_id: SymId, subr: SubrObject) {
+        let index = sym_id.0 as usize;
+        if self.subr_registry.len() <= index {
+            self.subr_registry.resize_with(index + 1, || None);
+        }
+        self.subr_registry[index] = Some(subr);
+    }
+
     pub fn new() -> Self {
         let mut ctx = Self::new_inner(true);
         // Register builtins AFTER new_inner returns — the function is too
@@ -2792,7 +2824,6 @@ impl Context {
             "load-prefer-newer",
             "load-path",
             "load-history",
-            "features",
             "default-directory",
             "load-file-name",
             "set-auto-coding-for-load",
@@ -2944,7 +2975,7 @@ impl Context {
         }
 
         let mut ev = Self {
-            subr_registry: HashMap::new(),
+            subr_registry: Vec::new(),
             interner,
             heap,
             obarray,
@@ -3055,7 +3086,7 @@ impl Context {
         watchers: VariableWatcherList,
     ) -> Self {
         let mut ev = Self {
-            subr_registry: HashMap::new(),
+            subr_registry: Vec::new(),
             interner,
             heap,
             obarray,
@@ -5838,15 +5869,14 @@ impl Context {
                 for binding in entries {
                     match binding {
                         Expr::Symbol(id) => {
-                            let name = resolve_sym(*id);
-                            if name == "nil" || name == "t" {
+                            if let Some(name) = symbol_sets_constant_error(*id) {
                                 if constant_binding_error.is_none() {
                                     constant_binding_error = Some(name.to_owned());
                                 }
                                 continue;
                             }
                             if use_lexical
-                                && !self.obarray.is_special(name)
+                                && !self.obarray.is_special_id(*id)
                                 && !lexenv_declares_special(self.lexenv, *id)
                             {
                                 lexical_bindings.push((*id, Value::Nil));
@@ -5862,7 +5892,6 @@ impl Context {
                                     vec![Value::symbol("symbolp"), quote_to_value(&pair[0])],
                                 ));
                             };
-                            let name = resolve_sym(*id);
                             let value = if pair.len() > 1 {
                                 match self.eval(&pair[1]) {
                                     Ok(v) => v,
@@ -5875,14 +5904,14 @@ impl Context {
                                 Value::Nil
                             };
                             self.temp_roots.push(value);
-                            if name == "nil" || name == "t" {
+                            if let Some(name) = symbol_sets_constant_error(*id) {
                                 if constant_binding_error.is_none() {
                                     constant_binding_error = Some(name.to_owned());
                                 }
                                 continue;
                             }
                             if use_lexical
-                                && !self.obarray.is_special(name)
+                                && !self.obarray.is_special_id(*id)
                                 && !lexenv_declares_special(self.lexenv, *id)
                             {
                                 lexical_bindings.push((*id, value));
@@ -5992,12 +6021,11 @@ impl Context {
             for binding in &entries {
                 match binding {
                     Expr::Symbol(id) => {
-                        let name = resolve_sym(*id);
-                        if name == "nil" || name == "t" {
+                        if let Some(name) = symbol_sets_constant_error(*id) {
                             return Err(signal("setting-constant", vec![Value::symbol(name)]));
                         }
                         if use_lexical
-                            && !self.obarray.is_special(name)
+                            && !self.obarray.is_special_id(*id)
                             && !lexenv_declares_special(self.lexenv, *id)
                         {
                             self.bind_lexical_value_rooted(*id, Value::Nil);
@@ -6012,17 +6040,16 @@ impl Context {
                                 vec![Value::symbol("symbolp"), quote_to_value(&pair[0])],
                             ));
                         };
-                        let name = resolve_sym(*id);
                         let value = if pair.len() > 1 {
                             self.eval(&pair[1])?
                         } else {
                             Value::Nil
                         };
-                        if name == "nil" || name == "t" {
+                        if let Some(name) = symbol_sets_constant_error(*id) {
                             return Err(signal("setting-constant", vec![Value::symbol(name)]));
                         }
                         if use_lexical
-                            && !self.obarray.is_special(name)
+                            && !self.obarray.is_special_id(*id)
                             && !lexenv_declares_special(self.lexenv, *id)
                         {
                             self.bind_lexical_value_rooted(*id, value);
@@ -6226,22 +6253,23 @@ impl Context {
                 vec![Value::symbol("symbolp"), quote_to_value(&tail[0])],
             ));
         };
-        let name = resolve_sym(*id);
         // Only set value if INITVALUE is provided and symbol is not already bound.
         // (defvar x) without INITVALUE only marks as special, does NOT bind.
         if tail.len() > 1 {
-            if !self.obarray.boundp(name) {
+            if !self.obarray.boundp_id(*id) {
                 let value = self.eval(&tail[1])?;
-                self.obarray.set_symbol_value(name, value);
+                self.obarray.set_symbol_value_id(*id, value);
             }
-            self.obarray.make_special(name);
-        } else if self.lexical_binding() && !self.lexenv.is_nil() && !self.obarray.is_special(name)
+            self.obarray.make_special_id(*id);
+        } else if self.lexical_binding()
+            && !self.lexenv.is_nil()
+            && !self.obarray.is_special_id(*id)
         {
             // Mirror GNU eval.c: simple `(defvar foo)` inside a lexical scope
             // only declares `foo` dynamically within the current lexical env.
             self.lexenv = Value::cons(Value::Symbol(*id), self.lexenv);
         }
-        Ok(Value::symbol(name))
+        Ok(value_from_symbol_id(*id))
     }
 
     fn sf_defconst(&mut self, tail: &[Expr]) -> EvalResult {
@@ -7516,7 +7544,7 @@ impl Context {
             }
         } else if self.obarray.is_function_unbound_id(sym_id) {
             NamedCallTarget::Void
-        } else if self.subr_registry.contains_key(&intern(name)) {
+        } else if self.has_registered_subr(intern(name)) {
             NamedCallTarget::Builtin
         } else {
             NamedCallTarget::Void
@@ -7729,7 +7757,7 @@ impl Context {
         // Startup wrappers often expose autoload-shaped function cells for names
         // backed by builtins. Keep the autoload shape while preserving callability.
         let sym_id = intern(name);
-        if self.subr_registry.contains_key(&sym_id) {
+        if self.has_registered_subr(sym_id) {
             if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args.clone()) {
                 return if rewrite_builtin_wrong_arity {
                     result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
@@ -8236,7 +8264,7 @@ impl Context {
         max_args: Option<u16>,
     ) {
         let sym_id = intern(name);
-        self.subr_registry.insert(
+        self.register_subr_slot(
             sym_id,
             SubrObject {
                 function: func,
@@ -8255,7 +8283,7 @@ impl Context {
     /// Look up a builtin in the subr registry and call it directly via
     /// function pointer. Returns None if the name is not registered.
     pub fn dispatch_subr_id(&mut self, sym_id: SymId, args: Vec<Value>) -> Option<EvalResult> {
-        let subr = self.subr_registry.get(&sym_id)?;
+        let subr = self.subr_slot(sym_id)?;
         let name = resolve_sym(sym_id);
         let nargs = args.len();
         if (nargs as u16) < subr.min_args {
