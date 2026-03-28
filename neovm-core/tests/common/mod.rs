@@ -154,10 +154,10 @@ pub fn run_oracle_eval(form: &str) -> Result<String, String> {
 }
 
 pub fn run_neovm_eval(form: &str) -> Result<String, String> {
-    let mut eval = create_bootstrap_evaluator_cached()
-        .map_err(|e| format!("NeoVM bootstrap failed: {e:?}"))?;
+    let mut eval =
+        create_bootstrap_evaluator_cached().map_err(|_| "NeoVM bootstrap failed".to_string())?;
     apply_runtime_startup_state(&mut eval)
-        .map_err(|e| format!("NeoVM runtime startup failed: {e:?}"))?;
+        .map_err(|_| "NeoVM runtime startup failed".to_string())?;
     eval.set_lexical_binding(true);
     let forms = parse_forms(form).map_err(|e| format!("NeoVM parse error: {e}"))?;
     let result = eval

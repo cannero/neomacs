@@ -1477,6 +1477,7 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
 fn expr_symbol_name(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+        Expr::List(_) => expr_quoted_symbol_name(expr),
         _ => None,
     }
 }
@@ -1510,36 +1511,19 @@ fn expr_runtime_value(expr: &Expr) -> Option<Value> {
     }
 }
 
-fn hidden_cl_runtime_entry_points() -> std::collections::BTreeSet<String> {
-    // GNU Emacs -Q does not expose these cl-loaddefs entry points until
-    // cl-lib/eieio explicitly restore them via the real Lisp load path.
-    // Source bootstrap currently leaks just this small surface via
-    // eval-when-compile; hide only the proven leaked names here instead of
-    // stripping whole cl-* files out of the runtime image.
-    //
-    // NOTE: cl--block-wrapper and cl--block-throw are intentionally kept
-    // available. NeoVM loads .el source (not .elc) and runs macroexpand-all
-    // during eager expansion, which triggers compiler-macros that require
-    // these functions (e.g. cl--block-wrapper is aliased to #'identity and
-    // its compiler-macro optimizes away unused cl-block wrappers).
-    [
-        "cl-every",
-        "cl-defstruct",
-        "cl-reduce",
-        "cl-subseq",
-        "gv-get",
-        "setf",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .collect()
+#[derive(Default)]
+struct LoaddefsSurfaceState {
+    names: std::collections::BTreeSet<String>,
+    autoload_args: Vec<Vec<Value>>,
+    property_forms: Vec<Expr>,
+    property_keys: std::collections::BTreeSet<(String, String)>,
 }
 
-fn collect_runtime_loaddefs_autoload_args(
+fn collect_loaddefs_autoload_args(
     expr: &Expr,
-    restore_autoload_files: &[&str],
-    restore_names: &mut std::collections::BTreeSet<String>,
-    out: &mut Vec<Vec<Value>>,
+    allowed_files: Option<&std::collections::BTreeSet<String>>,
+    allowed_names: Option<&std::collections::BTreeSet<String>>,
+    state: &mut LoaddefsSurfaceState,
 ) {
     let Expr::List(items) = expr else {
         return;
@@ -1557,11 +1541,18 @@ fn collect_runtime_loaddefs_autoload_args(
     let Some(Expr::Str(file)) = items.get(2) else {
         return;
     };
-    if !restore_autoload_files.contains(&file.as_str()) {
+    if let Some(files) = allowed_files
+        && !files.contains(file)
+    {
+        return;
+    }
+    if let Some(names) = allowed_names
+        && !names.contains(&name)
+    {
         return;
     }
 
-    restore_names.insert(name.clone());
+    state.names.insert(name.clone());
     let mut args = vec![Value::symbol(&name), Value::string(file.clone())];
     for expr in items.iter().skip(3).take(3) {
         let Some(value) = expr_runtime_value(expr) else {
@@ -1569,13 +1560,13 @@ fn collect_runtime_loaddefs_autoload_args(
         };
         args.push(value);
     }
-    out.push(args);
+    state.autoload_args.push(args);
 }
 
-fn collect_runtime_loaddefs_property_forms(
+fn collect_loaddefs_property_forms(
     expr: &Expr,
-    restore_names: &std::collections::BTreeSet<String>,
-    out: &mut Vec<Expr>,
+    names: &std::collections::BTreeSet<String>,
+    state: &mut LoaddefsSurfaceState,
 ) {
     let Expr::List(items) = expr else {
         return;
@@ -1590,55 +1581,136 @@ fn collect_runtime_loaddefs_property_forms(
     let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) else {
         return;
     };
-    if restore_names.contains(&name) {
-        out.push(expr.clone());
+    if names.contains(&name) {
+        state.property_forms.push(expr.clone());
+        if let Some(prop) = items.get(2).and_then(expr_symbol_name) {
+            state.property_keys.insert((name, prop));
+        }
     }
 }
 
-fn runtime_loaddefs_restore_state(
-    project_root: &Path,
-    restore_autoload_files: &[&str],
-) -> Result<(Vec<Vec<Value>>, Vec<Expr>), EvalError> {
-    // GNU Emacs -Q runtime carries only the core loaddefs surface from
-    // ldefs-boot.el here (not cl-loaddefs.el).  The Common Lisp entry points
-    // such as cl-every/cl-reduce/cl-defstruct become visible only after
-    // `cl-lib.el` is required, because cl-lib.el itself loads cl-loaddefs.
-    let loaddefs_paths = [project_root.join("lisp/ldefs-boot.el")];
+fn collect_loaddefs_surface_from_paths(
+    paths: &[PathBuf],
+    allowed_files: Option<&std::collections::BTreeSet<String>>,
+    allowed_names: Option<&std::collections::BTreeSet<String>>,
+    error_context: &str,
+) -> Result<LoaddefsSurfaceState, EvalError> {
+    let mut state = LoaddefsSurfaceState::default();
 
-    let mut args = Vec::new();
-    let mut restore_names = std::collections::BTreeSet::new();
-    let mut property_forms = Vec::new();
-
-    for loaddefs_path in loaddefs_paths {
-        let source = fs::read_to_string(&loaddefs_path).map_err(|err| EvalError::Signal {
+    for path in paths {
+        let bytes = fs::read(path).map_err(|err| EvalError::Signal {
             symbol: intern("error"),
             data: vec![Value::string(format!(
-                "bootstrap runtime cleanup: failed reading {}: {err}",
-                loaddefs_path.display()
+                "{error_context}: failed reading {}: {err}",
+                path.display()
             ))],
         })?;
+        let source = decode_emacs_utf8(&bytes);
         let forms =
             crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
                 symbol: intern("error"),
                 data: vec![Value::string(format!(
-                    "bootstrap runtime cleanup: failed parsing {}: {err}",
-                    loaddefs_path.display()
+                    "{error_context}: failed parsing {}: {err}",
+                    path.display()
                 ))],
             })?;
 
         for form in &forms {
-            collect_runtime_loaddefs_autoload_args(
-                form,
-                restore_autoload_files,
-                &mut restore_names,
-                &mut args,
-            );
+            collect_loaddefs_autoload_args(form, allowed_files, allowed_names, &mut state);
         }
+        let property_names = allowed_names
+            .cloned()
+            .unwrap_or_else(|| state.names.clone());
         for form in &forms {
-            collect_runtime_loaddefs_property_forms(form, &restore_names, &mut property_forms);
+            collect_loaddefs_property_forms(form, &property_names, &mut state);
         }
     }
-    Ok((args, property_forms))
+
+    Ok(state)
+}
+
+fn compile_only_cl_loaddefs_state(project_root: &Path) -> Result<LoaddefsSurfaceState, EvalError> {
+    collect_loaddefs_surface_from_paths(
+        &[project_root.join("lisp/emacs-lisp/cl-loaddefs.el")],
+        None,
+        None,
+        "bootstrap runtime cleanup",
+    )
+}
+
+fn runtime_loaddefs_restore_state(project_root: &Path) -> Result<LoaddefsSurfaceState, EvalError> {
+    let runtime_files = ["gv", "icons"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::BTreeSet<_>>();
+    collect_loaddefs_surface_from_paths(
+        &[project_root.join("lisp/ldefs-boot.el")],
+        Some(&runtime_files),
+        None,
+        "bootstrap runtime cleanup",
+    )
+}
+
+fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
+    super::value::with_saved_heap(|| {
+        super::value::set_current_heap(&mut eval.heap);
+        let history = eval
+            .obarray()
+            .symbol_value("load-history")
+            .cloned()
+            .unwrap_or(Value::Nil);
+        let mut paths = std::collections::BTreeSet::new();
+
+        for entry in list_to_vec(&history).unwrap_or_default() {
+            let Value::Cons(id) = entry else {
+                continue;
+            };
+            let Some(path) = with_heap(|heap| heap.cons_car(id).as_str().map(ToOwned::to_owned))
+            else {
+                continue;
+            };
+            let path = PathBuf::from(path);
+            if path.extension().is_some_and(|ext| ext == "el") {
+                paths.insert(path);
+            }
+        }
+
+        paths.into_iter().collect()
+    })
+}
+
+fn is_compile_only_loaddefs_provider(path: &Path) -> bool {
+    matches!(
+        path.file_stem().and_then(|stem| stem.to_str()),
+        Some(
+            "cl-loaddefs"
+                | "cl-preloaded"
+                | "cl-lib"
+                | "cl-macs"
+                | "cl-seq"
+                | "cl-extra"
+                | "gv"
+                | "icons"
+        )
+    )
+}
+
+fn runtime_loaded_source_restore_state(
+    eval: &mut super::eval::Context,
+    project_root: &Path,
+    allowed_names: &std::collections::BTreeSet<String>,
+) -> Result<LoaddefsSurfaceState, EvalError> {
+    let paths = loaded_source_paths(eval)
+        .into_iter()
+        .filter(|path| path.starts_with(project_root))
+        .filter(|path| !is_compile_only_loaddefs_provider(path))
+        .collect::<Vec<_>>();
+    collect_loaddefs_surface_from_paths(
+        &paths,
+        None,
+        Some(allowed_names),
+        "bootstrap runtime cleanup",
+    )
 }
 
 pub(crate) fn apply_ldefs_boot_autoloads_for_names(
@@ -1717,23 +1789,32 @@ fn normalize_bootstrap_runtime_surface(
     // GNU -Q does not leave these features present in the default runtime
     // surface even though source bootstrap can transiently load them.
     let compile_only_features = ["cl-lib", "cl-macs", "cl-seq", "cl-extra", "gv"];
-    // GNU keeps gv entry points available via ldefs-boot autoloads even after
-    // the gv feature itself is no longer present at -Q runtime startup.
-    let runtime_autoload_files = ["gv", "icons"];
-    let (restore_autoload_args, restore_property_forms) =
-        runtime_loaddefs_restore_state(project_root, &runtime_autoload_files)?;
-    let mut compile_only_names = hidden_cl_runtime_entry_points();
-    // The current dumped nadvice bytecode still dereferences gv refs via this
-    // runtime helper. Stripping it here leaves the cached bootstrap image
-    // internally inconsistent even though `featurep 'gv` remains nil.
-    compile_only_names.remove("gv-deref");
+    let compile_only_state = compile_only_cl_loaddefs_state(project_root)?;
+    let runtime_loaddefs_state = runtime_loaddefs_restore_state(project_root)?;
+    let runtime_loaded_state =
+        runtime_loaded_source_restore_state(eval, project_root, &compile_only_state.names)?;
+    let mut strip_names = compile_only_state.names.clone();
+    strip_names.extend(runtime_loaddefs_state.names.iter().cloned());
+    strip_names.extend(runtime_loaded_state.names.iter().cloned());
 
     for feature in compile_only_features {
         eval.remove_feature(feature);
     }
     strip_runtime_icons_surface(eval);
 
-    for name in &compile_only_names {
+    for (name, prop) in compile_only_state
+        .property_keys
+        .iter()
+        .chain(runtime_loaddefs_state.property_keys.iter())
+        .chain(runtime_loaded_state.property_keys.iter())
+    {
+        let _ = super::builtins::builtin_put(
+            eval,
+            vec![Value::symbol(name), Value::symbol(prop), Value::Nil],
+        );
+    }
+
+    for name in &strip_names {
         eval.obarray_mut().fmakunbound(&name);
         eval.autoloads.remove(name);
         let _ = super::builtins::builtin_put(
@@ -1748,9 +1829,7 @@ fn normalize_bootstrap_runtime_surface(
 
     let autoload_entries = eval.autoloads.entries_snapshot();
     for entry in &autoload_entries {
-        if runtime_autoload_files.contains(&entry.file.as_str())
-            || compile_only_names.contains(&entry.name)
-        {
+        if strip_names.contains(&entry.name) {
             eval.autoloads.remove(&entry.name);
             let _ = super::builtins::builtin_put(
                 eval,
@@ -1763,10 +1842,18 @@ fn normalize_bootstrap_runtime_surface(
         }
     }
 
-    for args in restore_autoload_args {
-        super::autoload::builtin_autoload(eval, args).map_err(map_flow)?;
+    for args in runtime_loaded_state
+        .autoload_args
+        .iter()
+        .chain(runtime_loaddefs_state.autoload_args.iter())
+    {
+        super::autoload::builtin_autoload(eval, args.clone()).map_err(map_flow)?;
     }
-    for form in &restore_property_forms {
+    for form in runtime_loaded_state
+        .property_forms
+        .iter()
+        .chain(runtime_loaddefs_state.property_forms.iter())
+    {
         eval.eval_expr(form)?;
     }
 
@@ -2094,14 +2181,10 @@ fn eval_startup_forms(eval: &mut super::eval::Context, forms_src: &str) -> Resul
 /// need the early startup buffer initialization that `startup.el` performs for
 /// the `*scratch*` buffer.
 pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<(), EvalError> {
+    let project_root = runtime_project_root();
     eval_startup_forms(
         eval,
         r#"
-          ;; Load icons.el early — many packages (tab-bar, modeline, doom)
-          ;; call icon-string during display. GNU loads it lazily via
-          ;; (require 'icons) inside function bodies, but NeoVM's display
-          ;; path may call icon-string before the lazy require triggers.
-          (require 'icons nil t)
           (if (get-buffer "*scratch*")
               (with-current-buffer "*scratch*"
                 (if (eq major-mode 'fundamental-mode)
@@ -2116,6 +2199,12 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<()
                   #'cconv-make-interpreted-closure))
         "#,
     )?;
+
+    // GNU's startup path reaches its post-startup surface through compiled
+    // early Lisp. NeoVM executes the same files from source, which can
+    // transiently reload compile-time helpers such as `gv`. Normalize the
+    // runtime-visible autoload/feature surface again after those forms run.
+    normalize_bootstrap_runtime_surface(eval, &project_root)?;
 
     let filter_fn = eval
         .obarray()
@@ -2386,12 +2475,30 @@ fn create_bootstrap_evaluator_cached_at_path(
 ) -> Result<super::eval::Context, EvalError> {
     use super::pdump;
 
+    fn finalize_or_log(
+        eval: &mut super::eval::Context,
+        project_root: &Path,
+        context: &str,
+    ) -> Result<(), EvalError> {
+        match finalize_cached_bootstrap_eval(eval, project_root) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                let rendered = super::value::with_saved_heap(|| {
+                    super::value::set_current_heap(&mut eval.heap);
+                    format_eval_error_in_state(eval, &err)
+                });
+                tracing::error!("{context}: {rendered}");
+                Err(err)
+            }
+        }
+    }
+
     let project_root = runtime_project_root();
 
     // Allow disabling pdump via env var
     if std::env::var("NEOVM_DISABLE_PDUMP").unwrap_or_default() == "1" {
         let mut eval = create_bootstrap_evaluator_with_features(extra_features)?;
-        finalize_cached_bootstrap_eval(&mut eval, &project_root)?;
+        finalize_or_log(&mut eval, &project_root, "pdump disabled finalize failed")?;
         return Ok(eval);
     }
 
@@ -2405,7 +2512,7 @@ fn create_bootstrap_evaluator_cached_at_path(
                     dump_path.display(),
                     start.elapsed()
                 );
-                finalize_cached_bootstrap_eval(&mut eval, &project_root)?;
+                finalize_or_log(&mut eval, &project_root, "pdump finalize failed")?;
 
                 return Ok(eval);
             }
@@ -2438,7 +2545,7 @@ fn create_bootstrap_evaluator_cached_at_path(
                     dump_path.display(),
                     start.elapsed()
                 );
-                finalize_cached_bootstrap_eval(&mut eval, &project_root)?;
+                finalize_or_log(&mut eval, &project_root, "pdump finalize after lock failed")?;
                 return Ok(eval);
             }
             Err(e) => {
@@ -2471,7 +2578,11 @@ fn create_bootstrap_evaluator_cached_at_path(
             let reload_start = std::time::Instant::now();
             match pdump::load_from_dump(dump_path) {
                 Ok(mut loaded) => {
-                    finalize_cached_bootstrap_eval(&mut loaded, &project_root)?;
+                    finalize_or_log(
+                        &mut loaded,
+                        &project_root,
+                        "pdump fresh reload finalize failed",
+                    )?;
                     tracing::info!(
                         "pdump: reloaded freshly written bootstrap state from {} ({:.2?})",
                         dump_path.display(),
