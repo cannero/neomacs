@@ -1,4 +1,3 @@
-use super::super::intern::intern;
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::string_escape;
@@ -609,17 +608,6 @@ fn sf_save_current_buffer_restores() {
     assert_eq!(ev.buffers.current_buffer().unwrap().id, buf_id);
 }
 
-// ----- special form: track-mouse -----
-
-#[test]
-fn sf_track_mouse_evaluates_body() {
-    use super::super::expr::Expr;
-    let mut ev = super::super::eval::Context::new();
-    let tail = [Expr::Int(99)];
-    let result = sf_track_mouse(&mut ev, &tail).unwrap();
-    assert!(eq_value(&result, &Value::Int(99)));
-}
-
 // ----- with-syntax-table (Elisp macro in GNU subr.el:6394) -----
 
 #[test]
@@ -630,15 +618,6 @@ fn sf_with_syntax_table_evaluates_body() {
     let forms = parse_forms("(with-syntax-table (make-syntax-table) 30)").expect("parse");
     let result = ev.eval_expr(&forms[0]).expect("eval");
     assert!(eq_value(&result, &Value::Int(30)));
-}
-
-#[test]
-fn sf_with_syntax_table_needs_args() {
-    use super::super::expr::Expr;
-    let mut ev = super::super::eval::Context::new();
-    let tail: [Expr; 0] = [];
-    let result = sf_with_syntax_table(&mut ev, &tail);
-    assert!(result.is_err());
 }
 
 #[test]
@@ -654,26 +633,13 @@ fn sf_with_syntax_table_restores_original_table_on_success() {
 }
 
 #[test]
-fn sf_with_syntax_table_restores_original_table_on_error() {
-    use super::super::expr::Expr;
-    let mut ev = super::super::eval::Context::new();
+fn with_syntax_table_restores_original_table_on_error() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("startup");
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
-    let tail = [
-        Expr::List(vec![Expr::Symbol(intern("make-syntax-table"))]),
-        Expr::Symbol(intern("__missing_with_syntax_table_symbol__")),
-    ];
-    let _ = sf_with_syntax_table(&mut ev, &tail);
+    let forms = parse_forms("(ignore-errors (with-syntax-table (make-syntax-table) missing-var))")
+        .expect("parse");
+    let _ = ev.eval_expr(&forms[0]);
     let restored = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     assert!(eq_value(&restored, &original));
-}
-
-// ----- special form: with-temp-buffer -----
-
-#[test]
-fn sf_with_temp_buffer_returns_body_result() {
-    use super::super::expr::Expr;
-    let mut ev = super::super::eval::Context::new();
-    let tail = [Expr::Int(77)];
-    let result = sf_with_temp_buffer(&mut ev, &tail).unwrap();
-    assert!(eq_value(&result, &Value::Int(77)));
 }

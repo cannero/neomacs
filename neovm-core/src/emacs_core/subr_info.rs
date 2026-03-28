@@ -7,7 +7,7 @@
 //! - `func-arity`, `indirect-function`
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{intern, lookup_interned, resolve_sym};
+use super::intern::{lookup_interned, resolve_sym};
 use super::value::*;
 
 // ---------------------------------------------------------------------------
@@ -147,68 +147,10 @@ pub(crate) fn is_evaluator_sf_skip_macroexpand(_name: &str) -> bool {
     false
 }
 
-pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {
-    has_fallback_macro(name)
-}
-
 pub(crate) fn is_evaluator_callable_name(name: &str) -> bool {
     // `throw` is an evaluator-dispatched entry that still behaves as a normal
     // callable symbol in introspection (`fboundp`/`functionp`/`symbol-function`).
     PUBLIC_EVALUATOR_CALLABLE_NAMES.contains(&name)
-}
-
-#[derive(Clone, Copy)]
-struct FallbackMacroSpec {
-    min: usize,
-    max: Option<usize>,
-}
-
-fn fallback_macro_spec(name: &str) -> Option<FallbackMacroSpec> {
-    let _ = name;
-    None
-}
-
-pub(crate) fn has_fallback_macro(name: &str) -> bool {
-    fallback_macro_spec(name).is_some()
-}
-
-fn fallback_macro_params(spec: FallbackMacroSpec) -> LambdaParams {
-    let required = (0..spec.min)
-        .map(|idx| intern(&format!("arg{idx}")))
-        .collect();
-    let (optional, rest) = match spec.max {
-        None => (Vec::new(), Some(intern("rest"))),
-        Some(max) => {
-            debug_assert!(max >= spec.min);
-            let optional_count = max.saturating_sub(spec.min);
-            let optional = (0..optional_count)
-                .map(|idx| intern(&format!("arg{}", spec.min + idx)))
-                .collect();
-            (optional, None)
-        }
-    };
-
-    LambdaParams {
-        required,
-        optional,
-        rest,
-    }
-}
-
-/// Return a placeholder macro object for evaluator-integrated macro names.
-///
-/// GNU Lisp bootstrap macros are installed as temporary real macro cells by
-/// `bootstrap_macros.rs`; ordinary GNU Lisp macros should come from GNU Lisp.
-pub(crate) fn fallback_macro_value(name: &str) -> Option<Value> {
-    let spec = fallback_macro_spec(name)?;
-    Some(Value::make_macro(LambdaData {
-        params: fallback_macro_params(spec),
-        body: vec![].into(),
-        env: None,
-        docstring: None,
-        doc_form: None,
-        interactive: None,
-    }))
 }
 
 // ---------------------------------------------------------------------------

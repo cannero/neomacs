@@ -4437,10 +4437,6 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
         )
     }
 
-    fn is_global_function_placeholder(&self, symbol: SymId) -> bool {
-        self.ctx.obarray.symbol_function_id(symbol).is_none()
-    }
-
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
         let args = vec![autoload, head, Value::symbol("macro")];
         let extra_roots = args.clone();

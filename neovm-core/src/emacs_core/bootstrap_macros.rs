@@ -63,3 +63,51 @@ pub(crate) fn install_bootstrap_macro_function_cells(ctx: &mut Context) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_bootstrap_installs_eval_and_compile_only() {
+        let mut eval = Context::new();
+        install_bootstrap_macro_function_cells(&mut eval);
+
+        let eval_and_compile = eval
+            .obarray
+            .symbol_function_id(intern("eval-and-compile"))
+            .copied()
+            .expect("eval-and-compile bootstrap macro");
+        assert!(matches!(eval_and_compile, Value::Macro(_)));
+
+        for name in [
+            "defvar-local",
+            "track-mouse",
+            "with-current-buffer",
+            "with-temp-buffer",
+            "with-output-to-string",
+            "with-syntax-table",
+            "with-mutex",
+        ] {
+            assert!(
+                eval.obarray.symbol_function_id(intern(name)).is_none(),
+                "{name} should come from GNU Lisp, not source bootstrap"
+            );
+        }
+    }
+
+    #[test]
+    fn source_bootstrap_does_not_override_existing_function_cells() {
+        let mut eval = Context::new();
+        let sym = intern("eval-and-compile");
+        eval.obarray
+            .set_symbol_function_id(sym, Value::symbol("already-defined"));
+
+        install_bootstrap_macro_function_cells(&mut eval);
+
+        assert_eq!(
+            eval.obarray.symbol_function_id(sym).copied(),
+            Some(Value::symbol("already-defined"))
+        );
+    }
+}

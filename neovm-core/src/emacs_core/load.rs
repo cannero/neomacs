@@ -2262,7 +2262,7 @@ pub fn create_bootstrap_evaluator() -> Result<super::eval::Context, EvalError> {
 ///
 /// This keeps ordinary `Context::new()` close to GNU's C-level startup
 /// surface while still letting NeoVM load `byte-run.el` from source, where
-/// `eval-and-compile` is used in top-level forms before its later `defmacro`.
+/// only `eval-and-compile` is needed before its later `defmacro`.
 pub fn create_source_bootstrap_context() -> super::eval::Context {
     let mut eval = super::eval::Context::new();
     super::bootstrap_macros::install_bootstrap_macro_function_cells(&mut eval);

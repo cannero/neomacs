@@ -1,7 +1,7 @@
 //! Miscellaneous commonly-needed builtins.
 //!
 //! Contains:
-//! - Special forms: prog2, with-temp-buffer, save-current-buffer, track-mouse, with-syntax-table
+//! - Special forms: prog2, save-current-buffer
 //! - Pure builtins: copy-alist, rassoc, rassq, assoc-default, make-list, safe-length,
 //!   subst-char-in-string, string/char encoding stubs, locale-info
 //! - Eval-dependent builtins: backtrace-* helpers, recursion-depth
@@ -129,29 +129,6 @@ fn convert_unibyte_storage_to_multibyte(s: &str) -> String {
 // Special forms
 // ===========================================================================
 
-/// `(with-temp-buffer BODY...)` -- create a temp buffer, make it current,
-/// execute BODY, kill the buffer, restore previous buffer, return last result.
-pub(crate) fn sf_with_temp_buffer(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
-    // Save current buffer
-    let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
-
-    // Create a temporary buffer.  Space-prefixed names automatically get
-    // undo disabled (buffer.c:667 — matches GNU behavior).
-    let temp_name = eval.buffers.generate_new_buffer_name(" *temp*");
-    let temp_id = eval.buffers.create_buffer(&temp_name);
-    eval.switch_current_buffer(temp_id)?;
-
-    // Execute body
-    let result = eval.sf_progn(tail);
-
-    // Kill temp buffer and restore
-    eval.buffers.kill_buffer(temp_id);
-    if let Some(saved_id) = saved_buf {
-        eval.restore_current_buffer_if_live(saved_id);
-    }
-    result
-}
-
 /// `(save-current-buffer BODY...)` -- save the current buffer, execute BODY,
 /// then restore the previous current buffer.
 pub(crate) fn sf_save_current_buffer(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
@@ -160,30 +137,6 @@ pub(crate) fn sf_save_current_buffer(eval: &mut super::eval::Context, tail: &[Ex
     if let Some(saved_id) = saved_buf {
         eval.restore_current_buffer_if_live(saved_id);
     }
-    result
-}
-
-/// `(track-mouse BODY...)` -- evaluate BODY forms.
-/// In batch/terminal mode, this is an effective no-op wrapper around `progn`.
-pub(crate) fn sf_track_mouse(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
-    eval.sf_progn(tail)
-}
-
-/// `(with-syntax-table TABLE BODY...)` -- evaluate BODY with TABLE installed
-/// as the current buffer syntax-table object, then restore the previous table.
-pub(crate) fn sf_with_syntax_table(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
-    if tail.is_empty() {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("with-syntax-table"), Value::Int(0)],
-        ));
-    }
-    let saved = super::syntax::builtin_syntax_table(eval, vec![])?;
-    let table = eval.eval(&tail[0])?;
-    super::syntax::builtin_set_syntax_table(eval, vec![table])?;
-
-    let result = eval.sf_progn(&tail[1..]);
-    let _ = super::syntax::builtin_set_syntax_table(eval, vec![saved]);
     result
 }
 

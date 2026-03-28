@@ -2103,52 +2103,6 @@ fn func_arity_macro() {
 }
 
 #[test]
-fn fallback_macro_eval_and_compile_preserves_rest_arity() {
-    let macro_value = fallback_macro_value("eval-and-compile").expect("fallback macro exists");
-    let result = builtin_func_arity_impl(vec![macro_value]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
-        assert_eq!(pair.car.as_int(), Some(0));
-        assert_eq!(pair.cdr, Value::symbol("many"));
-    } else {
-        panic!("expected cons cell");
-    }
-}
-
-// Fallback macro tests removed: these macros are now loaded from Elisp
-
-#[test]
-fn fallback_macro_with_demoted_errors_no_longer_present() {
-    // with-demoted-errors was removed from fallback_macro_spec;
-    // it is now loaded from Elisp macros during bootstrap.
-    assert!(
-        fallback_macro_value("with-demoted-errors").is_none(),
-        "with-demoted-errors should no longer be a fallback macro"
-    );
-}
-
-#[test]
-fn fallback_macro_only_keeps_source_bootstrap_shims() {
-    for name in [
-        "declare",
-        "eval-and-compile",
-        "eval-when-compile",
-        "defvar-local",
-        "track-mouse",
-        "with-current-buffer",
-        "with-temp-buffer",
-        "with-output-to-string",
-        "with-syntax-table",
-        "with-mutex",
-    ] {
-        assert!(
-            fallback_macro_value(name).is_none(),
-            "{name} should remain GNU Lisp-owned, not a fallback placeholder"
-        );
-    }
-}
-
-#[test]
 fn gnu_lisp_macro_forms_are_not_evaluator_special_forms() {
     for name in [
         "declare",

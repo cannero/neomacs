@@ -42,7 +42,6 @@ fn value_from_symbol_id(id: SymId) -> Value {
 pub(crate) trait MacroexpandRuntime {
     fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value;
     fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)>;
-    fn is_global_function_placeholder(&self, symbol: SymId) -> bool;
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow>;
     fn apply_macro_function(
         &mut self,
@@ -59,10 +58,6 @@ impl MacroexpandRuntime for super::eval::Context {
 
     fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)> {
         resolve_indirect_symbol_by_id(self, symbol)
-    }
-
-    fn is_global_function_placeholder(&self, symbol: SymId) -> bool {
-        self.obarray().symbol_function_id(symbol).is_none()
     }
 
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
@@ -2005,21 +2000,14 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     if env_bound && function.is_none() {
         return Ok((form, false));
     }
-    let mut resolved_name = head_name.to_string();
-    let mut fallback_placeholder = false;
     if function.is_none() {
         if let Some((resolved_id, global)) = runtime.resolve_indirect_symbol_by_id(head_id) {
-            let resolved = resolve_sym(resolved_id);
             // Check for Value::Macro (native macros) AND cons-cell macros
             // `(macro . fn)` — matches real Emacs eval.c which checks
             // `EQ (XCAR (def), Qmacro)`.
             let is_macro = matches!(global, Value::Macro(_))
                 || (global.is_cons() && global.cons_car().is_symbol_named("macro"));
             if is_macro {
-                fallback_placeholder = is_canonical_symbol_id(resolved_id)
-                    && super::subr_info::has_fallback_macro(resolved)
-                    && runtime.is_global_function_placeholder(resolved_id);
-                resolved_name = resolved.to_string();
                 function = Some(if global.is_cons() {
                     // Extract the function from (macro . fn)
                     global.cons_cdr()
@@ -2038,14 +2026,9 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
                 if let Some((resolved_id2, global2)) =
                     runtime.resolve_indirect_symbol_by_id(head_id)
                 {
-                    let resolved2 = resolve_sym(resolved_id2);
                     let is_macro2 = matches!(global2, Value::Macro(_))
                         || (global2.is_cons() && global2.cons_car().is_symbol_named("macro"));
                     if is_macro2 {
-                        fallback_placeholder = is_canonical_symbol_id(resolved_id2)
-                            && super::subr_info::has_fallback_macro(resolved2)
-                            && runtime.is_global_function_placeholder(resolved_id2);
-                        resolved_name = resolved2.to_string();
                         function = Some(if global2.is_cons() {
                             global2.cons_cdr()
                         } else {
@@ -2061,16 +2044,6 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     };
     let args = list_to_vec(&tail)
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), tail]))?;
-    if fallback_placeholder {
-        if let Some(expanded) = macroexpand_known_fallback_macro(
-            &mut || runtime.next_pcase_macroexpand_temp_symbol(),
-            &resolved_name,
-            &args,
-        )? {
-            return Ok((expanded, true));
-        }
-        return Ok((form, false));
-    }
     let expanded = runtime.apply_macro_function(form, function, args)?;
     // Match real Emacs (eval.c line 1319): if the macro expander returned
     // the same form object (EQ), treat it as "no expansion occurred".
@@ -2145,10 +2118,6 @@ pub(crate) fn symbol_function_cell_in_obarray(obarray: &Obarray, symbol: SymId) 
     }
 
     let current_name = resolve_sym(symbol);
-
-    if let Some(function) = super::subr_info::fallback_macro_value(current_name) {
-        return Some(function);
-    }
 
     if let Some(alias_target) = pure_builtin_symbol_alias_target(current_name) {
         return Some(Value::symbol(alias_target));
