@@ -24,8 +24,8 @@ use super::textprop::string_elisp_pos_to_byte;
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
 use crate::face::{
-    BoxStyle, Color, Face as RuntimeFace, FaceHeight, FontSlant, FontWeight, FontWidth,
-    UnderlineStyle,
+    BoxStyle, Color, Face as RuntimeFace, FaceHeight, FaceRemapping, FontSlant, FontWeight,
+    FontWidth, UnderlineStyle,
 };
 use crate::window::{FRAME_ID_BASE, FrameId, FrameManager, WindowId};
 
@@ -940,13 +940,65 @@ fn resolve_face_layers_from_value(value: &Value) -> Vec<FaceLayer> {
     }
 }
 
+/// Extract the `face-remapping-alist` for a specific buffer.
+///
+/// Checks the buffer-local binding first; falls back to the global value.
+fn face_remapping_for_buffer(eval: &super::eval::Context, buffer: &Buffer) -> FaceRemapping {
+    // Buffer-local binding takes priority
+    let value = buffer
+        .get_buffer_local("face-remapping-alist")
+        .copied()
+        .or_else(|| eval.obarray().symbol_value("face-remapping-alist").copied())
+        .unwrap_or(Value::Nil);
+
+    if value.is_nil() {
+        FaceRemapping::new()
+    } else {
+        FaceRemapping::from_lisp(&value)
+    }
+}
+
+/// Extract the `face-remapping-alist` from the current buffer (if any).
+fn face_remapping_for_current_buffer(eval: &super::eval::Context) -> FaceRemapping {
+    if let Some(buf) = eval.buffers.current_buffer() {
+        face_remapping_for_buffer(eval, buf)
+    } else {
+        let value = eval
+            .obarray()
+            .symbol_value("face-remapping-alist")
+            .copied()
+            .unwrap_or(Value::Nil);
+        if value.is_nil() {
+            FaceRemapping::new()
+        } else {
+            FaceRemapping::from_lisp(&value)
+        }
+    }
+}
+
 fn apply_face_layers(face_table: &crate::face::FaceTable, layers: &[FaceLayer]) -> RuntimeFace {
-    let mut face = face_table.resolve("default");
+    apply_face_layers_with_remapping(face_table, layers, &FaceRemapping::new())
+}
+
+fn apply_face_layers_with_remapping(
+    face_table: &crate::face::FaceTable,
+    layers: &[FaceLayer],
+    remapping: &FaceRemapping,
+) -> RuntimeFace {
+    let mut face = if remapping.is_empty() {
+        face_table.resolve("default")
+    } else {
+        face_table.resolve_with_remapping("default", remapping)
+    };
     for layer in layers {
         match layer {
             FaceLayer::Named(names) => {
                 let refs = names.iter().map(String::as_str).collect::<Vec<_>>();
-                let merged = face_table.merge_faces(&refs);
+                let merged = if remapping.is_empty() {
+                    face_table.merge_faces(&refs)
+                } else {
+                    face_table.merge_faces_with_remapping(&refs, remapping)
+                };
                 face = face.merge(&merged);
             }
             FaceLayer::Inline(inline_face) => {
@@ -990,7 +1042,9 @@ fn resolved_face_at_buffer_byte(
         layers.extend(resolved);
     }
 
-    apply_face_layers(&eval.face_table, &layers)
+    // Consult buffer-local face-remapping-alist
+    let remapping = face_remapping_for_buffer(eval, buffer);
+    apply_face_layers_with_remapping(&eval.face_table, &layers, &remapping)
 }
 
 fn resolved_face_at_string_byte(
@@ -1007,7 +1061,10 @@ fn resolved_face_at_string_byte(
             layers.extend(resolve_face_layers_from_value(value));
         }
     }
-    apply_face_layers(&eval.face_table, &layers)
+    // Use face-remapping-alist from the current buffer (strings inherit
+    // the buffer context they're displayed in).
+    let remapping = face_remapping_for_current_buffer(eval);
+    apply_face_layers_with_remapping(&eval.face_table, &layers, &remapping)
 }
 
 fn face_height_to_font_value(height: &FaceHeight) -> Value {
@@ -3584,7 +3641,13 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
     }
 
     let face_name = resolve_face_name_for_domain(&args[0], false)?;
-    let face = eval.face_table.resolve(&face_name);
+    let remapping = face_remapping_for_current_buffer(eval);
+    let face = if remapping.is_empty() {
+        eval.face_table.resolve(&face_name)
+    } else {
+        eval.face_table
+            .resolve_with_remapping(&face_name, &remapping)
+    };
     if let Some(character) = args.get(2).filter(|value| !value.is_nil()) {
         let ch = match character {
             Value::Char(ch) => *ch,

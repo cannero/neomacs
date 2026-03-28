@@ -12,7 +12,7 @@
 
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::value::{Value, next_float_id, read_cons};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // X11 color table generated at compile time from etc/rgb.txt
 include!(concat!(env!("OUT_DIR"), "/x11_colors.rs"));
@@ -713,6 +713,154 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
 }
 
 // ---------------------------------------------------------------------------
+// Face remapping (face-remapping-alist support)
+// ---------------------------------------------------------------------------
+
+/// A single entry in a remapping specification.
+///
+/// Corresponds to the CDR of an entry in `face-remapping-alist`:
+/// - `(FACE . other-face)`        -> `[RemapFace("other-face")]`
+/// - `(FACE . (:attr val ...))`   -> `[RemapAttrs(face)]`
+/// - `(FACE . (a b (:k v) ...))`  -> mixed list of face names & attr plists
+#[derive(Clone, Debug)]
+pub enum FaceRemapEntry {
+    /// Remap to another named face.
+    RemapFace(String),
+    /// Inline attribute plist parsed into a `Face`.
+    RemapAttrs(Face),
+}
+
+/// Parsed form of the buffer-local `face-remapping-alist`.
+///
+/// Maps original face name -> ordered list of remapping entries.
+/// When resolving face `X`, if `X` is in this map the entries replace the
+/// original face definition.
+#[derive(Clone, Debug, Default)]
+pub struct FaceRemapping {
+    map: HashMap<String, Vec<FaceRemapEntry>>,
+}
+
+impl FaceRemapping {
+    /// Create an empty (no remapping) instance.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether there are any remappings.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Insert a remapping for the given face name.
+    pub fn insert(&mut self, face_name: String, entries: Vec<FaceRemapEntry>) {
+        self.map.insert(face_name, entries);
+    }
+
+    /// Look up the remapping entries for a face name.
+    pub fn get(&self, face_name: &str) -> Option<&[FaceRemapEntry]> {
+        self.map.get(face_name).map(|v| v.as_slice())
+    }
+
+    /// Parse `face-remapping-alist` from its Lisp value.
+    ///
+    /// The alist has the form `((FACE . SPEC) ...)` where SPEC can be:
+    /// - A symbol (face name)
+    /// - A plist `(:attr val ...)`
+    /// - A list of specs `(face1 face2 (:attr val ...) ...)`
+    pub fn from_lisp(value: &Value) -> Self {
+        use crate::emacs_core::value::list_to_vec;
+
+        let mut remapping = Self::new();
+
+        let Some(alist) = list_to_vec(value) else {
+            return remapping;
+        };
+
+        for entry in &alist {
+            // Each entry is (FACE . SPEC) — a cons cell
+            let Value::Cons(cons_id) = entry else {
+                continue;
+            };
+            let cell = read_cons(*cons_id);
+            let Some(face_name) = cell.car.as_symbol_name() else {
+                continue;
+            };
+            if face_name == "nil" {
+                continue;
+            }
+
+            let entries = Self::parse_remap_spec(&cell.cdr);
+            if !entries.is_empty() {
+                remapping.insert(face_name.to_string(), entries);
+            }
+        }
+
+        remapping
+    }
+
+    /// Parse a single remapping spec (the CDR of an alist entry).
+    fn parse_remap_spec(spec: &Value) -> Vec<FaceRemapEntry> {
+        use crate::emacs_core::value::list_to_vec;
+
+        match spec {
+            // Simple symbol remap: (FACE . other-face)
+            Value::Symbol(_) | Value::True => {
+                if let Some(name) = spec.as_symbol_name() {
+                    if name != "nil" {
+                        return vec![FaceRemapEntry::RemapFace(name.to_string())];
+                    }
+                }
+                Vec::new()
+            }
+            Value::Nil => Vec::new(),
+            // List form: could be a plist or a list of specs
+            Value::Cons(_) => {
+                let Some(items) = list_to_vec(spec) else {
+                    return Vec::new();
+                };
+                if items.is_empty() {
+                    return Vec::new();
+                }
+
+                // Check if it's a plist (starts with keyword)
+                if matches!(items[0], Value::Keyword(_)) {
+                    let face = Face::from_plist("--remap--", &items);
+                    return vec![FaceRemapEntry::RemapAttrs(face)];
+                }
+
+                // Otherwise it's a list of specs: (face1 face2 (:k v ...) ...)
+                let mut entries = Vec::new();
+                for item in &items {
+                    match item {
+                        Value::Symbol(_) | Value::True => {
+                            if let Some(name) = item.as_symbol_name() {
+                                if name != "nil" {
+                                    entries.push(FaceRemapEntry::RemapFace(name.to_string()));
+                                }
+                            }
+                        }
+                        Value::Cons(_) => {
+                            if let Some(sub_items) = list_to_vec(item) {
+                                if sub_items
+                                    .first()
+                                    .is_some_and(|v| matches!(v, Value::Keyword(_)))
+                                {
+                                    let face = Face::from_plist("--remap--", &sub_items);
+                                    entries.push(FaceRemapEntry::RemapAttrs(face));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                entries
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // FaceTable
 // ---------------------------------------------------------------------------
 
@@ -1180,6 +1328,114 @@ impl FaceTable {
         }
 
         result
+    }
+
+    /// Resolve a face name, consulting `face-remapping-alist`.
+    ///
+    /// If `name` appears in `remapping`, the remapping entries are merged
+    /// together (in order) and returned instead of the original face.
+    /// Cycle detection prevents infinite loops when a remapping refers
+    /// back to the same face (or to another remapped face).
+    pub fn resolve_with_remapping(&self, name: &str, remapping: &FaceRemapping) -> Face {
+        let mut seen = HashSet::new();
+        self.resolve_remapped(name, remapping, &mut seen, 0)
+    }
+
+    fn resolve_remapped(
+        &self,
+        name: &str,
+        remapping: &FaceRemapping,
+        seen: &mut HashSet<String>,
+        depth: usize,
+    ) -> Face {
+        if depth > 20 {
+            return Face::new(name);
+        }
+
+        // Check face-remapping-alist — but only if we haven't already
+        // visited this face (cycle detection, matching GNU's
+        // push_named_merge_point).
+        if !seen.contains(name) {
+            if let Some(entries) = remapping.get(name) {
+                seen.insert(name.to_string());
+                let base = self.resolve("default");
+                let mut result = base;
+                for entry in entries {
+                    match entry {
+                        FaceRemapEntry::RemapFace(target) => {
+                            let resolved =
+                                self.resolve_remapped(target, remapping, seen, depth + 1);
+                            result = result.merge(&resolved);
+                        }
+                        FaceRemapEntry::RemapAttrs(attrs) => {
+                            result = result.merge(attrs);
+                        }
+                    }
+                }
+                return result;
+            }
+        }
+
+        // No remapping — fall back to normal resolution.
+        self.resolve_depth(name, 0)
+    }
+
+    /// Merge a list of face names, consulting `face-remapping-alist`.
+    pub fn merge_faces_with_remapping(
+        &self,
+        face_names: &[&str],
+        remapping: &FaceRemapping,
+    ) -> Face {
+        let default = self.resolve_with_remapping("default", remapping);
+        let mut result = default;
+
+        for name in face_names {
+            let mut seen = HashSet::new();
+            let resolved = self.resolve_remapped_raw(name, remapping, &mut seen, 0);
+            result = result.merge(&resolved);
+        }
+
+        result
+    }
+
+    /// Like `resolve_remapped` but uses raw (non-inherited) face definitions
+    /// when no remapping applies, matching `merge_faces` semantics.
+    fn resolve_remapped_raw(
+        &self,
+        name: &str,
+        remapping: &FaceRemapping,
+        seen: &mut HashSet<String>,
+        depth: usize,
+    ) -> Face {
+        if depth > 20 {
+            return Face::new(name);
+        }
+
+        if !seen.contains(name) {
+            if let Some(entries) = remapping.get(name) {
+                seen.insert(name.to_string());
+                let mut result = Face::new(name);
+                for entry in entries {
+                    match entry {
+                        FaceRemapEntry::RemapFace(target) => {
+                            let resolved =
+                                self.resolve_remapped_raw(target, remapping, seen, depth + 1);
+                            result = result.merge(&resolved);
+                        }
+                        FaceRemapEntry::RemapAttrs(attrs) => {
+                            result = result.merge(attrs);
+                        }
+                    }
+                }
+                return result;
+            }
+        }
+
+        // No remapping — use the raw face definition (not resolved).
+        self.faces
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Face::new(name))
     }
 
     /// List all defined face names.
