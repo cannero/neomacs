@@ -863,12 +863,21 @@ fn predicate_callable_name(predicate: &Value) -> Option<&str> {
 pub(crate) fn builtin_file_attributes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("file-attributes", &args, 1, 2)?;
 
-    let filename = super::fileio::resolve_filename_in_state(
-        &eval.obarray,
-        &[],
-        &eval.buffers,
-        &expect_string("file-attributes", &args[0])?,
-    );
+    // GNU Emacs (dired.c:1003-1006): If the filename is not a string
+    // (e.g., nil from buffer-file-name on a non-file buffer), return nil
+    // instead of signaling an error.
+    let filename_str = match args[0].as_str() {
+        Some(s) => s.to_string(),
+        None if args[0].is_nil() => return Ok(Value::Nil),
+        None => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), args[0]],
+            ));
+        }
+    };
+    let filename =
+        super::fileio::resolve_filename_in_state(&eval.obarray, &[], &eval.buffers, &filename_str);
     // GNU Emacs: return string names unless ID-FORMAT is nil or 'integer.
     let id_format_string = args
         .get(1)
