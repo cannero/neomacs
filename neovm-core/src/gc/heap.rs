@@ -733,6 +733,12 @@ impl LispHeap {
                 if let Some(env_val) = &d.env {
                     Self::push_value_ids(env_val, children);
                 }
+                if let Some(doc_val) = &d.doc_form {
+                    Self::push_value_ids(doc_val, children);
+                }
+                if let Some(interactive_val) = &d.interactive {
+                    Self::push_value_ids(interactive_val, children);
+                }
                 // Trace OpaqueValues in body expressions — these hold
                 // runtime Values (closures, byte-code, subrs) embedded in
                 // the AST by value_to_expr / macro expansion.
