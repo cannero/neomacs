@@ -2155,6 +2155,25 @@ fn fallback_macro_only_keeps_source_bootstrap_shims() {
 }
 
 #[test]
+fn source_bootstrap_magic_forms_are_not_evaluator_special_forms() {
+    for name in [
+        "eval-and-compile",
+        "defvar-local",
+        "with-temp-buffer",
+        "with-output-to-string",
+    ] {
+        assert!(
+            is_source_bootstrap_magic_form_name(name),
+            "{name} should be recognized as a source-bootstrap shim"
+        );
+        assert!(
+            !is_evaluator_special_form_name(name),
+            "{name} should not remain in the evaluator special-form table"
+        );
+    }
+}
+
+#[test]
 fn func_arity_error_for_non_callable() {
     let result = builtin_func_arity_impl(vec![Value::Int(42)]);
     assert!(result.is_err());

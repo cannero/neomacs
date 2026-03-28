@@ -88,8 +88,8 @@ pub(crate) fn public_evaluator_subr_names() -> impl Iterator<Item = &'static str
 /// dispatch path.
 ///
 /// This list mirrors `Context::try_special_form()` in `eval.rs`.
-/// Only includes forms that are C special forms (UNEVALLED) in GNU Emacs,
-/// plus a few NeoVM-specific forms needed for bootstrap/compatibility.
+/// Only includes forms that are evaluator-owned by construction:
+/// GNU C special forms, evaluator internals, and NeoVM-owned runtime forms.
 pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
     matches!(
         name,
@@ -130,15 +130,17 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
             | "autoload"
             // NeoVM-specific: error hierarchy
             | "define-error"
-            // Source-bootstrap shims for GNU Lisp macros that are used
-            // before their own definitions when NeoVM loads byte-run.el and
-            // subr.el as .el source instead of precompiled .elc.
-            | "eval-and-compile"
-            | "defvar-local"
-            | "with-output-to-string"
-            | "with-temp-buffer"
             // declare is a stub (ignored)
             | "declare"
+    )
+}
+
+/// GNU Lisp macros that NeoVM still has to support before their defining file
+/// reaches the real `defmacro` during source bootstrap.
+pub(crate) fn is_source_bootstrap_magic_form_name(name: &str) -> bool {
+    matches!(
+        name,
+        "eval-and-compile" | "defvar-local" | "with-output-to-string" | "with-temp-buffer"
     )
 }
 
@@ -166,7 +168,7 @@ pub(crate) fn is_evaluator_sf_skip_macroexpand(_name: &str) -> bool {
 
 pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {
     let is_macro = has_fallback_macro(name) || name == "declare";
-    debug_assert!(!is_macro || is_evaluator_special_form_name(name));
+    debug_assert!(!is_macro || is_source_bootstrap_magic_form_name(name) || name == "declare");
     is_macro
 }
 

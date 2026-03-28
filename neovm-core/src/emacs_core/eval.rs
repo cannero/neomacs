@@ -5514,6 +5514,13 @@ impl Context {
             // because they are not public GNU subrs. Public special forms are
             // materialized into the function cell during init and should not be
             // recreated here.
+            if self.obarray.symbol_function_id(sym_id).is_none()
+                && !self.obarray.is_function_unbound_id(sym_id)
+                && let Some(result) = self.try_source_bootstrap_magic_form(name, tail)
+            {
+                return result;
+            }
+
             if !self.obarray.is_function_unbound_id(sym_id)
                 && !super::subr_info::is_special_form(name)
             {
@@ -5766,6 +5773,23 @@ impl Context {
         result
     }
 
+    fn try_source_bootstrap_magic_form(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
+        if !super::subr_info::is_source_bootstrap_magic_form_name(name) {
+            return None;
+        }
+
+        let saved_depth = self.depth;
+        let result = Some(match name {
+            "defvar-local" => super::custom::sf_defvar_local(self, tail),
+            "eval-and-compile" => super::autoload::sf_eval_and_compile(self, tail),
+            "with-output-to-string" => super::reader::sf_with_output_to_string(self, tail),
+            "with-temp-buffer" => super::misc::sf_with_temp_buffer(self, tail),
+            _ => return None,
+        });
+        self.depth = saved_depth;
+        result
+    }
+
     fn try_special_form_inner(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
         Some(match name {
             // ---- GNU Emacs C special forms (eval.c UNEVALLED) ----
@@ -5802,16 +5826,10 @@ impl Context {
             "defcustom" => super::custom::sf_defcustom(self, tail),
             "defgroup" => super::custom::sf_defgroup(self, tail),
             "setq-default" => super::custom::sf_setq_default(self, tail),
-            "defvar-local" => super::custom::sf_defvar_local(self, tail),
             // Autoload
             "autoload" => super::autoload::sf_autoload(self, tail),
-            "eval-and-compile" => super::autoload::sf_eval_and_compile(self, tail),
             // Error hierarchy
             "define-error" => super::errors::sf_define_error(self, tail),
-            // Reader/printer
-            "with-output-to-string" => super::reader::sf_with_output_to_string(self, tail),
-            // Misc
-            "with-temp-buffer" => super::misc::sf_with_temp_buffer(self, tail),
             _ => return None,
         })
     }
