@@ -18,8 +18,8 @@ use super::error::*;
 use super::expr::Expr;
 use super::interactive::InteractiveRegistry;
 use super::intern::{
-    StringInterner, SymId, clear_current_interner, current_interner_ptr, intern, lookup_interned,
-    resolve_sym, set_current_interner,
+    StringInterner, SymId, clear_current_interner, current_interner_ptr, intern, intern_uninterned,
+    lookup_interned, resolve_sym, set_current_interner,
 };
 use super::keymap::{list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap};
 use super::kmacro::KmacroManager;
@@ -602,6 +602,12 @@ pub struct Context {
     /// Lexical environment: flat cons alist mirroring GNU Emacs's
     /// `Vinternal_interpreter_environment`.
     pub(crate) lexenv: Value,
+    /// GNU `eval.c` keeps `Vinternal_interpreter_environment` on a hidden
+    /// symbol object by `Funintern`ing the public name from the obarray.
+    /// NeoVM keeps the actual evaluator-owned symbol identity here so the
+    /// public `internal-interpreter-environment` symbol can stay visible
+    /// while remaining unbound and non-special.
+    pub(crate) internal_interpreter_environment_symbol: SymId,
     /// Features list (for require/provide).
     pub(crate) features: Vec<SymId>,
     /// Features currently being resolved through `require`.
@@ -1779,8 +1785,6 @@ impl Context {
         // file-coding-system-alist: needed by jka-cmpr-hook.el and others.
         obarray.set_symbol_value("file-coding-system-alist", Value::Nil);
         obarray.set_symbol_value("features", Value::Nil);
-        obarray.set_symbol_value("debug-on-error", Value::Nil);
-        obarray.set_symbol_value("internal-make-interpreted-closure-function", Value::Nil);
         obarray.set_symbol_value("lexical-binding", Value::Nil);
         obarray.set_symbol_value("load-prefer-newer", Value::Nil);
         obarray.set_symbol_value("load-file-name", Value::Nil);
@@ -2079,8 +2083,15 @@ impl Context {
         obarray.make_special("debug-ignored-errors");
         obarray.set_symbol_value("signal-hook-function", Value::Nil);
         obarray.make_special("signal-hook-function");
-        obarray.set_symbol_value("internal-interpreter-environment", Value::Nil);
-        obarray.make_special("internal-interpreter-environment");
+        // GNU `eval.c` defines `internal-interpreter-environment` and then
+        // immediately `Funintern`s that symbol, so Lisp-visible lookup sees a
+        // separate ordinary symbol while the evaluator keeps a hidden special
+        // variable for its own lexical-environment bookkeeping.
+        obarray.intern("internal-interpreter-environment");
+        let internal_interpreter_environment_symbol =
+            intern_uninterned("internal-interpreter-environment");
+        obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::Nil);
+        obarray.make_special_id(internal_interpreter_environment_symbol);
         obarray.set_symbol_value("internal-make-interpreted-closure-function", Value::Nil);
         obarray.make_special("internal-make-interpreted-closure-function");
         // GNU seeds `debugger` from eval.c before Lisp startup.
@@ -3031,6 +3042,7 @@ impl Context {
             obarray,
             specpdl: Vec::new(),
             lexenv: Value::Nil,
+            internal_interpreter_environment_symbol,
             features: Vec::new(),
             require_stack: Vec::new(),
             loads_in_progress: Vec::new(),
@@ -3135,6 +3147,13 @@ impl Context {
         bookmarks: BookmarkManager,
         watchers: VariableWatcherList,
     ) -> Self {
+        let mut obarray = obarray;
+        obarray.intern("internal-interpreter-environment");
+        let internal_interpreter_environment_symbol =
+            intern_uninterned("internal-interpreter-environment");
+        obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::Nil);
+        obarray.make_special_id(internal_interpreter_environment_symbol);
+
         let mut ev = Self {
             subr_registry: Vec::new(),
             interner,
@@ -3142,6 +3161,7 @@ impl Context {
             obarray,
             specpdl: Vec::new(),
             lexenv,
+            internal_interpreter_environment_symbol,
             features,
             require_stack,
             loads_in_progress: Vec::new(),
