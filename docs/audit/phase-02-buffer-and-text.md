@@ -46,34 +46,43 @@ types instead of exporting a second editor-text subsystem.
 
 ## Audit result
 
-Status is **functionally improving, still not GNU-shaped yet**.
+Status is **semantically much closer, still not GNU-shaped yet**.
 
 Good:
 
 - `neovm-core/src/buffer/` is already a real semantic buffer subsystem.
-- Recent compatibility work improved modified/autosave state, buffer-local
-  behavior, and indirect-buffer oracle coverage.
-- GNU oracle coverage now includes indirect-buffer text-property behavior after
-  shared-text mutation.
+- Recent compatibility work moved shared text-property ownership, undo
+  ownership, and active marker ownership onto shared buffer text for indirect
+  buffers.
+- Buffer-local storage now distinguishes slot-backed locals from ordinary Lisp
+  local bindings.
+- Current-buffer switching now has a real `set_buffer_internal_1/2`-style
+  boundary inside the buffer subsystem, with saved `pt`/`begv`/`zv` marker
+  state for non-current buffers that share text.
+- Overlays are now real heap objects, not cons-encoded handles.
+- GNU oracle coverage now includes indirect-buffer shared-text mutation,
+  indirect-buffer undo, marker ownership, file-lock transitions, plain
+  `insert`, and `insert-and-inherit` stickiness cases using
+  `front-sticky` / `rear-nonsticky` / `text-property-default-nonsticky`.
 - The deleted duplicate display-runtime text core was the right refactor:
   GNU does not split buffer semantics across a VM crate and a display crate,
   and Neomacs should not either.
 
 Remaining design gaps:
 
-- GNU splits buffer-local storage into:
-  - dedicated per-buffer slots described by `buffer_local_flags`
-  - `local_var_alist` for ordinary Lisp locals
-  Neomacs still collapses both into `properties + local_binding_names`.
-- GNU text properties are interval state on the shared text object.
-  Neomacs still stores `TextPropertyTable` per buffer and keeps indirect-buffer
-  siblings in sync manually.
-- GNU narrowing markers (`pt_marker`, `begv_marker`, `zv_marker`) are explicit
-  C-owned state for indirect buffers. Neomacs models narrowing and markers
-  correctly at the surface in many cases, but the source ownership is still
-  less direct than GNU's `buffer.c` + `marker.c`.
-- GNU region-cache / interval ownership is inside the core buffer/text engine.
-  Neomacs still has a simpler model and has not yet matched the full C design.
+- GNU text properties are stored in interval trees in `intervals.c`.
+  Neomacs still uses a boundary-indexed `BTreeMap` in
+  `neovm-core/src/buffer/text_props.rs`.  The observable semantics are much
+  better now, but the storage model is still not GNU's.
+- GNU overlays are stored in the same general interval/itree family as the
+  text engine.  Neomacs now has real overlay objects and indexed overlay
+  storage, but the structure is still Rust-local rather than GNU's exact
+  itree/object ownership model.
+- GNU region-cache ownership is inside the core text engine.
+  Neomacs still has no equivalent of GNU `region-cache.c`.
+- GNU `buffer.c` and `textprop.c` still remain the semantic source of truth
+  for some edge cases that Neomacs covers by oracle tests rather than by
+  matching storage shape.
 
 ## Long-term ideal design
 
@@ -85,10 +94,12 @@ The ideal design is:
 - `neomacs-display-runtime` consumes snapshots or read-only projections from
   `neovm-core`; it does not re-implement text semantics.
 - `BufferText` should grow toward GNU's shared text-object role:
-  it should own shared interval/text-property state for indirect buffers, not
-  leave that state duplicated on each `Buffer`.
-- Buffer-local storage should distinguish slot-backed builtin locals from
-  ordinary Lisp local bindings, instead of flattening everything into one map.
+  it should own the authoritative text-property and marker/undo state for
+  indirect buffers.
+- Buffer-local storage should keep the current slot-backed-versus-Lisp-local
+  split and continue moving toward GNU's `buffer.c` ownership boundaries.
+- Long-term, `TextPropertyTable` should become a GNU-like interval tree, not a
+  boundary map that merely simulates the same visible behavior.
 
 The display runtime may have caches, but those caches must not become a second
 buffer model.
@@ -96,16 +107,16 @@ buffer model.
 ## Required work
 
 - Keep `neomacs-display-runtime` as a consumer of VM-owned text state.
-- Refactor buffer-local storage toward GNU's two-tier model:
-  slot-backed per-buffer variables plus ordinary `local_var_alist`-style
-  bindings.
-- Move text-property ownership closer to the shared text object used by
-  indirect buffers.
+- Keep the current shared-text ownership model for indirect buffers and extend
+  it rather than reintroducing buffer-local duplication.
+- Rewrite `TextPropertyTable` toward an interval-tree structure if the goal is
+  source-level parity with GNU rather than only oracle-level parity.
 - Extend GNU differential coverage for:
   marker relocation, insertion-type, text property mutation, overlay ordering,
-  narrowing, and undo boundary behavior.
-- Add explicit GNU oracle cases for narrowing-marker behavior and interval/root
-  ownership transitions on indirect-buffer teardown.
+  narrowing, undo boundary behavior, `insert-before-markers-and-inherit`,
+  `default-text-properties`, and `char-property-alias-alist`.
+- Add explicit GNU oracle cases for interval/root ownership transitions on
+  indirect-buffer teardown and for any future interval-tree rewrite.
 
 ## Exit criteria
 
