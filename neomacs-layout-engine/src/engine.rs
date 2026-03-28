@@ -65,9 +65,26 @@ fn eval_status_line_format_value(
     buffer_id: u64,
 ) -> Option<Value> {
     evaluator.setup_thread_locals();
+    // GNU Emacs (xdisp.c:28187): format-mode-line reads the format variable
+    // from the TARGET buffer, not the caller's current buffer.  We must read
+    // the buffer-local value of mode-line-format from the specified buffer
+    // BEFORE calling format-mode-line, because format-mode-line evaluates
+    // its first argument in the caller's context.
+    let format_value = evaluator
+        .buffer_manager()
+        .get(BufferId(buffer_id))
+        .and_then(|buf| buf.buffer_local_value(format_symbol))
+        .unwrap_or_else(|| {
+            // Fall back to the global default
+            evaluator
+                .obarray()
+                .symbol_value(format_symbol)
+                .copied()
+                .unwrap_or(Value::Nil)
+        });
     let expr = Expr::List(vec![
         Expr::Symbol(intern("format-mode-line")),
-        Expr::Symbol(intern(format_symbol)),
+        Expr::OpaqueValue(format_value),
         Expr::Bool(false),
         Expr::OpaqueValue(Value::Window(window_id as u64)),
         Expr::OpaqueValue(Value::Buffer(BufferId(buffer_id))),
