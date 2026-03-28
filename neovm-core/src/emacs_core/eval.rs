@@ -5580,10 +5580,8 @@ impl Context {
         if let Some(current_id) = self.buffers.current_buffer_id()
             && let Some(buf) = self.buffers.get_mut(current_id)
         {
-            for value in buf.properties.values_mut() {
-                if let RuntimeBindingValue::Bound(value) = value {
-                    Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
-                }
+            for value in buf.bound_buffer_local_values_mut() {
+                Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
             }
         }
 

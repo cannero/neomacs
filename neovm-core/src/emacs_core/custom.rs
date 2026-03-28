@@ -448,12 +448,9 @@ pub(crate) fn builtin_buffer_local_variables(
         .ok_or_else(|| signal("error", vec![Value::string("No such live buffer")]))?;
 
     let locals: Vec<(String, Option<Value>)> = buf
-        .local_binding_names
-        .iter()
-        .filter_map(|name| {
-            buf.get_buffer_local_binding(name)
-                .map(|value| (name.clone(), value.as_value()))
-        })
+        .ordered_buffer_local_bindings()
+        .into_iter()
+        .map(|(name, value)| (name, value.as_value()))
         .collect();
 
     let entries: Vec<Value> = locals

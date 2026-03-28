@@ -78,6 +78,9 @@ fn compat_kill_all_local_variables_resets_current_buffer_matches_gnu_emacs() {
         (set-buffer buf)
         (make-local-variable 'compat-bound-local)
         (setq compat-bound-local 42)
+        (setq default-directory "/tmp/compat-kill-all-locals/")
+        (setq buffer-read-only t)
+        (setq-local truncate-lines t)
         (setq mode-name "Manual")
         (setq major-mode 'compat-major)
         (kill-all-local-variables)
@@ -85,8 +88,43 @@ fn compat_kill_all_local_variables_resets_current_buffer_matches_gnu_emacs() {
          (condition-case err compat-bound-local (error (car err)))
          major-mode
          mode-name
-         (local-variable-p 'compat-bound-local buf)))
+         default-directory
+         buffer-read-only
+         truncate-lines
+         (local-variable-p 'compat-bound-local buf)
+         (local-variable-p 'default-directory buf)
+         (local-variable-p 'buffer-read-only buf)
+         (local-variable-p 'truncate-lines buf)))
     (kill-buffer buf)))"#,
+    });
+}
+
+#[test]
+fn compat_buffer_slot_locality_matches_gnu_emacs() {
+    run_case(BufferLocalsCase {
+        name: "buffer_slot_locality",
+        form: r#"(let ((parent (get-buffer-create " *compat-buffer-slot-parent*"))
+      (child nil))
+  (unwind-protect
+      (progn
+        (with-current-buffer parent
+          (setq default-directory "/tmp/compat-buffer-slot-parent/")
+          (setq child (get-buffer-create " *compat-buffer-slot-child*")))
+        (with-current-buffer child
+          (list
+           (local-variable-p 'default-directory child)
+           (assq 'default-directory (buffer-local-variables child))
+           default-directory
+           (local-variable-p 'left-margin-width child)
+           (assq 'left-margin-width (buffer-local-variables child))
+           (progn
+             (setq-local left-margin-width 7)
+             (list
+              (local-variable-p 'left-margin-width child)
+              (assq 'left-margin-width (buffer-local-variables child)))))))
+    (when child
+      (kill-buffer child))
+    (kill-buffer parent)))"#,
     });
 }
 

@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use super::buffer_text::BufferText;
+use super::locals::BufferLocals;
 use super::overlay::OverlayList;
 use super::text_props::TextPropertyTable;
 use super::undo;
@@ -151,12 +152,9 @@ pub struct Buffer {
     pub auto_save_file_name: Option<String>,
     /// Active markers that track positions across edits.
     pub markers: Vec<MarkerEntry>,
-    /// Buffer-local variables (name -> runtime binding state).
-    pub properties: HashMap<String, RuntimeBindingValue>,
-    /// Names that currently have a buffer-local binding in this buffer, in GNU enumeration order.
-    pub local_binding_names: Vec<String>,
-    /// Buffer-local keymap, mirroring GNU `current_buffer->keymap`.
-    pub local_map: Value,
+    /// Buffer-local state, split between builtin slot-backed locals and
+    /// ordinary Lisp locals.
+    pub locals: BufferLocals,
     /// Text properties attached to ranges of text.
     pub text_props: TextPropertyTable,
     /// Overlays attached to the buffer.
@@ -172,121 +170,8 @@ pub struct Buffer {
 impl Buffer {
     // -- Construction --------------------------------------------------------
 
-    fn seed_builtin_buffer_local_binding_names(local_binding_names: &mut Vec<String>) {
-        for name in [
-            "buffer-read-only",
-            "buffer-file-name",
-            "buffer-file-truename",
-            "buffer-auto-save-file-name",
-            "buffer-display-count",
-            "buffer-display-time",
-            "buffer-invisibility-spec",
-            "buffer-undo-list",
-            "major-mode",
-            "mode-name",
-        ] {
-            local_binding_names.push(name.to_string());
-        }
-    }
-
-    fn ensure_local_binding_name(&mut self, name: &str) {
-        if !self
-            .local_binding_names
-            .iter()
-            .any(|existing| existing == name)
-        {
-            self.local_binding_names.push(name.to_string());
-        }
-    }
-
-    fn seed_builtin_buffer_local_defaults(properties: &mut HashMap<String, RuntimeBindingValue>) {
-        properties.insert(
-            "buffer-read-only".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "buffer-file-name".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "buffer-file-truename".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "buffer-auto-save-file-name".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "buffer-display-count".to_string(),
-            RuntimeBindingValue::Bound(Value::Int(0)),
-        );
-        properties.insert(
-            "buffer-display-time".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "buffer-invisibility-spec".to_string(),
-            RuntimeBindingValue::Bound(Value::True),
-        );
-        properties.insert(
-            "buffer-undo-list".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "major-mode".to_string(),
-            RuntimeBindingValue::Bound(Value::symbol("fundamental-mode")),
-        );
-        properties.insert(
-            "mode-name".to_string(),
-            RuntimeBindingValue::Bound(Value::string("Fundamental")),
-        );
-
-        // GNU C-owned per-buffer display vars used during frame/window startup.
-        properties.insert(
-            "left-margin-width".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "right-margin-width".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "left-fringe-width".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "right-fringe-width".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "fringes-outside-margins".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "scroll-bar-width".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "scroll-bar-height".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
-        properties.insert(
-            "vertical-scroll-bar".to_string(),
-            RuntimeBindingValue::Bound(Value::True),
-        );
-        properties.insert(
-            "horizontal-scroll-bar".to_string(),
-            RuntimeBindingValue::Bound(Value::True),
-        );
-    }
-
     /// Create a new, empty buffer.
     pub fn new(id: BufferId, name: String) -> Self {
-        let mut properties = HashMap::new();
-        let mut local_binding_names = Vec::new();
-        Self::seed_builtin_buffer_local_defaults(&mut properties);
-        Self::seed_builtin_buffer_local_binding_names(&mut local_binding_names);
-
         Self {
             id,
             name,
@@ -312,9 +197,7 @@ impl Buffer {
             file_name: None,
             auto_save_file_name: None,
             markers: Vec::new(),
-            properties,
-            local_binding_names,
-            local_map: Value::Nil,
+            locals: BufferLocals::new(),
             text_props: TextPropertyTable::new(),
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
@@ -572,18 +455,16 @@ impl Buffer {
 
     /// Get the current `buffer-undo-list` value from buffer-local properties.
     pub fn get_undo_list(&self) -> Value {
-        match self.properties.get("buffer-undo-list") {
-            Some(RuntimeBindingValue::Bound(v)) => *v,
+        match self.locals.raw_binding("buffer-undo-list") {
+            Some(RuntimeBindingValue::Bound(v)) => v,
             _ => Value::Nil,
         }
     }
 
     /// Store the `buffer-undo-list` value into buffer-local properties.
     pub fn set_undo_list(&mut self, value: Value) {
-        self.properties.insert(
-            "buffer-undo-list".to_string(),
-            RuntimeBindingValue::Bound(value),
-        );
+        self.locals
+            .set_raw_binding("buffer-undo-list", RuntimeBindingValue::Bound(value));
     }
 
     /// Prepare to record a buffer change: ensure the first-change sentinel
@@ -899,9 +780,8 @@ impl Buffer {
                 _ => self.auto_save_file_name.take(),
             };
         }
-        self.properties
-            .insert(name.to_string(), RuntimeBindingValue::Bound(value));
-        self.ensure_local_binding_name(name);
+        self.locals
+            .set_raw_binding(name, RuntimeBindingValue::Bound(value));
     }
 
     pub fn set_buffer_local_void(&mut self, name: &str) {
@@ -911,23 +791,23 @@ impl Buffer {
         if name == "buffer-auto-save-file-name" {
             self.auto_save_file_name = None;
         }
-        self.properties
-            .insert(name.to_string(), RuntimeBindingValue::Void);
-        self.ensure_local_binding_name(name);
+        self.locals.set_raw_binding(name, RuntimeBindingValue::Void);
+    }
+
+    pub fn kill_buffer_local(&mut self, name: &str) -> Option<RuntimeBindingValue> {
+        self.locals.remove(name)
+    }
+
+    pub fn kill_all_local_variables(&mut self, kill_permanent: bool) {
+        self.locals.kill_all_local_variables(kill_permanent);
     }
 
     pub fn get_buffer_local(&self, name: &str) -> Option<&Value> {
-        self.properties
-            .get(name)
-            .and_then(RuntimeBindingValue::as_ref)
+        self.locals.raw_value_ref(name)
     }
 
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
-        if !self
-            .local_binding_names
-            .iter()
-            .any(|existing| existing == name)
-        {
+        if !self.locals.has_local(name) {
             return None;
         }
         if name == "buffer-file-name" {
@@ -942,21 +822,19 @@ impl Buffer {
                 None => RuntimeBindingValue::Bound(Value::Nil),
             });
         }
-        self.properties.get(name).copied()
+        self.locals.raw_binding(name)
     }
 
     pub fn has_buffer_local(&self, name: &str) -> bool {
-        self.local_binding_names
-            .iter()
-            .any(|existing| existing == name)
+        self.locals.has_local(name)
     }
 
     pub fn local_map(&self) -> Value {
-        self.local_map
+        self.locals.local_map()
     }
 
     pub fn set_local_map(&mut self, keymap: Value) {
-        self.local_map = keymap;
+        self.locals.set_local_map(keymap);
     }
 
     pub fn buffer_local_value(&self, name: &str) -> Option<Value> {
@@ -964,6 +842,18 @@ impl Buffer {
             Some(RuntimeBindingValue::Bound(value)) => Some(value),
             Some(RuntimeBindingValue::Void) | None => None,
         }
+    }
+
+    pub fn ordered_buffer_local_bindings(&self) -> Vec<(String, RuntimeBindingValue)> {
+        self.locals.ordered_runtime_bindings()
+    }
+
+    pub fn ordered_buffer_local_names(&self) -> Vec<String> {
+        self.locals.ordered_binding_names()
+    }
+
+    pub fn bound_buffer_local_values_mut(&mut self) -> impl Iterator<Item = &mut Value> {
+        self.locals.bound_values_mut()
     }
 }
 
@@ -1027,6 +917,13 @@ impl BufferManager {
         let id = BufferId(self.next_id);
         self.next_id += 1;
         let mut buf = Buffer::new(id, name.to_string());
+        if let Some(default_directory) = self
+            .current
+            .and_then(|current| self.buffers.get(&current))
+            .and_then(|current| current.buffer_local_value("default-directory"))
+        {
+            buf.set_buffer_local("default-directory", default_directory);
+        }
         // GNU buffer.c:667 — buffers whose names start with a space have
         // undo recording disabled by default.
         if name.starts_with(' ') {
@@ -1064,7 +961,15 @@ impl BufferManager {
             cloned.name = name.to_string();
             cloned
         } else {
-            Buffer::new(id, name.to_string())
+            let mut fresh = Buffer::new(id, name.to_string());
+            if let Some(default_directory) = self
+                .current
+                .and_then(|current| self.buffers.get(&current))
+                .and_then(|current| current.buffer_local_value("default-directory"))
+            {
+                fresh.set_buffer_local("default-directory", default_directory);
+            }
+            fresh
         };
 
         indirect.base_buffer = Some(root_id);
@@ -1077,7 +982,6 @@ impl BufferManager {
         indirect.chars_modified_tick = root.chars_modified_tick;
         indirect.save_modified_tick = root.save_modified_tick;
         indirect.autosave_modified_tick = root.autosave_modified_tick;
-        indirect.local_binding_names = root.local_binding_names.clone();
         indirect.file_name = None;
         indirect.text_props = root.text_props.clone();
         if !clone {
@@ -1570,13 +1474,13 @@ impl BufferManager {
         Some(())
     }
 
-    pub fn clear_buffer_local_properties(&mut self, id: BufferId) -> Option<()> {
+    pub fn clear_buffer_local_properties(
+        &mut self,
+        id: BufferId,
+        kill_permanent: bool,
+    ) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
-        buf.properties.clear();
-        buf.local_binding_names.clear();
-        Buffer::seed_builtin_buffer_local_defaults(&mut buf.properties);
-        Buffer::seed_builtin_buffer_local_binding_names(&mut buf.local_binding_names);
-        buf.local_map = Value::Nil;
+        buf.kill_all_local_variables(kill_permanent);
         Some(())
     }
 
@@ -1692,22 +1596,20 @@ impl BufferManager {
         buf.file_name = file_name.clone();
         match file_name {
             Some(file_name) => {
-                buf.properties.insert(
-                    "buffer-file-name".to_string(),
+                buf.locals.set_raw_binding(
+                    "buffer-file-name",
                     RuntimeBindingValue::Bound(Value::string(&file_name)),
                 );
-                buf.properties.insert(
-                    "buffer-file-truename".to_string(),
+                buf.locals.set_raw_binding(
+                    "buffer-file-truename",
                     RuntimeBindingValue::Bound(Value::string(&file_name)),
                 );
             }
             None => {
-                buf.properties.insert(
-                    "buffer-file-name".to_string(),
-                    RuntimeBindingValue::Bound(Value::Nil),
-                );
-                buf.properties.insert(
-                    "buffer-file-truename".to_string(),
+                buf.locals
+                    .set_raw_binding("buffer-file-name", RuntimeBindingValue::Bound(Value::Nil));
+                buf.locals.set_raw_binding(
+                    "buffer-file-truename",
                     RuntimeBindingValue::Bound(Value::Nil),
                 );
             }
@@ -1773,14 +1675,7 @@ impl BufferManager {
         name: &str,
     ) -> Option<Option<RuntimeBindingValue>> {
         let buf = self.buffers.get_mut(&id)?;
-        if let Some(index) = buf
-            .local_binding_names
-            .iter()
-            .position(|existing| existing == name)
-        {
-            buf.local_binding_names.remove(index);
-        }
-        Some(buf.properties.remove(name))
+        Some(buf.kill_buffer_local(name))
     }
 
     pub fn add_undo_boundary(&mut self, id: BufferId) -> Option<()> {
@@ -2205,16 +2100,11 @@ impl Default for BufferManager {
 impl GcTrace for BufferManager {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for buffer in self.buffers.values() {
-            roots.push(buffer.local_map);
-            for value in buffer.properties.values() {
-                if let RuntimeBindingValue::Bound(value) = value {
-                    roots.push(*value);
-                }
-            }
+            buffer.locals.trace_roots(roots);
             buffer.text_props.trace_roots(roots);
             buffer.overlays.trace_roots(roots);
-            // The undo list is stored as buffer-undo-list in properties,
-            // so it's already traced by the properties loop above.
+            // The undo list is stored in buffer locals, so it's already traced
+            // by `BufferLocals::trace_roots`.
         }
         for restrictions in self.labeled_restrictions.values() {
             for restriction in restrictions {

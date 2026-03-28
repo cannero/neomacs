@@ -1047,13 +1047,15 @@ pub(crate) fn builtin_kill_all_local_variables(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _kill_permanent = args.first().copied().unwrap_or(Value::Nil);
+    let kill_permanent = args.first().copied().unwrap_or(Value::Nil).is_truthy();
 
-    // GNU buffer.c:2088 — kill-all-local-variables clears all buffer-local
-    // bindings and resets them to their defaults.  clear_buffer_local_properties
-    // re-seeds defaults from seed_builtin_buffer_local_defaults (mode-name,
-    // major-mode, buffer-read-only, etc.).
-    let _ = eval.buffers.clear_buffer_local_properties(current_id);
+    // GNU buffer.c reset_buffer_local_variables:
+    // - preserves most always-local slots
+    // - resets only a small fixed reset-on-kill-all subset
+    // - clears conditional slot locals unless they are permanent-local
+    let _ = eval
+        .buffers
+        .clear_buffer_local_properties(current_id, kill_permanent);
     Ok(Value::Nil)
 }
 

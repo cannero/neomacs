@@ -329,9 +329,11 @@ fn current_buffer_category_table_in_buffers(
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    if let Some(RuntimeBindingValue::Bound(table)) = buf.properties.get(CATEGORY_TABLE_PROPERTY) {
-        if is_category_table_value(table)? {
-            return Ok(*table);
+    if let Some(RuntimeBindingValue::Bound(table)) =
+        buf.get_buffer_local_binding(CATEGORY_TABLE_PROPERTY)
+    {
+        if is_category_table_value(&table)? {
+            return Ok(table);
         }
     }
 

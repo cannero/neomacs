@@ -1129,17 +1129,14 @@ fn current_buffer_syntax_table_object_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     if let Some(RuntimeBindingValue::Bound(value)) =
-        buf.properties.get(SYNTAX_TABLE_OBJECT_PROPERTY)
+        buf.get_buffer_local_binding(SYNTAX_TABLE_OBJECT_PROPERTY)
     {
-        if builtin_syntax_table_p(vec![*value])?.is_truthy() {
-            return Ok(*value);
+        if builtin_syntax_table_p(vec![value])?.is_truthy() {
+            return Ok(value);
         }
     }
 
-    buf.properties.insert(
-        SYNTAX_TABLE_OBJECT_PROPERTY.to_string(),
-        RuntimeBindingValue::Bound(fallback),
-    );
+    buf.set_buffer_local(SYNTAX_TABLE_OBJECT_PROPERTY, fallback);
     Ok(fallback)
 }
 
@@ -1157,10 +1154,7 @@ fn set_current_buffer_syntax_table_object_in_buffers(
     let buf = buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.properties.insert(
-        SYNTAX_TABLE_OBJECT_PROPERTY.to_string(),
-        RuntimeBindingValue::Bound(table),
-    );
+    buf.set_buffer_local(SYNTAX_TABLE_OBJECT_PROPERTY, table);
     Ok(())
 }
 

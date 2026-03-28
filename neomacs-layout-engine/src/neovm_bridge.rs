@@ -26,10 +26,7 @@ pub(crate) enum DisplayLineNumbersMode {
 }
 
 pub(crate) fn buffer_local_value<'a>(buffer: &'a Buffer, name: &str) -> Option<&'a Value> {
-    buffer
-        .properties
-        .get(name)
-        .and_then(|binding| binding.as_ref())
+    buffer.get_buffer_local(name)
 }
 
 fn effective_buffer_value(buffer: &Buffer, obarray: &Obarray, name: &str) -> Option<Value> {

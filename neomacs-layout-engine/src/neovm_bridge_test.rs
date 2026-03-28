@@ -287,18 +287,9 @@ fn test_window_params_buffer_locals() {
 
     // Set buffer-local variables.
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
-        buf.properties.insert(
-            "truncate-lines".to_string(),
-            neovm_core::emacs_core::value::RuntimeBindingValue::Bound(Value::True),
-        );
-        buf.properties.insert(
-            "tab-width".to_string(),
-            neovm_core::emacs_core::value::RuntimeBindingValue::Bound(Value::Int(4)),
-        );
-        buf.properties.insert(
-            "word-wrap".to_string(),
-            neovm_core::emacs_core::value::RuntimeBindingValue::Bound(Value::Nil),
-        );
+        buf.set_buffer_local("truncate-lines", Value::True);
+        buf.set_buffer_local("tab-width", Value::Int(4));
+        buf.set_buffer_local("word-wrap", Value::Nil);
     }
 
     let frame_id = evaluator

@@ -416,10 +416,11 @@ fn current_case_table_for_buffer_in_state(
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    if let Some(RuntimeBindingValue::Bound(value)) = buf.properties.get(CURRENT_CASE_TABLE_PROPERTY)
+    if let Some(RuntimeBindingValue::Bound(value)) =
+        buf.get_buffer_local_binding(CURRENT_CASE_TABLE_PROPERTY)
     {
-        if is_case_table(value) {
-            return Ok(*value);
+        if is_case_table(&value) {
+            return Ok(value);
         }
     }
 

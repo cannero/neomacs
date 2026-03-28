@@ -561,12 +561,12 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         auto_save_file_name: buf.auto_save_file_name.clone(),
         markers: buf.markers.iter().map(dump_marker).collect(),
         properties: buf
-            .properties
-            .iter()
-            .map(|(k, v)| (k.clone(), dump_runtime_binding_value(v)))
+            .ordered_buffer_local_bindings()
+            .into_iter()
+            .map(|(k, v)| (k, dump_runtime_binding_value(&v)))
             .collect(),
-        local_binding_names: buf.local_binding_names.iter().cloned().collect(),
-        local_map: dump_value(&buf.local_map),
+        local_binding_names: buf.ordered_buffer_local_names(),
+        local_map: dump_value(&buf.local_map()),
         text_props: dump_text_property_table(&buf.text_props),
         overlays: dump_overlay_list(&buf.overlays),
         syntax_table: dump_syntax_table(&buf.syntax_table),
@@ -1875,13 +1875,14 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         file_name: db.file_name.clone(),
         auto_save_file_name: db.auto_save_file_name.clone(),
         markers,
-        properties: db
-            .properties
-            .iter()
-            .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
-            .collect(),
-        local_binding_names: db.local_binding_names.iter().cloned().collect(),
-        local_map: load_value(&db.local_map),
+        locals: crate::buffer::BufferLocals::from_dump(
+            db.properties
+                .iter()
+                .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
+                .collect(),
+            &db.local_binding_names,
+            load_value(&db.local_map),
+        ),
         text_props: TextPropertyTable::from_dump(
             db.text_props
                 .intervals
