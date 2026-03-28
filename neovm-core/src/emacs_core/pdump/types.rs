@@ -592,29 +592,7 @@ pub struct DumpAutoloadManager {
 
 // Custom
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpCustomVariable {
-    pub name: String,
-    pub custom_type: DumpValue,
-    pub group: Option<String>,
-    pub documentation: Option<String>,
-    pub standard_value: DumpValue,
-    pub set_function: Option<DumpValue>,
-    pub get_function: Option<DumpValue>,
-    pub initialize: Option<DumpValue>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpCustomGroup {
-    pub name: String,
-    pub members: Vec<(String, DumpValue)>,
-    pub documentation: Option<String>,
-    pub parent: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpCustomManager {
-    pub variables: Vec<(String, DumpCustomVariable)>,
-    pub groups: Vec<(String, DumpCustomGroup)>,
     pub auto_buffer_local: Vec<String>,
 }
 

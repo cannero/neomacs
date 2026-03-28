@@ -13,9 +13,14 @@ fn eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
-fn bootstrap_eval_all(src: &str) -> Vec<String> {
+fn bootstrap_context() -> Context {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    ev
+}
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut ev = bootstrap_context();
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -28,40 +33,7 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 #[test]
 fn custom_manager_new_is_empty() {
     let cm = CustomManager::new();
-    assert!(cm.variables.is_empty());
-    assert!(cm.groups.is_empty());
     assert!(cm.auto_buffer_local.is_empty());
-}
-
-#[test]
-fn custom_manager_define_variable() {
-    let mut cm = CustomManager::new();
-    cm.define_variable(CustomVariable {
-        name: "my-var".into(),
-        custom_type: Value::symbol("integer"),
-        group: Some("my-group".into()),
-        documentation: Some("A variable.".into()),
-        standard_value: Value::Int(42),
-        set_function: None,
-        get_function: None,
-        initialize: None,
-    });
-    assert!(cm.is_custom_variable("my-var"));
-    assert!(!cm.is_custom_variable("other"));
-    assert_eq!(cm.get_variable("my-var").unwrap().name, "my-var");
-}
-
-#[test]
-fn custom_manager_define_group() {
-    let mut cm = CustomManager::new();
-    cm.define_group(CustomGroup {
-        name: "my-group".into(),
-        members: vec![],
-        documentation: Some("A group.".into()),
-        parent: None,
-    });
-    assert!(cm.is_custom_group("my-group"));
-    assert!(!cm.is_custom_group("other"));
 }
 
 #[test]
@@ -72,42 +44,42 @@ fn custom_manager_buffer_local() {
     assert!(cm.is_auto_buffer_local("tab-width"));
 }
 
-// -- defcustom special form tests ----------------------------------------
+// -- GNU custom.el runtime tests ----------------------------------------
 
 #[test]
 fn defcustom_basic() {
-    let results = eval_all(r#"(defcustom my-var 42 "My variable.")"#);
+    let results = bootstrap_eval_all(r#"(defcustom my-var 42 "My variable.")"#);
     assert_eq!(results[0], "OK my-var");
 }
 
 #[test]
 fn defcustom_sets_value() {
-    let results = eval_all(r#"(defcustom my-var 42 "My variable.") my-var"#);
+    let results = bootstrap_eval_all(r#"(defcustom my-var 42 "My variable.") my-var"#);
     assert_eq!(results[1], "OK 42");
 }
 
 #[test]
 fn defcustom_with_type() {
-    let results = eval_all(r#"(defcustom my-var 42 "Docs." :type 'integer) my-var"#);
+    let results = bootstrap_eval_all(r#"(defcustom my-var 42 "Docs." :type 'integer) my-var"#);
     assert_eq!(results[1], "OK 42");
 }
 
 #[test]
 fn defcustom_with_group() {
-    let results = eval_all(r#"(defcustom my-var 10 "Docs." :group 'my-group) my-var"#);
+    let results = bootstrap_eval_all(r#"(defcustom my-var 10 "Docs." :group 'my-group) my-var"#);
     assert_eq!(results[1], "OK 10");
 }
 
 #[test]
 fn defcustom_does_not_override_existing() {
-    let results = eval_all(r#"(setq my-var 99) (defcustom my-var 42 "Docs.") my-var"#);
+    let results = bootstrap_eval_all(r#"(setq my-var 99) (defcustom my-var 42 "Docs.") my-var"#);
     // defcustom should not override an existing value, like defvar
     assert_eq!(results[2], "OK 99");
 }
 
 #[test]
 fn defcustom_marks_special() {
-    let mut ev = Context::new();
+    let mut ev = bootstrap_context();
     let forms = parse_forms(r#"(defcustom my-var 42 "Docs.")"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
     assert!(ev.obarray().is_special("my-var"));
@@ -128,26 +100,29 @@ fn defcustom_custom_variable_p() {
     assert_eq!(results[2], "OK nil");
 }
 
-// -- defgroup special form tests -----------------------------------------
+// -- GNU custom.el group tests -----------------------------------------
 
 #[test]
 fn defgroup_basic() {
-    let results = eval_all(r#"(defgroup my-group nil "My group.")"#);
+    let results = bootstrap_eval_all(r#"(defgroup my-group nil "My group.")"#);
     assert_eq!(results[0], "OK my-group");
 }
 
 #[test]
 fn defgroup_registers_group() {
-    let mut ev = Context::new();
+    let mut ev = bootstrap_context();
     let forms = parse_forms(r#"(defgroup my-group nil "Docs.")"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
-    assert!(ev.custom.is_custom_group("my-group"));
-    assert!(!ev.custom.is_custom_group("other"));
+    let doc = ev
+        .obarray
+        .get_property("my-group", "group-documentation")
+        .expect("group-documentation");
+    assert_eq!(doc.as_str(), Some("Docs."));
 }
 
 #[test]
 fn custom_group_p_unavailable_without_custom_library() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(defgroup my-group nil "Docs.")
            (fboundp 'custom-group-p)
            (custom-group-p 'my-group)
@@ -160,18 +135,12 @@ fn custom_group_p_unavailable_without_custom_library() {
 
 #[test]
 fn defgroup_with_parent_records_parent_group() {
-    let mut ev = Context::new();
-    let forms = parse_forms(
+    let results = bootstrap_eval_all(
         r#"(defgroup parent-group nil "Parent.")
-           (defgroup child-group nil "Child." :group 'parent-group)"#,
-    )
-    .expect("parse");
-    let _results: Vec<_> = ev.eval_forms(&forms);
-    let child = ev
-        .custom
-        .get_group("child-group")
-        .expect("child-group should be registered");
-    assert_eq!(child.parent.as_deref(), Some("parent-group"));
+           (defgroup child-group nil "Child." :group 'parent-group)
+           (get 'parent-group 'custom-group)"#,
+    );
+    assert_eq!(results[2], "OK ((child-group custom-group))");
 }
 
 // -- defvar-local special form tests ------------------------------------
@@ -211,29 +180,29 @@ fn defvar_local_with_docstring() {
     assert_eq!(results[1], "OK 42");
 }
 
-// -- setq-default special form tests -----------------------------------
+// -- setq-default macro tests ------------------------------------------
 
 #[test]
 fn setq_default_basic() {
-    let results = eval_all(r#"(defvar x 10) (setq-default x 42) x"#);
+    let results = bootstrap_eval_all(r#"(defvar x 10) (setq-default x 42) x"#);
     assert_eq!(results[2], "OK 42");
 }
 
 #[test]
 fn setq_default_multiple_pairs() {
-    let results = eval_all(r#"(defvar a 1) (defvar b 2) (setq-default a 10 b 20) a"#);
+    let results = bootstrap_eval_all(r#"(defvar a 1) (defvar b 2) (setq-default a 10 b 20) a"#);
     assert_eq!(results[3], "OK 10");
 }
 
 #[test]
 fn setq_default_returns_last_value() {
-    let results = eval_all(r#"(setq-default x 42)"#);
+    let results = bootstrap_eval_all(r#"(setq-default x 42)"#);
     assert_eq!(results[0], "OK 42");
 }
 
 #[test]
 fn setq_default_follows_alias_resolution() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(defvaralias 'vm-setq-default-alias 'vm-setq-default-base)
            (setq-default vm-setq-default-alias 3)
            (list (default-value 'vm-setq-default-base)
@@ -244,7 +213,7 @@ fn setq_default_follows_alias_resolution() {
 
 #[test]
 fn setq_default_rejects_constant_symbols() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(list
              (condition-case err (setq-default nil 1) (error err))
              (condition-case err (setq-default :foo 1) (error err)))"#,
@@ -257,7 +226,7 @@ fn setq_default_rejects_constant_symbols() {
 
 #[test]
 fn setq_default_alias_triggers_variable_watchers_twice() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(setq vm-setq-default-watch-events nil)
            (fset 'vm-setq-default-watch-rec
                  (lambda (symbol newval operation where)
@@ -797,7 +766,7 @@ fn custom_set_variables_basic() {
 
 #[test]
 fn custom_set_variables_ignores_unknown_variable() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(custom-set-variables '(my-var 42))
            (condition-case err (default-value 'my-var) (error err))"#,
     );
@@ -843,7 +812,7 @@ fn custom_set_variables_errors_for_non_symbol_variable_name() {
 
 #[test]
 fn defcustom_then_setq_default() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(defcustom my-opt 10 "Opt." :type 'integer)
            (setq-default my-opt 20)
            my-opt"#,
@@ -867,7 +836,7 @@ fn defvar_local_then_buffer_local_check() {
 #[test]
 fn defcustom_keyword_args_ignored_gracefully() {
     // Extra keywords like :initialize should not cause errors
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(defcustom my-var 5 "Docs." :type 'integer :group 'editing :initialize 'custom-initialize-default) my-var"#,
     );
     assert_eq!(results[1], "OK 5");
@@ -875,19 +844,17 @@ fn defcustom_keyword_args_ignored_gracefully() {
 
 #[test]
 fn defgroup_multiple_groups() {
-    let mut ev = Context::new();
-    let forms = parse_forms(
+    let results = bootstrap_eval_all(
         r#"(defgroup g1 nil "Group 1.")
-           (defgroup g2 nil "Group 2.")"#,
-    )
-    .expect("parse");
-    let _results: Vec<_> = ev.eval_forms(&forms);
-    assert!(ev.custom.is_custom_group("g1"));
-    assert!(ev.custom.is_custom_group("g2"));
+           (defgroup g2 nil "Group 2.")
+           (list (get 'g1 'group-documentation)
+                 (get 'g2 'group-documentation))"#,
+    );
+    assert_eq!(results[2], "OK (\"Group 1.\" \"Group 2.\")");
 }
 
 #[test]
 fn setq_default_works_on_new_variable() {
-    let results = eval_all(r#"(setq-default new-var 100) new-var"#);
+    let results = bootstrap_eval_all(r#"(setq-default new-var 100) new-var"#);
     assert_eq!(results[1], "OK 100");
 }

@@ -21,7 +21,7 @@ use crate::emacs_core::charset::{
     snapshot_charset_registry,
 };
 use crate::emacs_core::coding::{CodingSystemInfo, CodingSystemManager, EolType};
-use crate::emacs_core::custom::{CustomGroup, CustomManager, CustomVariable};
+use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::fontset::{
@@ -659,44 +659,6 @@ pub(crate) fn dump_autoload_manager(am: &AutoloadManager) -> DumpAutoloadManager
 
 pub(crate) fn dump_custom_manager(cm: &CustomManager) -> DumpCustomManager {
     DumpCustomManager {
-        variables: cm
-            .variables
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.clone(),
-                    DumpCustomVariable {
-                        name: v.name.clone(),
-                        custom_type: dump_value(&v.custom_type),
-                        group: v.group.clone(),
-                        documentation: v.documentation.clone(),
-                        standard_value: dump_value(&v.standard_value),
-                        set_function: dump_opt_value(&v.set_function),
-                        get_function: dump_opt_value(&v.get_function),
-                        initialize: dump_opt_value(&v.initialize),
-                    },
-                )
-            })
-            .collect(),
-        groups: cm
-            .groups
-            .iter()
-            .map(|(k, g)| {
-                (
-                    k.clone(),
-                    DumpCustomGroup {
-                        name: g.name.clone(),
-                        members: g
-                            .members
-                            .iter()
-                            .map(|(n, v)| (n.clone(), dump_value(v)))
-                            .collect(),
-                        documentation: g.documentation.clone(),
-                        parent: g.parent.clone(),
-                    },
-                )
-            })
-            .collect(),
         auto_buffer_local: cm.auto_buffer_local.iter().cloned().collect(),
     }
 }
@@ -1991,44 +1953,6 @@ pub(crate) fn load_autoload_manager(dam: &DumpAutoloadManager) -> AutoloadManage
 
 pub(crate) fn load_custom_manager(dcm: &DumpCustomManager) -> CustomManager {
     CustomManager {
-        variables: dcm
-            .variables
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.clone(),
-                    CustomVariable {
-                        name: v.name.clone(),
-                        custom_type: load_value(&v.custom_type),
-                        group: v.group.clone(),
-                        documentation: v.documentation.clone(),
-                        standard_value: load_value(&v.standard_value),
-                        set_function: load_opt_value(&v.set_function),
-                        get_function: load_opt_value(&v.get_function),
-                        initialize: load_opt_value(&v.initialize),
-                    },
-                )
-            })
-            .collect(),
-        groups: dcm
-            .groups
-            .iter()
-            .map(|(k, g)| {
-                (
-                    k.clone(),
-                    CustomGroup {
-                        name: g.name.clone(),
-                        members: g
-                            .members
-                            .iter()
-                            .map(|(n, v)| (n.clone(), load_value(v)))
-                            .collect(),
-                        documentation: g.documentation.clone(),
-                        parent: g.parent.clone(),
-                    },
-                )
-            })
-            .collect(),
         auto_buffer_local: dcm.auto_buffer_local.iter().cloned().collect(),
     }
 }
