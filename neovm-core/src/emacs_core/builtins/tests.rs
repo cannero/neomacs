@@ -8664,8 +8664,8 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
 
     // Install a test macro on `vm-test-mac` that acts like `when`:
     // (macro . (lambda (cond &rest body) (list 'if cond (cons 'progn body))))
-    // We use `with-temp-buffer` (a real fallback macro) to test chained
-    // expansion after the environment lambda transforms the form.
+    // We use `with-temp-buffer` (a real GNU Lisp macro loaded from `subr.el`)
+    // to test chained expansion after the environment lambda transforms the form.
 
     // Part 1: environment lambda transforms (vm-env t) -> (vm-env-result t 1),
     // which is not itself a macro, so macroexpand returns it as-is.
@@ -8786,7 +8786,7 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
     .expect("non-macro improper forms should pass through unchanged");
     assert_eq!(not_macro, Value::cons(Value::symbol("foo"), Value::Int(1)));
 
-    // Use with-temp-buffer (a real fallback macro) instead of when
+    // Use with-temp-buffer (a real GNU Lisp macro) instead of when.
     let improper_macro = builtin_macroexpand(
         &mut eval,
         vec![Value::cons(

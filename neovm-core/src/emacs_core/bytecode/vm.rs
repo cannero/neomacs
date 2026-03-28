@@ -4426,10 +4426,6 @@ impl<'a> Vm<'a> {
 }
 
 impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
-    fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
-        self.ctx.next_pcase_macroexpand_temp_symbol()
-    }
-
     fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)> {
         crate::emacs_core::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
             &self.ctx.obarray,

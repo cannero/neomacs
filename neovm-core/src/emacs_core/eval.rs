@@ -730,9 +730,6 @@ pub struct Context {
     saved_lexenvs: Vec<Value>,
     /// Small hot cache for named callable resolution in `funcall`/`apply`.
     named_call_cache: Vec<NamedCallCache>,
-    /// Monotonic `xN` counter used by macroexpand fallback paths that mirror
-    /// Oracle pcase temp-symbol naming.
-    pcase_macroexpand_temp_counter: usize,
     /// Cache for `quote_to_value` results keyed on `Expr` pointer identity.
     /// Ensures the same source-code literal (e.g. pcase case patterns inside
     /// a lambda body) evaluates to the same `Value` object across calls,
@@ -1512,7 +1509,6 @@ impl Context {
         ev.catch_tags.clear();
         ev.saved_lexenvs.clear();
         ev.named_call_cache.clear();
-        ev.pcase_macroexpand_temp_counter = 0;
         ev.literal_cache.clear();
         ev.macro_expansion_cache.clear();
         ev.macro_cache_hits = 0;
@@ -3007,7 +3003,6 @@ impl Context {
             catch_tags: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
-            pcase_macroexpand_temp_counter: 0,
             literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
@@ -3119,7 +3114,6 @@ impl Context {
             catch_tags: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
-            pcase_macroexpand_temp_counter: 0,
             literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
@@ -4650,12 +4644,6 @@ impl Context {
         self.assign("last-nonmenu-event", event);
     }
 
-    pub(crate) fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
-        let n = self.pcase_macroexpand_temp_counter;
-        self.pcase_macroexpand_temp_counter = self.pcase_macroexpand_temp_counter.saturating_add(1);
-        Value::symbol(format!("x{n}"))
-    }
-
     pub(crate) fn recent_input_events(&self) -> &[Value] {
         &self.recent_input_events
     }
@@ -5296,11 +5284,8 @@ impl Context {
             let sym_id = *id;
             let name = resolve_sym(sym_id);
 
-            // When an Elisp file installs a macro for a name that NeoVM
-            // handles as a special form (e.g. pcase.el defines
-            // `(defmacro pcase ...)`), the macro would shadow our Rust
-            // special form.  Intercept these cases and route to the
-            // special form handler instead.
+            // Reserved for evaluator-owned forms that must bypass macro
+            // shadowing. The current source-compatible path keeps this empty.
             if super::subr_info::is_evaluator_sf_skip_macroexpand(name) {
                 if let Some(func) = self.obarray.symbol_function(name) {
                     let is_macro = matches!(func, Value::Macro(_))
