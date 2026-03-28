@@ -4,7 +4,7 @@
 //! markers, and buffer-local variables.  `BufferManager` owns all live buffers
 //! and tracks the current buffer.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::buffer_text::BufferText;
 use super::locals::BufferLocals;
@@ -13,7 +13,7 @@ use super::shared::SharedUndoState;
 use super::text_props::TextPropertyTable;
 use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
-use crate::emacs_core::value::{RuntimeBindingValue, Value};
+use crate::emacs_core::value::{RuntimeBindingValue, Value, with_heap_mut};
 use crate::gc::GcTrace;
 use crate::gc::ObjId;
 use crate::window::WindowId;
@@ -1181,16 +1181,32 @@ impl BufferManager {
     ///
     /// If the killed buffer was current, `current` is set to `None`.
     pub fn kill_buffer(&mut self, id: BufferId) -> bool {
-        if let Some(buf) = self.buffers.remove(&id) {
-            self.replace_labeled_restrictions(id, None);
-            self.dead_buffer_last_names.insert(id, buf.name);
-            if self.current == Some(id) {
-                self.current = None;
-            }
-            true
-        } else {
-            false
+        self.kill_buffer_collect(id).is_some()
+    }
+
+    pub fn kill_buffer_collect(&mut self, id: BufferId) -> Option<Vec<BufferId>> {
+        let killed_ids = self.collect_killed_buffer_ids(id)?;
+        let killed_set: HashSet<BufferId> = killed_ids.iter().copied().collect();
+
+        for killed_id in &killed_ids {
+            self.replace_labeled_restrictions(*killed_id, None);
         }
+
+        with_heap_mut(|heap| heap.clear_markers_for_buffers(&killed_set));
+
+        for killed_id in &killed_ids {
+            let buf = self.buffers.remove(killed_id)?;
+            self.dead_buffer_last_names.insert(*killed_id, buf.name);
+        }
+
+        if self
+            .current
+            .is_some_and(|current| killed_set.contains(&current))
+        {
+            self.current = None;
+        }
+
+        Some(killed_ids)
     }
 
     /// Return the last known name for a dead buffer id, if available.
@@ -1208,6 +1224,21 @@ impl BufferManager {
     fn shared_text_root_id(&self, id: BufferId) -> Option<BufferId> {
         let buf = self.buffers.get(&id)?;
         Some(buf.base_buffer.unwrap_or(buf.id))
+    }
+
+    pub(crate) fn collect_killed_buffer_ids(&self, id: BufferId) -> Option<Vec<BufferId>> {
+        let buf = self.buffers.get(&id)?;
+        let mut killed_ids = vec![id];
+        if buf.base_buffer.is_none() {
+            let mut indirects = self
+                .buffers
+                .values()
+                .filter_map(|buffer| (buffer.base_buffer == Some(id)).then_some(buffer.id))
+                .collect::<Vec<_>>();
+            indirects.sort_by_key(|buffer_id| buffer_id.0);
+            killed_ids.extend(indirects);
+        }
+        Some(killed_ids)
     }
 
     fn full_buffer_bounds(&self, id: BufferId) -> Option<(usize, usize)> {

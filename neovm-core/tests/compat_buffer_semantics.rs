@@ -254,6 +254,28 @@ fn compat_buffer_semantics_matches_gnu_emacs() {
             (kill-buffer indirect))))
     (kill-buffer base)))"#,
         },
+        BufferCase {
+            name: "killing_base_buffer_kills_indirect_buffers",
+            form: r#"(let ((base (get-buffer-create " *compat-buffer-kill-base*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "abc"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-buffer-kill-indirect*" nil)))
+          (list (buffer-live-p base)
+                (buffer-live-p indirect)
+                (kill-buffer base)
+                (buffer-live-p base)
+                (buffer-live-p indirect)
+                (get-buffer " *compat-buffer-kill-base*")
+                (get-buffer " *compat-buffer-kill-indirect*"))))
+    (when (get-buffer " *compat-buffer-kill-base*")
+      (kill-buffer " *compat-buffer-kill-base*"))
+    (when (get-buffer " *compat-buffer-kill-indirect*")
+      (kill-buffer " *compat-buffer-kill-indirect*"))))"#,
+        },
     ];
 
     for case in cases {

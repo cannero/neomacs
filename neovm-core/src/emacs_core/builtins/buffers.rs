@@ -368,9 +368,20 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
         }
     };
 
-    let was_current = buffers.current_buffer().map(|buf| buf.id) == Some(id);
-    let replacement = if was_current {
-        match other_buffer_impl(buffers, vec![Value::Buffer(id)])? {
+    let current_before = buffers.current_buffer().map(|buf| buf.id);
+    let killed_ids = buffers
+        .collect_killed_buffer_ids(id)
+        .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
+    let killed_set = killed_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let current_will_die = current_before.is_some_and(|current| killed_set.contains(&current));
+    let replacement = if current_will_die {
+        match other_buffer_impl(
+            buffers,
+            vec![Value::Buffer(current_before.expect("current buffer"))],
+        )? {
             Value::Buffer(next) if next != id => Some(next),
             _ => None,
         }
@@ -378,17 +389,19 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
         None
     };
 
-    if !buffers.kill_buffer(id) {
-        return Ok(Value::Nil);
-    }
+    let killed_ids = buffers
+        .kill_buffer_collect(id)
+        .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     // Ensure dead-buffer windows continue to point at a live fallback buffer.
     let scratch = buffers
         .find_buffer_by_name("*scratch*")
         .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
-    frames.replace_buffer_in_windows(id, scratch);
+    for killed_id in &killed_ids {
+        frames.replace_buffer_in_windows(*killed_id, scratch);
+    }
 
-    if was_current {
+    if current_will_die {
         if let Some(next) = replacement {
             if buffers.get(next).is_some() {
                 buffers.switch_current(next);

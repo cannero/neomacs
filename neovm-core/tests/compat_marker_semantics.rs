@@ -43,6 +43,72 @@ fn compat_marker_semantics_matches_gnu_emacs() {
               (prin1-to-string m)))
     (kill-buffer " *compat-marker-renamed*")))"#,
         },
+        MarkerCase {
+            name: "marker_in_indirect_tracks_shared_text_edits",
+            form: r#"(let ((base (get-buffer-create " *compat-marker-base*"))
+      (m (make-marker)))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "abcde"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-marker-indirect*" nil)))
+          (unwind-protect
+              (progn
+                (with-current-buffer indirect
+                  (set-marker m 3 indirect))
+                (with-current-buffer base
+                  (goto-char 1)
+                  (insert "ZZ"))
+                (list (buffer-name (marker-buffer m))
+                      (marker-position m)
+                      (with-current-buffer indirect (buffer-string))
+                      (with-current-buffer indirect (marker-position m))))
+            (kill-buffer indirect))))
+    (kill-buffer base)))"#,
+        },
+        MarkerCase {
+            name: "marker_clears_when_buffer_is_killed",
+            form: r#"(let ((buf (get-buffer-create " *compat-marker-kill*"))
+      (m (make-marker)))
+  (unwind-protect
+      (progn
+        (with-current-buffer buf
+          (erase-buffer)
+          (insert "abc")
+          (set-marker m 2 buf))
+        (kill-buffer buf)
+        (list (marker-buffer m)
+              (marker-position m)
+              (prin1-to-string m)))
+    (when (get-buffer " *compat-marker-kill*")
+      (kill-buffer " *compat-marker-kill*"))))"#,
+        },
+        MarkerCase {
+            name: "marker_clears_when_indirect_buffer_is_killed",
+            form: r#"(let ((base (get-buffer-create " *compat-marker-indirect-base*"))
+      (m (make-marker)))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "abc"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-marker-indirect-kill*" nil)))
+          (unwind-protect
+              (progn
+                (with-current-buffer indirect
+                  (set-marker m 2 indirect))
+                (kill-buffer indirect)
+                (list (marker-buffer m)
+                      (marker-position m)
+                      (prin1-to-string m)))
+            (when (get-buffer " *compat-marker-indirect-kill*")
+              (kill-buffer " *compat-marker-indirect-kill*")))))
+    (when (get-buffer " *compat-marker-indirect-base*")
+      (kill-buffer " *compat-marker-indirect-base*"))))"#,
+        },
     ];
 
     for case in cases {

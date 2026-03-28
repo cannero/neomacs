@@ -1,8 +1,10 @@
 //! Arena-based heap with incremental tri-color mark-and-sweep collection.
 
 use super::types::{HeapObject, MarkerData, ObjId, OverlayData};
+use crate::buffer::BufferId;
 use crate::emacs_core::bytecode::ByteCodeFunction;
 use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value};
+use std::collections::HashSet;
 
 /// GC collection phase (tri-color incremental).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -507,6 +509,17 @@ impl LispHeap {
         match self.get_mut(id) {
             HeapObject::Marker(marker) => marker,
             _ => panic!("get_marker_mut on non-marker"),
+        }
+    }
+
+    pub fn clear_markers_for_buffers(&mut self, killed: &HashSet<BufferId>) {
+        for object in &mut self.objects {
+            if let HeapObject::Marker(marker) = object
+                && marker.buffer.is_some_and(|buffer| killed.contains(&buffer))
+            {
+                marker.buffer = None;
+                marker.position = None;
+            }
         }
     }
 
