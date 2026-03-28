@@ -334,6 +334,7 @@ impl Buffer {
         update_state_fields: bool,
         shift_begv: bool,
         advance_point_at_insert: bool,
+        adjust_shared_markers: bool,
         adjust_shared_text_props: bool,
     ) {
         if byte_len == 0 {
@@ -360,8 +361,10 @@ impl Buffer {
             self.mark = Some(mark + byte_len);
             self.mark_char = self.mark_char.map(|mark_char| mark_char + char_len);
         }
-        self.text
-            .adjust_markers_for_insert(insert_pos, byte_len, char_len);
+        if adjust_shared_markers {
+            self.text
+                .adjust_markers_for_insert(insert_pos, byte_len, char_len);
+        }
         debug_assert_eq!(
             self.text.byte_to_char(insert_pos),
             insert_char_pos,
@@ -371,8 +374,8 @@ impl Buffer {
             self.text.adjust_text_props_for_insert(insert_pos, byte_len);
         }
         self.overlays.adjust_for_insert(insert_pos, byte_len);
-        self.modified_tick += 1;
-        self.chars_modified_tick += 1;
+        self.modified_tick += char_len as i64;
+        self.chars_modified_tick += char_len as i64;
         self.sync_modified_flag();
     }
 
@@ -384,6 +387,7 @@ impl Buffer {
         end_char: usize,
         update_state_fields: bool,
         shift_begv: bool,
+        adjust_shared_markers: bool,
         adjust_shared_text_props: bool,
     ) {
         if start >= end {
@@ -430,22 +434,28 @@ impl Buffer {
             }
         }
 
-        self.text
-            .adjust_markers_for_delete(start, end, start_char, end_char);
+        if adjust_shared_markers {
+            self.text
+                .adjust_markers_for_delete(start, end, start_char, end_char);
+        }
 
         if adjust_shared_text_props {
             self.text.adjust_text_props_for_delete(start, end);
         }
         self.overlays.adjust_for_delete(start, end);
-        self.modified_tick += 1;
-        self.chars_modified_tick += 1;
+        self.modified_tick += char_len as i64;
+        self.chars_modified_tick += char_len as i64;
         self.sync_modified_flag();
     }
 
-    fn apply_same_len_edit_side_effects(&mut self, preserve_modified_state: bool) {
+    fn apply_same_len_edit_side_effects(
+        &mut self,
+        changed_chars: usize,
+        preserve_modified_state: bool,
+    ) {
         let old_state = self.modified_state_value();
-        self.modified_tick += 1;
-        self.chars_modified_tick += 1;
+        self.modified_tick += changed_chars as i64;
+        self.chars_modified_tick += changed_chars as i64;
         if preserve_modified_state && old_state.is_nil() {
             self.save_modified_tick = self.modified_tick;
         }
@@ -524,6 +534,7 @@ impl Buffer {
             false,
             true,
             true,
+            true,
         );
     }
 
@@ -548,7 +559,9 @@ impl Buffer {
         }
 
         self.text.delete_range(start, end);
-        self.apply_byte_delete_side_effects(start, end, start_char, end_char, true, false, true);
+        self.apply_byte_delete_side_effects(
+            start, end, start_char, end_char, true, false, true, true,
+        );
     }
 
     /// Replace every occurrence of `from` with `to` in the byte range
@@ -567,6 +580,7 @@ impl Buffer {
         if start >= end || from == to {
             return false;
         }
+        let changed_chars = self.text.byte_to_char(end) - self.text.byte_to_char(start);
 
         let original = self.text.text_range(start, end);
         if !original.contains(from) {
@@ -592,7 +606,7 @@ impl Buffer {
         }
 
         self.text.replace_same_len_range(start, end, &replacement);
-        self.apply_same_len_edit_side_effects(noundo);
+        self.apply_same_len_edit_side_effects(changed_chars, noundo);
         true
     }
 
@@ -1458,6 +1472,7 @@ impl BufferManager {
             true,
             false,
             false,
+            false,
         );
     }
 
@@ -1477,11 +1492,16 @@ impl BufferManager {
             update_state_fields,
             true,
             false,
+            false,
         );
     }
 
-    fn adjust_shared_same_len_edit_metadata(buf: &mut Buffer, preserve_modified_state: bool) {
-        buf.apply_same_len_edit_side_effects(preserve_modified_state);
+    fn adjust_shared_same_len_edit_metadata(
+        buf: &mut Buffer,
+        changed_chars: usize,
+        preserve_modified_state: bool,
+    ) {
+        buf.apply_same_len_edit_side_effects(changed_chars, preserve_modified_state);
     }
 
     fn sync_shared_undo_binding_cache(&mut self, root_id: BufferId) -> Option<()> {
@@ -1605,6 +1625,10 @@ impl BufferManager {
 
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let changed_chars = {
+            let source = self.buffers.get(&id)?;
+            source.text.byte_to_char(end) - source.text.byte_to_char(start)
+        };
         let changed = self
             .buffers
             .get_mut(&id)?
@@ -1618,7 +1642,7 @@ impl BufferManager {
                 continue;
             }
             let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_same_len_edit_metadata(sibling, noundo);
+            Self::adjust_shared_same_len_edit_metadata(sibling, changed_chars, noundo);
         }
         if !noundo {
             self.sync_shared_undo_binding_cache(root_id)?;
