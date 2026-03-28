@@ -300,6 +300,7 @@ fn documentation_lambda_with_docstring() {
         env: None,
         docstring: Some("Add one to X.".to_string()),
         doc_form: None,
+        interactive: None,
     });
     evaluator.obarray.set_symbol_function("my-fn", lambda);
 
@@ -318,6 +319,7 @@ fn documentation_lambda_no_docstring() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     evaluator.obarray.set_symbol_function("no-doc", lambda);
 
@@ -335,6 +337,7 @@ fn documentation_substitutes_command_keys_unless_raw() {
         env: None,
         docstring: Some("Press \\[save-buffer] to save.".to_string()),
         doc_form: None,
+        interactive: None,
     });
     evaluator.obarray.set_symbol_function("doc-raw-fn", lambda);
 

@@ -102,6 +102,7 @@ fn closurep_true_for_lambda_values() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     assert!(builtin_closurep(vec![lambda]).unwrap().is_truthy());
     assert!(builtin_closurep(vec![Value::Int(1)]).unwrap().is_nil());

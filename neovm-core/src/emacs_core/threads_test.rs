@@ -163,6 +163,7 @@ fn test_builtin_make_thread_runs_function() {
             env: None,
             docstring: None,
             doc_form: None,
+            interactive: None,
         }),
     );
 
@@ -187,6 +188,7 @@ fn test_builtin_make_thread_accepts_buffer_disposition_arg() {
                 env: None,
                 docstring: None,
                 doc_form: None,
+                interactive: None,
             }),
             Value::string("worker"),
             Value::symbol("silently"),
@@ -208,6 +210,7 @@ fn test_builtin_make_thread_rejects_more_than_three_args() {
                 env: None,
                 docstring: None,
                 doc_form: None,
+                interactive: None,
             }),
             Value::Nil,
             Value::Nil,
@@ -315,6 +318,7 @@ fn test_builtin_thread_join_finished() {
             env: None,
             docstring: None,
             doc_form: None,
+            interactive: None,
         })],
     )
     .unwrap();
@@ -350,6 +354,7 @@ fn test_builtin_thread_signal_non_current_is_noop() {
             env: None,
             docstring: None,
             doc_form: None,
+            interactive: None,
         })],
     )
     .unwrap();

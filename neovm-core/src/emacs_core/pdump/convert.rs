@@ -1478,6 +1478,7 @@ pub(crate) fn load_lambda_data(d: &DumpLambdaData) -> LambdaData {
         env: load_opt_value(&d.env),
         docstring: d.docstring.clone(),
         doc_form: load_opt_value(&d.doc_form),
+        interactive: None, // pdump closures don't have interactive specs
     }
 }
 

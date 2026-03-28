@@ -87,6 +87,7 @@ fn no_duplicate_equivalent_lambda_watchers() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     let callback_b = Value::make_lambda(LambdaData {
         params: LambdaParams {
@@ -103,6 +104,7 @@ fn no_duplicate_equivalent_lambda_watchers() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
 
     wl.add_watcher("my-var", callback_a);
@@ -240,6 +242,7 @@ fn remove_variable_watcher_accepts_non_symbol_callbacks() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     let equivalent_callback = Value::make_lambda(LambdaData {
         params: LambdaParams {
@@ -256,6 +259,7 @@ fn remove_variable_watcher_accepts_non_symbol_callbacks() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
 
     builtin_add_variable_watcher(&mut eval, vec![Value::symbol("vm-watch-nonsym"), callback])

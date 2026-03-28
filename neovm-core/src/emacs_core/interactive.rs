@@ -858,7 +858,11 @@ fn command_object_p_in_state(
     match value {
         Value::Lambda(_) => {
             if let Some(lambda) = value.get_lambda_data() {
-                lambda_body_has_interactive_form(&lambda.body)
+                // GNU Emacs checks closure vector size (PVSIZE > CLOSURE_INTERACTIVE)
+                // to detect interactive closures.  We check the dedicated field first,
+                // then fall back to body scanning for closures created without
+                // the field (e.g., dynamically-scoped lambdas, pdump closures).
+                lambda.interactive.is_some() || lambda_body_has_interactive_form(&lambda.body)
             } else {
                 false
             }

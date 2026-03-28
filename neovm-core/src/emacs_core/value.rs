@@ -515,6 +515,11 @@ pub struct LambdaData {
     /// For oclosures, this is a symbol (the type name).
     /// Falls back to docstring if not set.
     pub doc_form: Option<Value>,
+    /// Slot 5 in GNU Emacs's closure vector: the interactive specification.
+    /// Extracted from the lambda body's `(interactive ...)` form during
+    /// closure creation, matching GNU Emacs's `Ffunction` (eval.c:604-612).
+    /// When present, `commandp` returns t for this closure.
+    pub interactive: Option<Value>,
 }
 
 /// Describes a lambda parameter list including &optional and &rest.

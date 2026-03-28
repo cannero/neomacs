@@ -236,6 +236,7 @@ fn print_lambda() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     assert_eq!(print_value(&lam), "(lambda (x y) (+ x y))");
 }
@@ -257,6 +258,7 @@ fn print_lexical_closure_uses_gnu_vector_syntax() {
         )])),
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
 
     assert_eq!(print_value(&closure), "#[(a b) ((+ a b x)) ((x . 42))]");
@@ -276,6 +278,7 @@ fn print_recursive_closure_uses_backreference() {
         env: Some(env),
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     binding.set_cdr(closure);
 

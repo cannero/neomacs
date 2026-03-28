@@ -130,6 +130,7 @@ fn closure_equal_is_structural() {
                 env: Some(env),
                 docstring: None,
                 doc_form: None,
+                interactive: None,
             })
         };
 
@@ -159,6 +160,7 @@ fn recursive_closure_equal_and_hash_are_structural() {
                 env: Some(env),
                 docstring: None,
                 doc_form: None,
+                interactive: None,
             });
             binding.set_cdr(closure);
             closure

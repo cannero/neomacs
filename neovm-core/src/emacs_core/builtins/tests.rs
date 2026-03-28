@@ -57,6 +57,7 @@ fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Context, c
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     eval.obarray_mut().set_symbol_function(callback, lambda);
 }
@@ -72,6 +73,7 @@ fn install_noarg_hook_probe(
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     eval.obarray_mut().set_symbol_function(callback, lambda);
 }
@@ -499,6 +501,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
         env: Some(Value::Nil),
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     let with_doc = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
@@ -506,6 +509,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
         env: Some(Value::Nil),
         docstring: Some("doc".into()),
         doc_form: None,
+        interactive: None,
     });
 
     let bare_len = dispatch_builtin_pure("length", vec![bare])
@@ -2590,6 +2594,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     assert_eq!(
         builtin_cl_type_of(vec![lambda]).unwrap(),
@@ -8612,6 +8617,7 @@ fn macrop_eval_resolves_keyword_designators() {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
 
     builtin_fset(&mut eval, vec![keyword, test_macro])

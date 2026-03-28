@@ -2735,6 +2735,7 @@ impl Context {
             env: None,
             docstring: None,
             doc_form: None,
+            interactive: None,
         });
 
         // cl-defgeneric and cl-defmethod stubs — these macros are normally
@@ -2764,6 +2765,7 @@ impl Context {
                 env: None,
                 docstring: None,
                 doc_form: None,
+                interactive: None,
             }),
         );
         obarray.set_symbol_value("cl-typep", Value::True);
@@ -6961,12 +6963,21 @@ impl Context {
             .clone();
         let rebuilt_env =
             rebuild_trimmed_interpreted_closure_env(env_value, &entry.trimmed_env_template);
+        // Restore the interactive spec from the iform that was passed to
+        // eval_lambda.  The cache key includes the iform, so the cached
+        // entry corresponds to the same interactive status.
+        let interactive_spec = if iform_value.is_nil() {
+            None
+        } else {
+            Some(iform_value)
+        };
         Some(Value::make_lambda(LambdaData {
             params: entry.params,
             body: entry.trimmed_body,
             env: Some(rebuilt_env),
             docstring,
             doc_form,
+            interactive: interactive_spec,
         }))
     }
 
@@ -7082,6 +7093,22 @@ impl Context {
         }
 
         let params_value = quote_to_value(&tail[0]);
+
+        // GNU Emacs (eval.c:604-612): Extract (interactive ...) form from
+        // the body, just like Ffunction does.  The interactive form is passed
+        // separately to make-interpreted-closure / cconv-make-interpreted-closure,
+        // NOT left in the body.  cconv-convert (cconv.el:844) strips
+        // (interactive ...) from the body and expects it to be in iform.
+        let mut iform_value = Value::Nil;
+        if let Some(Expr::List(items)) = tail.get(body_start) {
+            if items.first().is_some_and(
+                |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"),
+            ) {
+                iform_value = quote_to_value(&tail[body_start]);
+                body_start += 1;
+            }
+        }
+
         // GNU Emacs (eval.c:613-614): "Make sure the body is never empty!"
         // If no body forms, use (nil) instead of nil so cconv's
         // (cl-assert (consp body)) doesn't fail.
@@ -7105,7 +7132,6 @@ impl Context {
             (None, Some(form)) => form,
             (None, None) => Value::Nil,
         };
-        let iform_value = Value::Nil;
 
         let saved_roots = self.temp_roots.len();
         self.push_temp_root(params_value);

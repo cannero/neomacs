@@ -236,6 +236,7 @@ pub(crate) fn fallback_macro_value(name: &str) -> Option<Value> {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     }))
 }
 

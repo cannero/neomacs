@@ -13,6 +13,7 @@ fn make_lambda(required: Vec<&str>, optional: Vec<&str>, rest: Option<&str>) -> 
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     })
 }
 
@@ -23,6 +24,7 @@ fn make_macro(required: Vec<&str>) -> Value {
         env: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     })
 }
 

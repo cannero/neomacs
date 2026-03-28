@@ -354,6 +354,7 @@ fn help_describe_function_lambda() {
         env: None,
         docstring: Some("Add X and Y.".to_string()),
         doc_form: None,
+        interactive: None,
     });
     let output = HelpFormatter::describe_function("my-add", &lam, None);
     assert!(output.contains("my-add is a Lisp function."));
@@ -371,6 +372,7 @@ fn help_describe_function_with_docstore() {
         env: None,
         docstring: Some("Inline doc.".to_string()),
         doc_form: None,
+        interactive: None,
     });
     // Docstore doc overrides inline
     let output = HelpFormatter::describe_function("my-fn", &lam, Some("Docstore doc."));
@@ -403,6 +405,7 @@ fn help_describe_function_closure() {
         env: Some(Value::Nil),
         docstring: None,
         doc_form: None,
+        interactive: None,
     });
     let output = HelpFormatter::describe_function("my-closure", &lam, None);
     assert!(output.contains("a Lisp closure"));
@@ -592,6 +595,7 @@ fn help_formatter_with_optional_and_rest() {
         env: None,
         docstring: Some("A function with complex params.".to_string()),
         doc_form: None,
+        interactive: None,
     });
     let output = HelpFormatter::describe_function("complex-fn", &lam, None);
     assert!(output.contains("(complex-fn X &optional Y &rest ARGS)"));
@@ -608,6 +612,7 @@ fn help_formatter_macro() {
         env: None,
         docstring: Some("A test macro.".to_string()),
         doc_form: None,
+        interactive: None,
     });
     let output = HelpFormatter::describe_function("my-macro", &mac, None);
     assert!(output.contains("a Lisp macro"));

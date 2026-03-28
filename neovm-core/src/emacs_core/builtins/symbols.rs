@@ -3846,10 +3846,19 @@ pub(crate) fn plan_interactive_form_in_state(
             ))
         }
         Value::Lambda(id) | Value::Macro(id) => {
-            let body = with_heap(|h| h.get_lambda(id).body.clone());
-            Ok(InteractiveFormPlan::Return(
-                interactive_form_from_expr_body(&body).unwrap_or(Value::Nil),
-            ))
+            let lambda = with_heap(|h| h.get_lambda(id).clone());
+            // GNU Emacs checks closure vector slot 5 first (data.c:1162-1177).
+            // Check our dedicated field first, then fall back to body scanning.
+            if let Some(iform_val) = &lambda.interactive {
+                Ok(InteractiveFormPlan::Return(Value::list(vec![
+                    Value::symbol("interactive"),
+                    *iform_val,
+                ])))
+            } else {
+                Ok(InteractiveFormPlan::Return(
+                    interactive_form_from_expr_body(&lambda.body).unwrap_or(Value::Nil),
+                ))
+            }
         }
         Value::ByteCode(_) => Ok(InteractiveFormPlan::Return(
             interactive_form_from_bytecode_value(function).unwrap_or(Value::Nil),
@@ -4646,7 +4655,7 @@ pub(crate) fn make_interpreted_closure_from_parts(
     interactive: Option<&Value>,
 ) -> EvalResult {
     let docstring_value = docstring.copied().unwrap_or(Value::Nil);
-    let _iform = interactive.copied().unwrap_or(Value::Nil);
+    let iform = interactive.copied().unwrap_or(Value::Nil);
 
     let params_expr = super::eval::value_to_expr(params_value);
     let params = parse_lambda_params_from_expr(&params_expr)?;
@@ -4675,12 +4684,36 @@ pub(crate) fn make_interpreted_closure_from_parts(
         other => (None, Some(*other)),
     };
 
+    // GNU Emacs (eval.c:535-555): Fmake_interpreted_closure stores the
+    // interactive spec in slot 5 of the closure vector.  We mirror this
+    // by storing it in LambdaData.interactive.
+    //
+    // GNU processes iform: (interactive SPEC) → SPEC (single arg)
+    //                      (interactive S1 S2 ...) → #[S1 S2 ...]  (vector)
+    let interactive_spec = if iform.is_nil() {
+        None
+    } else if let Some(items) = list_to_vec(&iform) {
+        if items.len() >= 2 && items[0].as_symbol_name() == Some("interactive") {
+            let ifcdr = &items[1..];
+            if ifcdr.len() == 1 {
+                Some(ifcdr[0])
+            } else {
+                Some(Value::vector(ifcdr.to_vec()))
+            }
+        } else {
+            Some(iform)
+        }
+    } else {
+        Some(iform)
+    };
+
     Ok(Value::make_lambda(LambdaData {
         params,
         body: body_exprs.into(),
         env,
         docstring,
         doc_form,
+        interactive: interactive_spec,
     }))
 }
 
