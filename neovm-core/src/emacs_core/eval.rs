@@ -2019,6 +2019,10 @@ impl Context {
         obarray.make_special("load-source-file-function");
         obarray.set_symbol_value("load-true-file-name", Value::Nil);
         obarray.make_special("load-true-file-name");
+        obarray.set_symbol_value("after-load-alist", Value::Nil);
+        obarray.make_special("after-load-alist");
+        obarray.set_symbol_value("load-history", Value::Nil);
+        obarray.make_special("load-history");
         obarray.set_symbol_value("current-load-list", Value::Nil);
         obarray.make_special("current-load-list");
         obarray.set_symbol_value("preloaded-file-list", Value::Nil);

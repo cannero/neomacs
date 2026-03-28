@@ -1,7 +1,7 @@
 //! Lisp value representation and fundamental operations.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1301,7 +1301,7 @@ pub fn eql_value(left: &Value, right: &Value) -> bool {
 
 /// `equal` — structural comparison.
 pub fn equal_value(left: &Value, right: &Value, depth: usize) -> bool {
-    let mut seen = Vec::new();
+    let mut seen = HashSet::new();
     equal_value_inner(left, right, depth, &mut seen)
 }
 
@@ -1309,7 +1309,7 @@ fn equal_value_inner(
     left: &Value,
     right: &Value,
     depth: usize,
-    seen: &mut Vec<EqualPairRef>,
+    seen: &mut HashSet<EqualPairRef>,
 ) -> bool {
     if depth > 200 {
         return false;
@@ -1339,18 +1339,15 @@ fn equal_value_inner(
                 return true;
             }
             let pair_ref = EqualPairRef::Cons(*a, *b);
-            if seen.contains(&pair_ref) {
+            if !seen.insert(pair_ref) {
                 return true;
             }
-            seen.push(pair_ref);
             let a_car = with_heap(|h| h.cons_car(*a));
             let a_cdr = with_heap(|h| h.cons_cdr(*a));
             let b_car = with_heap(|h| h.cons_car(*b));
             let b_cdr = with_heap(|h| h.cons_cdr(*b));
-            let equal = equal_value_inner(&a_car, &b_car, depth + 1, seen)
-                && equal_value_inner(&a_cdr, &b_cdr, depth + 1, seen);
-            seen.pop();
-            equal
+            equal_value_inner(&a_car, &b_car, depth + 1, seen)
+                && equal_value_inner(&a_cdr, &b_cdr, depth + 1, seen)
         }
         (Value::Vector(a), Value::Vector(b)) | (Value::Record(a), Value::Record(b)) => {
             if a == b {
@@ -1360,10 +1357,9 @@ fn equal_value_inner(
                 (Value::Vector(_), Value::Vector(_)) => EqualPairRef::Vector(*a, *b),
                 _ => EqualPairRef::Record(*a, *b),
             };
-            if seen.contains(&pair_ref) {
+            if !seen.insert(pair_ref) {
                 return true;
             }
-            seen.push(pair_ref);
             // Copy element pairs out (Value is Copy) to compare outside the borrow.
             // Returns None if lengths differ, Some(pairs) otherwise.
             let pairs: Option<Vec<(Value, Value)>> = with_heap(|h| {
@@ -1374,11 +1370,9 @@ fn equal_value_inner(
                 }
                 Some(av.iter().copied().zip(bv.iter().copied()).collect())
             });
-            let equal = matches!(pairs, Some(ref p) if p
+            matches!(pairs, Some(ref p) if p
                 .iter()
-                .all(|(x, y)| equal_value_inner(x, y, depth + 1, seen)));
-            seen.pop();
-            equal
+                .all(|(x, y)| equal_value_inner(x, y, depth + 1, seen)))
         }
         // Hash tables: identity comparison only (same as eq), matching GNU Emacs
         // where PVEC_HASH_TABLE < PVEC_CLOSURE causes early return false.
@@ -1388,15 +1382,12 @@ fn equal_value_inner(
                 return true;
             }
             let pair_ref = EqualPairRef::Lambda(*a, *b);
-            if seen.contains(&pair_ref) {
+            if !seen.insert(pair_ref) {
                 return true;
             }
-            seen.push(pair_ref);
             let (left_lambda, right_lambda) =
                 with_heap(|h| (h.get_lambda(*a).clone(), h.get_lambda(*b).clone()));
-            let equal = lambda_data_equal(&left_lambda, &right_lambda, depth + 1, seen);
-            seen.pop();
-            equal
+            lambda_data_equal(&left_lambda, &right_lambda, depth + 1, seen)
         }
         (Value::Macro(a), Value::Macro(b)) => a == b,
         (Value::Subr(a), Value::Subr(b)) => a == b,
@@ -1471,7 +1462,7 @@ fn lambda_data_equal(
     left: &LambdaData,
     right: &LambdaData,
     depth: usize,
-    seen: &mut Vec<EqualPairRef>,
+    seen: &mut HashSet<EqualPairRef>,
 ) -> bool {
     if left.params != right.params || left.body.as_ref() != right.body.as_ref() {
         return false;
@@ -1501,7 +1492,7 @@ enum StructuralRef {
     Lambda(ObjId),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum EqualPairRef {
     Cons(ObjId, ObjId),
     Vector(ObjId, ObjId),
