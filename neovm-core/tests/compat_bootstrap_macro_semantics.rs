@@ -64,3 +64,21 @@ fn compat_bootstrap_macro_cells_execute_before_loadup() {
     let formatted = format_eval_result_with_eval(&ctx, &result);
     assert_eq!(formatted, "OK 42");
 }
+
+#[test]
+fn compat_source_bootstrap_context_stays_pre_subr_surface() {
+    let bootstrap_ctx = create_source_bootstrap_context();
+
+    for name in ["when", "macroexpand-1"] {
+        let function = bootstrap_ctx
+            .obarray()
+            .symbol_function(name)
+            .copied()
+            .unwrap_or(Value::Nil);
+        assert_eq!(
+            function,
+            Value::Nil,
+            "{name} should remain unavailable before GNU Lisp bootstrap"
+        );
+    }
+}

@@ -23,6 +23,11 @@ fn bootstrap_macro_specs() -> Vec<BootstrapMacroSpec> {
         // before its own `defmacro` later in the same file.  That one name
         // needs a temporary source-bootstrap macro cell when loading GNU Lisp
         // from source instead of precompiled early Lisp.
+        //
+        // Keep the body restricted to evaluator/C-owned forms only.
+        // Source bootstrap intentionally starts before later Lisp helpers from
+        // `subr.el` such as `when` and `macroexpand-1` exist, so this cannot
+        // depend on the exact later GNU macro body verbatim.
         BootstrapMacroSpec {
             name: "eval-and-compile",
             params: || rest_only_params("body"),
