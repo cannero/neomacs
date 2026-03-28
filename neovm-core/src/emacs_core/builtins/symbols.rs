@@ -541,23 +541,10 @@ pub(crate) fn builtin_indirect_variable(
 pub(crate) fn builtin_fboundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("fboundp", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let name = resolve_sym(symbol);
-    if eval.obarray.is_function_unbound_id(symbol) {
-        return Ok(Value::Nil);
-    }
-    if let Some(function) = eval.obarray.symbol_function_id(symbol) {
-        let result = !function.is_nil();
-        return Ok(Value::bool(result));
-    }
-    if !is_canonical_symbol_id(symbol) {
-        return Ok(Value::Nil);
-    }
-    let macro_bound = super::subr_info::is_evaluator_macro_name(name);
-    let result = super::subr_info::is_special_form(name)
-        || macro_bound
-        || super::subr_info::is_evaluator_callable_name(name)
-        || eval.obarray.symbol_function(name).is_some();
-    Ok(Value::bool(result))
+    Ok(Value::bool(
+        symbol_function_cell_in_obarray(eval.obarray(), symbol)
+            .is_some_and(|function| !function.is_nil()),
+    ))
 }
 
 pub(crate) fn builtin_symbol_value(
@@ -2165,12 +2152,6 @@ pub(crate) fn symbol_function_cell_in_obarray(obarray: &Obarray, symbol: SymId) 
 
     if let Some(alias_target) = pure_builtin_symbol_alias_target(current_name) {
         return Some(Value::symbol(alias_target));
-    }
-
-    if super::subr_info::is_special_form(current_name)
-        || super::subr_info::is_evaluator_callable_name(current_name)
-    {
-        return Some(Value::Subr(symbol));
     }
 
     None

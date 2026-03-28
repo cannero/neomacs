@@ -8104,4 +8104,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
+
+    // GNU exposes public evaluator-owned entries like `if` and `throw` as
+    // real subrs in the function cell even though they are dispatched by the
+    // evaluator rather than the ordinary builtin function table.
+    ctx.materialize_public_evaluator_function_cells();
 }

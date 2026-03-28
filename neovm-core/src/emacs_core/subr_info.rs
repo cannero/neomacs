@@ -51,6 +51,39 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 // Context/public callable classification
 // ---------------------------------------------------------------------------
 
+pub(crate) const PUBLIC_SPECIAL_FORM_NAMES: &[&str] = &[
+    "quote",
+    "function",
+    "let",
+    "let*",
+    "setq",
+    "if",
+    "and",
+    "or",
+    "cond",
+    "while",
+    "progn",
+    "prog1",
+    "defvar",
+    "defconst",
+    "catch",
+    "unwind-protect",
+    "condition-case",
+    "interactive",
+    "save-excursion",
+    "save-restriction",
+    "save-current-buffer",
+];
+
+pub(crate) const PUBLIC_EVALUATOR_CALLABLE_NAMES: &[&str] = &["throw"];
+
+pub(crate) fn public_evaluator_subr_names() -> impl Iterator<Item = &'static str> {
+    PUBLIC_SPECIAL_FORM_NAMES
+        .iter()
+        .copied()
+        .chain(PUBLIC_EVALUATOR_CALLABLE_NAMES.iter().copied())
+}
+
 /// Returns true if `name` is recognized by the evaluator's special-form
 /// dispatch path.
 ///
@@ -119,30 +152,7 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
 /// many evaluator-recognized constructs are macros/functions in user-visible
 /// introspection.
 fn is_public_special_form_name(name: &str) -> bool {
-    matches!(
-        name,
-        "quote"
-            | "function"
-            | "let"
-            | "let*"
-            | "setq"
-            | "if"
-            | "and"
-            | "or"
-            | "cond"
-            | "while"
-            | "progn"
-            | "prog1"
-            | "defvar"
-            | "defconst"
-            | "catch"
-            | "unwind-protect"
-            | "condition-case"
-            | "interactive"
-            | "save-excursion"
-            | "save-restriction"
-            | "save-current-buffer"
-    )
+    PUBLIC_SPECIAL_FORM_NAMES.contains(&name)
 }
 
 pub(crate) fn is_special_form(name: &str) -> bool {
@@ -167,7 +177,7 @@ pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {
 pub(crate) fn is_evaluator_callable_name(name: &str) -> bool {
     // `throw` is an evaluator-dispatched entry that still behaves as a normal
     // callable symbol in introspection (`fboundp`/`functionp`/`symbol-function`).
-    matches!(name, "throw")
+    PUBLIC_EVALUATOR_CALLABLE_NAMES.contains(&name)
 }
 
 #[derive(Clone, Copy)]

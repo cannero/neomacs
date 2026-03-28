@@ -1522,6 +1522,7 @@ impl Context {
         ev.macro_cache_disabled = false;
         ev.interpreted_closure_filter_fn = None;
         ev.interpreted_closure_trim_cache.clear();
+        ev.materialize_public_evaluator_function_cells();
         ev
     }
 
@@ -5510,8 +5511,13 @@ impl Context {
                 };
             }
 
-            // Special forms
-            if !self.obarray.is_function_unbound_id(sym_id) {
+            // Evaluator-only forms like `lambda` still need a fallback path
+            // because they are not public GNU subrs. Public special forms are
+            // materialized into the function cell during init and should not be
+            // recreated here.
+            if !self.obarray.is_function_unbound_id(sym_id)
+                && !super::subr_info::is_special_form(name)
+            {
                 if let Some(result) = self.try_special_form(name, tail) {
                     return result;
                 }
@@ -7545,10 +7551,6 @@ impl Context {
             }
         } else if self.obarray.is_function_unbound_id(sym_id) {
             NamedCallTarget::Void
-        } else if super::subr_info::is_evaluator_callable_name(name) {
-            NamedCallTarget::ContextCallable
-        } else if super::subr_info::is_special_form(name) {
-            NamedCallTarget::SpecialForm
         } else if self.subr_registry.contains_key(&intern(name)) {
             NamedCallTarget::Builtin
         } else {
@@ -8265,6 +8267,18 @@ pub(crate) fn makunbound_runtime_binding_in_state(
 }
 
 impl Context {
+    pub(crate) fn materialize_public_evaluator_function_cells(&mut self) {
+        // GNU `defsubr` installs public special forms and evaluator callables
+        // directly into the symbol's function cell. Keep those cells
+        // authoritative instead of synthesizing them later from name tables.
+        for name in super::subr_info::public_evaluator_subr_names() {
+            let sym_id = intern(name);
+            self.obarray.intern(name);
+            self.obarray
+                .set_symbol_function_id(sym_id, Value::Subr(sym_id));
+        }
+    }
+
     // -----------------------------------------------------------------------
     // defsubr — builtin function registration (matches GNU Emacs's defsubr)
     // -----------------------------------------------------------------------
