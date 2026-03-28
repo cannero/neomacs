@@ -5343,7 +5343,7 @@ pub(crate) fn x_create_frame_impl(
             .insert("display-type".to_string(), Value::symbol("color"));
         frame
             .parameters
-            .insert("background-mode".to_string(), Value::symbol("light"));
+            .insert("background-mode".to_string(), Value::symbol("dark"));
         for (key, value) in parsed.all {
             frame.parameters.insert(key, value);
         }

@@ -274,7 +274,11 @@ fn bootstrap_display_config(frontend: FrontendKind) -> BootstrapDisplayConfig {
         FrontendKind::Gui => BootstrapDisplayConfig {
             frontend,
             color_cells: 16777216,
-            background_mode: "light",
+            // GNU Emacs derives background-mode from the default background
+            // color.  Most modern GUI themes (including Doom) use dark
+            // backgrounds.  Default to "dark" to match the common case;
+            // the theme's frame-background-mode overrides this later.
+            background_mode: "dark",
         },
         FrontendKind::Tty => BootstrapDisplayConfig {
             frontend,
