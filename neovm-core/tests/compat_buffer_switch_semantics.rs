@@ -96,6 +96,32 @@ fn compat_buffer_switch_semantics_matches_gnu_emacs() {
             (kill-buffer clone))))
     (kill-buffer base)))"#,
         },
+        BufferSwitchCase {
+            name: "noncurrent_base_point_and_narrowing_track_indirect_insert",
+            form: r#"(let ((base (get-buffer-create " *compat-switch-base-noncurrent*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer base
+          (erase-buffer)
+          (insert "abcdef"))
+        (let ((indirect
+               (make-indirect-buffer base " *compat-switch-base-noncurrent-indirect*" nil)))
+          (unwind-protect
+              (progn
+                (with-current-buffer base
+                  (narrow-to-region 2 5)
+                  (goto-char 4))
+                (with-current-buffer indirect
+                  (goto-char 1)
+                  (insert "ZZ"))
+                (list
+                 (with-current-buffer base
+                   (list (point) (point-min) (point-max) (buffer-string)))
+                 (with-current-buffer indirect
+                   (list (point) (point-min) (point-max) (buffer-string)))))
+            (kill-buffer indirect))))
+    (kill-buffer base)))"#,
+        },
     ];
 
     for case in cases {

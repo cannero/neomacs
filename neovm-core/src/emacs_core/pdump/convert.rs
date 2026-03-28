@@ -558,6 +558,9 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         file_name: buf.file_name.clone(),
         auto_save_file_name: buf.auto_save_file_name.clone(),
         markers: buf.markers.iter().map(dump_marker).collect(),
+        state_pt_marker: buf.state_markers.map(|markers| markers.pt_marker),
+        state_begv_marker: buf.state_markers.map(|markers| markers.begv_marker),
+        state_zv_marker: buf.state_markers.map(|markers| markers.zv_marker),
         properties: buf
             .ordered_buffer_local_bindings()
             .into_iter()
@@ -1866,6 +1869,16 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         file_name: db.file_name.clone(),
         auto_save_file_name: db.auto_save_file_name.clone(),
         markers,
+        state_markers: match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
+            (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {
+                Some(crate::buffer::buffer::BufferStateMarkers {
+                    pt_marker,
+                    begv_marker,
+                    zv_marker,
+                })
+            }
+            _ => None,
+        },
         locals,
         text_props: BufferTextProperties::from_table(TextPropertyTable::from_dump(
             db.text_props

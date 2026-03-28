@@ -517,6 +517,12 @@ pub struct DumpBuffer {
     #[serde(default)]
     pub auto_save_file_name: Option<String>,
     pub markers: Vec<DumpMarkerEntry>,
+    #[serde(default)]
+    pub state_pt_marker: Option<u64>,
+    #[serde(default)]
+    pub state_begv_marker: Option<u64>,
+    #[serde(default)]
+    pub state_zv_marker: Option<u64>,
     pub properties: Vec<(String, DumpRuntimeBindingValue)>,
     #[serde(default)]
     pub local_binding_names: Vec<String>,

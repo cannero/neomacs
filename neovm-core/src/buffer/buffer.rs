@@ -53,6 +53,13 @@ pub struct MarkerEntry {
     pub insertion_type: InsertionType,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BufferStateMarkers {
+    pub pt_marker: u64,
+    pub begv_marker: u64,
+    pub zv_marker: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LabeledRestrictionLabel {
     Outermost,
@@ -154,6 +161,8 @@ pub struct Buffer {
     pub auto_save_file_name: Option<String>,
     /// Active markers that track positions across edits.
     pub markers: Vec<MarkerEntry>,
+    /// GNU-style noncurrent PT/BEGV/ZV markers for buffers that share text.
+    pub state_markers: Option<BufferStateMarkers>,
     /// Buffer-local state, split between builtin slot-backed locals and
     /// ordinary Lisp locals.
     pub locals: BufferLocals,
@@ -198,6 +207,7 @@ impl Buffer {
             file_name: None,
             auto_save_file_name: None,
             markers: Vec::new(),
+            state_markers: None,
             locals: BufferLocals::new(),
             text_props: BufferTextProperties::new(),
             overlays: OverlayList::new(),
@@ -327,6 +337,7 @@ impl Buffer {
         insert_char_pos: usize,
         byte_len: usize,
         char_len: usize,
+        update_state_fields: bool,
         shift_begv: bool,
         advance_point_at_insert: bool,
         adjust_shared_text_props: bool,
@@ -335,17 +346,19 @@ impl Buffer {
             return;
         }
 
-        if self.pt > insert_pos || (advance_point_at_insert && self.pt == insert_pos) {
-            self.pt += byte_len;
-            self.pt_char += char_len;
-        }
-        if shift_begv && self.begv > insert_pos {
-            self.begv += byte_len;
-            self.begv_char += char_len;
-        }
-        if self.zv >= insert_pos {
-            self.zv += byte_len;
-            self.zv_char += char_len;
+        if update_state_fields {
+            if self.pt > insert_pos || (advance_point_at_insert && self.pt == insert_pos) {
+                self.pt += byte_len;
+                self.pt_char += char_len;
+            }
+            if shift_begv && self.begv > insert_pos {
+                self.begv += byte_len;
+                self.begv_char += char_len;
+            }
+            if self.zv >= insert_pos {
+                self.zv += byte_len;
+                self.zv_char += char_len;
+            }
         }
         if let Some(mark) = self.mark
             && mark > insert_pos
@@ -383,6 +396,7 @@ impl Buffer {
         end: usize,
         start_char: usize,
         end_char: usize,
+        update_state_fields: bool,
         shift_begv: bool,
         adjust_shared_text_props: bool,
     ) {
@@ -392,30 +406,32 @@ impl Buffer {
         let byte_len = end - start;
         let char_len = end_char - start_char;
 
-        if self.pt >= end {
-            self.pt -= byte_len;
-            self.pt_char -= char_len;
-        } else if self.pt > start {
-            self.pt = start;
-            self.pt_char = start_char;
-        }
-
-        if shift_begv {
-            if self.begv >= end {
-                self.begv -= byte_len;
-                self.begv_char -= char_len;
-            } else if self.begv > start {
-                self.begv = start;
-                self.begv_char = start_char;
+        if update_state_fields {
+            if self.pt >= end {
+                self.pt -= byte_len;
+                self.pt_char -= char_len;
+            } else if self.pt > start {
+                self.pt = start;
+                self.pt_char = start_char;
             }
-        }
 
-        if self.zv >= end {
-            self.zv -= byte_len;
-            self.zv_char -= char_len;
-        } else if self.zv > start {
-            self.zv = start;
-            self.zv_char = start_char;
+            if shift_begv {
+                if self.begv >= end {
+                    self.begv -= byte_len;
+                    self.begv_char -= char_len;
+                } else if self.begv > start {
+                    self.begv = start;
+                    self.begv_char = start_char;
+                }
+            }
+
+            if self.zv >= end {
+                self.zv -= byte_len;
+                self.zv_char -= char_len;
+            } else if self.zv > start {
+                self.zv = start;
+                self.zv_char = start_char;
+            }
         }
 
         if let Some(mark) = self.mark {
@@ -525,6 +541,7 @@ impl Buffer {
             insert_char_pos,
             byte_len,
             char_len,
+            true,
             false,
             true,
             true,
@@ -552,7 +569,7 @@ impl Buffer {
         }
 
         self.text.delete_range(start, end);
-        self.apply_byte_delete_side_effects(start, end, start_char, end_char, false, true);
+        self.apply_byte_delete_side_effects(start, end, start_char, end_char, true, false, true);
     }
 
     /// Replace every occurrence of `from` with `to` in the byte range
@@ -1016,6 +1033,13 @@ impl BufferManager {
         indirect.save_modified_tick = root.save_modified_tick;
         indirect.autosave_modified_tick = root.autosave_modified_tick;
         indirect.file_name = None;
+        if let Some(state_markers) = indirect.state_markers.take() {
+            indirect.markers.retain(|marker| {
+                marker.id != state_markers.pt_marker
+                    && marker.id != state_markers.begv_marker
+                    && marker.id != state_markers.zv_marker
+            });
+        }
         if !clone {
             indirect.overlays = OverlayList::new();
             indirect.mark = None;
@@ -1023,6 +1047,8 @@ impl BufferManager {
         }
 
         self.buffers.insert(id, indirect);
+        let _ = self.ensure_buffer_state_markers(root_id);
+        let _ = self.ensure_buffer_state_markers(id);
         let _ = self.sync_shared_undo_binding_cache(root_id);
         Some(id)
     }
@@ -1052,6 +1078,62 @@ impl BufferManager {
         self.current
     }
 
+    fn buffer_has_state_markers(&self, id: BufferId) -> bool {
+        self.buffers
+            .get(&id)
+            .and_then(|buffer| buffer.state_markers)
+            .is_some()
+    }
+
+    fn ensure_buffer_state_markers(&mut self, buffer_id: BufferId) -> Option<()> {
+        if self.buffer_has_state_markers(buffer_id) {
+            return Some(());
+        }
+        let (pt, begv, zv) = {
+            let buffer = self.buffers.get(&buffer_id)?;
+            (buffer.pt, buffer.begv, buffer.zv)
+        };
+        let pt_marker = self.create_marker(buffer_id, pt, InsertionType::Before);
+        let begv_marker = self.create_marker(buffer_id, begv, InsertionType::Before);
+        let zv_marker = self.create_marker(buffer_id, zv, InsertionType::After);
+        self.buffers.get_mut(&buffer_id)?.state_markers = Some(BufferStateMarkers {
+            pt_marker,
+            begv_marker,
+            zv_marker,
+        });
+        Some(())
+    }
+
+    fn record_buffer_state_markers(&mut self, buffer_id: BufferId) -> Option<()> {
+        let markers = self.buffers.get(&buffer_id)?.state_markers?;
+        let (pt, begv, zv) = {
+            let buffer = self.buffers.get(&buffer_id)?;
+            (buffer.pt, buffer.begv, buffer.zv)
+        };
+        self.register_marker_id(buffer_id, markers.pt_marker, pt, InsertionType::Before)?;
+        self.register_marker_id(buffer_id, markers.begv_marker, begv, InsertionType::Before)?;
+        self.register_marker_id(buffer_id, markers.zv_marker, zv, InsertionType::After)?;
+        Some(())
+    }
+
+    fn fetch_buffer_state_markers(&mut self, buffer_id: BufferId) -> Option<()> {
+        let markers = self.buffers.get(&buffer_id)?.state_markers?;
+        let pt = self.marker_position(buffer_id, markers.pt_marker)?;
+        let pt_char = self.marker_char_position(buffer_id, markers.pt_marker)?;
+        let begv = self.marker_position(buffer_id, markers.begv_marker)?;
+        let begv_char = self.marker_char_position(buffer_id, markers.begv_marker)?;
+        let zv = self.marker_position(buffer_id, markers.zv_marker)?;
+        let zv_char = self.marker_char_position(buffer_id, markers.zv_marker)?;
+        let buffer = self.buffers.get_mut(&buffer_id)?;
+        buffer.pt = pt;
+        buffer.pt_char = pt_char;
+        buffer.begv = begv;
+        buffer.begv_char = begv_char;
+        buffer.zv = zv;
+        buffer.zv_char = zv_char;
+        Some(())
+    }
+
     /// Switch the current buffer and run buffer-manager-owned transition work.
     ///
     /// This is the closest NeoVM equivalent of GNU Emacs's
@@ -1067,15 +1149,19 @@ impl BufferManager {
             return true;
         }
 
-        if let Some(old_id) = self.current
-            && let Some(root_id) = self.shared_text_root_id(old_id)
-        {
-            let _ = self.sync_shared_undo_binding_cache(root_id);
-        }
+        let old_id = self.current;
         self.current = Some(id);
+
+        if let Some(old_id) = old_id {
+            if let Some(root_id) = self.shared_text_root_id(old_id) {
+                let _ = self.sync_shared_undo_binding_cache(root_id);
+            }
+            let _ = self.record_buffer_state_markers(old_id);
+        }
         if let Some(root_id) = self.shared_text_root_id(id) {
             let _ = self.sync_shared_undo_binding_cache(root_id);
         }
+        let _ = self.fetch_buffer_state_markers(id);
         true
     }
 
@@ -1317,12 +1403,14 @@ impl BufferManager {
         insert_char_pos: usize,
         byte_len: usize,
         char_len: usize,
+        update_state_fields: bool,
     ) {
         buf.apply_byte_insert_side_effects(
             insert_pos,
             insert_char_pos,
             byte_len,
             char_len,
+            update_state_fields,
             true,
             false,
             false,
@@ -1335,8 +1423,17 @@ impl BufferManager {
         end: usize,
         start_char: usize,
         end_char: usize,
+        update_state_fields: bool,
     ) {
-        buf.apply_byte_delete_side_effects(start, end, start_char, end_char, true, false);
+        buf.apply_byte_delete_side_effects(
+            start,
+            end,
+            start_char,
+            end_char,
+            update_state_fields,
+            true,
+            false,
+        );
     }
 
     fn adjust_shared_same_len_edit_metadata(buf: &mut Buffer, preserve_modified_state: bool) {
@@ -1361,9 +1458,13 @@ impl BufferManager {
     /// happens, sibling buffers must be updated from one place instead of every
     /// ad hoc `buf.insert` / `buf.delete_region` call site in the tree.
     pub fn goto_buffer_byte(&mut self, id: BufferId, pos: usize) -> Option<usize> {
-        let buf = self.buffers.get_mut(&id)?;
-        buf.goto_byte(pos);
-        Some(buf.point_byte())
+        {
+            let buf = self.buffers.get_mut(&id)?;
+            buf.goto_byte(pos);
+        }
+        let point = self.buffers.get(&id)?.point_byte();
+        let _ = self.record_buffer_state_markers(id);
+        Some(point)
     }
 
     pub fn insert_into_buffer(&mut self, id: BufferId, text: &str) -> Option<()> {
@@ -1385,6 +1486,8 @@ impl BufferManager {
             if sibling_id == id {
                 continue;
             }
+            let update_state_fields =
+                self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
             let sibling = self.buffers.get_mut(&sibling_id)?;
             Self::adjust_shared_insert_metadata(
                 sibling,
@@ -1392,6 +1495,7 @@ impl BufferManager {
                 insert_char_pos,
                 byte_len,
                 char_len,
+                update_state_fields,
             );
         }
         self.sync_shared_undo_binding_cache(root_id)?;
@@ -1431,8 +1535,17 @@ impl BufferManager {
             if sibling_id == id {
                 continue;
             }
+            let update_state_fields =
+                self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
             let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_delete_metadata(sibling, start, end, start_char, end_char);
+            Self::adjust_shared_delete_metadata(
+                sibling,
+                start,
+                end,
+                start_char,
+                end_char,
+                update_state_fields,
+            );
         }
         self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
@@ -1514,6 +1627,7 @@ impl BufferManager {
         end: usize,
     ) -> Option<()> {
         self.buffers.get_mut(&id)?.narrow_to_byte_region(start, end);
+        let _ = self.record_buffer_state_markers(id);
         Some(())
     }
 
@@ -1751,8 +1865,8 @@ impl BufferManager {
         begv: usize,
         zv: usize,
     ) -> Option<()> {
-        let buf = self.buffers.get_mut(&id)?;
-        buf.narrow_to_byte_region(begv, zv);
+        self.buffers.get_mut(&id)?.narrow_to_byte_region(begv, zv);
+        let _ = self.record_buffer_state_markers(id);
         Some(())
     }
 
