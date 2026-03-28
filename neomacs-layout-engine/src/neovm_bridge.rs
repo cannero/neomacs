@@ -856,7 +856,13 @@ impl<'a> RustTextPropAccess<'a> {
     ///
     /// Returns `(before_strings, after_strings)` where each is a Vec of
     /// (string_bytes, overlay_id) pairs.
-    pub fn overlay_strings_at(&self, charpos: i64) -> (Vec<(Vec<u8>, u64)>, Vec<(Vec<u8>, u64)>) {
+    pub fn overlay_strings_at(
+        &self,
+        charpos: i64,
+    ) -> (
+        Vec<(Vec<u8>, neovm_core::gc::ObjId)>,
+        Vec<(Vec<u8>, neovm_core::gc::ObjId)>,
+    ) {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         let mut before = Vec::new();
         let mut after = Vec::new();
@@ -868,8 +874,9 @@ impl<'a> RustTextPropAccess<'a> {
             // Before-string: from overlays that START at this position
             if let Some(start) = self.buffer.overlays.overlay_start(oid) {
                 if start == bytepos {
-                    if let Some(val) = self.buffer.overlays.overlay_get(oid, "before-string") {
-                        if let Some(s) = value_as_string(val) {
+                    if let Some(val) = self.buffer.overlays.overlay_get_named(oid, "before-string")
+                    {
+                        if let Some(s) = value_as_string(&val) {
                             before.push((s.as_bytes().to_vec(), oid));
                         }
                     }
@@ -879,8 +886,8 @@ impl<'a> RustTextPropAccess<'a> {
             // After-string: from overlays that END at this position
             if let Some(end) = self.buffer.overlays.overlay_end(oid) {
                 if end == bytepos {
-                    if let Some(val) = self.buffer.overlays.overlay_get(oid, "after-string") {
-                        if let Some(s) = value_as_string(val) {
+                    if let Some(val) = self.buffer.overlays.overlay_get_named(oid, "after-string") {
+                        if let Some(s) = value_as_string(&val) {
                             after.push((s.as_bytes().to_vec(), oid));
                         }
                     }
@@ -904,9 +911,10 @@ impl<'a> RustTextPropAccess<'a> {
                     if end == bytepos {
                         // Check we haven't already processed this overlay
                         if !overlay_ids.contains(&oid) {
-                            if let Some(val) = self.buffer.overlays.overlay_get(oid, "after-string")
+                            if let Some(val) =
+                                self.buffer.overlays.overlay_get_named(oid, "after-string")
                             {
-                                if let Some(s) = value_as_string(val) {
+                                if let Some(s) = value_as_string(&val) {
                                     after.push((s.as_bytes().to_vec(), oid));
                                 }
                             }
@@ -1484,12 +1492,12 @@ impl FaceResolver {
                 // Get priority (default 0)
                 let priority = buffer
                     .overlays
-                    .overlay_get(oid, "priority")
+                    .overlay_get_named(oid, "priority")
                     .and_then(|v| v.as_int())
                     .unwrap_or(0);
                 // Get face
-                if let Some(val) = buffer.overlays.overlay_get(oid, "face") {
-                    overlay_faces.push((priority, *val));
+                if let Some(val) = buffer.overlays.overlay_get_named(oid, "face") {
+                    overlay_faces.push((priority, val));
                 }
             }
             // Sort by priority (ascending), so higher priority overlays

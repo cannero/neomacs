@@ -486,6 +486,8 @@ pub enum Value {
     Subr(SymId),
     /// Compiled bytecode function.
     ByteCode(ObjId),
+    /// Overlay object.
+    Overlay(ObjId),
     /// Buffer reference (opaque id into the BufferManager).
     Buffer(crate::buffer::BufferId),
     /// Window reference (opaque id into the FrameManager).
@@ -1021,6 +1023,7 @@ impl Value {
             Value::Char(_) => "integer", // Emacs chars are integers
             Value::Subr(_) => "subr",
             Value::ByteCode(_) => "byte-code-function",
+            Value::Overlay(_) => "overlay",
             Value::Buffer(_) => "buffer",
             Value::Window(_) => "window",
             Value::Frame(_) => "frame",
@@ -1153,7 +1156,8 @@ impl Value {
             | Value::Str(id)
             | Value::Lambda(id)
             | Value::Macro(id)
-            | Value::ByteCode(id) => HashKey::ObjId(id.index, id.generation),
+            | Value::ByteCode(id)
+            | Value::Overlay(id) => HashKey::ObjId(id.index, id.generation),
             Value::Subr(id) => HashKey::Symbol(*id),
             Value::Buffer(id) => HashKey::Int(id.0 as i64),
             Value::Window(id) => HashKey::Window(*id),
@@ -1272,6 +1276,7 @@ pub fn eq_value(left: &Value, right: &Value) -> bool {
         (Value::HashTable(a), Value::HashTable(b)) => a == b,
         (Value::Subr(a), Value::Subr(b)) => a == b,
         (Value::ByteCode(a), Value::ByteCode(b)) => a == b,
+        (Value::Overlay(a), Value::Overlay(b)) => a == b,
         (Value::Buffer(a), Value::Buffer(b)) => a == b,
         (Value::Window(a), Value::Window(b)) => a == b,
         (Value::Frame(a), Value::Frame(b)) => a == b,
@@ -1392,6 +1397,7 @@ fn equal_value_inner(
         (Value::Macro(a), Value::Macro(b)) => a == b,
         (Value::Subr(a), Value::Subr(b)) => a == b,
         (Value::ByteCode(a), Value::ByteCode(b)) => a == b,
+        (Value::Overlay(a), Value::Overlay(b)) => a == b,
         (Value::Buffer(a), Value::Buffer(b)) => a == b,
         (Value::Window(a), Value::Window(b)) => a == b,
         (Value::Frame(a), Value::Frame(b)) => a == b,

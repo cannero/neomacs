@@ -952,8 +952,7 @@ fn make_and_delete_overlay() {
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
 
-    // Should be a cons.
-    assert!(matches!(ov, Value::Cons(_)));
+    assert!(matches!(ov, Value::Overlay(_)));
 
     // Delete it.
     let result = builtin_delete_overlay(&mut eval, vec![ov]);
@@ -977,6 +976,38 @@ fn overlay_put_and_get() {
 
     let result = builtin_overlay_get(&mut eval, vec![ov, Value::symbol("face")]).unwrap();
     assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "bold"));
+}
+
+#[test]
+fn deleted_overlay_preserves_plist_and_identity() {
+    let mut eval = eval_with_text("hello");
+    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(3)]).unwrap();
+
+    builtin_overlay_put(
+        &mut eval,
+        vec![ov, Value::symbol("face"), Value::symbol("bold")],
+    )
+    .unwrap();
+    builtin_delete_overlay(&mut eval, vec![ov]).unwrap();
+
+    let overlayp = builtin_overlayp(&mut eval, vec![ov]).unwrap();
+    assert!(matches!(overlayp, Value::True));
+
+    let face = builtin_overlay_get(&mut eval, vec![ov, Value::symbol("face")]).unwrap();
+    assert_eq!(face.as_symbol_name(), Some("bold"));
+
+    let properties = builtin_overlay_properties(&mut eval, vec![ov]).unwrap();
+    assert_eq!(
+        crate::emacs_core::print::print_value(&properties),
+        "(face bold)"
+    );
+
+    let start = builtin_overlay_start(&mut eval, vec![ov]).unwrap();
+    let end = builtin_overlay_end(&mut eval, vec![ov]).unwrap();
+    let buffer = builtin_overlay_buffer(&mut eval, vec![ov]).unwrap();
+    assert!(start.is_nil());
+    assert!(end.is_nil());
+    assert!(buffer.is_nil());
 }
 
 #[test]

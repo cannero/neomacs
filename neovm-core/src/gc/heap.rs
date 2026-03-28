@@ -1,6 +1,6 @@
 //! Arena-based heap with incremental tri-color mark-and-sweep collection.
 
-use super::types::{HeapObject, ObjId};
+use super::types::{HeapObject, ObjId, OverlayData};
 use crate::emacs_core::bytecode::ByteCodeFunction;
 use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value};
 
@@ -153,6 +153,10 @@ impl LispHeap {
         self.alloc(HeapObject::ByteCode(bc))
     }
 
+    pub fn alloc_overlay(&mut self, overlay: OverlayData) -> ObjId {
+        self.alloc(HeapObject::Overlay(overlay))
+    }
+
     /// Current allocation threshold used by opportunistic GC call sites.
     pub fn gc_threshold(&self) -> usize {
         self.gc_threshold
@@ -238,6 +242,7 @@ impl LispHeap {
                     HeapObject::Lambda(_) => "Lambda".to_string(),
                     HeapObject::Macro(_) => "Macro".to_string(),
                     HeapObject::ByteCode(_) => "ByteCode".to_string(),
+                    HeapObject::Overlay(_) => "Overlay".to_string(),
                 }
             } else {
                 "out-of-bounds".to_string()
@@ -470,6 +475,21 @@ impl LispHeap {
         }
     }
 
+    pub fn get_overlay(&self, id: ObjId) -> &OverlayData {
+        match self.get(id) {
+            HeapObject::Overlay(overlay) => overlay,
+            _ => panic!("get_overlay on non-overlay"),
+        }
+    }
+
+    pub fn get_overlay_mut(&mut self, id: ObjId) -> &mut OverlayData {
+        self.write_barrier(id);
+        match self.get_mut(id) {
+            HeapObject::Overlay(overlay) => overlay,
+            _ => panic!("get_overlay_mut on non-overlay"),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // List helpers
     // -----------------------------------------------------------------------
@@ -647,7 +667,8 @@ impl LispHeap {
             | Value::Str(id)
             | Value::Lambda(id)
             | Value::Macro(id)
-            | Value::ByteCode(id) => worklist.push(*id),
+            | Value::ByteCode(id)
+            | Value::Overlay(id) => worklist.push(*id),
             _ => {}
         }
     }
@@ -696,6 +717,9 @@ impl LispHeap {
                 if let Some(env_val) = &bc.env {
                     Self::push_value_ids(env_val, children);
                 }
+            }
+            HeapObject::Overlay(overlay) => {
+                Self::push_value_ids(&overlay.plist, children);
             }
             HeapObject::Free => {}
         }

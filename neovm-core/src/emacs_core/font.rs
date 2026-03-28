@@ -1027,11 +1027,11 @@ fn resolved_face_at_buffer_byte(
     for overlay_id in buffer.overlays.overlays_at(bytepos) {
         let priority = buffer
             .overlays
-            .overlay_get(overlay_id, "priority")
-            .and_then(Value::as_int)
+            .overlay_get_named(overlay_id, "priority")
+            .and_then(|value| value.as_int())
             .unwrap_or(0);
-        if let Some(value) = buffer.overlays.overlay_get(overlay_id, "face") {
-            let resolved = resolve_face_layers_from_value(value);
+        if let Some(value) = buffer.overlays.overlay_get_named(overlay_id, "face") {
+            let resolved = resolve_face_layers_from_value(&value);
             if !resolved.is_empty() {
                 overlay_layers.push((priority, resolved));
             }

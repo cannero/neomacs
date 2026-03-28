@@ -3,10 +3,12 @@
 //! Bridges the buffer's `TextPropertyTable` and `OverlayList` to Elisp
 //! functions like `put-text-property`, `make-overlay`, etc.
 
+use super::builtins::builtin_copy_sequence;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
 use super::value::*;
+use crate::buffer::overlay::plist_put_eq;
 use crate::buffer::text_props::TextPropertyTable;
 use crate::buffer::{BufferId, BufferManager};
 
@@ -207,8 +209,18 @@ fn current_buffer_id_in_buffers(buffers: &BufferManager) -> Result<BufferId, Flo
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))
 }
 
-fn make_overlay_value(ov_id: u64, buf_id: BufferId) -> Value {
-    Value::cons(Value::Int(ov_id as i64), Value::Buffer(buf_id))
+fn expect_overlay(value: &Value) -> Result<crate::gc::ObjId, Flow> {
+    match value {
+        Value::Overlay(id) => Ok(*id),
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("overlayp"), *value],
+        )),
+    }
+}
+
+fn resolve_overlay_buffer_id(overlay: crate::gc::ObjId) -> Option<BufferId> {
+    with_heap(|h| h.get_overlay(overlay).buffer)
 }
 
 fn ensure_marker_points_into_buffer(
@@ -273,21 +285,6 @@ fn plist_pairs(plist: &Value) -> Result<Vec<(String, Value)>, Flow> {
         pairs.push((name, chunk[1]));
     }
     Ok(pairs)
-}
-
-/// Convert a HashMap<String, Value> to an Elisp plist (alternating symbols and values).
-///
-/// Keys are sorted alphabetically to produce deterministic output.
-/// Used for overlays and other contexts where insertion order isn't tracked.
-fn hashmap_to_plist(map: &std::collections::HashMap<String, Value>) -> Value {
-    let mut keys: Vec<&String> = map.keys().collect();
-    keys.sort();
-    let mut items = Vec::new();
-    for key in keys {
-        items.push(Value::symbol(key.clone()));
-        items.push(map[key]);
-    }
-    Value::list(items)
 }
 
 /// Convert ordered property pairs to an Elisp plist.
@@ -389,9 +386,9 @@ pub(crate) fn buffer_overlay_property_at_byte_pos(
     buf: &crate::buffer::buffer::Buffer,
     byte_pos: usize,
     prop: &str,
-) -> Option<(Value, u64)> {
+) -> Option<(Value, crate::gc::ObjId)> {
     let overlay_id = buf.overlays.highest_priority_overlay_at(byte_pos, prop)?;
-    let value = buf.overlays.overlay_get(overlay_id, prop).copied()?;
+    let value = buf.overlays.overlay_get_named(overlay_id, prop)?;
     Some((value, overlay_id))
 }
 
@@ -399,11 +396,11 @@ pub(crate) fn buffer_overlay_property_for_inserted_char_at_byte_pos(
     buf: &crate::buffer::buffer::Buffer,
     byte_pos: usize,
     prop: &str,
-) -> Option<(Value, u64)> {
+) -> Option<(Value, crate::gc::ObjId)> {
     let overlay_id = buf
         .overlays
         .highest_priority_overlay_for_inserted_char(byte_pos, prop)?;
-    let value = buf.overlays.overlay_get(overlay_id, prop).copied()?;
+    let value = buf.overlays.overlay_get_named(overlay_id, prop)?;
     Some((value, overlay_id))
 }
 
@@ -1281,8 +1278,7 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_buffers(
     if let Some(buf) = buffers.get(buf_id) {
         let byte_pos = elisp_pos_to_byte(buf, pos);
         if let Some((value, ov_id)) = buffer_overlay_property_at_byte_pos(buf, byte_pos, &prop) {
-            let overlay = make_overlay_value(ov_id, buf_id);
-            return Ok(Value::cons(value, overlay));
+            return Ok(Value::cons(value, Value::Overlay(ov_id)));
         }
     }
 
@@ -1402,30 +1398,18 @@ pub(crate) fn builtin_make_overlay_in_buffers(
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let ov_id = buf.overlays.make_overlay(byte_beg, byte_end);
-    if front_advance {
-        buf.overlays.set_front_advance(ov_id, true);
-    }
-    if rear_advance {
-        buf.overlays.set_rear_advance(ov_id, true);
-    }
-
-    // Return a cons (overlay-id . buffer-id) to identify the overlay.
-    Ok(make_overlay_value(ov_id, buf_id))
-}
-
-/// Extract overlay id and buffer id from an overlay value (cons of int . buffer).
-fn expect_overlay(value: &Value) -> Result<(u64, BufferId), Flow> {
-    if let Value::Cons(cell) = value {
-        let pair = read_cons(*cell);
-        if let (Value::Int(ov_id), Value::Buffer(buf_id)) = (&pair.car, &pair.cdr) {
-            return Ok((*ov_id as u64, *buf_id));
-        }
-    }
-    Err(signal(
-        "wrong-type-argument",
-        vec![Value::symbol("overlayp"), *value],
-    ))
+    let overlay = with_heap_mut(|h| {
+        h.alloc_overlay(crate::gc::types::OverlayData {
+            plist: Value::Nil,
+            buffer: Some(buf_id),
+            start: byte_beg,
+            end: byte_end,
+            front_advance,
+            rear_advance,
+        })
+    });
+    buf.overlays.insert_overlay(overlay);
+    Ok(Value::Overlay(overlay))
 }
 
 /// (delete-overlay OVERLAY)
@@ -1441,8 +1425,10 @@ pub(crate) fn builtin_delete_overlay_in_buffers(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("delete-overlay", &args, 1)?;
-    let (ov_id, buf_id) = expect_overlay(&args[0])?;
-    let _ = buffers.delete_buffer_overlay(buf_id, ov_id);
+    let overlay = expect_overlay(&args[0])?;
+    if let Some(buf_id) = resolve_overlay_buffer_id(overlay) {
+        let _ = buffers.delete_buffer_overlay(buf_id, overlay);
+    }
     Ok(Value::Nil)
 }
 
@@ -1456,11 +1442,38 @@ pub(crate) fn builtin_overlay_put_in_buffers(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("overlay-put", &args, 3)?;
-    let (ov_id, buf_id) = expect_overlay(&args[0])?;
-    let prop = expect_symbol_name(&args[1])?;
+    let overlay = expect_overlay(&args[0])?;
     let val = args[2];
-
-    let _ = buffers.put_buffer_overlay_property(buf_id, ov_id, &prop, val);
+    let changed = if let Some(buf_id) = resolve_overlay_buffer_id(overlay) {
+        buffers
+            .get_mut(buf_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?
+            .overlays
+            .overlay_put(overlay, args[1], val)
+    } else {
+        with_heap_mut(|h| {
+            let object = h.get_overlay_mut(overlay);
+            let (plist, changed) = plist_put_eq(object.plist, args[1], val);
+            object.plist = plist;
+            changed
+        })
+    };
+    if let Some(buf_id) = resolve_overlay_buffer_id(overlay) {
+        if changed {
+            let evaporate = args[1].is_symbol_named("evaporate") && val.is_truthy();
+            let is_empty = buffers
+                .get(buf_id)
+                .and_then(|buf| {
+                    let start = buf.overlays.overlay_start(overlay)?;
+                    let end = buf.overlays.overlay_end(overlay)?;
+                    Some(start == end)
+                })
+                .unwrap_or(false);
+            if evaporate && is_empty {
+                let _ = buffers.delete_buffer_overlay(buf_id, overlay);
+            }
+        }
+    }
     Ok(val)
 }
 
@@ -1470,21 +1483,15 @@ pub(crate) fn builtin_overlay_get(eval: &mut super::eval::Context, args: Vec<Val
 }
 
 pub(crate) fn builtin_overlay_get_in_buffers(
-    buffers: &BufferManager,
+    _buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("overlay-get", &args, 2)?;
-    let (ov_id, buf_id) = expect_overlay(&args[0])?;
-    let prop = expect_symbol_name(&args[1])?;
-
-    if let Some(buf) = buffers.get(buf_id) {
-        match buf.overlays.overlay_get(ov_id, &prop) {
-            Some(v) => {
-                let val: Value = *v;
-                return Ok(val);
-            }
-            None => return Ok(Value::Nil),
-        }
+    let overlay = expect_overlay(&args[0])?;
+    if let Some(val) =
+        with_heap(|h| crate::buffer::overlay::plist_get_eq(h.get_overlay(overlay).plist, &args[1]))
+    {
+        return Ok(val);
     }
     Ok(Value::Nil)
 }
@@ -1496,11 +1503,8 @@ pub(crate) fn builtin_overlayp(_eval: &mut super::eval::Context, args: Vec<Value
 
 pub(crate) fn builtin_overlayp_pure(args: Vec<Value>) -> EvalResult {
     expect_args("overlayp", &args, 1)?;
-    if let Value::Cons(cell) = &args[0] {
-        let pair = read_cons(*cell);
-        if matches!((&pair.car, &pair.cdr), (Value::Int(_), Value::Buffer(_))) {
-            return Ok(Value::True);
-        }
+    if matches!(args[0], Value::Overlay(_)) {
+        return Ok(Value::True);
     }
     Ok(Value::Nil)
 }
@@ -1527,10 +1531,7 @@ pub(crate) fn builtin_overlays_at_in_buffers(
     if args.get(1).is_some_and(|value| value.is_truthy()) {
         buf.overlays.sort_overlay_ids_by_priority_desc(&mut ids);
     }
-    let overlays: Vec<Value> = ids
-        .into_iter()
-        .map(|id| make_overlay_value(id, buf_id))
-        .collect();
+    let overlays: Vec<Value> = ids.into_iter().map(Value::Overlay).collect();
     Ok(Value::list(overlays))
 }
 
@@ -1556,10 +1557,7 @@ pub(crate) fn builtin_overlays_in_in_buffers(
     let ids = buf
         .overlays
         .overlays_in_region(byte_beg, byte_end, buf.point_max_byte());
-    let overlays: Vec<Value> = ids
-        .into_iter()
-        .map(|id| make_overlay_value(id, buf_id))
-        .collect();
+    let overlays: Vec<Value> = ids.into_iter().map(Value::Overlay).collect();
     Ok(Value::list(overlays))
 }
 
@@ -1577,81 +1575,56 @@ pub(crate) fn builtin_move_overlay_in_buffers(
 ) -> EvalResult {
     expect_min_args("move-overlay", &args, 3)?;
     expect_max_args("move-overlay", &args, 4)?;
-    let (ov_id, old_buf_id) = expect_overlay(&args[0])?;
+    let overlay = expect_overlay(&args[0])?;
+    let old_buf_id = resolve_overlay_buffer_id(overlay);
 
     // Resolve target buffer: use BUFFER arg if given, otherwise same buffer.
     let new_buf_id = if let Some(buf_arg) = args.get(3) {
         if buf_arg.is_truthy() {
             resolve_buffer_id_in_buffers(buffers, Some(buf_arg))?
         } else {
-            old_buf_id
+            old_buf_id.unwrap_or_else(|| buffers.current_buffer_id().expect("current buffer"))
         }
     } else {
-        old_buf_id
+        old_buf_id.unwrap_or_else(|| buffers.current_buffer_id().expect("current buffer"))
     };
 
+    ensure_marker_points_into_buffer(buffers, &args[1], new_buf_id)?;
+    ensure_marker_points_into_buffer(buffers, &args[2], new_buf_id)?;
     let mut beg = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let mut end = expect_integer_or_marker_in_buffers(buffers, &args[2])?;
     if beg > end {
         std::mem::swap(&mut beg, &mut end);
     }
 
-    if new_buf_id == old_buf_id {
+    if old_buf_id == Some(new_buf_id) {
         // Same buffer: just move within the buffer.
         let buf = buffers
-            .get_mut(old_buf_id)
+            .get_mut(new_buf_id)
             .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
         let byte_beg = elisp_pos_to_byte(buf, beg);
         let byte_end = elisp_pos_to_byte(buf, end);
-        buf.overlays.move_overlay(ov_id, byte_beg, byte_end);
+        buf.overlays.move_overlay(overlay, byte_beg, byte_end);
         Ok(args[0])
     } else {
-        // Different buffer: remove from old, add to new, update overlay value.
-        // Extract overlay properties from old buffer.
-        let old_overlay = buffers
-            .get(old_buf_id)
-            .and_then(|buf| buf.overlays.get(ov_id).cloned());
-
-        // Remove from old buffer.
-        if let Some(buf) = buffers.get_mut(old_buf_id) {
-            buf.overlays.delete_overlay(ov_id);
+        if let Some(old_buf_id) = old_buf_id
+            && let Some(buf) = buffers.get_mut(old_buf_id)
+        {
+            buf.overlays.detach_overlay(overlay);
         }
 
-        // Compute byte positions in new buffer.
         let new_buf = buffers
             .get_mut(new_buf_id)
             .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
         let byte_beg = elisp_pos_to_byte(new_buf, beg);
         let byte_end = elisp_pos_to_byte(new_buf, end);
-
-        let moved_overlay = old_overlay.unwrap_or(crate::buffer::Overlay {
-            id: ov_id,
-            start: byte_beg,
-            end: byte_end,
-            properties: std::collections::HashMap::new(),
-            front_advance: false,
-            rear_advance: false,
+        with_heap_mut(|h| {
+            let object = h.get_overlay_mut(overlay);
+            object.buffer = Some(new_buf_id);
+            object.start = byte_beg;
+            object.end = byte_end;
         });
-        new_buf
-            .overlays
-            .insert_overlay_with_id(crate::buffer::Overlay {
-                id: ov_id,
-                start: byte_beg,
-                end: byte_end,
-                properties: moved_overlay.properties,
-                front_advance: moved_overlay.front_advance,
-                rear_advance: moved_overlay.rear_advance,
-            });
-
-        // Update the overlay value's cons cell to point to the new buffer
-        // while preserving the overlay id.
-        if let Value::Cons(cell) = &args[0] {
-            with_heap_mut(|h| {
-                h.set_car(*cell, Value::Int(ov_id as i64));
-                h.set_cdr(*cell, Value::Buffer(new_buf_id));
-            });
-        }
-
+        new_buf.overlays.insert_overlay(overlay);
         Ok(args[0])
     }
 }
@@ -1669,13 +1642,15 @@ pub(crate) fn builtin_overlay_start_in_buffers(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("overlay-start", &args, 1)?;
-    let (ov_id, buf_id) = expect_overlay(&args[0])?;
-
+    let overlay = expect_overlay(&args[0])?;
+    let Some(buf_id) = resolve_overlay_buffer_id(overlay) else {
+        return Ok(Value::Nil);
+    };
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
-    match buf.overlays.overlay_start(ov_id) {
+    match buf.overlays.overlay_start(overlay) {
         Some(byte_pos) => Ok(Value::Int(byte_to_elisp_pos(buf, byte_pos))),
         None => Ok(Value::Nil),
     }
@@ -1691,13 +1666,15 @@ pub(crate) fn builtin_overlay_end_in_buffers(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("overlay-end", &args, 1)?;
-    let (ov_id, buf_id) = expect_overlay(&args[0])?;
-
+    let overlay = expect_overlay(&args[0])?;
+    let Some(buf_id) = resolve_overlay_buffer_id(overlay) else {
+        return Ok(Value::Nil);
+    };
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
-    match buf.overlays.overlay_end(ov_id) {
+    match buf.overlays.overlay_end(overlay) {
         Some(byte_pos) => Ok(Value::Int(byte_to_elisp_pos(buf, byte_pos))),
         None => Ok(Value::Nil),
     }
@@ -1716,13 +1693,11 @@ pub(crate) fn builtin_overlay_buffer_in_buffers(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("overlay-buffer", &args, 1)?;
-    let (ov_id, buf_id) = expect_overlay(&args[0])?;
-
-    // Check if the overlay still exists in the buffer.
-    if let Some(buf) = buffers.get(buf_id) {
-        if buf.overlays.get(ov_id).is_some() {
-            return Ok(Value::Buffer(buf_id));
-        }
+    let overlay = expect_overlay(&args[0])?;
+    if let Some(buf_id) = resolve_overlay_buffer_id(overlay)
+        && buffers.get(buf_id).is_some()
+    {
+        return Ok(Value::Buffer(buf_id));
     }
     Ok(Value::Nil)
 }
@@ -1736,18 +1711,12 @@ pub(crate) fn builtin_overlay_properties(
 }
 
 pub(crate) fn builtin_overlay_properties_in_buffers(
-    buffers: &BufferManager,
+    _buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("overlay-properties", &args, 1)?;
-    let (ov_id, buf_id) = expect_overlay(&args[0])?;
-
-    if let Some(buf) = buffers.get(buf_id) {
-        if let Some(ov) = buf.overlays.get(ov_id) {
-            return Ok(hashmap_to_plist(&ov.properties));
-        }
-    }
-    Ok(Value::Nil)
+    let overlay = expect_overlay(&args[0])?;
+    builtin_copy_sequence(vec![with_heap(|h| h.get_overlay(overlay).plist)])
 }
 
 /// (remove-overlays &optional BEG END NAME VAL)
@@ -1803,17 +1772,17 @@ pub(crate) fn builtin_remove_overlays(
         .overlays_in_region(start_pos, end_pos, buf.point_max_byte());
 
     // Filter and delete.
-    for ov_id in ids {
+    for overlay in ids {
         let should_delete = match (&filter_name, &filter_val) {
             (Some(name), Some(val)) => buf
                 .overlays
-                .overlay_get(ov_id, name)
-                .is_some_and(|v| equal_value(v, val, 0)),
-            (Some(name), None) => buf.overlays.overlay_get(ov_id, name).is_some(),
+                .overlay_get_named(overlay, name)
+                .is_some_and(|v| equal_value(&v, val, 0)),
+            (Some(name), None) => buf.overlays.overlay_get_named(overlay, name).is_some(),
             _ => true,
         };
         if should_delete {
-            buf.overlays.delete_overlay(ov_id);
+            buf.overlays.delete_overlay(overlay);
         }
     }
 

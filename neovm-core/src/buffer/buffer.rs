@@ -15,6 +15,7 @@ use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::{RuntimeBindingValue, Value};
 use crate::gc::GcTrace;
+use crate::gc::ObjId;
 use crate::window::WindowId;
 
 // ---------------------------------------------------------------------------
@@ -1484,7 +1485,7 @@ impl BufferManager {
         Some(())
     }
 
-    pub fn delete_buffer_overlay(&mut self, id: BufferId, overlay_id: u64) -> Option<()> {
+    pub fn delete_buffer_overlay(&mut self, id: BufferId, overlay_id: ObjId) -> Option<()> {
         self.buffers
             .get_mut(&id)?
             .overlays
@@ -1495,8 +1496,8 @@ impl BufferManager {
     pub fn put_buffer_overlay_property(
         &mut self,
         id: BufferId,
-        overlay_id: u64,
-        name: &str,
+        overlay_id: ObjId,
+        name: Value,
         value: Value,
     ) -> Option<()> {
         self.buffers

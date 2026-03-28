@@ -44,6 +44,7 @@ pub enum DumpValue {
     Char(char),
     Subr(DumpSymId),
     ByteCode(DumpObjId),
+    Overlay(DumpObjId),
     Buffer(DumpBufferId),
     Window(u64),
     Frame(u64),
@@ -69,6 +70,7 @@ pub enum DumpHeapObject {
     Lambda(DumpLambdaData),
     Macro(DumpLambdaData),
     ByteCode(DumpByteCodeFunction),
+    Overlay(DumpOverlay),
     Free,
 }
 
@@ -405,18 +407,17 @@ pub struct DumpTextPropertyTable {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpOverlay {
-    pub id: u64,
+    pub plist: DumpValue,
+    pub buffer: Option<DumpBufferId>,
     pub start: usize,
     pub end: usize,
-    pub properties: Vec<(String, DumpValue)>,
     pub front_advance: bool,
     pub rear_advance: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpOverlayList {
-    pub overlays: Vec<DumpOverlay>,
-    pub next_id: u64,
+    pub overlays: Vec<DumpObjId>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]

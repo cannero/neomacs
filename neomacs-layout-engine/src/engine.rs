@@ -2639,8 +2639,8 @@ impl LayoutEngine {
                             for (string_bytes, overlay_id) in &after_strings {
                                 let ov_face = buffer
                                     .overlays
-                                    .overlay_get(*overlay_id, "face")
-                                    .and_then(|val| face_resolver.resolve_face_from_value(val));
+                                    .overlay_get_named(*overlay_id, "face")
+                                    .and_then(|val| face_resolver.resolve_face_from_value(&val));
                                 render_overlay_string(
                                     string_bytes,
                                     &mut x,
@@ -3874,8 +3874,8 @@ impl LayoutEngine {
                     for (string_bytes, overlay_id) in &before_strings {
                         let ov_face = buffer
                             .overlays
-                            .overlay_get(*overlay_id, "face")
-                            .and_then(|val| face_resolver.resolve_face_from_value(val));
+                            .overlay_get_named(*overlay_id, "face")
+                            .and_then(|val| face_resolver.resolve_face_from_value(&val));
                         render_overlay_string(
                             string_bytes,
                             &mut x,
@@ -3945,8 +3945,8 @@ impl LayoutEngine {
                     for (string_bytes, overlay_id) in &after_strings {
                         let ov_face = buffer
                             .overlays
-                            .overlay_get(*overlay_id, "face")
-                            .and_then(|val| face_resolver.resolve_face_from_value(val));
+                            .overlay_get_named(*overlay_id, "face")
+                            .and_then(|val| face_resolver.resolve_face_from_value(&val));
                         render_overlay_string(
                             string_bytes,
                             &mut x,
@@ -4025,8 +4025,8 @@ impl LayoutEngine {
             for (string_bytes, overlay_id) in before_strings.iter().chain(after_strings.iter()) {
                 let ov_face = buffer
                     .overlays
-                    .overlay_get(*overlay_id, "face")
-                    .and_then(|val| face_resolver.resolve_face_from_value(val));
+                    .overlay_get_named(*overlay_id, "face")
+                    .and_then(|val| face_resolver.resolve_face_from_value(&val));
                 render_overlay_string(
                     string_bytes,
                     &mut x,

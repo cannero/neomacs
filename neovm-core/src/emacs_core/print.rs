@@ -103,6 +103,7 @@ impl PrintCircleState {
 pub(crate) struct PrintState<'a> {
     pub options: PrintOptions,
     pub circle: Option<&'a mut PrintCircleState>,
+    pub buffers: Option<&'a crate::buffer::BufferManager>,
     pub depth: i64,
 }
 
@@ -205,6 +206,14 @@ fn print_preprocess(value: &Value, state: &mut PrintCircleState, print_gensym: b
 /// Entry point for stateful printing (circle/level/length aware).
 /// Returns the printed representation as a String.
 pub(crate) fn print_value_stateful(value: &Value, options: PrintOptions) -> String {
+    print_value_stateful_with_buffers(value, None, options)
+}
+
+pub(crate) fn print_value_stateful_with_buffers(
+    value: &Value,
+    buffers: Option<&crate::buffer::BufferManager>,
+    options: PrintOptions,
+) -> String {
     let mut out = String::new();
     if options.print_circle {
         let mut circle = PrintCircleState::new();
@@ -212,6 +221,7 @@ pub(crate) fn print_value_stateful(value: &Value, options: PrintOptions) -> Stri
         let mut state = PrintState {
             options,
             circle: Some(&mut circle),
+            buffers,
             depth: 0,
         };
         write_value_stateful(value, &mut out, &mut state);
@@ -219,6 +229,7 @@ pub(crate) fn print_value_stateful(value: &Value, options: PrintOptions) -> Stri
         let mut state = PrintState {
             options,
             circle: None,
+            buffers,
             depth: 0,
         };
         write_value_stateful(value, &mut out, &mut state);
@@ -229,7 +240,7 @@ pub(crate) fn print_value_stateful(value: &Value, options: PrintOptions) -> Stri
 /// Core stateful print routine. Writes the printed representation of `value`
 /// into `out`, respecting print-circle, print-level, and print-length.
 fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
-    if let Some(handle) = print_special_handle(value, None) {
+    if let Some(handle) = print_special_handle(value, state.buffers) {
         out.push_str(&handle);
         return;
     }
@@ -434,6 +445,9 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             let params = format_params(&bc.params);
             write!(out, "#<bytecode {} ({} ops)>", params, bc.ops.len()).unwrap();
         }
+        Value::Overlay(_) => out.push_str(
+            &print_special_handle(value, state.buffers).unwrap_or_else(|| "#<overlay>".to_string()),
+        ),
         Value::Buffer(id) => write!(out, "#<buffer {}>", id.0).unwrap(),
         Value::Window(id) => write!(out, "#<window {}>", id).unwrap(),
         Value::Frame(id) => out.push_str(&format_frame_handle(*id)),
@@ -682,12 +696,45 @@ fn format_marker_handle(
     Some(out)
 }
 
+fn format_overlay_handle(
+    value: &Value,
+    buffers: Option<&crate::buffer::BufferManager>,
+) -> Option<String> {
+    let Value::Overlay(id) = value else {
+        return None;
+    };
+
+    let overlay = with_heap(|h| h.get_overlay(*id).clone());
+    let Some(buffer_id) = overlay.buffer else {
+        return Some("#<overlay in no buffer>".to_string());
+    };
+
+    let Some(buffers) = buffers else {
+        return Some(format!(
+            "#<overlay from {} to {}>",
+            overlay.start, overlay.end
+        ));
+    };
+
+    let Some(buffer) = buffers.get(buffer_id) else {
+        return Some("#<overlay in no buffer>".to_string());
+    };
+
+    Some(format!(
+        "#<overlay from {} to {} in {}>",
+        buffer.text.byte_to_char(overlay.start) + 1,
+        buffer.text.byte_to_char(overlay.end) + 1,
+        buffer.name
+    ))
+}
+
 fn print_special_handle(
     value: &Value,
     buffers: Option<&crate::buffer::BufferManager>,
 ) -> Option<String> {
     super::terminal::pure::print_terminal_handle(value)
         .or_else(|| format_marker_handle(value, buffers))
+        .or_else(|| format_overlay_handle(value, buffers))
 }
 
 fn format_frame_handle(id: u64) -> String {
@@ -731,7 +778,7 @@ pub fn print_value_with_buffers_and_options(
 ) -> String {
     // Delegate to the stateful printer when circle/level/length are active.
     if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
-        return print_value_stateful(value, options);
+        return print_value_stateful_with_buffers(value, Some(buffers), options);
     }
     if let Some(handle) = print_special_handle(value, Some(buffers)) {
         return handle;
@@ -773,6 +820,9 @@ pub fn print_value_with_buffers_and_options(
                 .map(|v| print_value_with_buffers_and_options(v, buffers, options))
                 .collect();
             format!("[{}]", parts.join(" "))
+        }
+        Value::Overlay(_) => {
+            print_special_handle(value, Some(buffers)).unwrap_or_else(|| "#<overlay>".to_string())
         }
         _ => print_value_with_options(value, options),
     }
@@ -959,6 +1009,9 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             let params = format_params(&bc.params);
             format!("#<bytecode {} ({} ops)>", params, bc.ops.len())
         }
+        Value::Overlay(_) => {
+            print_special_handle(value, None).unwrap_or_else(|| "#<overlay>".to_string())
+        }
         Value::Buffer(id) => format!("#<buffer {}>", id.0),
         Value::Window(id) => format!("#<window {}>", id),
         Value::Frame(id) => format_frame_handle(*id),
@@ -1107,6 +1160,11 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 format!("#<bytecode {} ({} ops)>", params, bc.ops.len()).as_bytes(),
             );
         }
+        Value::Overlay(_) => out.extend_from_slice(
+            print_special_handle(value, None)
+                .unwrap_or_else(|| "#<overlay>".to_string())
+                .as_bytes(),
+        ),
         Value::Buffer(id) => out.extend_from_slice(format!("#<buffer {}>", id.0).as_bytes()),
         Value::Window(id) => out.extend_from_slice(format!("#<window {}>", id).as_bytes()),
         Value::Frame(id) => out.extend_from_slice(format_frame_handle(*id).as_bytes()),

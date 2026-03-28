@@ -1,5 +1,6 @@
 //! GC heap object types and handles.
 
+use crate::buffer::BufferId;
 use crate::emacs_core::bytecode::ByteCodeFunction;
 use crate::emacs_core::value::{LambdaData, LispHashTable, Value};
 use std::sync::{Arc, OnceLock};
@@ -10,7 +11,7 @@ const MAX_CONCAT_PARTS: usize = 64;
 ///
 /// `index` selects the slot in `LispHeap::objects`.
 /// `generation` detects use-after-free (stale handles panic on access).
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ObjId {
     pub(crate) index: u32,
     pub(crate) generation: u32,
@@ -335,6 +336,16 @@ impl LispString {
 ///
 /// All heap-allocated Lisp types live here: cons cells, vectors, hash tables,
 /// strings, lambdas, macros, and bytecode functions.
+#[derive(Clone, Debug)]
+pub struct OverlayData {
+    pub plist: Value,
+    pub buffer: Option<BufferId>,
+    pub start: usize,
+    pub end: usize,
+    pub front_advance: bool,
+    pub rear_advance: bool,
+}
+
 pub enum HeapObject {
     Cons {
         car: Value,
@@ -346,6 +357,7 @@ pub enum HeapObject {
     Lambda(LambdaData),
     Macro(LambdaData),
     ByteCode(ByteCodeFunction),
+    Overlay(OverlayData),
     /// Freed slot, available for reuse.
     Free,
 }
@@ -371,6 +383,7 @@ impl HeapObject {
                 }
                 vals
             }
+            HeapObject::Overlay(overlay) => vec![overlay.plist],
             HeapObject::Free => Vec::new(),
         }
     }

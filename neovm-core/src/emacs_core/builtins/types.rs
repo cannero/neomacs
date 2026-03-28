@@ -277,6 +277,7 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         Value::Lambda(_) | Value::Macro(_) => "interpreted-function",
         Value::ByteCode(_) => "byte-code-function",
         Value::Buffer(_) => "buffer",
+        Value::Overlay(_) => "overlay",
         Value::Window(_) => "window",
         Value::Frame(_) => "frame",
         Value::Timer(_) => "timer",

@@ -86,6 +86,30 @@ fn compat_overlay_semantics_matches_gnu_emacs() {
     (kill-buffer b)
     (kill-buffer a)))"#,
         },
+        OverlayCase {
+            name: "deleted_overlay_identity_and_plist",
+            form: r#"(let ((buf (get-buffer-create " *compat-overlay-deleted*")))
+  (unwind-protect
+      (with-current-buffer buf
+        (erase-buffer)
+        (insert "abcd")
+        (let ((ov (make-overlay 1 2 buf)))
+          (overlay-put ov 'face 'bold)
+          (let ((live (prin1-to-string ov)))
+            (delete-overlay ov)
+            (overlay-put ov 'face 'italic)
+            (list
+             (overlayp ov)
+             (eq ov ov)
+             live
+             (prin1-to-string ov)
+             (overlay-buffer ov)
+             (overlay-start ov)
+             (overlay-end ov)
+             (overlay-get ov 'face)
+             (overlay-properties ov)))))
+    (kill-buffer buf)))"#,
+        },
     ];
 
     for case in cases {

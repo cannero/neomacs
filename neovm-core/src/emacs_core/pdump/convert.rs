@@ -86,6 +86,7 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         Value::Char(c) => DumpValue::Char(c),
         Value::Subr(s) => DumpValue::Subr(dump_sym_id(s)),
         Value::ByteCode(id) => DumpValue::ByteCode(dump_obj_id(id)),
+        Value::Overlay(id) => DumpValue::Overlay(dump_obj_id(id)),
         Value::Buffer(bid) => DumpValue::Buffer(DumpBufferId(bid.0)),
         Value::Window(w) => DumpValue::Window(w),
         Value::Frame(f) => DumpValue::Frame(f),
@@ -334,6 +335,7 @@ pub(crate) fn dump_heap_object(obj: &HeapObject) -> DumpHeapObject {
         HeapObject::Lambda(d) => DumpHeapObject::Lambda(dump_lambda_data(d)),
         HeapObject::Macro(d) => DumpHeapObject::Macro(dump_lambda_data(d)),
         HeapObject::ByteCode(bc) => DumpHeapObject::ByteCode(dump_bytecode(bc)),
+        HeapObject::Overlay(overlay) => DumpHeapObject::Overlay(dump_overlay(overlay)),
         HeapObject::Free => DumpHeapObject::Free,
     }
 }
@@ -468,14 +470,10 @@ fn dump_text_property_table(tpt: &TextPropertyTable) -> DumpTextPropertyTable {
 
 fn dump_overlay(o: &Overlay) -> DumpOverlay {
     DumpOverlay {
-        id: o.id,
+        plist: dump_value(&o.plist),
+        buffer: o.buffer.map(|id| DumpBufferId(id.0)),
         start: o.start,
         end: o.end,
-        properties: o
-            .properties
-            .iter()
-            .map(|(k, v)| (k.clone(), dump_value(v)))
-            .collect(),
         front_advance: o.front_advance,
         rear_advance: o.rear_advance,
     }
@@ -483,12 +481,7 @@ fn dump_overlay(o: &Overlay) -> DumpOverlay {
 
 fn dump_overlay_list(ol: &OverlayList) -> DumpOverlayList {
     DumpOverlayList {
-        overlays: ol
-            .dump_overlays()
-            .into_iter()
-            .map(|overlay| dump_overlay(&overlay))
-            .collect(),
-        next_id: ol.dump_next_id(),
+        overlays: ol.dump_overlays().into_iter().map(dump_obj_id).collect(),
     }
 }
 
@@ -1334,6 +1327,7 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
         DumpValue::Char(c) => Value::Char(*c),
         DumpValue::Subr(s) => Value::Subr(load_sym_id(s)),
         DumpValue::ByteCode(id) => Value::ByteCode(load_obj_id(id)),
+        DumpValue::Overlay(id) => Value::Overlay(load_obj_id(id)),
         DumpValue::Buffer(bid) => Value::Buffer(BufferId(bid.0)),
         DumpValue::Window(w) => Value::Window(*w),
         DumpValue::Frame(f) => Value::Frame(*f),
@@ -1603,6 +1597,14 @@ fn load_heap_object_phase1(obj: &DumpHeapObject) -> HeapObject {
         DumpHeapObject::Lambda(d) => HeapObject::Lambda(load_lambda_data(d)),
         DumpHeapObject::Macro(d) => HeapObject::Macro(load_lambda_data(d)),
         DumpHeapObject::ByteCode(bc) => HeapObject::ByteCode(load_bytecode(bc)),
+        DumpHeapObject::Overlay(o) => HeapObject::Overlay(crate::gc::types::OverlayData {
+            plist: load_value(&o.plist),
+            buffer: o.buffer.map(|id| BufferId(id.0)),
+            start: o.start,
+            end: o.end,
+            front_advance: o.front_advance,
+            rear_advance: o.rear_advance,
+        }),
         DumpHeapObject::Free => HeapObject::Free,
     }
 }
@@ -1872,25 +1874,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
                 .map(load_property_interval)
                 .collect(),
         )),
-        overlays: OverlayList::from_dump(
-            db.overlays
-                .overlays
-                .iter()
-                .map(|o| Overlay {
-                    id: o.id,
-                    start: o.start,
-                    end: o.end,
-                    properties: o
-                        .properties
-                        .iter()
-                        .map(|(k, v)| (k.clone(), load_value(v)))
-                        .collect(),
-                    front_advance: o.front_advance,
-                    rear_advance: o.rear_advance,
-                })
-                .collect(),
-            db.overlays.next_id,
-        ),
+        overlays: OverlayList::from_dump(db.overlays.overlays.iter().map(load_obj_id).collect()),
         syntax_table: load_syntax_table(&db.syntax_table),
         undo_state: SharedUndoState::from_parts(undo_list, false, false),
     }
