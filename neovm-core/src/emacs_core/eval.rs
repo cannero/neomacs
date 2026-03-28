@@ -7329,7 +7329,7 @@ impl Context {
                 let lambda_data = self.heap.get_macro_data(id).clone();
                 self.apply_lambda(&lambda_data, args, func_val)
             }
-            Value::Subr(id) => self.apply_subr_object(resolve_sym(id), args, true),
+            Value::Subr(id) => self.apply_subr_object_by_id(id, args, true),
             Value::Symbol(id) => self.apply_symbol_callable(id, args, true),
             Value::True => self.apply_symbol_callable(intern("t"), args, true),
             Value::Keyword(id) => self.apply_symbol_callable(id, args, true),
@@ -7486,19 +7486,20 @@ impl Context {
     }
 
     #[inline]
-    fn apply_subr_object(
+    fn apply_subr_object_by_id(
         &mut self,
-        name: &str,
+        sym_id: SymId,
         args: Vec<Value>,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
+        let name = resolve_sym(sym_id);
         if super::subr_info::is_special_form(name) {
-            return Err(signal("invalid-function", vec![Value::Subr(intern(name))]));
+            return Err(signal("invalid-function", vec![Value::Subr(sym_id)]));
         }
         if super::subr_info::is_evaluator_callable_name(name) {
-            return self.apply_evaluator_callable(name, args);
+            return self.apply_evaluator_callable_by_id(sym_id, args);
         }
-        if let Some(result) = builtins::dispatch_builtin(self, name, args) {
+        if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
             // Validate throws from builtins: builtins may generate Flow::Throw
             // (e.g. exit-minibuffer) without checking catch_tags.  Convert to
             // no-catch signal when no matching catch exists (GNU Emacs semantics).
@@ -7671,9 +7672,9 @@ impl Context {
                     result
                 }
             }
-            NamedCallTarget::ContextCallable => self.apply_evaluator_callable(name, args),
+            NamedCallTarget::ContextCallable => self.apply_evaluator_callable_by_id(sym_id, args),
             NamedCallTarget::Probe => {
-                if let Some(result) = builtins::dispatch_builtin(self, name, args) {
+                if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
                     self.store_named_call_cache(sym_id, NamedCallTarget::Builtin);
                     let result = result.map_err(|flow| self.validate_throw(flow));
                     if rewrite_builtin_wrong_arity {
@@ -7687,7 +7688,7 @@ impl Context {
                 }
             }
             NamedCallTarget::Builtin => {
-                if let Some(result) = builtins::dispatch_builtin(self, name, args) {
+                if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
                     let result = result.map_err(|flow| self.validate_throw(flow));
                     if rewrite_builtin_wrong_arity {
                         result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
@@ -7791,8 +7792,9 @@ impl Context {
     ) -> EvalResult {
         // Startup wrappers often expose autoload-shaped function cells for names
         // backed by builtins. Keep the autoload shape while preserving callability.
-        if self.subr_registry.contains_key(&intern(name)) {
-            if let Some(result) = builtins::dispatch_builtin(self, name, args.clone()) {
+        let sym_id = intern(name);
+        if self.subr_registry.contains_key(&sym_id) {
+            if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args.clone()) {
                 return if rewrite_builtin_wrong_arity {
                     result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
                 } else {
@@ -7835,6 +7837,10 @@ impl Context {
             }
             _ => Err(signal("void-function", vec![Value::symbol(name)])),
         }
+    }
+
+    fn apply_evaluator_callable_by_id(&mut self, sym_id: SymId, args: Vec<Value>) -> EvalResult {
+        self.apply_evaluator_callable(resolve_sym(sym_id), args)
     }
 
     fn apply_lambda(
@@ -8312,9 +8318,9 @@ impl Context {
 
     /// Look up a builtin in the subr registry and call it directly via
     /// function pointer. Returns None if the name is not registered.
-    pub fn dispatch_subr(&mut self, name: &str, args: Vec<Value>) -> Option<EvalResult> {
-        let sym_id = intern(name);
+    pub fn dispatch_subr_id(&mut self, sym_id: SymId, args: Vec<Value>) -> Option<EvalResult> {
         let subr = self.subr_registry.get(&sym_id)?;
+        let name = resolve_sym(sym_id);
         let nargs = args.len();
         if (nargs as u16) < subr.min_args {
             return Some(Err(signal(
@@ -8337,6 +8343,10 @@ impl Context {
         // same time.
         let func = subr.function;
         Some(func(self, args))
+    }
+
+    pub fn dispatch_subr(&mut self, name: &str, args: Vec<Value>) -> Option<EvalResult> {
+        self.dispatch_subr_id(intern(name), args)
     }
 
     // -----------------------------------------------------------------------

@@ -473,7 +473,16 @@ pub(crate) fn dispatch_builtin(
     name: &str,
     args: Vec<Value>,
 ) -> Option<EvalResult> {
-    eval.dispatch_subr(name, args)
+    dispatch_builtin_by_id(eval, intern(name), args)
+}
+
+/// Try to dispatch a builtin function by its canonical symbol id.
+pub(crate) fn dispatch_builtin_by_id(
+    eval: &mut super::eval::Context,
+    sym_id: SymId,
+    args: Vec<Value>,
+) -> Option<EvalResult> {
+    eval.dispatch_subr_id(sym_id, args)
 }
 
 #[cfg(test)]
