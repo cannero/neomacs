@@ -130,8 +130,6 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
             | "autoload"
             // NeoVM-specific: error hierarchy
             | "define-error"
-            // declare is a stub (ignored)
-            | "declare"
     )
 }
 
@@ -158,9 +156,7 @@ pub(crate) fn is_evaluator_sf_skip_macroexpand(_name: &str) -> bool {
 }
 
 pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {
-    let is_macro = has_fallback_macro(name) || name == "declare";
-    debug_assert!(!is_macro || name == "declare");
-    is_macro
+    has_fallback_macro(name)
 }
 
 pub(crate) fn is_evaluator_callable_name(name: &str) -> bool {
@@ -176,12 +172,8 @@ struct FallbackMacroSpec {
 }
 
 fn fallback_macro_spec(name: &str) -> Option<FallbackMacroSpec> {
-    match name {
-        // `declare` remains evaluator-internal; GNU Lisp bootstrap macros now
-        // come from temporary macro function cells instead of placeholders.
-        "declare" => Some(FallbackMacroSpec { min: 0, max: None }),
-        _ => None,
-    }
+    let _ = name;
+    None
 }
 
 pub(crate) fn has_fallback_macro(name: &str) -> bool {
@@ -213,8 +205,8 @@ fn fallback_macro_params(spec: FallbackMacroSpec) -> LambdaParams {
 
 /// Return a placeholder macro object for evaluator-integrated macro names.
 ///
-/// Today this is only used for `declare`; GNU Lisp bootstrap macros are
-/// installed as temporary real macro cells by `bootstrap_macros.rs`.
+/// GNU Lisp bootstrap macros are installed as temporary real macro cells by
+/// `bootstrap_macros.rs`; ordinary GNU Lisp macros should come from GNU Lisp.
 pub(crate) fn fallback_macro_value(name: &str) -> Option<Value> {
     let spec = fallback_macro_spec(name)?;
     Some(Value::make_macro(LambdaData {

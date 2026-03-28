@@ -34,6 +34,7 @@ fn compat_bootstrap_macro_cells_are_scoped_to_source_bootstrap() {
     }
 
     for name in [
+        "declare",
         "eval-when-compile",
         "defvar-local",
         "track-mouse",

@@ -5794,7 +5794,6 @@ impl Context {
             "interactive" => Ok(Value::Nil),
             // ---- Context-internal (not a special form in GNU) ----
             "lambda" => self.eval_lambda(tail),
-            "declare" => Ok(Value::Nil),
             // ---- NeoVM-specific ----
             "byte-code-literal" => self.sf_byte_code_literal(tail),
             "byte-code" => self.sf_byte_code(tail),

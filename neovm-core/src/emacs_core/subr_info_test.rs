@@ -2130,6 +2130,7 @@ fn fallback_macro_with_demoted_errors_no_longer_present() {
 #[test]
 fn fallback_macro_only_keeps_source_bootstrap_shims() {
     for name in [
+        "declare",
         "eval-and-compile",
         "eval-when-compile",
         "defvar-local",
@@ -2150,6 +2151,7 @@ fn fallback_macro_only_keeps_source_bootstrap_shims() {
 #[test]
 fn gnu_lisp_macro_forms_are_not_evaluator_special_forms() {
     for name in [
+        "declare",
         "eval-when-compile",
         "eval-and-compile",
         "defvar-local",
