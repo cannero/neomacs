@@ -1519,7 +1519,39 @@ fn wildcard_casefold_match(pattern: &str, text: &str) -> bool {
 
 #[cfg(unix)]
 /// Query `Xft.dpi` from the active X display, mirroring GNU Emacs `xterm.c`.
+///
+/// Runs `XOpenDisplay` in a background thread with a timeout to avoid blocking
+/// indefinitely if the X server is unresponsive (stale socket, broken display).
 fn query_xft_dpi() -> Option<f32> {
+    // Skip X11 query entirely in batch/noninteractive mode or when DISPLAY is unset.
+    if std::env::var("DISPLAY").unwrap_or_default().is_empty() {
+        return None;
+    }
+
+    // XOpenDisplay can block indefinitely on a broken X server (stale socket
+    // at /tmp/.X11-unix/X0 that never responds to the handshake).
+    // Run it in a background thread with a timeout to avoid hanging startup.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _handle = std::thread::Builder::new()
+        .name("xft-dpi-probe".into())
+        .spawn(move || {
+            let result = query_xft_dpi_inner();
+            let _ = tx.send(result);
+        });
+    // Wait at most 3 seconds for the X server to respond.
+    match rx.recv_timeout(std::time::Duration::from_secs(3)) {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::warn!(
+                "query_xft_dpi: X11 connection timed out (broken display?), using fallback DPI"
+            );
+            None
+        }
+    }
+}
+
+#[cfg(unix)]
+fn query_xft_dpi_inner() -> Option<f32> {
     let xlib = xlib::Xlib::open().ok()?;
     let display = unsafe { (xlib.XOpenDisplay)(ptr::null()) };
     if display.is_null() {
