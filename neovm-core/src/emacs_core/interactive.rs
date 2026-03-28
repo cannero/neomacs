@@ -1994,6 +1994,27 @@ fn parse_interactive_spec(expr: &Expr) -> Option<ParsedInteractiveSpec> {
     }
 }
 
+/// Parse interactive spec from a Value (from LambdaData.interactive or bytecode).
+/// The value is the SPEC part (already extracted from `(interactive SPEC)`).
+fn parse_interactive_spec_from_value(spec: &Value) -> Option<ParsedInteractiveSpec> {
+    match spec {
+        Value::Nil => Some(ParsedInteractiveSpec::NoArgs),
+        Value::Str(id) => {
+            let s = with_heap(|h| h.get_string(*id).to_owned());
+            if s.is_empty() {
+                Some(ParsedInteractiveSpec::NoArgs)
+            } else {
+                Some(ParsedInteractiveSpec::StringCode(s))
+            }
+        }
+        _ => {
+            // Could be a form to evaluate
+            let expr = super::eval::value_to_expr(spec);
+            Some(ParsedInteractiveSpec::Form(expr))
+        }
+    }
+}
+
 fn parsed_interactive_spec_from_lambda(lambda: &LambdaData) -> Option<ParsedInteractiveSpec> {
     lambda
         .body
@@ -2235,6 +2256,31 @@ fn resolve_interactive_invocation_args(
     }
 
     if let Some(lambda) = func.get_lambda_data() {
+        // Check LambdaData.interactive field first (mirrors GNU closure slot 5).
+        // This handles the case where cconv stripped (interactive ...) from the
+        // body but preserved it in the iform parameter.
+        if let Some(ref iform_val) = lambda.interactive {
+            let spec = parse_interactive_spec_from_value(iform_val);
+            if let Some(spec) = spec {
+                let maybe_args = match spec {
+                    ParsedInteractiveSpec::NoArgs => Some(Vec::new()),
+                    ParsedInteractiveSpec::StringCode(code) => {
+                        interactive_args_from_string_code(eval, &code, kind, context)?
+                    }
+                    ParsedInteractiveSpec::Form(form) => {
+                        let value = eval.eval(&form)?;
+                        Some(interactive_form_value_to_args(value)?)
+                    }
+                };
+                if let Some(args) = maybe_args {
+                    return Ok(args);
+                }
+            } else {
+                // interactive field exists but spec is nil/empty → no args
+                return Ok(Vec::new());
+            }
+        }
+        // Fall back to scanning the body
         if let Some(spec) = parsed_interactive_spec_from_lambda(lambda) {
             let maybe_args = match spec {
                 ParsedInteractiveSpec::NoArgs => Some(Vec::new()),
@@ -2280,6 +2326,32 @@ fn resolve_interactive_invocation_args(
                 // Non-string spec — evaluate as a form (like GNU Feval(specs, env))
                 let value = eval.eval_value(&spec_val)?;
                 return Ok(interactive_form_value_to_args(value)?);
+            }
+        }
+    }
+
+    // GNU Emacs genfun fallback: call `(interactive-form func)` which handles
+    // oclosures, advice wrappers, and other cl-generic dispatched interactivity.
+    // This mirrors GNU callint.c which calls Finteractive_form to get the spec.
+    if let Ok(iform) = eval.apply(Value::symbol("interactive-form"), vec![*func]) {
+        if iform.is_cons() {
+            // iform = (interactive SPEC)
+            let spec_val = iform.cons_cdr();
+            if spec_val.is_cons() {
+                let spec = spec_val.cons_car();
+                if let Some(s) = spec.as_str() {
+                    if let Some(args) = interactive_args_from_string_code(eval, s, kind, context)? {
+                        return Ok(args);
+                    }
+                } else if spec.is_nil() {
+                    return Ok(Vec::new());
+                } else {
+                    let value = eval.eval_value(&spec)?;
+                    return Ok(interactive_form_value_to_args(value)?);
+                }
+            } else {
+                // (interactive) with no spec
+                return Ok(Vec::new());
             }
         }
     }
