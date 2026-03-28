@@ -2819,6 +2819,7 @@ impl Context {
         super::indent::init_indent_vars(&mut obarray);
 
         let mut custom = CustomManager::new();
+        super::textprop::init_textprop_vars(&mut obarray, &mut custom);
         super::syntax::init_syntax_vars(&mut obarray, &mut custom);
         // Register all DEFVAR_PER_BUFFER variables from GNU Emacs buffer.c.
         // These are C-level buffer-local variables that must exist before

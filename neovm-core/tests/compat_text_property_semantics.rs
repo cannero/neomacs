@@ -75,6 +75,44 @@ fn compat_text_property_semantics_matches_gnu_emacs() {
    (next-property-change 2)
    (previous-property-change 4)))"#,
         },
+        TextPropertyCase {
+            name: "insert_and_inherit_merges_boundary_stickiness_per_property",
+            form: r#"(with-temp-buffer
+  (insert "ab")
+  (put-text-property 1 2 'left-only 'l)
+  (put-text-property 1 2 'carry 'left)
+  (put-text-property 1 2 'rear-nonsticky '(carry right-only))
+  (put-text-property 2 3 'carry 'right)
+  (put-text-property 2 3 'right-only 'r)
+  (put-text-property 2 3 'front-sticky '(carry right-only))
+  (goto-char 2)
+  (insert-and-inherit "X")
+  (list
+   (buffer-string)
+   (text-properties-at 2)
+   (text-properties-at 3)
+   (next-property-change 1)
+   (next-property-change 2)
+   (previous-property-change 4)))"#,
+        },
+        TextPropertyCase {
+            name: "insert_and_inherit_honors_text_property_default_nonsticky",
+            form: r#"(let ((text-property-default-nonsticky '((carry . t) (right-only))))
+  (with-temp-buffer
+    (insert "ab")
+    (put-text-property 1 2 'carry 'left)
+    (put-text-property 1 2 'left-only 'l)
+    (put-text-property 2 3 'right-only 'r)
+    (goto-char 2)
+    (insert-and-inherit "X")
+    (list
+     (buffer-string)
+     (text-properties-at 2)
+     (text-properties-at 3)
+     (get-text-property 2 'carry)
+     (get-text-property 2 'left-only)
+     (get-text-property 2 'right-only))))"#,
+        },
     ];
 
     for case in cases {

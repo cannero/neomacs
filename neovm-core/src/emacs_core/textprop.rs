@@ -12,6 +12,31 @@ use crate::buffer::overlay::plist_put_eq;
 use crate::buffer::text_props::TextPropertyTable;
 use crate::buffer::{BufferId, BufferManager};
 
+pub(crate) fn init_textprop_vars(
+    obarray: &mut crate::emacs_core::symbol::Obarray,
+    custom: &mut crate::emacs_core::custom::CustomManager,
+) {
+    obarray.set_symbol_value("default-text-properties", Value::Nil);
+    obarray.make_special("default-text-properties");
+
+    obarray.set_symbol_value("char-property-alias-alist", Value::Nil);
+    obarray.make_special("char-property-alias-alist");
+
+    obarray.set_symbol_value("inhibit-point-motion-hooks", Value::True);
+    obarray.make_special("inhibit-point-motion-hooks");
+
+    obarray.set_symbol_value(
+        "text-property-default-nonsticky",
+        Value::list(vec![
+            Value::cons(Value::symbol("syntax-table"), Value::True),
+            Value::cons(Value::symbol("display"), Value::True),
+        ]),
+    );
+    obarray.make_special("text-property-default-nonsticky");
+    custom.make_variable_buffer_local("text-property-default-nonsticky");
+    obarray.make_buffer_local("text-property-default-nonsticky", true);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers (local to this module)
 // ---------------------------------------------------------------------------

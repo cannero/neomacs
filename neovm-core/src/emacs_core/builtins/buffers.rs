@@ -2177,54 +2177,32 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
 }
 
 fn apply_inherited_text_properties(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     current_id: BufferId,
     old_pt: usize,
     text_len: usize,
 ) {
-    use super::value::list_to_vec;
-
-    if text_len == 0 || old_pt == 0 {
+    if text_len == 0 {
         return;
     }
 
     let props = buffers
         .get(current_id)
-        .map(|buf| buf.text.text_props_get_properties(old_pt - 1))
+        .map(|buf| {
+            super::misc_eval::inherited_text_properties_for_inserted_range_in_state(
+                obarray, dynamic, buf, old_pt, text_len,
+            )
+        })
         .unwrap_or_default();
     if props.is_empty() {
         return;
     }
 
-    let nonsticky = props.get("rear-nonsticky").copied();
-    let inherit_all = match nonsticky {
-        None => true,
-        Some(Value::Nil) => true,
-        Some(val) if val.is_truthy() && list_to_vec(&val).is_none() => false,
-        _ => true,
-    };
-    if !(inherit_all || nonsticky.is_some()) {
-        return;
-    }
-
-    let nonsticky_names: Vec<String> = match nonsticky {
-        Some(ref val) => {
-            if let Some(items) = list_to_vec(val) {
-                items
-                    .iter()
-                    .filter_map(|v| v.as_symbol_name().map(|s| s.to_string()))
-                    .collect()
-            } else {
-                Vec::new()
-            }
-        }
-        None => Vec::new(),
-    };
-
-    for (name, value) in &props {
-        if name == "rear-nonsticky" || !inherit_all || nonsticky_names.contains(name) {
-            continue;
-        }
+    // put_property prepends new properties to interval order, so apply the
+    // merged GNU plist in reverse to preserve the final plist shape.
+    for (name, value) in props.iter().rev() {
         let _ =
             buffers.put_buffer_text_property(current_id, old_pt, old_pt + text_len, name, *value);
     }
@@ -2305,7 +2283,14 @@ fn insert_pieces_in_state(
             let _ = buffers.append_buffer_text_properties(current_id, &str_table, insert_pos);
         }
         if inherit {
-            apply_inherited_text_properties(buffers, current_id, insert_pos, piece.text.len());
+            apply_inherited_text_properties(
+                obarray,
+                dynamic,
+                buffers,
+                current_id,
+                insert_pos,
+                piece.text.len(),
+            );
         }
     }
     Ok(Value::Nil)
@@ -2361,7 +2346,14 @@ pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Val
     let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
     let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
     if args.get(2).is_some_and(|value| value.is_truthy()) {
-        apply_inherited_text_properties(&mut eval.buffers, current_id, insert_pos, to_insert.len());
+        apply_inherited_text_properties(
+            &eval.obarray,
+            &[],
+            &mut eval.buffers,
+            current_id,
+            insert_pos,
+            to_insert.len(),
+        );
     }
     Ok(Value::Nil)
 }
@@ -2409,7 +2401,14 @@ pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Val
     let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
     let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
     if args.get(2).is_some_and(|value| value.is_truthy()) {
-        apply_inherited_text_properties(&mut eval.buffers, current_id, insert_pos, to_insert.len());
+        apply_inherited_text_properties(
+            &eval.obarray,
+            &[],
+            &mut eval.buffers,
+            current_id,
+            insert_pos,
+            to_insert.len(),
+        );
     }
     Ok(Value::Nil)
 }
