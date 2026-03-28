@@ -919,7 +919,7 @@ fn is_unsupported_compiled_path(path: &Path) -> bool {
 /// macroexpander (`--pcase-macroexpander`) to be defined, since
 /// `macroexpand-all` uses pcase backquote patterns internally.
 #[tracing::instrument(level = "debug", skip(eval))]
-fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Value> {
+pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Value> {
     // Respect the Elisp `macroexp--pending-eager-loads` variable.
     // When it starts with `skip`, eager expansion is suppressed (mirrors
     // the check in `internal-macroexpand-for-load` in macroexp.el).
@@ -961,7 +961,7 @@ fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Value> {
 /// detection, missing macros, etc.), we fall back to evaluating the form
 /// without eager expansion — matching the behavior of loading .elc files.
 #[tracing::instrument(level = "debug", skip(eval, form_value, macroexpand_fn))]
-fn eager_expand_eval(
+pub(crate) fn eager_expand_eval(
     eval: &mut super::eval::Context,
     form_value: Value,
     macroexpand_fn: Value,

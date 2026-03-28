@@ -97,8 +97,29 @@ pub(crate) fn eval_forms_from_source_in_runtime(
 }
 
 pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &str) -> EvalResult {
+    // Use eager macro expansion matching GNU Emacs's eval-buffer which calls
+    // readevalloop → readevalloop_eager_expand_eval. Without this, macros
+    // inside defun bodies won't be expanded when files are loaded through
+    // load-source-file-function (load-with-code-conversion).
+    let macroexpand_fn = super::load::get_eager_macroexpand_fn(eval);
     eval_forms_from_source_in_runtime(source, |form| {
-        eval.eval(form)?;
+        if let Some(mexp_fn) = macroexpand_fn {
+            let form_value = eval.quote_to_runtime_value(form);
+            super::load::eager_expand_eval(eval, form_value, mexp_fn).map_err(|e| match e {
+                super::error::EvalError::Signal { symbol, data } => {
+                    super::error::Flow::Signal(super::error::SignalData {
+                        symbol,
+                        data,
+                        raw_data: None,
+                    })
+                }
+                super::error::EvalError::UncaughtThrow { tag, value } => {
+                    super::error::Flow::Throw { tag, value }
+                }
+            })?;
+        } else {
+            eval.eval(form)?;
+        }
         eval.gc_safe_point();
         Ok(Value::Nil)
     })
