@@ -12,6 +12,19 @@ autoload / bootstrap invariants are a cross-cutting prerequisite and should be
 audited as soon as the VM can execute meaningful Lisp. Phase 10 below is the
 final end-to-end startup audit, not the first place to think about loading.
 
+Module audit files:
+
+- [Phase 1: Lisp VM Core](phase-01-lisp-vm-core.md)
+- [Phase 2: Buffer & Text](phase-02-buffer-and-text.md)
+- [Phase 3: I18n / Character / Coding](phase-03-i18n-character-coding.md)
+- [Phase 4: Search / Read / Print / File I/O](phase-04-search-read-print-file-io.md)
+- [Phase 5: Editing Commands](phase-05-editing-commands.md)
+- [Phase 6: Window / Frame / Font / Terminal](phase-06-window-frame-font-terminal.md)
+- [Phase 7: Display Engine](phase-07-display-engine.md)
+- [Phase 8: Command System](phase-08-command-system.md)
+- [Phase 9: Process / Thread / Timer](phase-09-process-thread-timer.md)
+- [Phase 10: Startup & Integration](phase-10-startup-integration.md)
+
 ```
 Phase 1    Phase 2    Phase 3    Phase 4    Phase 5
 Lisp VM →  Buffer →  I18n   →  Search →  Editing
@@ -31,6 +44,19 @@ Terminal
 
 **Why first**: Everything is built on this. A wrong `eval`, `cons`, or GC bug
 cascades everywhere.
+
+**Important compatibility rule for this phase**:
+Neomacs does **not** need to copy GNU Emacs's internal VM design here.
+Different implementation strategies are acceptable for this phase, including
+JIT, more aggressive optimization, and a different threading/runtime design, as
+long as Lisp-visible behavior remains GNU-compatible.
+
+So for Phase 1 the target is:
+
+- same Lisp semantics
+- same observable object/function behavior
+- same error and edge-case behavior
+- not necessarily the same internal VM architecture
 
 ### Audit items
 
