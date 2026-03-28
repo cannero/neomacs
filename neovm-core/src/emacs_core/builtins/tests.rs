@@ -184,35 +184,33 @@ fn pure_dispatch_typed_max_min_preserve_selected_operand_type() {
 
 #[test]
 fn pure_dispatch_typed_numeric_primitives_accept_markers() {
-    let marker = crate::emacs_core::marker::make_marker_value(Some("*scratch*"), Some(4), false);
+    let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
 
     let max_with_marker = dispatch_builtin_pure("max", vec![Value::Int(1), marker])
         .expect("builtin max should resolve")
         .expect("builtin max should evaluate");
     assert_eq!(max_with_marker, Value::Int(4));
 
-    let marker = crate::emacs_core::marker::make_marker_value(Some("*scratch*"), Some(4), false);
+    let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
     let min_with_marker = dispatch_builtin_pure("min", vec![Value::Int(10), marker])
         .expect("builtin min should resolve")
         .expect("builtin min should evaluate");
     assert_eq!(min_with_marker, Value::Int(4));
 
-    let left_marker =
-        crate::emacs_core::marker::make_marker_value(Some("*scratch*"), Some(2), false);
-    let right_marker =
-        crate::emacs_core::marker::make_marker_value(Some("*scratch*"), Some(5), false);
+    let left_marker = crate::emacs_core::marker::make_marker_value(None, Some(2), false);
+    let right_marker = crate::emacs_core::marker::make_marker_value(None, Some(5), false);
     let lt_with_markers = dispatch_builtin_pure("<", vec![left_marker, right_marker])
         .expect("builtin < should resolve")
         .expect("builtin < should evaluate");
     assert_eq!(lt_with_markers, Value::True);
 
-    let marker = crate::emacs_core::marker::make_marker_value(Some("*scratch*"), Some(4), false);
+    let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
     let add1_with_marker = dispatch_builtin_pure("1+", vec![marker])
         .expect("builtin 1+ should resolve")
         .expect("builtin 1+ should evaluate");
     assert_eq!(add1_with_marker, Value::Int(5));
 
-    let marker = crate::emacs_core::marker::make_marker_value(Some("*scratch*"), Some(4), false);
+    let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
     let sub1_with_marker = dispatch_builtin_pure("1-", vec![marker])
         .expect("builtin 1- should resolve")
         .expect("builtin 1- should evaluate");
@@ -2758,9 +2756,9 @@ fn byte_position_and_clear_bitmap_semantics() {
         builtin_position_bytes(
             &mut eval,
             vec![crate::emacs_core::marker::make_marker_value(
-                Some("*scratch*"),
+                None,
                 Some(2),
-                false,
+                false
             )],
         )
         .unwrap(),
@@ -10117,9 +10115,9 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
         builtin_get_byte(
             &mut eval,
             vec![crate::emacs_core::marker::make_marker_value(
-                Some("*scratch*"),
+                None,
                 Some(2),
-                false,
+                false
             )],
         )
         .unwrap(),

@@ -1029,8 +1029,8 @@ fn match_data_item_buffer_id_in_manager(
     match value {
         Value::Buffer(buffer_id) => Some(*buffer_id),
         marker if super::marker::is_marker(marker) => super::marker::marker_logical_fields(marker)
-            .and_then(|(buffer_name, _, _)| buffer_name)
-            .and_then(|buffer_name| buffers.find_buffer_by_name(&buffer_name)),
+            .and_then(|(buffer_id, _, _)| buffer_id)
+            .filter(|buffer_id| buffers.get(*buffer_id).is_some()),
         _ => None,
     }
 }

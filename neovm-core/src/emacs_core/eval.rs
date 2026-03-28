@@ -7954,6 +7954,7 @@ impl Context {
                 | Value::Lambda(id)
                 | Value::Macro(id)
                 | Value::ByteCode(id)
+                | Value::Marker(id)
                 | Value::Overlay(id) => (((id.index as u64) << 32) | id.generation as u64) ^ 0x30,
                 Value::Buffer(id) => (id.0 as u64) ^ 0x41,
                 Value::Frame(id) => id ^ 0x42,

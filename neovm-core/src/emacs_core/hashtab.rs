@@ -351,8 +351,12 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
             17_u8.hash(hasher);
             id.hash(hasher);
         }
-        Value::Overlay(id) => {
+        Value::Marker(id) => {
             18_u8.hash(hasher);
+            super::marker::marker_equal_hash_key(*id).hash(hasher);
+        }
+        Value::Overlay(id) => {
+            19_u8.hash(hasher);
             id.hash(hasher);
         }
     }

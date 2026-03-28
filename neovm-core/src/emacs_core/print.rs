@@ -445,6 +445,9 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             let params = format_params(&bc.params);
             write!(out, "#<bytecode {} ({} ops)>", params, bc.ops.len()).unwrap();
         }
+        Value::Marker(_) => out.push_str(
+            &print_special_handle(value, state.buffers).unwrap_or_else(|| "#<marker>".to_string()),
+        ),
         Value::Overlay(_) => out.push_str(
             &print_special_handle(value, state.buffers).unwrap_or_else(|| "#<overlay>".to_string()),
         ),
@@ -661,30 +664,21 @@ fn format_marker_handle(
         return None;
     }
 
-    let Value::Vector(vector) = value else {
+    let Value::Marker(marker_id) = value else {
         return None;
     };
-    let items = with_heap(|h| h.get_vector(*vector).clone());
-    let buffer_name = match items.get(1) {
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-        _ => None,
-    };
-    let position = match items.get(2) {
-        Some(Value::Int(pos)) => Some(*pos),
-        _ => None,
-    };
-    let insertion_type = items.get(3).is_some_and(Value::is_truthy);
-
-    let live_buffer = buffer_name
-        .as_deref()
-        .is_some_and(|name| buffers.is_none_or(|bufs| bufs.find_buffer_by_name(name).is_some()));
+    let marker = with_heap(|heap| heap.get_marker(*marker_id).clone());
+    let buffer_name = marker
+        .buffer
+        .and_then(|buffer_id| buffers.and_then(|manager| manager.get(buffer_id)))
+        .map(|buffer| buffer.name.clone());
 
     let mut out = String::from("#<marker ");
-    if insertion_type {
+    if marker.insertion_type {
         out.push_str("(moves after insertion) ");
     }
-    if live_buffer {
-        if let (Some(pos), Some(name)) = (position, buffer_name.as_deref()) {
+    if let Some(name) = buffer_name.as_deref() {
+        if let Some(pos) = marker.position {
             out.push_str(&format!("at {pos} in {name}"));
         } else {
             out.push_str("in no buffer");
@@ -820,6 +814,9 @@ pub fn print_value_with_buffers_and_options(
                 .map(|v| print_value_with_buffers_and_options(v, buffers, options))
                 .collect();
             format!("[{}]", parts.join(" "))
+        }
+        Value::Marker(_) => {
+            print_special_handle(value, Some(buffers)).unwrap_or_else(|| "#<marker>".to_string())
         }
         Value::Overlay(_) => {
             print_special_handle(value, Some(buffers)).unwrap_or_else(|| "#<overlay>".to_string())
@@ -1009,6 +1006,9 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             let params = format_params(&bc.params);
             format!("#<bytecode {} ({} ops)>", params, bc.ops.len())
         }
+        Value::Marker(_) => {
+            print_special_handle(value, None).unwrap_or_else(|| "#<marker>".to_string())
+        }
         Value::Overlay(_) => {
             print_special_handle(value, None).unwrap_or_else(|| "#<overlay>".to_string())
         }
@@ -1160,6 +1160,11 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 format!("#<bytecode {} ({} ops)>", params, bc.ops.len()).as_bytes(),
             );
         }
+        Value::Marker(_) => out.extend_from_slice(
+            print_special_handle(value, None)
+                .unwrap_or_else(|| "#<marker>".to_string())
+                .as_bytes(),
+        ),
         Value::Overlay(_) => out.extend_from_slice(
             print_special_handle(value, None)
                 .unwrap_or_else(|| "#<overlay>".to_string())

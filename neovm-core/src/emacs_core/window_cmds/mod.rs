@@ -3728,21 +3728,16 @@ pub(crate) fn builtin_set_window_buffer(
         if old_buffer_id != buf_id {
             let old_buffer_value = Value::Buffer(old_buffer_id);
             let new_buffer_value = Value::Buffer(buf_id);
-            let marker_buffer_name = buffers.get(old_buffer_id).map(|buf| buf.name.clone());
             let old_window_start_pos = old_window_start.max(1) as i64;
             let old_point_pos = old_point.max(1) as i64;
             let history_entry = Value::list(vec![
                 old_buffer_value,
                 super::marker::make_marker_value(
-                    marker_buffer_name.as_deref(),
+                    Some(old_buffer_id),
                     Some(old_window_start_pos),
                     false,
                 ),
-                super::marker::make_marker_value(
-                    marker_buffer_name.as_deref(),
-                    Some(old_point_pos),
-                    false,
-                ),
+                super::marker::make_marker_value(Some(old_buffer_id), Some(old_point_pos), false),
             ]);
             let filtered_prev = filtered_window_prev_buffers(
                 frames.window_prev_buffers(wid),

@@ -800,14 +800,7 @@ fn write_print_output_to_target(
             Ok(())
         }
         other if super::marker::is_marker(&other) => {
-            let Some((Some(buffer_name), _, _)) = super::marker::marker_logical_fields(&other)
-            else {
-                return Err(signal(
-                    "error",
-                    vec![Value::string("Marker does not point anywhere")],
-                ));
-            };
-            let Some(buffer_id) = buffers.find_buffer_by_name(&buffer_name) else {
+            let Some((Some(buffer_id), _, _)) = super::marker::marker_logical_fields(&other) else {
                 return Err(signal(
                     "error",
                     vec![Value::string("Marker does not point anywhere")],

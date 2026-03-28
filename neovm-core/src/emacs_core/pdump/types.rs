@@ -44,6 +44,7 @@ pub enum DumpValue {
     Char(char),
     Subr(DumpSymId),
     ByteCode(DumpObjId),
+    Marker(DumpObjId),
     Overlay(DumpObjId),
     Buffer(DumpBufferId),
     Window(u64),
@@ -70,6 +71,7 @@ pub enum DumpHeapObject {
     Lambda(DumpLambdaData),
     Macro(DumpLambdaData),
     ByteCode(DumpByteCodeFunction),
+    Marker(DumpMarker),
     Overlay(DumpOverlay),
     Free,
 }
@@ -413,6 +415,14 @@ pub struct DumpOverlay {
     pub end: usize,
     pub front_advance: bool,
     pub rear_advance: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpMarker {
+    pub buffer: Option<DumpBufferId>,
+    pub position: Option<i64>,
+    pub insertion_type: bool,
+    pub marker_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -1,6 +1,6 @@
 //! Arena-based heap with incremental tri-color mark-and-sweep collection.
 
-use super::types::{HeapObject, ObjId, OverlayData};
+use super::types::{HeapObject, MarkerData, ObjId, OverlayData};
 use crate::emacs_core::bytecode::ByteCodeFunction;
 use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value};
 
@@ -157,6 +157,10 @@ impl LispHeap {
         self.alloc(HeapObject::Overlay(overlay))
     }
 
+    pub fn alloc_marker(&mut self, marker: MarkerData) -> ObjId {
+        self.alloc(HeapObject::Marker(marker))
+    }
+
     /// Current allocation threshold used by opportunistic GC call sites.
     pub fn gc_threshold(&self) -> usize {
         self.gc_threshold
@@ -243,6 +247,7 @@ impl LispHeap {
                     HeapObject::Macro(_) => "Macro".to_string(),
                     HeapObject::ByteCode(_) => "ByteCode".to_string(),
                     HeapObject::Overlay(_) => "Overlay".to_string(),
+                    HeapObject::Marker(_) => "Marker".to_string(),
                 }
             } else {
                 "out-of-bounds".to_string()
@@ -490,6 +495,21 @@ impl LispHeap {
         }
     }
 
+    pub fn get_marker(&self, id: ObjId) -> &MarkerData {
+        match self.get(id) {
+            HeapObject::Marker(marker) => marker,
+            _ => panic!("get_marker on non-marker"),
+        }
+    }
+
+    pub fn get_marker_mut(&mut self, id: ObjId) -> &mut MarkerData {
+        self.write_barrier(id);
+        match self.get_mut(id) {
+            HeapObject::Marker(marker) => marker,
+            _ => panic!("get_marker_mut on non-marker"),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // List helpers
     // -----------------------------------------------------------------------
@@ -668,7 +688,8 @@ impl LispHeap {
             | Value::Lambda(id)
             | Value::Macro(id)
             | Value::ByteCode(id)
-            | Value::Overlay(id) => worklist.push(*id),
+            | Value::Overlay(id)
+            | Value::Marker(id) => worklist.push(*id),
             _ => {}
         }
     }
@@ -721,6 +742,7 @@ impl LispHeap {
             HeapObject::Overlay(overlay) => {
                 Self::push_value_ids(&overlay.plist, children);
             }
+            HeapObject::Marker(_) => {}
             HeapObject::Free => {}
         }
     }

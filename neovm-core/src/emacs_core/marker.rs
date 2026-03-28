@@ -1,11 +1,8 @@
 //! Marker builtins for the Elisp interpreter.
 //!
 //! Markers track positions in buffers and adjust when text is inserted or
-//! deleted before them.  They are represented as tagged vectors:
-//!
-//! ```text
-//! [":marker"  buffer-name-or-nil  position-or-nil  insertion-type]
-//! ```
+//! deleted before them. GNU Emacs exposes markers as first-class marker
+//! objects, not vectors, so NeoVM keeps them as heap objects too.
 //!
 //! Pure builtins:
 //!   `markerp`, `marker-position`, `marker-buffer`,
@@ -17,7 +14,6 @@
 //!   `point-max-marker`, `mark-marker`
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{intern, resolve_sym};
 use super::value::*;
 use crate::buffer::{BufferId, BufferManager, InsertionType};
 
@@ -25,11 +21,9 @@ use crate::buffer::{BufferId, BufferManager, InsertionType};
 // Marker struct (for documentation / internal helpers)
 // ---------------------------------------------------------------------------
 
-/// Logical representation of a marker.  Not stored directly in the value
-/// system; instead encoded as a tagged `Value::Vector`.
 #[allow(dead_code)]
 pub(crate) struct Marker {
-    pub buffer_name: Option<String>,
+    pub buffer: Option<BufferId>,
     pub position: Option<i64>,
     pub insertion_type: bool, // true = advances when text inserted at marker pos
 }
@@ -64,60 +58,34 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 // Marker value helpers
 // ---------------------------------------------------------------------------
 
-/// The tag keyword used to identify marker vectors.
-const MARKER_TAG: &str = ":marker";
 const MARK_MARKER_ID: u64 = i64::MAX as u64;
 
-/// Check whether `v` is a marker (a 4 or 5-element vector whose first element is
-/// the keyword `:marker`).
 pub(crate) fn is_marker(v: &Value) -> bool {
-    match v {
-        Value::Vector(vec) => {
-            let elems = with_heap(|h| h.get_vector(*vec).clone());
-            (elems.len() == 4 || elems.len() == 5)
-                && matches!(&elems[0], Value::Keyword(id) if resolve_sym(*id) == MARKER_TAG)
-        }
-        _ => false,
-    }
+    matches!(v, Value::Marker(_))
 }
 
-/// Construct a marker `Value` from its logical components.
-///
-/// - `buffer_name`: `Some(name)` or `None` (stored as `Value::Str` / `Value::Nil`)
-/// - `position`: `Some(pos)` or `None` (stored as `Value::Int` / `Value::Nil`)
-/// - `insertion_type`: stored as `Value::True` / `Value::Nil`
-/// - `marker_id`: optional buffer-internal marker tracking ID
 pub(crate) fn make_marker_value(
-    buffer_name: Option<&str>,
+    buffer_id: Option<BufferId>,
     position: Option<i64>,
     insertion_type: bool,
 ) -> Value {
-    make_marker_value_with_id(buffer_name, position, insertion_type, None)
+    make_marker_value_with_id(buffer_id, position, insertion_type, None)
 }
 
-/// Like `make_marker_value` but with an optional marker-id for buffer tracking.
 pub(crate) fn make_marker_value_with_id(
-    buffer_name: Option<&str>,
+    buffer_id: Option<BufferId>,
     position: Option<i64>,
     insertion_type: bool,
     marker_id: Option<u64>,
 ) -> Value {
-    Value::vector(vec![
-        Value::Keyword(intern(MARKER_TAG)),
-        match buffer_name {
-            Some(name) => Value::string(name),
-            None => Value::Nil,
-        },
-        match position {
-            Some(pos) => Value::Int(pos),
-            None => Value::Nil,
-        },
-        Value::bool(insertion_type),
-        match marker_id {
-            Some(id) => Value::Int(id as i64),
-            None => Value::Nil,
-        },
-    ])
+    with_heap_mut(|heap| {
+        Value::Marker(heap.alloc_marker(crate::gc::types::MarkerData {
+            buffer: buffer_id,
+            position,
+            insertion_type,
+            marker_id,
+        }))
+    })
 }
 
 pub(crate) fn make_registered_buffer_marker(
@@ -126,14 +94,11 @@ pub(crate) fn make_registered_buffer_marker(
     position: i64,
     insertion_type: bool,
 ) -> Value {
-    let (buffer_name, byte_pos) = match buffers.get(buffer_id) {
-        Some(buffer) => (
-            Some(buffer.name.clone()),
-            lisp_pos_to_byte(buffer, position),
-        ),
-        None => (None, 0),
+    let byte_pos = match buffers.get(buffer_id) {
+        Some(buffer) => lisp_pos_to_byte(buffer, position),
+        None => 0,
     };
-    let marker = make_marker_value(buffer_name.as_deref(), Some(position), insertion_type);
+    let marker = make_marker_value(Some(buffer_id), Some(position), insertion_type);
     let marker_id = buffers.create_marker(
         buffer_id,
         byte_pos,
@@ -148,56 +113,40 @@ pub(crate) fn make_registered_buffer_marker(
     marker
 }
 
-pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<String>, Option<i64>, bool)> {
-    if !is_marker(v) {
-        return None;
-    }
-
-    let Value::Vector(vec) = v else {
+pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<BufferId>, Option<i64>, bool)> {
+    let Value::Marker(id) = v else {
         return None;
     };
-    let elems = with_heap(|h| h.get_vector(*vec).clone());
-    let buffer_name = match elems.get(1) {
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-        _ => None,
-    };
-    let position = match elems.get(2) {
-        Some(Value::Int(pos)) => Some(*pos),
-        _ => None,
-    };
-    let insertion_type = elems.get(3).is_some_and(Value::is_truthy);
-    Some((buffer_name, position, insertion_type))
+    let marker = with_heap(|heap| heap.get_marker(*id).clone());
+    Some((marker.buffer, marker.position, marker.insertion_type))
 }
 
-/// Read the marker-id field from a marker vector (index 4), if present.
+pub(crate) fn marker_equal_hash_key(id: crate::gc::ObjId) -> HashKey {
+    let marker = with_heap(|heap| heap.get_marker(id).clone());
+    HashKey::Text(format!(
+        "marker:{:?}:{:?}:{}",
+        marker.buffer.map(|buffer| buffer.0),
+        marker.position,
+        marker.insertion_type
+    ))
+}
+
 fn marker_id_value(v: &Value) -> Option<u64> {
-    match v {
-        Value::Vector(vec) => {
-            let elems = with_heap(|h| h.get_vector(*vec).clone());
-            if elems.len() >= 5 {
-                if let Value::Int(id) = elems[4] {
-                    return Some(id as u64);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
+    let Value::Marker(id) = v else {
+        return None;
+    };
+    with_heap(|heap| heap.get_marker(*id).marker_id)
 }
 
 fn is_mark_marker(v: &Value) -> bool {
     marker_id_value(v) == Some(MARK_MARKER_ID)
 }
 
-/// Set the marker-id field in a marker vector (index 4).
 fn set_marker_id(v: &Value, mid: u64) {
-    match v {
-        Value::Vector(vec) => {
-            with_heap_mut(|h| {
-                h.vector_set(*vec, 4, Value::Int(mid as i64));
-            });
-        }
-        _ => {}
+    if let Value::Marker(id) = v {
+        with_heap_mut(|heap| {
+            heap.get_marker_mut(*id).marker_id = Some(mid);
+        });
     }
 }
 
@@ -214,15 +163,14 @@ fn expect_marker(_name: &str, v: &Value) -> Result<(), Flow> {
     }
 }
 
-/// Read the position field from a marker vector (index 2).
 fn marker_position_value(v: &Value) -> Value {
-    match v {
-        Value::Vector(vec) => {
-            let elems = with_heap(|h| h.get_vector(*vec).clone());
-            elems[2]
-        }
-        _ => Value::Nil,
-    }
+    let Value::Marker(id) = v else {
+        return Value::Nil;
+    };
+    with_heap(|heap| match heap.get_marker(*id).position {
+        Some(position) => Value::Int(position),
+        None => Value::Nil,
+    })
 }
 
 /// Return marker position as an integer.
@@ -247,9 +195,7 @@ pub(crate) fn marker_position_as_int_with_buffers(
     expect_marker("marker-position", v)?;
 
     if is_mark_marker(v) {
-        let buf_name_val = marker_buffer_value(v);
-        if let Some(bname) = buf_name_val.as_str()
-            && let Some(buf_id) = buffers.find_buffer_by_name(bname)
+        if let Some(buf_id) = marker_buffer_id(v)
             && let Some(buf) = buffers.get(buf_id)
         {
             return match buf.mark_char() {
@@ -263,9 +209,7 @@ pub(crate) fn marker_position_as_int_with_buffers(
     }
 
     if let Some(mid) = marker_id_value(v) {
-        let buf_name_val = marker_buffer_value(v);
-        if let Some(bname) = buf_name_val.as_str()
-            && let Some(buf_id) = buffers.find_buffer_by_name(bname)
+        if let Some(buf_id) = marker_buffer_id(v)
             && let Some(buf) = buffers.get(buf_id)
             && let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid)
         {
@@ -283,26 +227,28 @@ pub(crate) fn marker_position_as_int_eval(
     marker_position_as_int_with_buffers(&eval.buffers, v)
 }
 
-/// Read the buffer-name field from a marker vector (index 1).
 fn marker_buffer_value(v: &Value) -> Value {
-    match v {
-        Value::Vector(vec) => {
-            let elems = with_heap(|h| h.get_vector(*vec).clone());
-            elems[1]
-        }
-        _ => Value::Nil,
-    }
+    let Value::Marker(id) = v else {
+        return Value::Nil;
+    };
+    with_heap(|heap| match heap.get_marker(*id).buffer {
+        Some(buffer_id) => Value::Buffer(buffer_id),
+        None => Value::Nil,
+    })
 }
 
-/// Read the insertion-type field from a marker vector (index 3).
 fn marker_insertion_type_value(v: &Value) -> Value {
-    match v {
-        Value::Vector(vec) => {
-            let elems = with_heap(|h| h.get_vector(*vec).clone());
-            elems[3]
-        }
-        _ => Value::Nil,
-    }
+    let Value::Marker(id) = v else {
+        return Value::Nil;
+    };
+    with_heap(|heap| Value::bool(heap.get_marker(*id).insertion_type))
+}
+
+fn marker_buffer_id(v: &Value) -> Option<BufferId> {
+    let Value::Marker(id) = v else {
+        return None;
+    };
+    with_heap(|heap| heap.get_marker(*id).buffer)
 }
 
 fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> usize {
@@ -339,22 +285,15 @@ pub(crate) fn builtin_marker_position_in_buffers(
     expect_args("marker-position", &args, 1)?;
     expect_marker("marker-position", &args[0])?;
 
-    // If marker has a registered id, look up the adjusted position from the buffer
     if let Some(mid) = marker_id_value(&args[0]) {
-        let buf_name_val = marker_buffer_value(&args[0]);
-        if let Some(bname) = buf_name_val.as_str() {
-            if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
-                if let Some(buf) = buffers.get(buf_id) {
-                    if let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid) {
-                        let char_pos = marker_entry.char_pos as i64 + 1;
-                        return Ok(Value::Int(char_pos));
-                    }
-                }
-            }
+        if let Some(buf_id) = marker_buffer_id(&args[0])
+            && let Some(buf) = buffers.get(buf_id)
+            && let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid)
+        {
+            return Ok(Value::Int(marker_entry.char_pos as i64 + 1));
         }
     }
 
-    // Fall back to the stored position in the vector
     Ok(marker_position_value(&args[0]))
 }
 
@@ -366,11 +305,10 @@ pub(crate) fn builtin_marker_buffer(
 ) -> EvalResult {
     expect_args("marker-buffer", &args, 1)?;
     expect_marker("marker-buffer", &args[0])?;
-    let buf_val = marker_buffer_value(&args[0]);
-    if let Some(name) = buf_val.as_str() {
-        if let Some(bid) = eval.buffers.find_buffer_by_name(name) {
-            return Ok(Value::Buffer(bid));
-        }
+    if let Some(buffer_id) = marker_buffer_id(&args[0])
+        && eval.buffers.get(buffer_id).is_some()
+    {
+        return Ok(Value::Buffer(buffer_id));
     }
     Ok(Value::Nil)
 }
@@ -383,11 +321,10 @@ pub(crate) fn builtin_marker_buffer_in_buffers(
 ) -> EvalResult {
     expect_args("marker-buffer", &args, 1)?;
     expect_marker("marker-buffer", &args[0])?;
-    let buf_val = marker_buffer_value(&args[0]);
-    if let Some(name) = buf_val.as_str() {
-        if let Some(bid) = buffers.find_buffer_by_name(name) {
-            return Ok(Value::Buffer(bid));
-        }
+    if let Some(buffer_id) = marker_buffer_id(&args[0])
+        && buffers.get(buffer_id).is_some()
+    {
+        return Ok(Value::Buffer(buffer_id));
     }
     Ok(Value::Nil)
 }
@@ -415,14 +352,12 @@ pub(crate) fn builtin_set_marker_insertion_type_in_buffers(
     expect_args("set-marker-insertion-type", &args, 2)?;
     expect_marker("set-marker-insertion-type", &args[0])?;
     let new_type = args[1].is_truthy();
-    match &args[0] {
-        Value::Vector(vec) => {
-            with_heap_mut(|h| h.vector_set(*vec, 3, Value::bool(new_type)));
-        }
-        _ => unreachable!(), // guarded by expect_marker
+    if let Value::Marker(id) = &args[0] {
+        with_heap_mut(|heap| {
+            heap.get_marker_mut(*id).insertion_type = new_type;
+        });
     }
 
-    // Also update the buffer's marker entry so insertion behavior changes.
     if let Some(mid) = marker_id_value(&args[0]) {
         let ins_type = if new_type {
             InsertionType::After
@@ -459,41 +394,17 @@ pub(crate) fn builtin_copy_marker_in_buffers(
 
     match &args[0] {
         v if is_marker(v) => {
-            let buf = marker_buffer_value(v);
-            let buffer_name = buf.as_str().map(|s| s.to_string());
+            let buffer_id = marker_buffer_id(v);
 
-            // Read position from live mark markers and buffer-tracked markers.
             let position = if is_mark_marker(v) {
-                if let Some(ref bname) = buffer_name {
-                    if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
-                        if let Some(buf) = buffers.get(buf_id) {
-                            buf.mark_char().map(|m| m as i64 + 1)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                buffer_id
+                    .and_then(|buf_id| buffers.get(buf_id))
+                    .and_then(|buf| buf.mark_char().map(|m| m as i64 + 1))
             } else if let Some(mid) = marker_id_value(v) {
-                if let Some(ref bname) = buffer_name {
-                    if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
-                        if let Some(buf) = buffers.get(buf_id) {
-                            buf.markers
-                                .iter()
-                                .find(|m| m.id == mid)
-                                .map(|m| m.char_pos as i64 + 1)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                buffer_id
+                    .and_then(|buf_id| buffers.get(buf_id))
+                    .and_then(|buf| buf.markers.iter().find(|m| m.id == mid))
+                    .map(|m| m.char_pos as i64 + 1)
             } else {
                 match marker_position_value(v) {
                     Value::Int(n) => Some(n),
@@ -501,16 +412,14 @@ pub(crate) fn builtin_copy_marker_in_buffers(
                 }
             };
 
-            let marker = make_marker_value(buffer_name.as_deref(), position, insertion_type);
-            // Register the new marker in the buffer
-            register_marker_in_buffers(buffers, &marker, &buffer_name, position);
+            let marker = make_marker_value(buffer_id, position, insertion_type);
+            register_marker_in_buffers(buffers, &marker, buffer_id, position);
             Ok(marker)
         }
         Value::Int(n) => {
-            // Create marker at integer position in current buffer
-            let buffer_name = buffers.current_buffer().map(|b| b.name.clone());
-            let marker = make_marker_value(buffer_name.as_deref(), Some(*n), insertion_type);
-            register_marker_in_buffers(buffers, &marker, &buffer_name, Some(*n));
+            let buffer_id = buffers.current_buffer().map(|b| b.id);
+            let marker = make_marker_value(buffer_id, Some(*n), insertion_type);
+            register_marker_in_buffers(buffers, &marker, buffer_id, Some(*n));
             Ok(marker)
         }
         Value::Nil => Ok(make_marker_value(None, None, insertion_type)),
@@ -543,11 +452,13 @@ pub(crate) fn builtin_set_marker_in_buffers(
 
     let targets_current_mark = marker_targets_current_mark(&args[0]);
 
-    // Resolve buffer (by name or Value::Buffer)
-    let buffer_name: Option<String> = if args.len() > 2 && args[2].is_truthy() {
+    let buffer_id: Option<BufferId> = if args.len() > 2 && args[2].is_truthy() {
         match &args[2] {
-            Value::Str(sid) => Some(with_heap(|h| h.get_string(*sid).to_owned())),
-            Value::Buffer(id) => buffers.get(*id).map(|b| b.name.clone()),
+            Value::Str(sid) => {
+                let name = with_heap(|h| h.get_string(*sid).to_owned());
+                buffers.find_buffer_by_name(&name)
+            }
+            Value::Buffer(id) => Some(*id),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -557,7 +468,7 @@ pub(crate) fn builtin_set_marker_in_buffers(
         }
     } else {
         // Default to current buffer
-        buffers.current_buffer().map(|b| b.name.clone())
+        buffers.current_buffer().map(|b| b.id)
     };
 
     // Resolve position
@@ -574,57 +485,34 @@ pub(crate) fn builtin_set_marker_in_buffers(
     };
 
     // GNU Emacs: when position is nil, the marker is detached from its buffer.
-    let buffer_name = if position.is_none() {
-        None
-    } else {
-        buffer_name
-    };
+    let buffer_id = position.and(buffer_id);
 
     // Clamp position to the full buffer range (1 .. total_chars+1), matching
     // GNU Emacs which clamps to the whole buffer, ignoring narrowing.
-    let position = match (&position, &buffer_name) {
-        (Some(pos), Some(bname)) => {
-            if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
-                if let Some(buf) = buffers.get(buf_id) {
-                    let max_pos = buf.total_chars() as i64 + 1;
-                    Some((*pos).clamp(1, max_pos))
-                } else {
-                    Some(*pos)
-                }
+    let position = match (position, buffer_id) {
+        (Some(pos), Some(buf_id)) => {
+            if let Some(buf) = buffers.get(buf_id) {
+                let max_pos = buf.total_chars() as i64 + 1;
+                Some(pos.clamp(1, max_pos))
             } else {
-                Some(*pos)
+                Some(pos)
             }
         }
-        _ => position,
+        (other, _) => other,
     };
 
-    // Register/update marker in buffer for automatic position tracking
-    register_marker_in_buffers(buffers, &args[0], &buffer_name, position);
+    register_marker_in_buffers(buffers, &args[0], buffer_id, position);
 
-    // Mutate the marker vector in place
-    match &args[0] {
-        Value::Vector(vec) => {
-            let buf_val = match &buffer_name {
-                Some(name) => Value::string(name.as_str()),
-                None => Value::Nil,
-            };
-            let pos_val = match position {
-                Some(pos) => Value::Int(pos),
-                None => Value::Nil,
-            };
-            with_heap_mut(|h| {
-                h.vector_set(*vec, 1, buf_val);
-                h.vector_set(*vec, 2, pos_val);
-            });
-        }
-        _ => unreachable!(), // guarded by expect_marker
+    if let Value::Marker(id) = &args[0] {
+        with_heap_mut(|heap| {
+            let marker = heap.get_marker_mut(*id);
+            marker.buffer = buffer_id;
+            marker.position = position;
+        });
     }
 
     if targets_current_mark {
-        let target_buf_id = buffer_name
-            .as_ref()
-            .and_then(|name| buffers.find_buffer_by_name(name))
-            .or_else(|| buffers.current_buffer().map(|buf| buf.id));
+        let target_buf_id = buffer_id.or_else(|| buffers.current_buffer().map(|buf| buf.id));
         if let Some(buf_id) = target_buf_id {
             match position {
                 Some(pos) => {
@@ -665,16 +553,16 @@ pub(crate) fn builtin_move_marker_in_buffers(
 fn register_marker_in_buffer(
     eval: &mut super::eval::Context,
     marker: &Value,
-    buffer_name: &Option<String>,
+    buffer_id: Option<BufferId>,
     position: Option<i64>,
 ) {
-    register_marker_in_buffers(&mut eval.buffers, marker, buffer_name, position);
+    register_marker_in_buffers(&mut eval.buffers, marker, buffer_id, position);
 }
 
 fn register_marker_in_buffers(
     buffers: &mut BufferManager,
     marker: &Value,
-    buffer_name: &Option<String>,
+    buffer_id: Option<BufferId>,
     position: Option<i64>,
 ) {
     if is_mark_marker(marker) {
@@ -697,15 +585,11 @@ fn register_marker_in_buffers(
         buffers.remove_marker(mid);
     }
 
-    // Register in the target buffer if we have a buffer name and position
-    if let (Some(bname), Some(pos)) = (buffer_name, position) {
-        if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
-            let mid = existing_mid.unwrap_or_else(|| buffers.allocate_marker_id());
-            // Store the marker-id in the vector
-            set_marker_id(marker, mid);
-            if let Some(byte_pos) = buffers.get(buf_id).map(|buf| lisp_pos_to_byte(buf, pos)) {
-                let _ = buffers.register_marker_id(buf_id, mid, byte_pos, ins_type);
-            }
+    if let (Some(buf_id), Some(pos)) = (buffer_id, position) {
+        let mid = existing_mid.unwrap_or_else(|| buffers.allocate_marker_id());
+        set_marker_id(marker, mid);
+        if let Some(byte_pos) = buffers.get(buf_id).map(|buf| lisp_pos_to_byte(buf, pos)) {
+            let _ = buffers.register_marker_id(buf_id, mid, byte_pos, ins_type);
         }
     }
 }
@@ -727,9 +611,9 @@ pub(crate) fn builtin_point_marker_in_buffers(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let pos = buf.point_char() as i64 + 1; // 1-based
-    let name = buf.name.clone();
-    let marker = make_marker_value(Some(&name), Some(pos), false);
-    register_marker_in_buffers(buffers, &marker, &Some(name), Some(pos));
+    let buffer_id = buf.id;
+    let marker = make_marker_value(Some(buffer_id), Some(pos), false);
+    register_marker_in_buffers(buffers, &marker, Some(buffer_id), Some(pos));
     Ok(marker)
 }
 
@@ -750,9 +634,9 @@ pub(crate) fn builtin_point_min_marker_in_buffers(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let pos = buf.point_min_char() as i64 + 1; // 1-based
-    let name = buf.name.clone();
-    let marker = make_marker_value(Some(&name), Some(pos), false);
-    register_marker_in_buffers(buffers, &marker, &Some(name), Some(pos));
+    let buffer_id = buf.id;
+    let marker = make_marker_value(Some(buffer_id), Some(pos), false);
+    register_marker_in_buffers(buffers, &marker, Some(buffer_id), Some(pos));
     Ok(marker)
 }
 
@@ -773,9 +657,9 @@ pub(crate) fn builtin_point_max_marker_in_buffers(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let pos = buf.point_max_char() as i64 + 1; // 1-based
-    let name = buf.name.clone();
-    let marker = make_marker_value(Some(&name), Some(pos), false);
-    register_marker_in_buffers(buffers, &marker, &Some(name), Some(pos));
+    let buffer_id = buf.id;
+    let marker = make_marker_value(Some(buffer_id), Some(pos), false);
+    register_marker_in_buffers(buffers, &marker, Some(buffer_id), Some(pos));
     Ok(marker)
 }
 
@@ -792,26 +676,23 @@ pub(crate) fn builtin_mark_marker_in_buffers(
     let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let name = buf.name.clone();
+    let buffer_id = buf.id;
     match buf.mark_char() {
         Some(char_pos) => {
             let pos = char_pos as i64 + 1; // 1-based
             Ok(make_marker_value_with_id(
-                Some(&name),
+                Some(buffer_id),
                 Some(pos),
                 false,
                 Some(MARK_MARKER_ID),
             ))
         }
-        None => {
-            // Return a marker with no position (mark not set)
-            Ok(make_marker_value_with_id(
-                Some(&name),
-                None,
-                false,
-                Some(MARK_MARKER_ID),
-            ))
-        }
+        None => Ok(make_marker_value_with_id(
+            Some(buffer_id),
+            None,
+            false,
+            Some(MARK_MARKER_ID),
+        )),
     }
 }
 

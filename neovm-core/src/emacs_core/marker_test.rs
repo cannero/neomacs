@@ -21,8 +21,8 @@ fn call_copy_marker(args: Vec<Value>) -> EvalResult {
 }
 
 #[test]
-fn make_marker_creates_tagged_vector() {
-    let m = make_marker_value(Some("*scratch*"), Some(42), false);
+fn make_marker_creates_heap_marker() {
+    let m = make_marker_value(None, Some(42), false);
     assert!(is_marker(&m));
 }
 
@@ -39,13 +39,6 @@ fn is_marker_rejects_non_markers() {
     assert!(!is_marker(&Value::Nil));
     assert!(!is_marker(&Value::Int(42)));
     assert!(!is_marker(&Value::vector(vec![Value::Int(1)])));
-    // Wrong tag
-    assert!(!is_marker(&Value::vector(vec![
-        Value::Keyword(intern(":not-marker")),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-    ])));
 }
 
 #[test]
@@ -57,7 +50,7 @@ fn builtin_markerp_works() {
 
 #[test]
 fn builtin_marker_position_returns_position() {
-    let m = make_marker_value(Some("buf"), Some(10), false);
+    let m = make_marker_value(None, Some(10), false);
     let pos = call_marker_position(vec![m]).unwrap();
     assert!(matches!(pos, Value::Int(10)));
 }
@@ -70,10 +63,12 @@ fn builtin_marker_position_returns_nil_when_unset() {
 }
 
 #[test]
-fn builtin_marker_buffer_returns_name() {
-    let m = make_marker_value(Some("*scratch*"), Some(1), false);
-    let buf = call_marker_buffer(vec![m]).unwrap();
-    assert_eq!(buf.as_str(), Some("*scratch*"));
+fn builtin_marker_buffer_returns_live_buffer() {
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.current_buffer_id().expect("current buffer");
+    let marker = make_marker_value(Some(buffer_id), Some(1), false);
+    let buf = builtin_marker_buffer(&mut eval, vec![marker]).unwrap();
+    assert_eq!(buf, Value::Buffer(buffer_id));
 }
 
 #[test]
@@ -87,7 +82,7 @@ fn builtin_marker_insertion_type_roundtrip() {
 
 #[test]
 fn builtin_copy_marker_from_marker() {
-    let m = make_marker_value(Some("buf"), Some(5), true);
+    let m = make_marker_value(None, Some(5), true);
     let copy = call_copy_marker(vec![m]).unwrap();
     assert!(is_marker(&copy));
     assert!(matches!(marker_position_value(&copy), Value::Int(5)));
@@ -117,8 +112,8 @@ fn builtin_move_marker_matches_set_marker_behavior() {
     assert!(is_marker(&moved));
     assert_eq!(call_marker_position(vec![moved]).unwrap(), Value::Int(3));
     assert_eq!(
-        call_marker_buffer(vec![moved]).unwrap().as_str(),
-        Some("*scratch*")
+        call_marker_buffer(vec![moved]).unwrap(),
+        Value::Buffer(eval.buffers.current_buffer_id().unwrap())
     );
 }
 

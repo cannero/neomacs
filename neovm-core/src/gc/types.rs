@@ -346,6 +346,14 @@ pub struct OverlayData {
     pub rear_advance: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct MarkerData {
+    pub buffer: Option<BufferId>,
+    pub position: Option<i64>,
+    pub insertion_type: bool,
+    pub marker_id: Option<u64>,
+}
+
 pub enum HeapObject {
     Cons {
         car: Value,
@@ -358,6 +366,7 @@ pub enum HeapObject {
     Macro(LambdaData),
     ByteCode(ByteCodeFunction),
     Overlay(OverlayData),
+    Marker(MarkerData),
     /// Freed slot, available for reuse.
     Free,
 }
@@ -384,6 +393,7 @@ impl HeapObject {
                 vals
             }
             HeapObject::Overlay(overlay) => vec![overlay.plist],
+            HeapObject::Marker(_) => Vec::new(),
             HeapObject::Free => Vec::new(),
         }
     }

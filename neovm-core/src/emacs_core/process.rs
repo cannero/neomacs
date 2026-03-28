@@ -5338,11 +5338,12 @@ pub(crate) fn builtin_process_mark(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_process_mark_impl(&eval.processes, args)
+    builtin_process_mark_impl(&eval.processes, &eval.buffers, args)
 }
 
 pub(crate) fn builtin_process_mark_impl(
     processes: &ProcessManager,
+    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-mark", &args, 1)?;
@@ -5353,11 +5354,11 @@ pub(crate) fn builtin_process_mark_impl(
             vec![Value::symbol("processp"), args[0]],
         )
     })?;
-    Ok(super::marker::make_marker_value(
-        proc.buffer_name.as_deref(),
-        None,
-        false,
-    ))
+    let buffer_id = proc
+        .buffer_name
+        .as_deref()
+        .and_then(|name| buffers.find_buffer_by_name(name));
+    Ok(super::marker::make_marker_value(buffer_id, None, false))
 }
 
 /// (process-type PROCESS) -> symbol

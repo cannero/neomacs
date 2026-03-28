@@ -228,12 +228,12 @@ fn ensure_marker_points_into_buffer(
     value: &Value,
     buffer_id: BufferId,
 ) -> Result<(), Flow> {
-    let Some((Some(buffer_name), _, _)) = super::marker::marker_logical_fields(value) else {
+    let Some((Some(marker_buffer_id), _, _)) = super::marker::marker_logical_fields(value) else {
         return Ok(());
     };
-    let Some(marker_buffer_id) = buffers.find_buffer_by_name(&buffer_name) else {
+    if buffers.get(marker_buffer_id).is_none() {
         return Ok(());
-    };
+    }
     if marker_buffer_id == buffer_id {
         return Ok(());
     }

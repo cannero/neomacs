@@ -102,9 +102,9 @@ fn string_equality() {
 #[test]
 fn marker_equal_ignores_internal_tracking_id() {
     with_test_heap(|| {
-        let left = make_marker_value_with_id(Some("*scratch*"), Some(4), false, Some(1));
-        let right = make_marker_value_with_id(Some("*scratch*"), Some(4), false, Some(2));
-        let different = make_marker_value_with_id(Some("*scratch*"), Some(5), false, Some(1));
+        let left = make_marker_value_with_id(None, Some(4), false, Some(1));
+        let right = make_marker_value_with_id(None, Some(4), false, Some(2));
+        let different = make_marker_value_with_id(None, Some(5), false, Some(1));
 
         assert!(equal_value(&left, &right, 0));
         assert!(!equal_value(&left, &different, 0));
