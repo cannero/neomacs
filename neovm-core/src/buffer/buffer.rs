@@ -336,6 +336,7 @@ impl Buffer {
         advance_point_at_insert: bool,
         adjust_shared_markers: bool,
         adjust_shared_text_props: bool,
+        overlay_before_markers: bool,
     ) {
         if byte_len == 0 {
             return;
@@ -373,7 +374,8 @@ impl Buffer {
         if adjust_shared_text_props {
             self.text.adjust_text_props_for_insert(insert_pos, byte_len);
         }
-        self.overlays.adjust_for_insert(insert_pos, byte_len);
+        self.overlays
+            .adjust_for_insert(insert_pos, byte_len, overlay_before_markers);
         self.modified_tick += char_len as i64;
         self.chars_modified_tick += char_len as i64;
         self.sync_modified_flag();
@@ -505,7 +507,7 @@ impl Buffer {
     /// Insert `text` at point, advancing point past the inserted text.
     ///
     /// Markers at the insertion site move according to their `InsertionType`.
-    pub fn insert(&mut self, text: &str) {
+    fn insert_internal(&mut self, text: &str, before_markers: bool) {
         let insert_pos = self.pt;
         let insert_char_pos = self.pt_char;
         let byte_len = text.len();
@@ -535,7 +537,19 @@ impl Buffer {
             true,
             true,
             true,
+            before_markers,
         );
+        if before_markers {
+            self.text.advance_markers_at(insert_pos, byte_len, char_len);
+        }
+    }
+
+    pub fn insert(&mut self, text: &str) {
+        self.insert_internal(text, false);
+    }
+
+    pub fn insert_before_markers(&mut self, text: &str) {
+        self.insert_internal(text, true);
     }
 
     /// Delete the byte range `[start, end)`.
@@ -1462,6 +1476,7 @@ impl BufferManager {
         byte_len: usize,
         char_len: usize,
         update_state_fields: bool,
+        overlay_before_markers: bool,
     ) {
         buf.apply_byte_insert_side_effects(
             insert_pos,
@@ -1473,6 +1488,7 @@ impl BufferManager {
             false,
             false,
             false,
+            overlay_before_markers,
         );
     }
 
@@ -1560,6 +1576,7 @@ impl BufferManager {
                 byte_len,
                 char_len,
                 update_state_fields,
+                false,
             );
         }
         self.sync_shared_undo_binding_cache(root_id)?;
@@ -1571,10 +1588,33 @@ impl BufferManager {
         if byte_len == 0 {
             return Some(());
         }
-        let old_pt = self.buffers.get(&id)?.pt;
-        self.insert_into_buffer(id, text)?;
-        let buf = self.buffers.get_mut(&id)?;
-        buf.advance_markers_at(old_pt, byte_len, text.chars().count());
+        let char_len = text.chars().count();
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let source = self.buffers.get(&id)?;
+        let insert_pos = source.pt;
+        let insert_char_pos = source.pt_char;
+
+        self.buffers.get_mut(&id)?.insert_before_markers(text);
+
+        for sibling_id in shared_ids {
+            if sibling_id == id {
+                continue;
+            }
+            let update_state_fields =
+                self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
+            let sibling = self.buffers.get_mut(&sibling_id)?;
+            Self::adjust_shared_insert_metadata(
+                sibling,
+                insert_pos,
+                insert_char_pos,
+                byte_len,
+                char_len,
+                update_state_fields,
+                true,
+            );
+        }
+        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 

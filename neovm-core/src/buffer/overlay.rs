@@ -172,7 +172,7 @@ impl OverlayList {
         overlay_ids.sort_by(|left, right| compare_overlay_precedence(*right, *left));
     }
 
-    pub fn adjust_for_insert(&mut self, pos: usize, len: usize) {
+    pub fn adjust_for_insert(&mut self, pos: usize, len: usize, before_markers: bool) {
         if len == 0 {
             return;
         }
@@ -180,15 +180,27 @@ impl OverlayList {
         with_heap_mut(|h| {
             for overlay in &live {
                 let object = h.get_overlay_mut(*overlay);
-                if object.start > pos {
-                    object.start += len;
-                } else if object.start == pos && object.front_advance {
+                let start = object.start;
+                let end = object.end;
+                let empty = start == end;
+
+                if before_markers {
+                    if start >= pos {
+                        object.start += len;
+                    }
+                    if end >= pos {
+                        object.end += len;
+                    }
+                    continue;
+                }
+
+                if start > pos
+                    || (start == pos && object.front_advance && (!empty || object.rear_advance))
+                {
                     object.start += len;
                 }
 
-                if object.end > pos {
-                    object.end += len;
-                } else if object.end == pos && object.rear_advance {
+                if end > pos || (end == pos && object.rear_advance) {
                     object.end += len;
                 }
             }
@@ -620,9 +632,39 @@ mod tests {
         list.insert_overlay(overlay);
         list.set_front_advance(overlay, true);
         list.set_rear_advance(overlay, true);
-        list.adjust_for_insert(5, 2);
+        list.adjust_for_insert(5, 2, false);
         assert_eq!(list.overlay_start(overlay), Some(7));
         assert_eq!(list.overlay_end(overlay), Some(12));
+    }
+
+    #[test]
+    fn empty_front_advance_overlay_does_not_invert_on_insert() {
+        let mut list = OverlayList::new();
+        let overlay = alloc_overlay(5, 5);
+        list.insert_overlay(overlay);
+        list.set_front_advance(overlay, true);
+        list.set_rear_advance(overlay, false);
+        list.adjust_for_insert(5, 2, false);
+        assert_eq!(list.overlay_start(overlay), Some(5));
+        assert_eq!(list.overlay_end(overlay), Some(5));
+    }
+
+    #[test]
+    fn before_markers_insert_moves_overlay_boundaries_at_point() {
+        let mut list = OverlayList::new();
+        let starts_here = alloc_overlay(5, 10);
+        let ends_here = alloc_overlay(2, 5);
+        let empty = alloc_overlay(5, 5);
+        list.insert_overlay(starts_here);
+        list.insert_overlay(ends_here);
+        list.insert_overlay(empty);
+        list.adjust_for_insert(5, 2, true);
+        assert_eq!(list.overlay_start(starts_here), Some(7));
+        assert_eq!(list.overlay_end(starts_here), Some(12));
+        assert_eq!(list.overlay_start(ends_here), Some(2));
+        assert_eq!(list.overlay_end(ends_here), Some(7));
+        assert_eq!(list.overlay_start(empty), Some(7));
+        assert_eq!(list.overlay_end(empty), Some(7));
     }
 
     #[test]

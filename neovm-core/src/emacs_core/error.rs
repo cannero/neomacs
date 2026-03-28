@@ -149,6 +149,40 @@ fn format_opaque_handle_in_state(
     if let Some(handle) = super::terminal::pure::print_terminal_handle(value) {
         return Some(handle);
     }
+    if super::marker::is_marker(value) {
+        let Value::Marker(marker_id) = value else {
+            unreachable!("marker predicate accepted a non-marker value");
+        };
+        let marker = with_heap(|heap| heap.get_marker(*marker_id).clone());
+        let mut out = String::from("#<marker ");
+        if marker.insertion_type {
+            out.push_str("(moves after insertion) ");
+        }
+        if let Some(buffer_id) = marker.buffer
+            && let Some(buffer) = buffers.get(buffer_id)
+            && let Some(pos) = marker.position
+        {
+            out.push_str(&format!("at {pos} in {}", buffer.name));
+        } else {
+            out.push_str("in no buffer");
+        }
+        out.push('>');
+        return Some(out);
+    }
+    if let Value::Overlay(id) = value {
+        let overlay = with_heap(|heap| heap.get_overlay(*id).clone());
+        if let Some(buffer_id) = overlay.buffer
+            && let Some(buffer) = buffers.get(buffer_id)
+        {
+            return Some(format!(
+                "#<overlay from {} to {} in {}>",
+                buffer.text.byte_to_char(overlay.start) + 1,
+                buffer.text.byte_to_char(overlay.end) + 1,
+                buffer.name
+            ));
+        }
+        return Some("#<overlay in no buffer>".to_string());
+    }
     if let Value::Window(id) = value {
         return Some(format_window_handle_in_state(buffers, frames, *id));
     }
