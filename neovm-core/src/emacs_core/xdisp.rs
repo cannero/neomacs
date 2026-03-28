@@ -739,7 +739,7 @@ impl ModeLineRendered {
         }
 
         let end = self.text.len();
-        let intervals = self.text_props.intervals().to_vec();
+        let intervals = self.text_props.intervals_snapshot();
         let mut cursor = 0;
 
         for interval in intervals {

@@ -460,8 +460,8 @@ fn dump_text_property_table(tpt: &TextPropertyTable) -> DumpTextPropertyTable {
     DumpTextPropertyTable {
         intervals: tpt
             .dump_intervals()
-            .iter()
-            .map(dump_property_interval)
+            .into_iter()
+            .map(|iv| dump_property_interval(&iv))
             .collect(),
     }
 }

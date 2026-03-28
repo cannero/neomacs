@@ -1054,7 +1054,7 @@ impl LayoutEngine {
         };
 
         let mut boundaries = vec![0usize];
-        for interval in props.intervals() {
+        for interval in props.intervals_snapshot() {
             if interval.properties.contains_key("face")
                 || interval.properties.contains_key("font-lock-face")
             {

@@ -395,7 +395,7 @@ pub fn get_string_text_properties(id: ObjId) -> Option<Vec<StringTextPropertyRun
             return None;
         }
         let mut runs = Vec::new();
-        for interval in table.intervals() {
+        for interval in table.intervals_snapshot() {
             if interval.properties.is_empty() {
                 continue;
             }

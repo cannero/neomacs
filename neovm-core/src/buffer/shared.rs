@@ -84,7 +84,7 @@ impl BufferTextProperties {
     }
 
     pub fn intervals_snapshot(&self) -> Vec<PropertyInterval> {
-        self.inner.borrow().intervals().to_vec()
+        self.inner.borrow().intervals_snapshot()
     }
 
     pub fn adjust_for_insert(&self, pos: usize, len: usize) {

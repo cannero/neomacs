@@ -1,13 +1,13 @@
 //! Text properties system for buffers.
 //!
 //! Text properties are key-value pairs attached to ranges of text within a
-//! buffer. They are stored as a sorted list of non-overlapping intervals,
-//! each carrying a set of properties. When a property is set on a range,
-//! existing intervals are split at the boundaries and the property is applied
-//! to all affected intervals. Adjacent intervals with identical property sets
-//! are merged to keep the list compact.
+//! buffer. They are indexed by interval start boundaries, with each interval
+//! carrying a set of properties. When a property is set on a range, existing
+//! intervals are split at the boundaries and the property is applied to all
+//! affected intervals. Adjacent intervals with identical property sets are
+//! merged to keep the interval map compact.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::emacs_core::value::{Value, equal_value};
 use crate::gc::GcTrace;
@@ -124,19 +124,19 @@ fn props_equal(a: &HashMap<String, Value>, b: &HashMap<String, Value>) -> bool {
 
 /// Manages text properties for a buffer.
 ///
-/// Internally stores a sorted (by start position), non-overlapping list of
-/// [`PropertyInterval`]s.  Intervals with empty property sets may exist
+/// Internally stores a start-boundary-indexed, non-overlapping set of
+/// [`PropertyInterval`]s. Intervals with empty property sets may exist
 /// transiently but are cleaned up during merge passes.
 #[derive(Clone)]
 pub struct TextPropertyTable {
-    intervals: Vec<PropertyInterval>,
+    intervals: BTreeMap<usize, PropertyInterval>,
 }
 
 impl TextPropertyTable {
     /// Create an empty property table.
     pub fn new() -> Self {
         Self {
-            intervals: Vec::new(),
+            intervals: BTreeMap::new(),
         }
     }
 
@@ -161,16 +161,15 @@ impl TextPropertyTable {
         self.ensure_coverage(start, end);
 
         let mut changed = false;
-        // Set the property on all intervals within [start, end).
-        for interval in &mut self.intervals {
-            if interval.start >= end {
-                break;
-            }
-            if interval.end <= start {
-                continue;
-            }
-            // This interval overlaps [start, end).
-            if interval.insert_property(name, value) {
+        let keys: Vec<usize> = self
+            .intervals
+            .range(start..end)
+            .map(|(&key, _)| key)
+            .collect();
+        for key in keys {
+            if let Some(interval) = self.intervals.get_mut(&key)
+                && interval.insert_property(name, value)
+            {
                 changed = true;
             }
         }
@@ -181,45 +180,28 @@ impl TextPropertyTable {
 
     /// Get a single property at a byte position.
     pub fn get_property(&self, pos: usize, name: &str) -> Option<&Value> {
-        for interval in &self.intervals {
-            if interval.start > pos {
-                break;
-            }
-            if pos >= interval.start && pos < interval.end {
-                return interval.properties.get(name);
-            }
-        }
-        None
+        self.interval_containing(pos)
+            .and_then(|interval| interval.properties.get(name))
     }
 
     /// Get all properties at a byte position.
     pub fn get_properties(&self, pos: usize) -> HashMap<String, Value> {
-        for interval in &self.intervals {
-            if interval.start > pos {
-                break;
-            }
-            if pos >= interval.start && pos < interval.end {
-                return interval.properties.clone();
-            }
-        }
-        HashMap::new()
+        self.interval_containing(pos)
+            .map(|interval| interval.properties.clone())
+            .unwrap_or_default()
     }
 
     /// Get all properties at a byte position in insertion order (most recently added first).
     /// Returns a list of (name, value) pairs in the order matching GNU Emacs plist output.
     pub fn get_properties_ordered(&self, pos: usize) -> Vec<(String, Value)> {
-        for interval in &self.intervals {
-            if interval.start > pos {
-                break;
-            }
-            if pos >= interval.start && pos < interval.end {
-                return interval
+        self.interval_containing(pos)
+            .map(|interval| {
+                interval
                     .ordered_properties()
                     .map(|(k, v)| (k.to_string(), *v))
-                    .collect();
-            }
-        }
-        Vec::new()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Remove a single named property from the byte range `[start, end)`.
@@ -233,14 +215,15 @@ impl TextPropertyTable {
         self.split_at(end);
 
         let mut removed = false;
-        for interval in &mut self.intervals {
-            if interval.start >= end {
-                break;
-            }
-            if interval.end <= start {
-                continue;
-            }
-            if interval.remove_property(name).is_some() {
+        let keys: Vec<usize> = self
+            .intervals
+            .range(start..end)
+            .map(|(&key, _)| key)
+            .collect();
+        for key in keys {
+            if let Some(interval) = self.intervals.get_mut(&key)
+                && interval.remove_property(name).is_some()
+            {
                 removed = true;
             }
         }
@@ -260,16 +243,16 @@ impl TextPropertyTable {
         self.split_at(start);
         self.split_at(end);
 
-        // Clear properties on all intervals within [start, end).
-        for interval in &mut self.intervals {
-            if interval.start >= end {
-                break;
+        let keys: Vec<usize> = self
+            .intervals
+            .range(start..end)
+            .map(|(&key, _)| key)
+            .collect();
+        for key in keys {
+            if let Some(interval) = self.intervals.get_mut(&key) {
+                interval.properties.clear();
+                interval.key_order.clear();
             }
-            if interval.end <= start {
-                continue;
-            }
-            interval.properties.clear();
-            interval.key_order.clear();
         }
 
         self.cleanup();
@@ -279,30 +262,28 @@ impl TextPropertyTable {
     /// Return the next position at or after `pos` where any text property
     /// changes, or `None` if there is no change after `pos`.
     pub fn next_property_change(&self, pos: usize) -> Option<usize> {
-        for interval in &self.intervals {
-            if interval.start > pos {
-                return Some(interval.start);
-            }
-            if pos >= interval.start && pos < interval.end {
-                return Some(interval.end);
-            }
+        if let Some(interval) = self.interval_containing(pos) {
+            return Some(interval.end);
         }
-        None
+        self.intervals
+            .range((std::ops::Bound::Excluded(pos), std::ops::Bound::Unbounded))
+            .next()
+            .map(|(_, interval)| interval.start)
     }
 
     /// Return the previous position before `pos` where any text property
     /// changes, or `None` if there is no change before `pos`.
     pub fn previous_property_change(&self, pos: usize) -> Option<usize> {
-        // Walk intervals in reverse to find the closest boundary before pos.
-        for interval in self.intervals.iter().rev() {
-            if interval.end <= pos {
-                return Some(interval.end);
-            }
-            if interval.start < pos && pos <= interval.end {
-                return Some(interval.start);
-            }
+        if let Some(interval) = self.interval_containing(pos.saturating_sub(1))
+            && pos <= interval.end
+            && interval.start < pos
+        {
+            return Some(interval.start);
         }
-        None
+        self.intervals
+            .range(..pos)
+            .next_back()
+            .map(|(_, interval)| interval.end)
     }
 
     /// Adjust all intervals after text is inserted at `pos` with `len` bytes.
@@ -313,17 +294,17 @@ impl TextPropertyTable {
         if len == 0 {
             return;
         }
-        for interval in &mut self.intervals {
+        let mut shifted = BTreeMap::new();
+        for mut interval in self.intervals_snapshot() {
             if interval.start >= pos {
-                // Interval starts at or after insertion: shift entirely.
                 interval.start += len;
                 interval.end += len;
             } else if interval.end > pos {
-                // Interval spans the insertion point: expand it.
                 interval.end += len;
             }
-            // Interval entirely before insertion: unchanged.
+            shifted.insert(interval.start, interval);
         }
+        self.intervals = shifted;
     }
 
     /// Adjust all intervals after text in `[start, end)` is deleted.
@@ -335,38 +316,26 @@ impl TextPropertyTable {
             return;
         }
         let len = end - start;
+        let mut shifted = BTreeMap::new();
 
-        let mut to_remove = Vec::new();
-
-        for (i, interval) in self.intervals.iter_mut().enumerate() {
+        for mut interval in self.intervals_snapshot() {
             if interval.start >= end {
-                // Entirely after deletion: shift left.
                 interval.start -= len;
                 interval.end -= len;
             } else if interval.end <= start {
-                // Entirely before deletion: unchanged.
             } else if interval.start >= start && interval.end <= end {
-                // Entirely within deleted range: mark for removal.
-                to_remove.push(i);
+                continue;
             } else if interval.start < start && interval.end > end {
-                // Spans the entire deleted range: shrink.
                 interval.end -= len;
             } else if interval.start < start {
-                // Overlaps start of deletion: truncate end.
                 interval.end = start;
             } else {
-                // interval.start >= start && interval.end > end
-                // Overlaps end of deletion: adjust start and shift.
                 interval.start = start;
                 interval.end -= len;
             }
+            shifted.insert(interval.start, interval);
         }
-
-        // Remove intervals in reverse order to keep indices valid.
-        for &i in to_remove.iter().rev() {
-            self.intervals.remove(i);
-        }
-
+        self.intervals = shifted;
         self.merge_adjacent();
     }
 
@@ -376,31 +345,32 @@ impl TextPropertyTable {
 
     /// Split any interval that spans `pos` into two intervals at `pos`.
     fn split_at(&mut self, pos: usize) {
-        for i in 0..self.intervals.len() {
-            let interval = &self.intervals[i];
-            if interval.start < pos && pos < interval.end {
-                // Split this interval, preserving key_order.
-                let second = PropertyInterval {
-                    start: pos,
-                    end: interval.end,
-                    properties: interval.properties.clone(),
-                    key_order: interval.key_order.clone(),
-                };
-                self.intervals[i].end = pos;
-                self.intervals.insert(i + 1, second);
-                return;
-            }
+        let Some((&start, interval)) = self.intervals.range(..pos).next_back() else {
+            return;
+        };
+        if !(interval.start < pos && pos < interval.end) {
+            return;
         }
+
+        let second = PropertyInterval {
+            start: pos,
+            end: interval.end,
+            properties: interval.properties.clone(),
+            key_order: interval.key_order.clone(),
+        };
+        if let Some(first) = self.intervals.get_mut(&start) {
+            first.end = pos;
+        }
+        self.intervals.insert(pos, second);
     }
 
     /// Ensure that the entire range `[start, end)` is covered by intervals.
     /// Fill any gaps with empty-property intervals.
     fn ensure_coverage(&mut self, start: usize, end: usize) {
-        // Collect gaps.
         let mut gaps = Vec::new();
         let mut cursor = start;
 
-        for interval in &self.intervals {
+        for interval in self.intervals.values() {
             if interval.start >= end {
                 break;
             }
@@ -418,22 +388,15 @@ impl TextPropertyTable {
             gaps.push((cursor, end));
         }
 
-        // Insert gap intervals.
         for (gap_start, gap_end) in gaps {
-            let new_interval = PropertyInterval::new(gap_start, gap_end);
-            // Find insertion position to maintain sorted order.
-            let pos = self
-                .intervals
-                .iter()
-                .position(|iv| iv.start >= gap_start)
-                .unwrap_or(self.intervals.len());
-            self.intervals.insert(pos, new_interval);
+            self.intervals
+                .insert(gap_start, PropertyInterval::new(gap_start, gap_end));
         }
     }
 
     /// Remove intervals with no properties.
     fn cleanup(&mut self) {
-        self.intervals.retain(|iv| !iv.is_empty_props());
+        self.intervals.retain(|_, iv| !iv.is_empty_props());
     }
 
     /// Merge adjacent intervals that have identical property maps.
@@ -442,28 +405,39 @@ impl TextPropertyTable {
             return;
         }
 
-        let mut i = 0;
-        while i + 1 < self.intervals.len() {
-            let can_merge = self.intervals[i].end == self.intervals[i + 1].start
-                && props_equal(
-                    &self.intervals[i].properties,
-                    &self.intervals[i + 1].properties,
-                );
+        let mut merged = BTreeMap::new();
+        let mut current: Option<PropertyInterval> = None;
 
-            if can_merge {
-                self.intervals[i].end = self.intervals[i + 1].end;
-                self.intervals.remove(i + 1);
-                // Don't advance i — check if the newly merged interval
-                // can also merge with the next one.
-            } else {
-                i += 1;
+        for interval in self.intervals.values().cloned() {
+            match current.take() {
+                None => current = Some(interval),
+                Some(mut active) => {
+                    if active.end == interval.start
+                        && props_equal(&active.properties, &interval.properties)
+                    {
+                        active.end = interval.end;
+                        current = Some(active);
+                    } else {
+                        merged.insert(active.start, active);
+                        current = Some(interval);
+                    }
+                }
             }
         }
+        if let Some(interval) = current {
+            merged.insert(interval.start, interval);
+        }
+        self.intervals = merged;
     }
 
-    /// Expose intervals for iteration (GC tracing, printing, etc.).
-    pub fn intervals(&self) -> &[PropertyInterval] {
-        &self.intervals
+    fn interval_containing(&self, pos: usize) -> Option<&PropertyInterval> {
+        let (_, interval) = self.intervals.range(..=pos).next_back()?;
+        (interval.start <= pos && pos < interval.end).then_some(interval)
+    }
+
+    /// Expose a stable interval snapshot for iteration (GC tracing, printing, etc.).
+    pub fn intervals_snapshot(&self) -> Vec<PropertyInterval> {
+        self.intervals.values().cloned().collect()
     }
 
     /// Returns true if there are no intervals (no properties).
@@ -477,20 +451,23 @@ impl TextPropertyTable {
         if start >= end {
             return TextPropertyTable::new();
         }
-        let mut result = Vec::new();
-        for iv in &self.intervals {
+        let mut result = BTreeMap::new();
+        for iv in self.intervals.values() {
             if iv.end <= start || iv.start >= end {
                 continue;
             }
             let new_start = iv.start.max(start) - start;
             let new_end = iv.end.min(end) - start;
             if new_start < new_end && !iv.properties.is_empty() {
-                result.push(PropertyInterval {
-                    start: new_start,
-                    end: new_end,
-                    properties: iv.properties.clone(),
-                    key_order: iv.key_order.clone(),
-                });
+                result.insert(
+                    new_start,
+                    PropertyInterval {
+                        start: new_start,
+                        end: new_end,
+                        properties: iv.properties.clone(),
+                        key_order: iv.key_order.clone(),
+                    },
+                );
             }
         }
         TextPropertyTable { intervals: result }
@@ -498,26 +475,35 @@ impl TextPropertyTable {
 
     /// Append another table's intervals shifted by `byte_offset`.
     pub fn append_shifted(&mut self, other: &TextPropertyTable, byte_offset: usize) {
-        for iv in &other.intervals {
+        for iv in other.intervals.values() {
             if iv.properties.is_empty() {
                 continue;
             }
-            self.intervals.push(PropertyInterval {
-                start: iv.start + byte_offset,
-                end: iv.end + byte_offset,
-                properties: iv.properties.clone(),
-                key_order: iv.key_order.clone(),
-            });
+            let start = iv.start + byte_offset;
+            self.intervals.insert(
+                start,
+                PropertyInterval {
+                    start,
+                    end: iv.end + byte_offset,
+                    properties: iv.properties.clone(),
+                    key_order: iv.key_order.clone(),
+                },
+            );
         }
         self.merge_adjacent();
     }
 
     // pdump accessors
-    pub(crate) fn dump_intervals(&self) -> &[PropertyInterval] {
-        &self.intervals
+    pub(crate) fn dump_intervals(&self) -> Vec<PropertyInterval> {
+        self.intervals_snapshot()
     }
     pub(crate) fn from_dump(intervals: Vec<PropertyInterval>) -> Self {
-        Self { intervals }
+        Self {
+            intervals: intervals
+                .into_iter()
+                .map(|interval| (interval.start, interval))
+                .collect(),
+        }
     }
 }
 
@@ -529,7 +515,7 @@ impl Default for TextPropertyTable {
 
 impl GcTrace for TextPropertyTable {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
-        for interval in &self.intervals {
+        for interval in self.intervals.values() {
             for value in interval.properties.values() {
                 roots.push(*value);
             }
