@@ -5,6 +5,7 @@ use super::*;
 // ===========================================================================
 
 use crate::buffer::{BufferId, BufferManager};
+use crate::emacs_core::filelock;
 use crate::window::FrameManager;
 
 #[derive(Clone, Copy)]
@@ -2677,6 +2678,12 @@ pub(crate) fn builtin_set_buffer_modified_p(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let was_modified = eval
+        .buffers
+        .modified_state_root_id(current_id)
+        .and_then(|root_id| eval.buffers.get(root_id))
+        .is_some_and(|buffer| buffer.modified_state_value().is_truthy());
+    filelock::sync_modified_buffer_file_lock(eval, current_id, was_modified, args[0])?;
     let _ = eval
         .buffers
         .restore_buffer_modified_state(current_id, args[0]);
@@ -2692,6 +2699,12 @@ pub(crate) fn builtin_restore_buffer_modified_p(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let was_modified = eval
+        .buffers
+        .modified_state_root_id(current_id)
+        .and_then(|root_id| eval.buffers.get(root_id))
+        .is_some_and(|buffer| buffer.modified_state_value().is_truthy());
+    filelock::sync_modified_buffer_file_lock(eval, current_id, was_modified, args[0])?;
     eval.buffers
         .restore_buffer_modified_state(current_id, args[0])
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))

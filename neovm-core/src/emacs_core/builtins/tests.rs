@@ -4769,7 +4769,9 @@ fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() 
         .expect("builtin lock-buffer should evaluate");
     assert!(lock_buffer.is_nil());
 
-    let lock_file = dispatch_builtin_pure("lock-file", vec![Value::string("/tmp/x")])
+    let tmp = tempfile::NamedTempFile::new().expect("temp file for lock-file");
+    let path = tmp.path().to_string_lossy().into_owned();
+    let lock_file = dispatch_builtin_pure("lock-file", vec![Value::string(&path)])
         .expect("builtin lock-file should resolve")
         .expect("builtin lock-file should evaluate");
     assert!(lock_file.is_nil());
@@ -4784,7 +4786,7 @@ fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() 
         .expect("builtin unlock-buffer should evaluate");
     assert!(unlock_buffer.is_nil());
 
-    let unlock_file = dispatch_builtin_pure("unlock-file", vec![Value::string("/tmp/x")])
+    let unlock_file = dispatch_builtin_pure("unlock-file", vec![Value::string(&path)])
         .expect("builtin unlock-file should resolve")
         .expect("builtin unlock-file should evaluate");
     assert!(unlock_file.is_nil());

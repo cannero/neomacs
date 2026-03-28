@@ -2991,7 +2991,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "file-locked-p",
-        super::fileio::builtin_file_locked_p,
+        super::filelock::builtin_file_locked_p,
         0,
         None,
     );
@@ -4904,13 +4904,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "lock-buffer",
-        |_ctx, args| builtin_lock_buffer(args),
-        0,
-        None,
-    );
-    ctx.defsubr("lock-file", |_ctx, args| builtin_lock_file(args), 0, None);
+    ctx.defsubr("lock-buffer", super::filelock::builtin_lock_buffer, 0, None);
+    ctx.defsubr("lock-file", super::filelock::builtin_lock_file, 0, None);
     ctx.defsubr(
         "lossage-size",
         |_ctx, args| builtin_lossage_size(args),
@@ -4919,16 +4914,11 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "unlock-buffer",
-        |_ctx, args| builtin_unlock_buffer(args),
+        super::filelock::builtin_unlock_buffer,
         0,
         None,
     );
-    ctx.defsubr(
-        "unlock-file",
-        |_ctx, args| builtin_unlock_file(args),
-        0,
-        None,
-    );
+    ctx.defsubr("unlock-file", super::filelock::builtin_unlock_file, 0, None);
     ctx.defsubr(
         "window-bottom-divider-width",
         |_ctx, args| super::window_cmds::builtin_window_bottom_divider_width(args),

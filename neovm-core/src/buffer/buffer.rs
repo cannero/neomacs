@@ -1414,7 +1414,7 @@ impl BufferManager {
             .collect()
     }
 
-    fn modified_state_root_id(&self, id: BufferId) -> Option<BufferId> {
+    pub(crate) fn modified_state_root_id(&self, id: BufferId) -> Option<BufferId> {
         self.shared_text_root_id(id)
     }
 

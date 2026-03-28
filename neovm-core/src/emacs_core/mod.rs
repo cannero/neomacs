@@ -49,6 +49,7 @@ pub mod expr;
 pub(crate) mod file_compile;
 pub(crate) mod file_compile_format;
 pub mod fileio;
+pub mod filelock;
 pub mod floatfns;
 pub mod fns;
 pub mod font;
