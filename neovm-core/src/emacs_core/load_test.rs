@@ -5947,7 +5947,7 @@ fn char_literal_roundtrip() {
 }
 
 #[test]
-fn generated_loaddefs_replays_metadata_forms_without_generic_eval_overhead() {
+fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -5968,11 +5968,8 @@ fn generated_loaddefs_replays_metadata_forms_without_generic_eval_overhead() {
 "#;
     fs::write(&file, source).expect("write generated loaddefs fixture");
 
-    let mut eval = Context::new();
-    eval.set_variable(
-        "definition-prefixes",
-        Value::hash_table(HashTableTest::Equal),
-    );
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
     load_file(&mut eval, &file).unwrap_or_else(|err| {
         panic!(

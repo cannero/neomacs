@@ -201,213 +201,6 @@ fn eval_generated_form_args(
         .collect()
 }
 
-fn definition_prefixes_table(
-    eval: &super::eval::Context,
-) -> Result<crate::gc::types::ObjId, EvalError> {
-    let value = eval
-        .obarray()
-        .symbol_value("definition-prefixes")
-        .copied()
-        .ok_or_else(|| EvalError::Signal {
-            symbol: intern("void-variable"),
-            data: vec![Value::symbol("definition-prefixes")],
-        })?;
-    match value {
-        Value::HashTable(id) => Ok(id),
-        other => Err(EvalError::Signal {
-            symbol: intern("wrong-type-argument"),
-            data: vec![Value::symbol("hash-table-p"), other],
-        }),
-    }
-}
-
-fn generated_register_definition_prefixes(
-    eval: &mut super::eval::Context,
-    args: &[Expr],
-) -> Result<Value, EvalError> {
-    if args.len() != 2 {
-        return Err(EvalError::Signal {
-            symbol: intern("wrong-number-of-arguments"),
-            data: vec![
-                Value::symbol("register-definition-prefixes"),
-                Value::Int(args.len() as i64),
-            ],
-        });
-    }
-
-    let file = eval.eval(&args[0]).map_err(map_flow)?;
-    let prefixes = eval.eval(&args[1]).map_err(map_flow)?;
-    let prefixes = list_to_vec(&prefixes).ok_or_else(|| EvalError::Signal {
-        symbol: intern("wrong-type-argument"),
-        data: vec![Value::symbol("listp"), prefixes],
-    })?;
-    let table_id = definition_prefixes_table(eval)?;
-
-    let table_test = with_heap(|heap| heap.get_hash_table(table_id).test.clone());
-    let keyed_prefixes: Vec<(Value, HashKey)> = prefixes
-        .into_iter()
-        .map(|prefix| {
-            let key = prefix.to_hash_key(&table_test);
-            (prefix, key)
-        })
-        .collect();
-
-    for (prefix, key) in keyed_prefixes {
-        let (old, inserting_new_key) = with_heap_mut(|heap| {
-            let table = heap.get_hash_table_mut(table_id);
-            let old = table.data.get(&key).copied().unwrap_or(Value::Nil);
-            let inserting_new_key = !table.data.contains_key(&key);
-            (old, inserting_new_key)
-        });
-
-        let new = Value::cons(file, old);
-
-        with_heap_mut(|heap| {
-            let table = heap.get_hash_table_mut(table_id);
-            table.data.insert(key.clone(), new);
-            if inserting_new_key {
-                table.key_snapshots.insert(key.clone(), prefix);
-                table.insertion_order.push(key);
-            }
-        });
-    }
-
-    Ok(Value::Nil)
-}
-
-fn generated_custom_autoload(
-    eval: &mut super::eval::Context,
-    args: &[Expr],
-) -> Result<Value, EvalError> {
-    if !(2..=3).contains(&args.len()) {
-        return Err(EvalError::Signal {
-            symbol: intern("wrong-number-of-arguments"),
-            data: vec![
-                Value::symbol("custom-autoload"),
-                Value::Int(args.len() as i64),
-            ],
-        });
-    }
-
-    let values = eval_generated_form_args(eval, args)?;
-    let symbol = values[0];
-    let load = values[1];
-    let noset = values.get(2).copied().unwrap_or(Value::Nil);
-    let custom_autoload = if noset.is_nil() {
-        Value::True
-    } else {
-        Value::symbol("noset")
-    };
-
-    super::builtins::builtin_put(
-        eval,
-        vec![symbol, Value::symbol("custom-autoload"), custom_autoload],
-    )
-    .map_err(map_flow)?;
-
-    let current_loads =
-        super::builtins::builtin_get(eval, vec![symbol, Value::symbol("custom-loads")])
-            .map_err(map_flow)?;
-    let present = !super::builtins::builtin_member(vec![load, current_loads])
-        .map_err(map_flow)?
-        .is_nil();
-    if !present {
-        super::builtins::builtin_put(
-            eval,
-            vec![
-                symbol,
-                Value::symbol("custom-loads"),
-                Value::cons(load, current_loads),
-            ],
-        )
-        .map_err(map_flow)?;
-    }
-
-    Ok(Value::Nil)
-}
-
-fn generated_function_put(
-    eval: &mut super::eval::Context,
-    args: &[Expr],
-) -> Result<Value, EvalError> {
-    if args.len() != 3 {
-        return Err(EvalError::Signal {
-            symbol: intern("wrong-number-of-arguments"),
-            data: vec![Value::symbol("function-put"), Value::Int(args.len() as i64)],
-        });
-    }
-    let values = eval_generated_form_args(eval, args)?;
-    super::builtins::builtin_put(eval, values).map_err(map_flow)
-}
-
-fn constant_obsolete_error(name: Value) -> EvalError {
-    EvalError::Signal {
-        symbol: intern("error"),
-        data: vec![Value::string(format!(
-            "Can't make `{}` obsolete; did you forget a quote mark?",
-            format_value_for_error(&name)
-                .trim_matches('"')
-                .trim_matches('(')
-                .trim_matches(')')
-        ))],
-    }
-}
-
-fn generated_make_obsolete(
-    eval: &mut super::eval::Context,
-    args: &[Expr],
-) -> Result<Value, EvalError> {
-    if args.len() != 3 {
-        return Err(EvalError::Signal {
-            symbol: intern("wrong-number-of-arguments"),
-            data: vec![
-                Value::symbol("make-obsolete"),
-                Value::Int(args.len() as i64),
-            ],
-        });
-    }
-    let values = eval_generated_form_args(eval, args)?;
-    let obsolete_name = values[0];
-    if matches!(obsolete_name, Value::Nil | Value::True) {
-        return Err(constant_obsolete_error(obsolete_name));
-    }
-    let info = Value::list(vec![values[1], Value::Nil, values[2]]);
-    super::builtins::builtin_put(
-        eval,
-        vec![obsolete_name, Value::symbol("byte-obsolete-info"), info],
-    )
-    .map_err(map_flow)?;
-    Ok(obsolete_name)
-}
-
-fn generated_make_obsolete_variable(
-    eval: &mut super::eval::Context,
-    args: &[Expr],
-) -> Result<Value, EvalError> {
-    if !(3..=4).contains(&args.len()) {
-        return Err(EvalError::Signal {
-            symbol: intern("wrong-number-of-arguments"),
-            data: vec![
-                Value::symbol("make-obsolete-variable"),
-                Value::Int(args.len() as i64),
-            ],
-        });
-    }
-    let values = eval_generated_form_args(eval, args)?;
-    let obsolete_name = values[0];
-    if matches!(obsolete_name, Value::Nil | Value::True) {
-        return Err(constant_obsolete_error(obsolete_name));
-    }
-    let access_type = values.get(3).copied().unwrap_or(Value::Nil);
-    let info = Value::list(vec![values[1], access_type, values[2]]);
-    super::builtins::builtin_put(
-        eval,
-        vec![obsolete_name, Value::symbol("byte-obsolete-variable"), info],
-    )
-    .map_err(map_flow)?;
-    Ok(obsolete_name)
-}
-
 fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<Value, EvalError> {
     if !(2..=3).contains(&args.len()) {
         return Err(EvalError::Signal {
@@ -429,94 +222,6 @@ fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<
     Ok(result)
 }
 
-fn copy_symbol_property_if_absent(
-    eval: &mut super::eval::Context,
-    from_symbol: Value,
-    to_symbol: Value,
-    property: &str,
-) -> Result<(), EvalError> {
-    let current = super::builtins::builtin_get(eval, vec![to_symbol, Value::symbol(property)])
-        .map_err(map_flow)?;
-    if !current.is_nil() {
-        return Ok(());
-    }
-    let source = super::builtins::builtin_get(eval, vec![from_symbol, Value::symbol(property)])
-        .map_err(map_flow)?;
-    if source.is_nil() {
-        return Ok(());
-    }
-    super::builtins::builtin_put(eval, vec![to_symbol, Value::symbol(property), source])
-        .map_err(map_flow)?;
-    Ok(())
-}
-
-fn generated_define_obsolete_function_alias(
-    eval: &mut super::eval::Context,
-    args: &[Expr],
-) -> Result<Value, EvalError> {
-    if !(3..=4).contains(&args.len()) {
-        return Err(EvalError::Signal {
-            symbol: intern("wrong-number-of-arguments"),
-            data: vec![
-                Value::symbol("define-obsolete-function-alias"),
-                Value::Int(args.len() as i64),
-            ],
-        });
-    }
-    let values = eval_generated_form_args(eval, args)?;
-    let result = eval
-        .defalias_value(values[0], values[1])
-        .map_err(map_flow)?;
-    if let Some(doc) = values.get(3).copied().filter(|value| !value.is_nil()) {
-        super::builtins::builtin_put(
-            eval,
-            vec![values[0], Value::symbol("function-documentation"), doc],
-        )
-        .map_err(map_flow)?;
-    }
-    let info = Value::list(vec![values[1], Value::Nil, values[2]]);
-    super::builtins::builtin_put(
-        eval,
-        vec![values[0], Value::symbol("byte-obsolete-info"), info],
-    )
-    .map_err(map_flow)?;
-    Ok(result)
-}
-
-fn generated_define_obsolete_variable_alias(
-    eval: &mut super::eval::Context,
-    args: &[Expr],
-) -> Result<Value, EvalError> {
-    if !(3..=4).contains(&args.len()) {
-        return Err(EvalError::Signal {
-            symbol: intern("wrong-number-of-arguments"),
-            data: vec![
-                Value::symbol("define-obsolete-variable-alias"),
-                Value::Int(args.len() as i64),
-            ],
-        });
-    }
-    let values = eval_generated_form_args(eval, args)?;
-    let result = super::builtins::builtin_defvaralias(
-        eval,
-        vec![
-            values[0],
-            values[1],
-            values.get(3).copied().unwrap_or(Value::Nil),
-        ],
-    )
-    .map_err(map_flow)?;
-    copy_symbol_property_if_absent(eval, values[0], values[1], "saved-value")?;
-    copy_symbol_property_if_absent(eval, values[0], values[1], "saved-variable-comment")?;
-    let info = Value::list(vec![values[1], Value::Nil, values[2]]);
-    super::builtins::builtin_put(
-        eval,
-        vec![values[0], Value::symbol("byte-obsolete-variable"), info],
-    )
-    .map_err(map_flow)?;
-    Ok(result)
-}
-
 fn try_eval_generated_loaddefs_form(
     eval: &mut super::eval::Context,
     form: &Expr,
@@ -528,6 +233,9 @@ fn try_eval_generated_loaddefs_form(
         return Ok(None);
     };
     let tail = &items[1..];
+    // Keep this table limited to core primitive replay.  GNU Lisp-owned
+    // helpers from loaddefs (e.g. custom/obsolete metadata helpers) should
+    // run through the already-loaded GNU Lisp runtime instead.
     match resolve_sym(*id) {
         "progn" => {
             let mut last = Value::Nil;
@@ -542,26 +250,13 @@ fn try_eval_generated_loaddefs_form(
                 super::autoload::builtin_autoload(eval, values).map_err(map_flow)?,
             ))
         }
-        "register-definition-prefixes" => {
-            Ok(Some(generated_register_definition_prefixes(eval, tail)?))
-        }
-        "custom-autoload" => Ok(Some(generated_custom_autoload(eval, tail)?)),
-        "function-put" => Ok(Some(generated_function_put(eval, tail)?)),
         "put" => {
             let values = eval_generated_form_args(eval, tail)?;
             Ok(Some(
                 super::builtins::builtin_put(eval, values).map_err(map_flow)?,
             ))
         }
-        "make-obsolete" => Ok(Some(generated_make_obsolete(eval, tail)?)),
-        "make-obsolete-variable" => Ok(Some(generated_make_obsolete_variable(eval, tail)?)),
         "defalias" => Ok(Some(generated_defalias(eval, tail)?)),
-        "define-obsolete-function-alias" => {
-            Ok(Some(generated_define_obsolete_function_alias(eval, tail)?))
-        }
-        "define-obsolete-variable-alias" => {
-            Ok(Some(generated_define_obsolete_variable_alias(eval, tail)?))
-        }
         "defvaralias" => {
             let values = eval_generated_form_args(eval, tail)?;
             Ok(Some(
