@@ -8218,6 +8218,59 @@ pub(crate) fn unbind_to_in_state(
     }
 }
 
+fn default_toplevel_binding(specpdl: &[SpecBinding], sym_id: SymId) -> Option<&SpecBinding> {
+    specpdl.iter().find(|binding| match binding {
+        SpecBinding::Let {
+            sym_id: binding_sym,
+            ..
+        }
+        | SpecBinding::LetDefault {
+            sym_id: binding_sym,
+            ..
+        } => *binding_sym == sym_id,
+        SpecBinding::LetLocal { .. } => false,
+    })
+}
+
+pub(crate) fn default_toplevel_value_in_state(
+    obarray: &Obarray,
+    specpdl: &[SpecBinding],
+    sym_id: SymId,
+) -> Option<Value> {
+    match default_toplevel_binding(specpdl, sym_id) {
+        Some(SpecBinding::Let { old_value, .. })
+        | Some(SpecBinding::LetDefault { old_value, .. }) => *old_value,
+        Some(SpecBinding::LetLocal { .. }) => unreachable!("local bindings are excluded above"),
+        None => obarray.default_value_id(sym_id).copied(),
+    }
+}
+
+pub(crate) fn set_default_toplevel_value_in_state(
+    specpdl: &mut [SpecBinding],
+    sym_id: SymId,
+    value: Value,
+) -> bool {
+    for binding in specpdl.iter_mut() {
+        match binding {
+            SpecBinding::Let {
+                sym_id: binding_sym,
+                old_value,
+            }
+            | SpecBinding::LetDefault {
+                sym_id: binding_sym,
+                old_value,
+            } if *binding_sym == sym_id => {
+                *old_value = Some(value);
+                return true;
+            }
+            SpecBinding::Let { .. }
+            | SpecBinding::LetDefault { .. }
+            | SpecBinding::LetLocal { .. } => {}
+        }
+    }
+    false
+}
+
 pub(crate) fn set_runtime_binding_in_state(
     ctx: &mut Context,
     sym_id: SymId,

@@ -288,15 +288,30 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         eval.specbind(intern("current-load-list"), current_load_list);
     }
 
-    let lexical_binding = eval
+    let lexical_binding = if let Some(binding) = eval
         .buffers
         .get(buffer_id)
         .and_then(|buffer| buffer.get_buffer_local_binding("lexical-binding"))
         .and_then(|binding| binding.as_value())
-        .map_or_else(
-            || super::load::lexical_binding_enabled_for_source(&source),
-            |binding| binding.is_truthy(),
-        );
+    {
+        binding.is_truthy()
+    } else {
+        match super::load::source_lexical_binding_for_load(eval, &source, Some(buffer_value)) {
+            Ok(enabled) => enabled,
+            Err(err) => match err {
+                super::error::EvalError::Signal { symbol, data } => {
+                    return Err(super::error::Flow::Signal(super::error::SignalData {
+                        symbol,
+                        data,
+                        raw_data: None,
+                    }));
+                }
+                super::error::EvalError::UncaughtThrow { tag, value } => {
+                    return Err(super::error::Flow::Throw { tag, value });
+                }
+            },
+        }
+    };
     eval.set_lexical_binding(lexical_binding);
     eval.lexenv = if lexical_binding {
         Value::list(vec![Value::True])

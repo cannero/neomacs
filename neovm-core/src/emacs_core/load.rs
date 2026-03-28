@@ -547,12 +547,26 @@ fn strip_reader_prefix(source: &str) -> (&str, bool) {
 }
 
 fn lexical_binding_enabled_in_file_local_cookie_line(line: &str) -> bool {
+    matches!(
+        lexical_binding_cookie_in_file_local_cookie_line(line),
+        LexicalBindingCookie::Lexical
+    )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LexicalBindingCookie {
+    None,
+    Dynamic,
+    Lexical,
+}
+
+fn lexical_binding_cookie_in_file_local_cookie_line(line: &str) -> LexicalBindingCookie {
     let Some(start) = line.find("-*-") else {
-        return false;
+        return LexicalBindingCookie::None;
     };
     let rest = &line[start + 3..];
     let Some(end_rel) = rest.find("-*-") else {
-        return false;
+        return LexicalBindingCookie::None;
     };
     let cookie = &rest[..end_rel];
 
@@ -561,26 +575,86 @@ fn lexical_binding_enabled_in_file_local_cookie_line(line: &str) -> bool {
             continue;
         };
         if name.trim() == "lexical-binding" {
-            return value.trim() == "t";
+            return if value.trim() == "t" {
+                LexicalBindingCookie::Lexical
+            } else {
+                LexicalBindingCookie::Dynamic
+            };
         }
     }
-    false
+    LexicalBindingCookie::None
 }
 
-pub(crate) fn lexical_binding_enabled_for_source(source: &str) -> bool {
+pub(crate) fn lexical_binding_cookie_for_source(source: &str) -> LexicalBindingCookie {
     let mut lines = strip_utf8_bom(source).lines();
     let first_line = lines.next();
-    if first_line.is_some_and(lexical_binding_enabled_in_file_local_cookie_line) {
-        return true;
+    if let Some(cookie) = first_line.map(lexical_binding_cookie_in_file_local_cookie_line)
+        && cookie != LexicalBindingCookie::None
+    {
+        return cookie;
     }
 
     if first_line.is_some_and(|line| line.starts_with("#!")) {
         return lines
             .next()
-            .is_some_and(lexical_binding_enabled_in_file_local_cookie_line);
+            .map(lexical_binding_cookie_in_file_local_cookie_line)
+            .unwrap_or(LexicalBindingCookie::None);
     }
 
-    false
+    LexicalBindingCookie::None
+}
+
+pub(crate) fn lexical_binding_enabled_for_source(source: &str) -> bool {
+    matches!(
+        lexical_binding_cookie_for_source(source),
+        LexicalBindingCookie::Lexical
+    )
+}
+
+fn default_toplevel_lexical_binding(eval: &super::eval::Context) -> bool {
+    crate::emacs_core::eval::default_toplevel_value_in_state(
+        &eval.obarray,
+        eval.specpdl.as_slice(),
+        intern("lexical-binding"),
+    )
+    .is_some_and(|value| value.is_truthy())
+}
+
+fn lexical_binding_from_cookie(
+    eval: &mut super::eval::Context,
+    cookie: LexicalBindingCookie,
+    from: Option<Value>,
+) -> Result<bool, EvalError> {
+    match cookie {
+        LexicalBindingCookie::Lexical => Ok(true),
+        LexicalBindingCookie::Dynamic => Ok(false),
+        LexicalBindingCookie::None => {
+            let default = default_toplevel_lexical_binding(eval);
+            let Some(from) = from else {
+                return Ok(default);
+            };
+            let hook = eval
+                .visible_variable_value_or_nil("internal--get-default-lexical-binding-function");
+            if hook.is_nil() {
+                return Ok(default);
+            }
+
+            let saved_roots = eval.save_temp_roots();
+            eval.push_temp_root(hook);
+            eval.push_temp_root(from);
+            let result = eval.apply(hook, vec![from]).map_err(map_flow);
+            eval.restore_temp_roots(saved_roots);
+            result.map(|value| value.is_truthy())
+        }
+    }
+}
+
+pub(crate) fn source_lexical_binding_for_load(
+    eval: &mut super::eval::Context,
+    source: &str,
+    from: Option<Value>,
+) -> Result<bool, EvalError> {
+    lexical_binding_from_cookie(eval, lexical_binding_cookie_for_source(source), from)
 }
 
 fn parse_source_forms(source_path: &Path, source: &str) -> Result<Vec<Expr>, EvalError> {
@@ -979,7 +1053,11 @@ fn load_file_body(
     let lexical_binding = if is_elc {
         elc_has_lexical_binding(&raw_bytes)
     } else {
-        lexical_binding_enabled_for_source(&content)
+        source_lexical_binding_for_load(
+            eval,
+            &content,
+            Some(Value::string(path.to_string_lossy().to_string())),
+        )?
     };
 
     // --- .el-only: check for pre-compiled .neobc cache before setting up context ---

@@ -385,7 +385,11 @@ pub(crate) fn builtin_default_toplevel_value(
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
-    match obarray.symbol_value_id(resolved).cloned() {
+    match crate::emacs_core::eval::default_toplevel_value_in_state(
+        obarray,
+        eval.specpdl.as_slice(),
+        resolved,
+    ) {
         Some(value) => Ok(value),
         None if is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') => {
             Ok(Value::Keyword(resolved))
@@ -440,7 +444,13 @@ pub(crate) fn set_default_toplevel_value_impl(
         return Err(signal("setting-constant", vec![args[0]]));
     }
     let value = args[1];
-    ctx.obarray.set_symbol_value_id(resolved, value);
+    if !crate::emacs_core::eval::set_default_toplevel_value_in_state(
+        ctx.specpdl.as_mut_slice(),
+        resolved,
+        value,
+    ) {
+        ctx.obarray.set_symbol_value_id(resolved, value);
+    }
     Ok(Value::Nil)
 }
 

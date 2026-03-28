@@ -125,7 +125,12 @@ pub fn compile_el_to_neobc(eval: &mut Context, el_path: &Path) -> Result<(), Com
     let content = super::load::decode_emacs_utf8(&raw_bytes);
 
     // 2. Detect lexical-binding from the file-local cookie.
-    let lexical = super::load::lexical_binding_enabled_for_source(&content);
+    let lexical = super::load::source_lexical_binding_for_load(
+        eval,
+        &content,
+        Some(Value::string(el_path.to_string_lossy().to_string())),
+    )
+    .map_err(|e| CompileFileError::Eval(e.to_string()))?;
 
     // 3. Compute source hash for cache invalidation.
     let source_hash = super::file_compile_format::source_sha256(&content);

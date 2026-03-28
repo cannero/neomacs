@@ -2148,6 +2148,13 @@ fn strip_reader_prefix_handles_bom_and_shebang() {
 
 #[test]
 fn lexical_binding_detects_second_line_cookie_after_shebang() {
+    assert_eq!(
+        lexical_binding_cookie_in_file_local_cookie_line(
+            ";; -*- mode: emacs-lisp; lexical-binding: nil; -*-",
+        ),
+        LexicalBindingCookie::Dynamic,
+        "explicit lexical-binding: nil cookie should force dynamic binding",
+    );
     assert!(
         lexical_binding_enabled_in_file_local_cookie_line(
             ";; -*- mode: emacs-lisp; lexical-binding: t; -*-",
@@ -2175,6 +2182,13 @@ fn lexical_binding_detects_second_line_cookie_after_shebang() {
             ";; no cookie on first line\n;; -*- lexical-binding: t; -*-\n",
         ),
         "second-line cookie should not activate lexical binding without shebang",
+    );
+    assert_eq!(
+        lexical_binding_cookie_for_source(
+            "#!/usr/bin/env emacs --script\n;; -*- lexical-binding: nil; -*-\n(setq vm-lb 1)\n",
+        ),
+        LexicalBindingCookie::Dynamic,
+        "second-line lexical-binding: nil cookie should be honored for shebang scripts",
     );
 }
 
