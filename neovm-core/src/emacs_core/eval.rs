@@ -1662,6 +1662,8 @@ impl Context {
         obarray.set_symbol_value("obarray", obarray_object);
         obarray.set_symbol_value("neovm--obarray-object", obarray_object);
         obarray.make_special("obarray");
+        obarray.set_symbol_value("standard-input", Value::True);
+        obarray.make_special("standard-input");
         obarray.set_symbol_value(
             "command-line-args",
             Value::list(vec![
@@ -1747,6 +1749,7 @@ impl Context {
             ])]),
         );
         obarray.set_symbol_value("load-path", Value::Nil);
+        obarray.make_special("load-path");
         obarray.set_symbol_value("load-history", Value::Nil);
         obarray.set_symbol_value(
             "fontset-alias-alist",
@@ -1758,12 +1761,21 @@ impl Context {
             "load-suffixes",
             Value::list(vec![Value::string(".elc"), Value::string(".el")]),
         );
+        obarray.make_special("load-suffixes");
+        obarray.set_symbol_value("module-file-suffix", Value::Nil);
+        obarray.make_special("module-file-suffix");
+        obarray.set_symbol_value(
+            "dynamic-library-suffixes",
+            Value::list(vec![Value::string(std::env::consts::DLL_SUFFIX)]),
+        );
+        obarray.make_special("dynamic-library-suffixes");
         // load-file-rep-suffixes: suffixes for alternate representations of
         // the same file (e.g., compressed ".gz").  Default is just ("").
         obarray.set_symbol_value(
             "load-file-rep-suffixes",
             Value::list(vec![Value::string("")]),
         );
+        obarray.make_special("load-file-rep-suffixes");
         // file-coding-system-alist: needed by jka-cmpr-hook.el and others.
         obarray.set_symbol_value("file-coding-system-alist", Value::Nil);
         obarray.set_symbol_value("features", Value::Nil);
@@ -1772,6 +1784,7 @@ impl Context {
         obarray.set_symbol_value("lexical-binding", Value::Nil);
         obarray.set_symbol_value("load-prefer-newer", Value::Nil);
         obarray.set_symbol_value("load-file-name", Value::Nil);
+        obarray.make_special("load-file-name");
         obarray.set_symbol_value("noninteractive", Value::True);
         obarray.set_symbol_value("inhibit-quit", Value::Nil);
         // GNU Emacs print.c: all print-* variables are DEFVAR_BOOL or
@@ -2009,6 +2022,11 @@ impl Context {
 
         // GNU DEFVAR_LISP variables from lread.c that must be bound to nil
         // before any Elisp runs (code may test `boundp` or read them directly).
+        //
+        // Keep GNU's exception for `values`: `lread.c` defines it via
+        // `DEFVAR_LISP` and then explicitly clears the declared-special bit,
+        // so it remains an ordinary variable even under lexical binding.
+        obarray.set_symbol_value("values", Value::Nil);
         obarray.set_symbol_value("eval-buffer-list", Value::Nil);
         obarray.make_special("eval-buffer-list");
         obarray.set_symbol_value("lread--unescaped-character-literals", Value::Nil);
@@ -2019,6 +2037,10 @@ impl Context {
         obarray.make_special("load-source-file-function");
         obarray.set_symbol_value("load-true-file-name", Value::Nil);
         obarray.make_special("load-true-file-name");
+        obarray.set_symbol_value("user-init-file", Value::Nil);
+        obarray.make_special("user-init-file");
+        obarray.set_symbol_value("source-directory", Value::Nil);
+        obarray.make_special("source-directory");
         obarray.set_symbol_value("after-load-alist", Value::Nil);
         obarray.make_special("after-load-alist");
         obarray.set_symbol_value("load-history", Value::Nil);
@@ -2029,8 +2051,19 @@ impl Context {
         obarray.make_special("preloaded-file-list");
         obarray.set_symbol_value("byte-boolean-vars", Value::Nil);
         obarray.make_special("byte-boolean-vars");
+        obarray.set_symbol_value(
+            "bytecomp-version-regexp",
+            Value::string(r#"^;;;.\(in Emacs version\|bytecomp version FSF\)"#),
+        );
+        obarray.make_special("bytecomp-version-regexp");
         obarray.set_symbol_value("load-path-filter-function", Value::Nil);
         obarray.make_special("load-path-filter-function");
+        obarray.set_symbol_value("internal--get-default-lexical-binding-function", Value::Nil);
+        obarray.make_special("internal--get-default-lexical-binding-function");
+        obarray.set_symbol_value("read-symbol-shorthands", Value::Nil);
+        obarray.make_special("read-symbol-shorthands");
+        obarray.set_symbol_value("macroexp--dynvars", Value::Nil);
+        obarray.make_special("macroexp--dynvars");
         // GNU DEFVAR_LISP variables from eval.c
         obarray.set_symbol_value("quit-flag", Value::Nil);
         obarray.set_symbol_value("inhibit-debugger", Value::Nil);
@@ -2038,9 +2071,8 @@ impl Context {
         obarray.set_symbol_value("debug-ignored-errors", Value::Nil);
         obarray.set_symbol_value("signal-hook-function", Value::Nil);
         obarray.set_symbol_value("internal-interpreter-environment", Value::Nil);
-        // GNU seeds these from C before Lisp startup: `values` in lread.c and
-        // `debugger` in eval.c. `eval-expression` relies on both.
-        obarray.set_symbol_value("values", Value::Nil);
+        // GNU seeds `debugger` from eval.c before Lisp startup.
+        // `eval-expression` relies on it.
         obarray.set_symbol_value("debugger", Value::symbol("debug-early"));
         obarray.set_symbol_value("standard-output", Value::True);
         // GNU DEFVAR_INT from dispnew.c — used by bytecomp.el
@@ -2319,6 +2351,7 @@ impl Context {
         obarray.set_symbol_value("read-char-by-name-sort", Value::Nil);
         obarray.set_symbol_value("read-char-choice-use-read-key", Value::Nil);
         obarray.set_symbol_value("read-circle", Value::True);
+        obarray.make_special("read-circle");
         obarray.set_symbol_value("read-envvar-name-history", Value::Nil);
         obarray.set_symbol_value("read-face-name-sample-text", Value::string("SAMPLE"));
         obarray.set_symbol_value("read-key-delay", Value::Float(0.01, next_float_id()));

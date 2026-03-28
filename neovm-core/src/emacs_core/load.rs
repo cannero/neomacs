@@ -1210,7 +1210,9 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
 /// Register bootstrap variables owned by the file-loading subsystem.
 pub fn register_bootstrap_vars(obarray: &mut super::symbol::Obarray) {
     obarray.set_symbol_value("after-load-alist", Value::Nil);
+    obarray.make_special("after-load-alist");
     obarray.set_symbol_value("macroexp--dynvars", Value::Nil);
+    obarray.make_special("macroexp--dynvars");
 }
 
 /// Create an Context with the full Emacs bootstrap loaded (like GNU
