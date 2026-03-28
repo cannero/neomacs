@@ -132,8 +132,8 @@ fn compat_empty_front_advance_overlay_insert_matches_gnu_emacs() {
 
     let gnu =
         run_oracle_eval(form).unwrap_or_else(|err| panic!("GNU Emacs evaluation failed: {err}"));
-    let neovm = run_neovm_eval_minimal(form)
-        .unwrap_or_else(|err| panic!("NeoVM evaluation failed: {err}"));
+    let neovm =
+        run_neovm_eval_minimal(form).unwrap_or_else(|err| panic!("NeoVM evaluation failed: {err}"));
     assert_eq!(
         neovm, gnu,
         "empty front-advance overlay insert semantics mismatch:\nGNU: {}\nNeoVM: {}",

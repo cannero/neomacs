@@ -298,6 +298,23 @@ enum InterpretedClosureEnvEntry {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct MacroExpansionCacheEntry {
+    expanded: Rc<Expr>,
+    fingerprint: u64,
+    opaque_roots: Vec<Value>,
+}
+
+impl MacroExpansionCacheEntry {
+    fn new(expanded: Rc<Expr>, fingerprint: u64) -> Self {
+        Self {
+            opaque_roots: opaque_values_for_expr(&expanded),
+            expanded,
+            fingerprint,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct InterpretedClosureTrimCacheEntry {
     params_expr: Expr,
     body_exprs: Vec<Expr>,
@@ -305,6 +322,7 @@ struct InterpretedClosureTrimCacheEntry {
     env_shape: Vec<InterpretedClosureEnvEntry>,
     params: LambdaParams,
     trimmed_body: Rc<Vec<Expr>>,
+    trimmed_body_opaque_roots: Vec<Value>,
     trimmed_env_template: Vec<InterpretedClosureEnvEntry>,
 }
 
@@ -735,7 +753,7 @@ pub struct Context {
     /// lambda body, making `tail.as_ptr()` match a stale entry whose
     /// args are completely different.  The fingerprint catches this.
     pub(crate) macro_expansion_cache:
-        HashMap<(crate::gc::types::ObjId, usize, u64), (Rc<Expr>, u64)>,
+        HashMap<(crate::gc::types::ObjId, usize, u64), Rc<MacroExpansionCacheEntry>>,
     /// Diagnostic counters for macro expansion cache.
     pub(crate) macro_cache_hits: u64,
     pub(crate) macro_cache_misses: u64,
@@ -3161,17 +3179,15 @@ impl Context {
         roots.extend(self.literal_cache.values().copied());
 
         // Macro expansion cache — root any OpaqueValue nodes in cached Expr trees
-        for (expr, _fingerprint) in self.macro_expansion_cache.values() {
-            expr.collect_opaque_values(&mut roots);
+        for entry in self.macro_expansion_cache.values() {
+            roots.extend(entry.opaque_roots.iter().copied());
         }
         if let Some(filter_fn) = self.interpreted_closure_filter_fn {
             roots.push(filter_fn);
         }
         for entries in self.interpreted_closure_trim_cache.values() {
             for entry in entries {
-                for expr in entry.trimmed_body.iter() {
-                    expr.collect_opaque_values(&mut roots);
-                }
+                roots.extend(entry.trimmed_body_opaque_roots.iter().copied());
             }
         }
 
@@ -5085,10 +5101,9 @@ impl Context {
         // even when the alias target is a special (dynamically scoped)
         // variable.  E.g. `argv` aliases to `command-line-args-left` (special),
         // but `(let ((argv (make-vector 10 nil))) argv)` must return the vector.
-        if self.lexical_binding()
-            && !is_runtime_dynamically_special(&self.obarray, sym_id)
-            && !lexenv_declares_special(self.lexenv, sym_id)
-        {
+        // GNU `eval_sub` only checks the lexical alist here; bare-symbol
+        // special declarations affect binding, not ordinary reads.
+        if self.lexical_binding() && !is_runtime_dynamically_special(&self.obarray, sym_id) {
             if let Some(value) = lexenv_lookup(self.lexenv, sym_id) {
                 return Ok(value);
             }
@@ -5101,7 +5116,6 @@ impl Context {
         if resolved != sym_id
             && self.lexical_binding()
             && !is_runtime_dynamically_special(&self.obarray, resolved)
-            && !lexenv_declares_special(self.lexenv, resolved)
         {
             if let Some(value) = lexenv_lookup(self.lexenv, resolved) {
                 return Ok(value);
@@ -5364,16 +5378,14 @@ impl Context {
                         );
                         let current_fp = tail_fingerprint(tail);
                         if !self.macro_cache_disabled {
-                            if let Some((cached, stored_fp)) =
-                                self.macro_expansion_cache.get(&cache_key)
+                            if let Some(cached) =
+                                self.macro_expansion_cache.get(&cache_key).cloned()
                             {
-                                if *stored_fp == current_fp {
+                                if cached.fingerprint == current_fp {
                                     self.macro_cache_hits += 1;
-                                    let expanded = cached.clone();
+                                    let expanded = cached.expanded.clone();
                                     let saved_opaque = self.save_temp_roots();
-                                    let mut opaques = Vec::new();
-                                    collect_opaque_values(&expanded, &mut opaques);
-                                    for v in &opaques {
+                                    for v in &cached.opaque_roots {
                                         self.push_temp_root(*v);
                                     }
                                     let result = self.eval(&expanded);
@@ -5410,15 +5422,17 @@ impl Context {
                         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
 
                         let expanded_rc = Rc::new(expanded_expr);
+                        let expanded_cache_entry = Rc::new(MacroExpansionCacheEntry::new(
+                            expanded_rc.clone(),
+                            current_fp,
+                        ));
                         if !self.macro_cache_disabled {
                             self.macro_expansion_cache
-                                .insert(cache_key, (expanded_rc.clone(), current_fp));
+                                .insert(cache_key, expanded_cache_entry.clone());
                         }
 
                         let saved_opaque = self.save_temp_roots();
-                        let mut opaques = Vec::new();
-                        collect_opaque_values(&expanded_rc, &mut opaques);
-                        for v in &opaques {
+                        for v in &expanded_cache_entry.opaque_roots {
                             self.push_temp_root(*v);
                         }
                         let result = self.eval(&expanded_rc);
@@ -7032,12 +7046,14 @@ impl Context {
         {
             return;
         }
+        let trimmed_body_opaque_roots = opaque_values_for_exprs(lambda_data.body.as_ref());
         bucket.push(InterpretedClosureTrimCacheEntry {
             params_expr: params_expr.clone(),
             body_exprs: body_exprs.to_vec(),
             iform_expr,
             env_shape,
             params: lambda_data.params,
+            trimmed_body_opaque_roots,
             trimmed_body: lambda_data.body,
             trimmed_env_template: interpreted_closure_env_entries(trimmed_env),
         });
@@ -7859,10 +7875,10 @@ impl Context {
         );
         let current_fp = tail_fingerprint(args);
         if !self.macro_cache_disabled {
-            if let Some((cached, stored_fp)) = self.macro_expansion_cache.get(&cache_key) {
-                if *stored_fp == current_fp {
+            if let Some(cached) = self.macro_expansion_cache.get(&cache_key).cloned() {
+                if cached.fingerprint == current_fp {
                     self.macro_cache_hits += 1;
-                    return Ok(cached.clone());
+                    return Ok(cached.expanded.clone());
                 }
                 // Fingerprint mismatch → ABA, fall through to re-expand
             }
@@ -7898,6 +7914,7 @@ impl Context {
         let expand_elapsed = expand_start.elapsed();
         self.macro_cache_misses += 1;
         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
+        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(result.clone(), current_fp));
         if !self.macro_cache_disabled {
             if expand_elapsed.as_millis() > 50 {
                 tracing::warn!(
@@ -7905,8 +7922,7 @@ impl Context {
                     args.as_ptr() as usize
                 );
             }
-            self.macro_expansion_cache
-                .insert(cache_key, (result.clone(), current_fp));
+            self.macro_expansion_cache.insert(cache_key, cache_entry);
         }
 
         Ok(result)
@@ -8411,10 +8427,10 @@ impl Context {
     ) -> Option<crate::buffer::BufferId> {
         let name = resolve_sym(sym_id);
         // If lexical binding and not special, check lexenv first
-        if self.lexical_binding()
-            && !is_runtime_dynamically_special(&self.obarray, sym_id)
-            && !lexenv_declares_special(self.lexenv, sym_id)
-        {
+        // GNU `setq` follows the same rule as `eval_sub`: if a lexical binding
+        // cell exists, mutate it directly; don't rescan bare-symbol dynvar
+        // declarations at assignment time.
+        if self.lexical_binding() && !is_runtime_dynamically_special(&self.obarray, sym_id) {
             if let Some(cell_id) = lexenv_assq(self.lexenv, sym_id) {
                 lexenv_set(cell_id, value);
                 return None;
@@ -8472,7 +8488,6 @@ impl Context {
     pub(crate) fn visible_variable_value_or_nil(&self, name: &str) -> Value {
         let name_id = intern(name);
         if !is_runtime_dynamically_special(&self.obarray, name_id)
-            && !lexenv_declares_special(self.lexenv, name_id)
             && let Some(value) = lexenv_lookup(self.lexenv, name_id)
         {
             return value;
@@ -8689,6 +8704,20 @@ pub fn quote_to_value(expr: &Expr) -> Value {
 /// Used to root them in temp_roots before evaluating the Expr.
 pub(crate) fn collect_opaque_values(expr: &Expr, out: &mut Vec<Value>) {
     expr.collect_opaque_values(out);
+}
+
+fn opaque_values_for_expr(expr: &Expr) -> Vec<Value> {
+    let mut opaque_values = Vec::new();
+    collect_opaque_values(expr, &mut opaque_values);
+    opaque_values
+}
+
+fn opaque_values_for_exprs(exprs: &[Expr]) -> Vec<Value> {
+    let mut opaque_values = Vec::new();
+    for expr in exprs {
+        collect_opaque_values(expr, &mut opaque_values);
+    }
+    opaque_values
 }
 
 fn format_startup_value(value: Option<&Value>) -> String {
