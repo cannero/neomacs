@@ -1,5 +1,6 @@
 use super::*;
 use neovm_core::buffer::BufferManager;
+use neovm_core::emacs_core::value::Value;
 use neovm_core::window::{FrameManager, Rect as NeoRect, WindowId};
 
 fn install_test_runtime() {
@@ -9,6 +10,12 @@ fn install_test_runtime() {
     neovm_core::emacs_core::intern::set_current_interner(Box::leak(interner));
     let heap = Box::new(neovm_core::gc::heap::LispHeap::new());
     neovm_core::emacs_core::value::set_current_heap(Box::leak(heap));
+}
+
+fn eval_lisp(eval: &mut neovm_core::emacs_core::Context, source: &str) -> Value {
+    let forms = neovm_core::emacs_core::parse_forms(source).expect("parse form");
+    assert_eq!(forms.len(), 1, "expected a single form");
+    eval.eval_expr(&forms[0]).expect("evaluate form")
 }
 
 /// Create a minimal Context-like test fixture (FrameManager + BufferManager)
@@ -112,6 +119,7 @@ fn test_window_params_from_neovm_internal_returns_none() {
         direction: SplitDirection::Vertical,
         children: vec![],
         bounds: NeoRect::new(0.0, 0.0, 100.0, 100.0),
+        parameters: Vec::new(),
         combination_limit: false,
     };
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -318,11 +326,12 @@ fn test_window_params_fringes_and_margins() {
         frame.char_width = 8.0;
         if let Some(win) = frame.selected_window_mut() {
             if let Window::Leaf {
-                fringes, margins, ..
+                display, margins, ..
             } = win
             {
-                *fringes = (10, 12);
                 *margins = (2, 3);
+                display.left_fringe_width = 10;
+                display.right_fringe_width = 12;
             }
         }
     }
@@ -467,7 +476,8 @@ fn test_text_prop_check_invisible() {
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
         // Mark "hidden" (positions 8..14) as invisible
-        buf.text_props.put_property(8, 14, "invisible", Value::True);
+        buf.text
+            .text_props_put_property(8, 14, "invisible", Value::True);
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -495,7 +505,8 @@ fn test_text_prop_check_display() {
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
         // Set a display property on positions 2..4
-        buf.text_props.put_property(2, 4, "display", Value::Int(42));
+        buf.text
+            .text_props_put_property(2, 4, "display", Value::Int(42));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -520,8 +531,8 @@ fn test_text_prop_line_spacing() {
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
         // Set line-spacing on "line2" area
-        buf.text_props
-            .put_property(6, 11, "line-spacing", Value::Int(4));
+        buf.text
+            .text_props_put_property(6, 11, "line-spacing", Value::Int(4));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -542,7 +553,7 @@ fn test_text_prop_next_change() {
         buf.text.insert_str(0, "aabbcc");
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
-        buf.text_props.put_property(2, 4, "face", Value::True);
+        buf.text.text_props_put_property(2, 4, "face", Value::True);
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -565,7 +576,8 @@ fn test_text_prop_get_property() {
         buf.text.insert_str(0, "test");
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
-        buf.text_props.put_property(0, 4, "face", Value::Int(5));
+        buf.text
+            .text_props_put_property(0, 4, "face", Value::Int(5));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -586,7 +598,8 @@ fn test_text_prop_access_multibyte_positions_use_byte_offsets() {
         buf.text.insert_str(0, "a好b");
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
-        buf.text_props.put_property(4, 5, "face", Value::Int(9));
+        buf.text
+            .text_props_put_property(4, 5, "face", Value::Int(9));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -650,8 +663,8 @@ fn test_face_resolver_with_text_property() {
     buf.zv = buf.text.len();
     buf.zv_char = buf.text.char_count();
     // Set "face" to the symbol "bold" on positions 0..5.
-    buf.text_props
-        .put_property(0, 5, "face", Value::symbol("bold"));
+    buf.text
+        .text_props_put_property(0, 5, "face", Value::symbol("bold"));
 
     let mut next_check = buf.point_max_char();
     let resolved = resolver.face_at_pos(&buf, 0, &mut next_check);
@@ -679,7 +692,7 @@ fn test_face_resolver_with_font_lock_face() {
     buf.zv = buf.text.len();
     buf.zv_char = buf.text.char_count();
     // Set "font-lock-face" to "font-lock-keyword-face" on "defun".
-    buf.text_props.put_property(
+    buf.text.text_props_put_property(
         0,
         5,
         "font-lock-face",
@@ -706,11 +719,11 @@ fn test_face_resolver_next_check() {
     buf.zv = buf.text.len();
     buf.zv_char = buf.text.char_count();
     // Face property on [2, 4)
-    buf.text_props
-        .put_property(2, 4, "face", Value::symbol("bold"));
+    buf.text
+        .text_props_put_property(2, 4, "face", Value::symbol("bold"));
     // Another property on [4, 6)
-    buf.text_props
-        .put_property(4, 6, "face", Value::symbol("italic"));
+    buf.text
+        .text_props_put_property(4, 6, "face", Value::symbol("italic"));
 
     // At position 0, next_check should be 2 (first property boundary).
     let mut nc = buf.point_max_char();
@@ -730,22 +743,29 @@ fn test_face_resolver_next_check() {
 
 #[test]
 fn test_face_resolver_overlay_face() {
-    let _evaluator = neovm_core::emacs_core::Context::new();
+    let mut evaluator = neovm_core::emacs_core::Context::new();
     let table = FaceTable::new();
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf =
-        neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(4), "*overlay*".to_string());
-    buf.text.insert_str(0, "overlay text here");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    {
+        let buf = evaluator
+            .buffer_manager_mut()
+            .current_buffer_mut()
+            .expect("current buffer");
+        buf.insert("overlay text here");
+    }
 
-    // Create an overlay with "face" = "bold" covering [0, 7).
-    let oid = buf.overlays.make_overlay(0, 7);
-    buf.overlays.overlay_put(oid, "face", Value::symbol("bold"));
+    let _ = eval_lisp(
+        &mut evaluator,
+        "(let ((ov (make-overlay 1 8))) (overlay-put ov 'face 'bold) ov)",
+    );
 
+    let buf = evaluator
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer");
     let mut nc = buf.point_max_char();
-    let resolved = resolver.face_at_pos(&buf, 3, &mut nc);
+    let resolved = resolver.face_at_pos(buf, 3, &mut nc);
     assert_eq!(resolved.font_weight, FontWeight::BOLD.0);
     // next_check should be at most 7 (end of overlay).
     assert!(nc <= 7);
@@ -753,7 +773,7 @@ fn test_face_resolver_overlay_face() {
 
 #[test]
 fn test_face_resolver_overlay_priority() {
-    let _evaluator = neovm_core::emacs_core::Context::new();
+    let mut evaluator = neovm_core::emacs_core::Context::new();
     let mut table = FaceTable::new();
 
     // Define two custom faces with different foreground colors.
@@ -767,26 +787,31 @@ fn test_face_resolver_overlay_priority() {
 
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf =
-        neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(5), "*priority*".to_string());
-    buf.text.insert_str(0, "priority test");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    {
+        let buf = evaluator
+            .buffer_manager_mut()
+            .current_buffer_mut()
+            .expect("current buffer");
+        buf.insert("priority test");
+    }
 
-    // Overlay A: priority 10, face-a (red)
-    let oid_a = buf.overlays.make_overlay(0, 10);
-    buf.overlays
-        .overlay_put(oid_a, "face", Value::symbol("face-a"));
-    buf.overlays.overlay_put(oid_a, "priority", Value::Int(10));
+    let _ = eval_lisp(
+        &mut evaluator,
+        "(let ((a (make-overlay 1 11))
+               (b (make-overlay 1 11)))
+           (overlay-put a 'face 'face-a)
+           (overlay-put a 'priority 10)
+           (overlay-put b 'face 'face-b)
+           (overlay-put b 'priority 20)
+           (list a b))",
+    );
 
-    // Overlay B: priority 20, face-b (blue) — should win
-    let oid_b = buf.overlays.make_overlay(0, 10);
-    buf.overlays
-        .overlay_put(oid_b, "face", Value::symbol("face-b"));
-    buf.overlays.overlay_put(oid_b, "priority", Value::Int(20));
-
+    let buf = evaluator
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer");
     let mut nc = buf.point_max_char();
-    let resolved = resolver.face_at_pos(&buf, 5, &mut nc);
+    let resolved = resolver.face_at_pos(buf, 5, &mut nc);
     // face-b (blue, priority 20) should override face-a (red, priority 10).
     assert_eq!(resolved.fg, color_to_pixel(&NeoColor::rgb(0, 0, 255)));
 }
@@ -813,7 +838,7 @@ fn test_face_resolver_face_ref_list_respects_gnu_precedence() {
     buf.text.insert_str(0, "x");
     buf.zv = buf.text.len();
     buf.zv_char = buf.text.char_count();
-    buf.text_props.put_property(
+    buf.text.text_props_put_property(
         0,
         1,
         "face",
@@ -873,8 +898,8 @@ fn test_face_resolver_buffer_local_named_face_remap_applies_to_face_prop() {
             Value::symbol("bold"),
         ])]),
     );
-    buf.text_props
-        .put_property(0, 4, "face", Value::symbol("bold"));
+    buf.text
+        .text_props_put_property(0, 4, "face", Value::symbol("bold"));
 
     let mut next_check = buf.point_max_char();
     let resolved = resolver.face_at_pos(&buf, 0, &mut next_check);
@@ -900,8 +925,8 @@ fn test_face_resolver_inverse_video() {
     buf.text.insert_str(0, "inverted");
     buf.zv = buf.text.len();
     buf.zv_char = buf.text.char_count();
-    buf.text_props
-        .put_property(0, 8, "face", Value::symbol("inverse-test"));
+    buf.text
+        .text_props_put_property(0, 8, "face", Value::symbol("inverse-test"));
 
     let mut nc = buf.point_max_char();
     let resolved = resolver.face_at_pos(&buf, 0, &mut nc);
@@ -922,8 +947,8 @@ fn test_face_resolver_multibyte_text_property_uses_byte_offsets() {
     buf.text.insert_str(0, "a好b");
     buf.zv = buf.text.len();
     buf.zv_char = buf.text.char_count();
-    buf.text_props
-        .put_property(4, 5, "face", Value::symbol("bold"));
+    buf.text
+        .text_props_put_property(4, 5, "face", Value::symbol("bold"));
 
     let mut next_check = buf.point_max_char();
     let resolved = resolver.face_at_pos(&buf, 2, &mut next_check);
@@ -934,23 +959,29 @@ fn test_face_resolver_multibyte_text_property_uses_byte_offsets() {
 
 #[test]
 fn test_face_resolver_multibyte_overlay_uses_byte_offsets() {
-    let _evaluator = neovm_core::emacs_core::Context::new();
+    let mut evaluator = neovm_core::emacs_core::Context::new();
 
     let table = FaceTable::new();
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf = neovm_core::buffer::Buffer::new(
-        neovm_core::buffer::BufferId(8),
-        "*utf8-overlay*".to_string(),
+    {
+        let buf = evaluator
+            .buffer_manager_mut()
+            .current_buffer_mut()
+            .expect("current buffer");
+        buf.insert("a好b");
+    }
+    let _ = eval_lisp(
+        &mut evaluator,
+        "(let ((ov (make-overlay 3 4))) (overlay-put ov 'face 'bold) ov)",
     );
-    buf.text.insert_str(0, "a好b");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
-    let oid = buf.overlays.make_overlay(4, 5);
-    buf.overlays.overlay_put(oid, "face", Value::symbol("bold"));
 
+    let buf = evaluator
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer");
     let mut next_check = buf.point_max_char();
-    let resolved = resolver.face_at_pos(&buf, 2, &mut next_check);
+    let resolved = resolver.face_at_pos(buf, 2, &mut next_check);
 
     assert_eq!(resolved.font_weight, FontWeight::BOLD.0);
     assert_eq!(next_check, 3);

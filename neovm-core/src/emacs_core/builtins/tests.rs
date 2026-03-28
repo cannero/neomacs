@@ -1941,11 +1941,11 @@ fn insert_copies_string_text_properties_into_buffer() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "xy");
     assert_eq!(
-        buf.text_props.get_property(0, "face"),
+        buf.text.text_props_get_property(0, "face"),
         Some(Value::symbol("bold"))
     );
     assert_eq!(
-        buf.text_props.get_property(1, "face"),
+        buf.text.text_props_get_property(1, "face"),
         Some(Value::symbol("bold"))
     );
 }
@@ -1956,8 +1956,8 @@ fn insert_and_inherit_copies_previous_text_properties() {
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("ab");
-        buf.text_props
-            .put_property(1, 2, "face", Value::symbol("bold"));
+        buf.text
+            .text_props_put_property(1, 2, "face", Value::symbol("bold"));
     }
 
     assert_eq!(
@@ -1968,7 +1968,7 @@ fn insert_and_inherit_copies_previous_text_properties() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abX");
     assert_eq!(
-        buf.text_props.get_property(2, "face"),
+        buf.text.text_props_get_property(2, "face"),
         Some(Value::symbol("bold"))
     );
 }
@@ -1979,8 +1979,8 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("ab");
-        buf.text_props
-            .put_property(1, 2, "face", Value::symbol("bold"));
+        buf.text
+            .text_props_put_property(1, 2, "face", Value::symbol("bold"));
     }
 
     assert_eq!(
@@ -1995,7 +1995,7 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abX");
     assert_eq!(
-        buf.text_props.get_property(2, "face"),
+        buf.text.text_props_get_property(2, "face"),
         Some(Value::symbol("bold"))
     );
 }
@@ -2030,11 +2030,11 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "aX");
     assert_eq!(
-        buf.text_props.get_property(1, "face"),
+        buf.text.text_props_get_property(1, "face"),
         Some(Value::symbol("bold"))
     );
     assert_eq!(
-        buf.text_props.get_property(1, "mouse-face"),
+        buf.text.text_props_get_property(1, "mouse-face"),
         Some(Value::symbol("highlight"))
     );
 }
@@ -2636,8 +2636,8 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     }
 
     if let Some(buf) = eval.buffers.current_buffer_mut() {
-        buf.text_props
-            .put_property(1, 2, "inhibit-read-only", Value::True);
+        buf.text
+            .text_props_put_property(1, 2, "inhibit-read-only", Value::True);
     }
     assert_eq!(
         builtin_barf_if_buffer_read_only(&mut eval, vec![Value::Int(2)]).unwrap(),

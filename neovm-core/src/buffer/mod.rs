@@ -14,7 +14,7 @@ pub use buffer::{
 pub use buffer_text::BufferText;
 pub use locals::BufferLocals;
 pub use overlay::{Overlay, OverlayList};
-pub use shared::{BufferTextProperties, SharedUndoState};
+pub use shared::SharedUndoState;
 pub use text_props::TextPropertyTable;
 pub use undo::{
     undo_list_boundary, undo_list_contains_boundary, undo_list_has_trailing_boundary,

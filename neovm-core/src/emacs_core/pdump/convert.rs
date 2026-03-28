@@ -7,7 +7,7 @@ use super::types::*;
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType, MarkerEntry};
 use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
-use crate::buffer::shared::{BufferTextProperties, SharedUndoState};
+use crate::buffer::shared::SharedUndoState;
 use crate::buffer::text_props::{PropertyInterval, TextPropertyTable};
 // Undo state is now stored directly as a Lisp Value in buffer-local properties.
 use crate::emacs_core::abbrev::{Abbrev, AbbrevManager, AbbrevTable};
@@ -579,7 +579,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
             .collect(),
         local_binding_names: buf.ordered_buffer_local_names(),
         local_map: dump_value(&buf.local_map()),
-        text_props: dump_text_property_table(&buf.text_props.snapshot()),
+        text_props: dump_text_property_table(&buf.text.text_props_snapshot()),
         overlays: dump_overlay_list(&buf.overlays),
         syntax_table: dump_syntax_table(&buf.syntax_table),
         undo_list: None,
@@ -1862,6 +1862,15 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
     let autosave_modified_tick = db.autosave_modified_tick.unwrap_or(save_modified_tick);
     let last_window_start = db.last_window_start.unwrap_or(1).max(1);
 
+    let text_props = TextPropertyTable::from_dump(
+        db.text_props
+            .intervals
+            .iter()
+            .map(load_property_interval)
+            .collect(),
+    );
+    text.text_props_replace(text_props);
+
     Buffer {
         id: BufferId(db.id.0),
         name: db.name.clone(),
@@ -1898,13 +1907,6 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             _ => None,
         },
         locals,
-        text_props: BufferTextProperties::from_table(TextPropertyTable::from_dump(
-            db.text_props
-                .intervals
-                .iter()
-                .map(load_property_interval)
-                .collect(),
-        )),
         overlays: OverlayList::from_dump(db.overlays.overlays.iter().map(load_obj_id).collect()),
         syntax_table: load_syntax_table(&db.syntax_table),
         undo_state: SharedUndoState::from_parts(undo_list, false, false),

@@ -376,7 +376,7 @@ pub(crate) fn builtin_get_text_property_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
-    match buf.text_props.get_property(byte_pos, &prop) {
+    match buf.text.text_props_get_property(byte_pos, &prop) {
         Some(v) => Ok(v),
         None => Ok(Value::Nil),
     }
@@ -436,7 +436,7 @@ pub(crate) fn builtin_get_char_property_in_buffers(
         return Ok(value);
     }
 
-    match buf.text_props.get_property(byte_pos, &prop) {
+    match buf.text.text_props_get_property(byte_pos, &prop) {
         Some(value) => Ok(value),
         None => Ok(Value::Nil),
     }
@@ -566,7 +566,7 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let existing = buf.text_props.get_property(byte_beg, "face");
+    let existing = buf.text.text_props_get_property(byte_beg, "face");
     let merged = merge_face_property(existing, new_face, append);
     let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, "face", merged);
     Ok(Value::Nil)
@@ -726,11 +726,11 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
             let Some(buf) = buffers.get(buf_id) else {
                 break;
             };
-            if buf.text_props.get_property(cursor, &name).is_some() {
+            if buf.text.text_props_get_property(cursor, &name).is_some() {
                 changed = true;
                 break;
             }
-            match buf.text_props.next_property_change(cursor) {
+            match buf.text.text_props_next_change(cursor) {
                 Some(next) if next > cursor && next < byte_end => cursor = next,
                 _ => break,
             }
@@ -772,7 +772,7 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
-    let props = buf.text_props.get_properties_ordered(byte_pos);
+    let props = buf.text.text_props_get_properties_ordered(byte_pos);
     Ok(ordered_pairs_to_plist(&props))
 }
 
@@ -856,12 +856,12 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
         _ => (None, None),
     };
 
-    let current_val = buf.text_props.get_property(byte_pos, &prop);
+    let current_val = buf.text.text_props_get_property(byte_pos, &prop);
     let buf_end = buf.point_max();
     let mut cursor = byte_pos;
 
     loop {
-        match buf.text_props.next_property_change(cursor) {
+        match buf.text.text_props_next_change(cursor) {
             Some(next) => {
                 if let Some(lim) = byte_limit {
                     if next >= lim {
@@ -874,7 +874,7 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
                 if next >= buf_end {
                     break;
                 }
-                let new_val = buf.text_props.get_property(next, &prop);
+                let new_val = buf.text.text_props_get_property(next, &prop);
                 let changed = match (&current_val, &new_val) {
                     (None, None) => false,
                     (Some(a), Some(b)) => !equal_value(a, b, 0),
@@ -977,11 +977,11 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
     };
 
     let ref_byte = if byte_pos > 0 { byte_pos - 1 } else { 0 };
-    let current_val = buf.text_props.get_property(ref_byte, &prop);
+    let current_val = buf.text.text_props_get_property(ref_byte, &prop);
     let mut cursor = byte_pos;
 
     loop {
-        match buf.text_props.previous_property_change(cursor) {
+        match buf.text.text_props_previous_change(cursor) {
             Some(prev) => {
                 if let Some(lim) = byte_limit {
                     if prev <= lim {
@@ -992,7 +992,7 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
                     }
                 }
                 let check = if prev > 0 { prev - 1 } else { 0 };
-                let new_val = buf.text_props.get_property(check, &prop);
+                let new_val = buf.text.text_props_get_property(check, &prop);
                 let changed = match (&current_val, &new_val) {
                     (None, None) => false,
                     (Some(a), Some(b)) => !equal_value(a, b, 0),
@@ -1090,7 +1090,7 @@ pub(crate) fn builtin_next_property_change_in_buffers(
     };
     let buf_end = buf.point_max();
 
-    match buf.text_props.next_property_change(byte_pos) {
+    match buf.text.text_props_next_change(byte_pos) {
         Some(next) => {
             if let Some(lim) = byte_limit {
                 if next >= lim {
@@ -1166,12 +1166,12 @@ pub(crate) fn builtin_text_property_any_in_buffers(
 
     let mut cursor = byte_beg;
     while cursor < byte_end {
-        if let Some(found) = buf.text_props.get_property(cursor, &prop) {
+        if let Some(found) = buf.text.text_props_get_property(cursor, &prop) {
             if equal_value(&found, val, 0) {
                 return Ok(Value::Int(byte_to_elisp_pos(buf, cursor)));
             }
         }
-        match buf.text_props.next_property_change(cursor) {
+        match buf.text.text_props_next_change(cursor) {
             Some(next) if next <= byte_end => {
                 cursor = next;
             }
@@ -1233,7 +1233,7 @@ pub(crate) fn builtin_text_property_not_all_in_buffers(
     let mut cursor = byte_beg;
 
     while cursor < byte_end {
-        let matches = match buf.text_props.get_property(cursor, &prop) {
+        let matches = match buf.text.text_props_get_property(cursor, &prop) {
             Some(found) => equal_value(&found, val, 0),
             None => val.is_nil(),
         };
@@ -1241,7 +1241,7 @@ pub(crate) fn builtin_text_property_not_all_in_buffers(
             return Ok(Value::Int(byte_to_elisp_pos(buf, cursor)));
         }
 
-        match buf.text_props.next_property_change(cursor) {
+        match buf.text.text_props_next_change(cursor) {
             Some(next) if next > cursor && next < byte_end => cursor = next,
             _ => break,
         }

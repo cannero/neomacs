@@ -794,7 +794,10 @@ impl<'a> RustTextPropAccess<'a> {
     /// If no change is found, returns `buffer.zv` as the next boundary.
     pub fn check_invisible(&self, charpos: i64) -> (bool, i64) {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
-        let invis = self.buffer.text_props.get_property(bytepos, "invisible");
+        let invis = self
+            .buffer
+            .text
+            .text_props_get_property(bytepos, "invisible");
 
         let is_invisible = match invis {
             Some(Value::Nil) | None => false,
@@ -804,8 +807,8 @@ impl<'a> RustTextPropAccess<'a> {
         // Find the next position where the invisible property changes
         let next_change = self
             .buffer
-            .text_props
-            .next_property_change(bytepos)
+            .text
+            .text_props_next_change(bytepos)
             .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
             .unwrap_or(self.buffer.point_max_char());
 
@@ -818,12 +821,12 @@ impl<'a> RustTextPropAccess<'a> {
     /// next position where display properties change.
     pub fn check_display_prop(&self, charpos: i64) -> (Option<Value>, i64) {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
-        let display = self.buffer.text_props.get_property(bytepos, "display");
+        let display = self.buffer.text.text_props_get_property(bytepos, "display");
 
         let next_change = self
             .buffer
-            .text_props
-            .next_property_change(bytepos)
+            .text
+            .text_props_next_change(bytepos)
             .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
             .unwrap_or(self.buffer.point_max_char());
 
@@ -835,7 +838,11 @@ impl<'a> RustTextPropAccess<'a> {
     /// Returns extra line spacing in pixels (0.0 if no property).
     pub fn check_line_spacing(&self, charpos: i64, base_height: f32) -> f32 {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
-        match self.buffer.text_props.get_property(bytepos, "line-spacing") {
+        match self
+            .buffer
+            .text
+            .text_props_get_property(bytepos, "line-spacing")
+        {
             Some(Value::Int(n)) => n as f32,
             Some(Value::Float(f, _)) => {
                 if f < 1.0 {
@@ -934,8 +941,8 @@ impl<'a> RustTextPropAccess<'a> {
     pub fn next_property_change(&self, charpos: i64) -> i64 {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         self.buffer
-            .text_props
-            .next_property_change(bytepos)
+            .text
+            .text_props_next_change(bytepos)
             .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
             .unwrap_or(self.buffer.point_max_char()) as i64
     }
@@ -943,7 +950,7 @@ impl<'a> RustTextPropAccess<'a> {
     /// Get a specific text property at a position.
     pub fn get_property(&self, charpos: i64, name: &str) -> Option<Value> {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
-        self.buffer.text_props.get_property(bytepos, name)
+        self.buffer.text.text_props_get_property(bytepos, name)
     }
 
     /// Get a text property at `charpos` as a string.
@@ -1456,7 +1463,7 @@ impl FaceResolver {
         let mut remap_stack = Vec::new();
 
         // 1. "face" text property
-        if let Some(val) = buffer.text_props.get_property(bytepos, "face") {
+        if let Some(val) = buffer.text.text_props_get_property(bytepos, "face") {
             if let Some(next) =
                 self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
             {
@@ -1464,12 +1471,15 @@ impl FaceResolver {
             }
         }
         // Update next_check from text property boundaries
-        if let Some(nc) = buffer.text_props.next_property_change(bytepos) {
+        if let Some(nc) = buffer.text.text_props_next_change(bytepos) {
             min_next = min_next.min(buffer_bytepos_to_charpos(buffer, nc));
         }
 
         // 2. "font-lock-face" text property
-        if let Some(val) = buffer.text_props.get_property(bytepos, "font-lock-face") {
+        if let Some(val) = buffer
+            .text
+            .text_props_get_property(bytepos, "font-lock-face")
+        {
             if let Some(next) =
                 self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
             {

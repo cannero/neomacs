@@ -200,11 +200,11 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
     };
 
     let ref_byte = if byte_pos > 0 { byte_pos - 1 } else { 0 };
-    let current_props = buf.text_props.get_properties(ref_byte);
+    let current_props = buf.text.text_props_get_properties(ref_byte);
     let mut cursor = byte_pos;
 
     loop {
-        match buf.text_props.previous_property_change(cursor) {
+        match buf.text.text_props_previous_change(cursor) {
             Some(prev) => {
                 if let (Some(lim_byte), Some(lv)) = (byte_limit, limit_val) {
                     if prev <= lim_byte {
@@ -213,7 +213,7 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
                 }
 
                 let check = if prev > 0 { prev - 1 } else { 0 };
-                let new_props = buf.text_props.get_properties(check);
+                let new_props = buf.text.text_props_get_properties(check);
                 if new_props != current_props {
                     return Ok(Value::Int(buf.text.byte_to_char(prev) as i64 + 1));
                 }
@@ -597,8 +597,8 @@ fn text_property_stickiness_in_state(
 
 fn text_property_value_at_char_pos(buf: &crate::buffer::Buffer, pos: i64, prop: &str) -> Value {
     let byte_pos = buf.lisp_pos_to_byte(pos);
-    buf.text_props
-        .get_property(byte_pos, prop)
+    buf.text
+        .text_props_get_property(byte_pos, prop)
         .unwrap_or(Value::Nil)
 }
 
@@ -708,8 +708,8 @@ pub(crate) fn builtin_barf_if_buffer_read_only_impl(
     }
     let prop_byte = buf.lisp_pos_to_accessible_byte(pos);
     if buf
-        .text_props
-        .get_property(prop_byte, "inhibit-read-only")
+        .text
+        .text_props_get_property(prop_byte, "inhibit-read-only")
         .is_some_and(|value| value.is_truthy())
     {
         return Ok(Value::Nil);

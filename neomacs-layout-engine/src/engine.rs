@@ -9924,8 +9924,8 @@ mod tests {
                 Value::keyword("weight"),
                 Value::symbol("extra-bold"),
             ]);
-            buf.text_props
-                .put_property(0, buf.text.len(), "face", plist);
+            buf.text
+                .text_props_put_property(0, buf.text.len(), "face", plist);
             buf.goto_byte(0);
         }
         let frame_id =
@@ -10106,8 +10106,8 @@ mod tests {
                 Value::keyword("weight"),
                 Value::symbol("normal"),
             ]);
-            buf.text_props
-                .put_property(sample_byte_start, sample_byte_end, "face", plist);
+            buf.text
+                .text_props_put_property(sample_byte_start, sample_byte_end, "face", plist);
             buf.goto_byte(0);
         }
 
@@ -10236,8 +10236,8 @@ mod tests {
                 Value::keyword("weight"),
                 Value::symbol("normal"),
             ]);
-            buf.text_props
-                .put_property(sample_byte_start, sample_byte_end, "face", plist);
+            buf.text
+                .text_props_put_property(sample_byte_start, sample_byte_end, "face", plist);
             buf.goto_byte(0);
             buf.set_buffer_local("truncate-lines", Value::True);
         }
@@ -10394,8 +10394,12 @@ mod tests {
                         Value::keyword("weight"),
                         Value::symbol(weight_name),
                     ]);
-                    buf.text_props
-                        .put_property(sample_byte_start, sample_byte_end, "face", plist);
+                    buf.text.text_props_put_property(
+                        sample_byte_start,
+                        sample_byte_end,
+                        "face",
+                        plist,
+                    );
                     targets.push(TargetRow {
                         line_beg,
                         sample_pos,
@@ -10621,7 +10625,7 @@ mod tests {
                             Value::keyword("weight"),
                             Value::symbol(weight_name),
                         ]);
-                        buf.text_props.put_property(
+                        buf.text.text_props_put_property(
                             sample_byte_start,
                             sample_byte_end,
                             "face",

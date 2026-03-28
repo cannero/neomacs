@@ -500,7 +500,9 @@ fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
     buffer.insert("a好b");
     let start = buffer.text.char_to_byte(1);
     let end = buffer.text.char_to_byte(2);
-    buffer.text_props.put_property(start, end, "face", face);
+    buffer
+        .text
+        .text_props_put_property(start, end, "face", face);
 
     let font = builtin_font_at(&mut eval, vec![Value::Int(2)]).unwrap();
     assert!(
@@ -578,8 +580,8 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
     let start = buffer.text.char_to_byte(0);
     let end = buffer.text.char_to_byte(3);
     buffer
-        .text_props
-        .put_property(start, end, "face", inline_face);
+        .text
+        .text_props_put_property(start, end, "face", inline_face);
 
     let font = builtin_font_at(&mut eval, vec![Value::Int(1)]).unwrap();
     assert!(
@@ -628,8 +630,8 @@ fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
     let start = buffer.text.char_to_byte(0);
     let end = buffer.text.char_to_byte(2);
     buffer
-        .text_props
-        .put_property(start, end, "face", inline_face);
+        .text
+        .text_props_put_property(start, end, "face", inline_face);
 
     let _ = builtin_font_at(&mut eval, vec![Value::Int(1)]).unwrap();
 
@@ -677,8 +679,8 @@ fn font_at_eval_prefers_backend_selected_font_match_when_available() {
     let start = buffer.text.char_to_byte(1);
     let end = buffer.text.char_to_byte(2);
     buffer
-        .text_props
-        .put_property(start, end, "face", inline_face);
+        .text
+        .text_props_put_property(start, end, "face", inline_face);
 
     let font = builtin_font_at(&mut eval, vec![Value::Int(2)]).unwrap();
     assert_eq!(

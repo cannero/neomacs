@@ -575,9 +575,9 @@ pub(crate) fn builtin_buffer_substring(
     };
     let result = Value::string(buf.buffer_substring(byte_lo, byte_hi));
     // Copy buffer text properties to the result string
-    if !buf.text_props.is_empty() {
+    if !buf.text.text_props_is_empty() {
         if let Value::Str(new_id) = &result {
-            let sliced = buf.text_props.slice(byte_lo, byte_hi);
+            let sliced = buf.text.text_props_slice(byte_lo, byte_hi);
             if !sliced.is_empty() {
                 set_string_text_properties_table(*new_id, sliced);
             }
@@ -598,10 +598,10 @@ pub(crate) fn builtin_buffer_string(
     let byte_start = buf.point_min();
     let byte_end = buf.point_max();
     let result = Value::string(buf.buffer_string());
-    if !buf.text_props.is_empty()
+    if !buf.text.text_props_is_empty()
         && let Value::Str(new_id) = &result
     {
-        let sliced = buf.text_props.slice(byte_start, byte_end);
+        let sliced = buf.text.text_props_slice(byte_start, byte_end);
         if !sliced.is_empty() {
             set_string_text_properties_table(*new_id, sliced);
         }
@@ -800,10 +800,10 @@ fn checked_buffer_substring_for_char_region_in_manager(
     let from_byte = buf.lisp_pos_to_accessible_byte(from);
     let to_byte = buf.lisp_pos_to_accessible_byte(to);
     let result = Value::string(buf.buffer_substring(from_byte, to_byte));
-    if !buf.text_props.is_empty()
+    if !buf.text.text_props_is_empty()
         && let Value::Str(new_id) = &result
     {
-        let sliced = buf.text_props.slice(from_byte, to_byte);
+        let sliced = buf.text.text_props_slice(from_byte, to_byte);
         if !sliced.is_empty() {
             set_string_text_properties_table(*new_id, sliced);
         }
@@ -2176,7 +2176,7 @@ fn apply_inherited_text_properties(
 
     let props = buffers
         .get(current_id)
-        .map(|buf| buf.text_props.get_properties(old_pt - 1))
+        .map(|buf| buf.text.text_props_get_properties(old_pt - 1))
         .unwrap_or_default();
     if props.is_empty() {
         return;

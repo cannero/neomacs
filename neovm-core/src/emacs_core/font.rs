@@ -1016,10 +1016,13 @@ fn resolved_face_at_buffer_byte(
 ) -> RuntimeFace {
     let mut layers = Vec::new();
 
-    if let Some(value) = buffer.text_props.get_property(bytepos, "face") {
+    if let Some(value) = buffer.text.text_props_get_property(bytepos, "face") {
         layers.extend(resolve_face_layers_from_value(&value));
     }
-    if let Some(value) = buffer.text_props.get_property(bytepos, "font-lock-face") {
+    if let Some(value) = buffer
+        .text
+        .text_props_get_property(bytepos, "font-lock-face")
+    {
         layers.extend(resolve_face_layers_from_value(&value));
     }
 

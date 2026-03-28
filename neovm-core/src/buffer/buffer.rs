@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use super::buffer_text::BufferText;
 use super::locals::BufferLocals;
 use super::overlay::OverlayList;
-use super::shared::{BufferTextProperties, SharedUndoState};
+use super::shared::SharedUndoState;
 use super::text_props::TextPropertyTable;
 use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
@@ -166,9 +166,6 @@ pub struct Buffer {
     /// Buffer-local state, split between builtin slot-backed locals and
     /// ordinary Lisp locals.
     pub locals: BufferLocals,
-    /// Text properties attached to ranges of text. GNU stores these on the
-    /// shared buffer text object; indirect buffers share this owner.
-    pub text_props: BufferTextProperties,
     /// Overlays attached to the buffer.
     pub overlays: OverlayList,
     /// Syntax table for character classification.
@@ -209,7 +206,6 @@ impl Buffer {
             markers: Vec::new(),
             state_markers: None,
             locals: BufferLocals::new(),
-            text_props: BufferTextProperties::new(),
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
             undo_state: SharedUndoState::new(),
@@ -382,7 +378,7 @@ impl Buffer {
             "insert-side-effect char position drifted from the source edit site"
         );
         if adjust_shared_text_props {
-            self.text_props.adjust_for_insert(insert_pos, byte_len);
+            self.text.adjust_text_props_for_insert(insert_pos, byte_len);
         }
         self.overlays.adjust_for_insert(insert_pos, byte_len);
         self.modified_tick += 1;
@@ -455,7 +451,7 @@ impl Buffer {
         }
 
         if adjust_shared_text_props {
-            self.text_props.adjust_for_delete(start, end);
+            self.text.adjust_text_props_for_delete(start, end);
         }
         self.overlays.adjust_for_delete(start, end);
         self.modified_tick += 1;
@@ -1022,7 +1018,6 @@ impl BufferManager {
 
         indirect.base_buffer = Some(root_id);
         indirect.text = shared_text;
-        indirect.text_props = root.text_props.clone();
         indirect.undo_state = root.undo_state.clone();
         indirect.narrow_to_byte_region(root.begv, root.zv);
         indirect.goto_byte(root.pt);
@@ -1685,8 +1680,8 @@ impl BufferManager {
         Some(
             self.buffers
                 .get_mut(&id)?
-                .text_props
-                .put_property(start, end, name, value),
+                .text
+                .text_props_put_property(start, end, name, value),
         )
     }
 
@@ -1698,8 +1693,8 @@ impl BufferManager {
     ) -> Option<()> {
         self.buffers
             .get_mut(&id)?
-            .text_props
-            .append_shifted(table, byte_offset);
+            .text
+            .text_props_append_shifted(table, byte_offset);
         Some(())
     }
 
@@ -1713,8 +1708,8 @@ impl BufferManager {
         Some(
             self.buffers
                 .get_mut(&id)?
-                .text_props
-                .remove_property(start, end, name),
+                .text
+                .text_props_remove_property(start, end, name),
         )
     }
 
@@ -1726,8 +1721,8 @@ impl BufferManager {
     ) -> Option<()> {
         self.buffers
             .get_mut(&id)?
-            .text_props
-            .remove_all_properties(start, end);
+            .text
+            .text_props_remove_all(start, end);
         Some(())
     }
 
@@ -2266,7 +2261,6 @@ impl BufferManager {
                 continue;
             };
             buffer.text = root.text.shared_clone();
-            buffer.text_props = root.text_props.clone();
             buffer.undo_state = root.undo_state.clone();
         }
 
@@ -2300,7 +2294,7 @@ impl GcTrace for BufferManager {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for buffer in self.buffers.values() {
             buffer.locals.trace_roots(roots);
-            buffer.text_props.trace_roots(roots);
+            buffer.text.trace_text_prop_roots(roots);
             buffer.undo_state.trace_roots(roots);
             buffer.overlays.trace_roots(roots);
         }
@@ -2446,8 +2440,9 @@ mod tests {
         let independent_indirect = dumped.get(&indirect_id).expect("indirect buffer").clone();
         let indirect = dumped.get_mut(&indirect_id).expect("indirect buffer");
         indirect.text = BufferText::from_dump(independent_indirect.text.dump_text());
-        indirect.text_props =
-            BufferTextProperties::from_table(independent_indirect.text_props.snapshot());
+        indirect
+            .text
+            .text_props_replace(independent_indirect.text.text_props_snapshot());
         indirect.undo_state =
             SharedUndoState::from_parts(independent_indirect.get_undo_list(), false, false);
 
@@ -2461,10 +2456,9 @@ mod tests {
         let base = restored.get(base_id).expect("base buffer");
         let indirect = restored.get(indirect_id).expect("indirect buffer");
         assert!(base.text.shares_storage_with(&indirect.text));
-        assert!(base.text_props.shares_with(&indirect.text_props));
         assert!(base.undo_state.shares_with(&indirect.undo_state));
         assert_eq!(
-            indirect.text_props.get_property(1, "face"),
+            indirect.text.text_props_get_property(1, "face"),
             Some(Value::symbol("bold"))
         );
     }
