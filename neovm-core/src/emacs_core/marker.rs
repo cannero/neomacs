@@ -211,7 +211,7 @@ pub(crate) fn marker_position_as_int_with_buffers(
     if let Some(mid) = marker_id_value(v) {
         if let Some(buf_id) = marker_buffer_id(v)
             && let Some(buf) = buffers.get(buf_id)
-            && let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid)
+            && let Some(marker_entry) = buf.marker_entry(mid)
         {
             return Ok(marker_entry.char_pos as i64 + 1);
         }
@@ -288,7 +288,7 @@ pub(crate) fn builtin_marker_position_in_buffers(
     if let Some(mid) = marker_id_value(&args[0]) {
         if let Some(buf_id) = marker_buffer_id(&args[0])
             && let Some(buf) = buffers.get(buf_id)
-            && let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid)
+            && let Some(marker_entry) = buf.marker_entry(mid)
         {
             return Ok(Value::Int(marker_entry.char_pos as i64 + 1));
         }
@@ -403,8 +403,8 @@ pub(crate) fn builtin_copy_marker_in_buffers(
             } else if let Some(mid) = marker_id_value(v) {
                 buffer_id
                     .and_then(|buf_id| buffers.get(buf_id))
-                    .and_then(|buf| buf.markers.iter().find(|m| m.id == mid))
-                    .map(|m| m.char_pos as i64 + 1)
+                    .and_then(|buf| buf.marker_entry(mid))
+                    .map(|marker| marker.char_pos as i64 + 1)
             } else {
                 match marker_position_value(v) {
                     Value::Int(n) => Some(n),

@@ -442,6 +442,7 @@ fn dump_insertion_type(it: &InsertionType) -> DumpInsertionType {
 fn dump_marker(m: &MarkerEntry) -> DumpMarkerEntry {
     DumpMarkerEntry {
         id: m.id,
+        buffer_id: m.buffer_id.0,
         byte_pos: m.byte_pos,
         char_pos: Some(m.char_pos),
         insertion_type: dump_insertion_type(&m.insertion_type),
@@ -543,6 +544,7 @@ fn dump_syntax_table(st: &SyntaxTable) -> DumpSyntaxTable {
 // buffer-local Lisp Value serialized through the properties map.
 
 fn dump_buffer(buf: &Buffer) -> DumpBuffer {
+    let is_shared_text_owner = buf.base_buffer.is_none();
     DumpBuffer {
         id: DumpBufferId(buf.id.0),
         name: buf.name.clone(),
@@ -568,7 +570,15 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         multibyte: buf.multibyte,
         file_name: buf.file_name.clone(),
         auto_save_file_name: buf.auto_save_file_name.clone(),
-        markers: buf.markers.iter().map(dump_marker).collect(),
+        markers: if is_shared_text_owner {
+            buf.text
+                .marker_entries_snapshot()
+                .iter()
+                .map(dump_marker)
+                .collect()
+        } else {
+            Vec::new()
+        },
         state_pt_marker: buf.state_markers.map(|markers| markers.pt_marker),
         state_begv_marker: buf.state_markers.map(|markers| markers.begv_marker),
         state_zv_marker: buf.state_markers.map(|markers| markers.zv_marker),
@@ -579,7 +589,11 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
             .collect(),
         local_binding_names: buf.ordered_buffer_local_names(),
         local_map: dump_value(&buf.local_map()),
-        text_props: dump_text_property_table(&buf.text.text_props_snapshot()),
+        text_props: if is_shared_text_owner {
+            dump_text_property_table(&buf.text.text_props_snapshot())
+        } else {
+            dump_text_property_table(&TextPropertyTable::new())
+        },
         overlays: dump_overlay_list(&buf.overlays),
         syntax_table: dump_syntax_table(&buf.syntax_table),
         undo_list: None,
@@ -1740,6 +1754,7 @@ fn load_insertion_type(it: &DumpInsertionType) -> InsertionType {
 fn load_marker(m: &DumpMarkerEntry, text: &BufferText) -> MarkerEntry {
     MarkerEntry {
         id: m.id,
+        buffer_id: BufferId(m.buffer_id),
         byte_pos: m.byte_pos,
         char_pos: m.char_pos.unwrap_or_else(|| text.byte_to_char(m.byte_pos)),
         insertion_type: load_insertion_type(&m.insertion_type),
@@ -1834,11 +1849,15 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         })),
         None => None,
     };
-    let markers = db
-        .markers
-        .iter()
-        .map(|marker| load_marker(marker, &text))
-        .collect();
+    for marker in db.markers.iter().map(|marker| load_marker(marker, &text)) {
+        text.register_marker(
+            marker.buffer_id,
+            marker.id,
+            marker.byte_pos,
+            marker.char_pos,
+            marker.insertion_type,
+        );
+    }
     let locals = crate::buffer::BufferLocals::from_dump(
         db.properties
             .iter()
@@ -1895,7 +1914,6 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         multibyte: db.multibyte,
         file_name: db.file_name.clone(),
         auto_save_file_name: db.auto_save_file_name.clone(),
-        markers,
         state_markers: match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
             (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {
                 Some(crate::buffer::buffer::BufferStateMarkers {

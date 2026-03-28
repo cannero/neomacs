@@ -389,6 +389,7 @@ pub enum DumpInsertionType {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpMarkerEntry {
     pub id: u64,
+    pub buffer_id: u64,
     pub byte_pos: usize,
     #[serde(default)]
     pub char_pos: Option<usize>,

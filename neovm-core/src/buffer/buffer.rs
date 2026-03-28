@@ -48,6 +48,7 @@ pub enum InsertionType {
 #[derive(Clone, Debug)]
 pub struct MarkerEntry {
     pub id: u64,
+    pub buffer_id: BufferId,
     pub byte_pos: usize,
     pub char_pos: usize,
     pub insertion_type: InsertionType,
@@ -159,8 +160,6 @@ pub struct Buffer {
     pub file_name: Option<String>,
     /// Associated auto-save file path, if any.
     pub auto_save_file_name: Option<String>,
-    /// Active markers that track positions across edits.
-    pub markers: Vec<MarkerEntry>,
     /// GNU-style noncurrent PT/BEGV/ZV markers for buffers that share text.
     pub state_markers: Option<BufferStateMarkers>,
     /// Buffer-local state, split between builtin slot-backed locals and
@@ -203,7 +202,6 @@ impl Buffer {
             multibyte: true,
             file_name: None,
             auto_save_file_name: None,
-            markers: Vec::new(),
             state_markers: None,
             locals: BufferLocals::new(),
             overlays: OverlayList::new(),
@@ -362,16 +360,8 @@ impl Buffer {
             self.mark = Some(mark + byte_len);
             self.mark_char = self.mark_char.map(|mark_char| mark_char + char_len);
         }
-        for marker in &mut self.markers {
-            if marker.byte_pos > insert_pos {
-                marker.byte_pos += byte_len;
-                marker.char_pos += char_len;
-            } else if marker.byte_pos == insert_pos && marker.insertion_type == InsertionType::After
-            {
-                marker.byte_pos += byte_len;
-                marker.char_pos += char_len;
-            }
-        }
+        self.text
+            .adjust_markers_for_insert(insert_pos, byte_len, char_len);
         debug_assert_eq!(
             self.text.byte_to_char(insert_pos),
             insert_char_pos,
@@ -440,15 +430,8 @@ impl Buffer {
             }
         }
 
-        for marker in &mut self.markers {
-            if marker.byte_pos >= end {
-                marker.byte_pos -= byte_len;
-                marker.char_pos -= char_len;
-            } else if marker.byte_pos > start {
-                marker.byte_pos = start;
-                marker.char_pos = start_char;
-            }
-        }
+        self.text
+            .adjust_markers_for_delete(start, end, start_char, end_char);
 
         if adjust_shared_text_props {
             self.text.adjust_text_props_for_delete(start, end);
@@ -687,6 +670,40 @@ impl Buffer {
     /// Remove narrowing — make the entire buffer accessible again.
     pub fn widen(&mut self) {
         self.narrow_to_byte_region(0, self.text.len());
+    }
+
+    pub fn register_marker(&mut self, marker_id: u64, pos: usize, insertion_type: InsertionType) {
+        let clamped = pos.min(self.text.len());
+        let char_pos = if clamped == self.begv {
+            self.begv_char
+        } else if clamped == self.zv {
+            self.zv_char
+        } else {
+            self.text.byte_to_char(clamped)
+        };
+        self.text
+            .register_marker(self.id, marker_id, clamped, char_pos, insertion_type);
+    }
+
+    pub fn marker_entry(&self, marker_id: u64) -> Option<MarkerEntry> {
+        self.text.marker_entry(marker_id)
+    }
+
+    pub fn remove_marker_entry(&mut self, marker_id: u64) {
+        self.text.remove_marker(marker_id);
+    }
+
+    pub fn update_marker_insertion_type(&mut self, marker_id: u64, insertion_type: InsertionType) {
+        self.text
+            .update_marker_insertion_type(marker_id, insertion_type);
+    }
+
+    pub fn advance_markers_at(&mut self, pos: usize, byte_len: usize, char_len: usize) {
+        self.text.advance_markers_at(pos, byte_len, char_len);
+    }
+
+    pub fn clear_marker_entries(&mut self) {
+        self.text.clear_markers();
     }
 
     // -- Mark ----------------------------------------------------------------
@@ -1028,17 +1045,9 @@ impl BufferManager {
         indirect.save_modified_tick = root.save_modified_tick;
         indirect.autosave_modified_tick = root.autosave_modified_tick;
         indirect.file_name = None;
-        if let Some(state_markers) = indirect.state_markers.take() {
-            indirect.markers.retain(|marker| {
-                marker.id != state_markers.pt_marker
-                    && marker.id != state_markers.begv_marker
-                    && marker.id != state_markers.zv_marker
-            });
-        }
         if !clone {
             indirect.overlays = OverlayList::new();
             indirect.mark = None;
-            indirect.markers.clear();
         }
 
         self.buffers.insert(id, indirect);
@@ -1187,12 +1196,21 @@ impl BufferManager {
     pub fn kill_buffer_collect(&mut self, id: BufferId) -> Option<Vec<BufferId>> {
         let killed_ids = self.collect_killed_buffer_ids(id)?;
         let killed_set: HashSet<BufferId> = killed_ids.iter().copied().collect();
+        let kill_root = self.buffers.get(&id)?.base_buffer.is_none();
 
         for killed_id in &killed_ids {
             self.replace_labeled_restrictions(*killed_id, None);
         }
 
         with_heap_mut(|heap| heap.clear_markers_for_buffers(&killed_set));
+        if kill_root {
+            self.buffers.get(&id)?.text.clear_markers();
+        } else {
+            self.buffers
+                .get(&id)?
+                .text
+                .remove_markers_for_buffers(&killed_set);
+        }
 
         for killed_id in &killed_ids {
             let buf = self.buffers.remove(killed_id)?;
@@ -1288,7 +1306,7 @@ impl BufferManager {
     fn clone_marker_in_buffer(&mut self, buffer_id: BufferId, marker_id: u64) -> Option<u64> {
         let (pos, insertion_type) = {
             let buf = self.buffers.get(&buffer_id)?;
-            let marker = buf.markers.iter().find(|marker| marker.id == marker_id)?;
+            let marker = buf.marker_entry(marker_id)?;
             (marker.byte_pos, marker.insertion_type)
         };
         Some(self.create_marker(buffer_id, pos, insertion_type))
@@ -1536,12 +1554,7 @@ impl BufferManager {
         let old_pt = self.buffers.get(&id)?.pt;
         self.insert_into_buffer(id, text)?;
         let buf = self.buffers.get_mut(&id)?;
-        for marker in &mut buf.markers {
-            if marker.byte_pos == old_pt {
-                marker.byte_pos += byte_len;
-                marker.char_pos += text.chars().count();
-            }
-        }
+        buf.advance_markers_at(old_pt, byte_len, text.chars().count());
         Some(())
     }
 
@@ -2204,59 +2217,37 @@ impl BufferManager {
         insertion_type: InsertionType,
     ) -> Option<()> {
         let buf = self.buffers.get_mut(&buffer_id)?;
-        let clamped = pos.min(buf.text.len());
-        let char_pos = if clamped == buf.begv {
-            buf.begv_char
-        } else if clamped == buf.zv {
-            buf.zv_char
-        } else {
-            buf.text.byte_to_char(clamped)
-        };
-        buf.markers.retain(|marker| marker.id != marker_id);
-        buf.markers.push(MarkerEntry {
-            id: marker_id,
-            byte_pos: clamped,
-            char_pos,
-            insertion_type,
-        });
+        buf.register_marker(marker_id, pos, insertion_type);
         Some(())
     }
 
     /// Query the current byte position of a marker.
     pub fn marker_position(&self, buffer_id: BufferId, marker_id: u64) -> Option<usize> {
-        self.buffers.get(&buffer_id).and_then(|buf| {
-            buf.markers
-                .iter()
-                .find(|m| m.id == marker_id)
-                .map(|m| m.byte_pos)
-        })
+        self.buffers
+            .get(&buffer_id)
+            .and_then(|buf| buf.marker_entry(marker_id).map(|marker| marker.byte_pos))
     }
 
     /// Query the current character position of a marker.
     pub fn marker_char_position(&self, buffer_id: BufferId, marker_id: u64) -> Option<usize> {
-        self.buffers.get(&buffer_id).and_then(|buf| {
-            buf.markers
-                .iter()
-                .find(|m| m.id == marker_id)
-                .map(|m| m.char_pos)
-        })
+        self.buffers
+            .get(&buffer_id)
+            .and_then(|buf| buf.marker_entry(marker_id).map(|marker| marker.char_pos))
     }
 
     /// Remove a marker registration from any live buffer.
     pub fn remove_marker(&mut self, marker_id: u64) {
         for buf in self.buffers.values_mut() {
-            buf.markers.retain(|marker| marker.id != marker_id);
+            buf.remove_marker_entry(marker_id);
         }
     }
 
     /// Update the insertion type of a registered marker across all buffers.
     pub fn update_marker_insertion_type(&mut self, marker_id: u64, ins_type: InsertionType) {
         for buf in self.buffers.values_mut() {
-            for marker in &mut buf.markers {
-                if marker.id == marker_id {
-                    marker.insertion_type = ins_type;
-                    return;
-                }
+            if buf.marker_entry(marker_id).is_some() {
+                buf.update_marker_insertion_type(marker_id, ins_type);
+                return;
             }
         }
     }
@@ -2692,15 +2683,11 @@ mod tests {
     #[test]
     fn delete_region_moves_marker_at_end_to_start() {
         let mut buf = buf_with_text("0123456789ABCDEF");
-        buf.markers.push(MarkerEntry {
-            id: 1,
-            byte_pos: 12,
-            char_pos: 12,
-            insertion_type: InsertionType::Before,
-        });
+        buf.register_marker(1, 12, InsertionType::Before);
         buf.delete_region(5, 12);
-        assert_eq!(buf.markers[0].byte_pos, 5);
-        assert_eq!(buf.markers[0].char_pos, 5);
+        let marker = buf.marker_entry(1).expect("marker");
+        assert_eq!(marker.byte_pos, 5);
+        assert_eq!(marker.char_pos, 5);
     }
 
     #[test]
@@ -2821,82 +2808,63 @@ mod tests {
     #[test]
     fn marker_tracks_insertion_after() {
         let mut buf = buf_with_text("ab");
-        buf.markers.push(MarkerEntry {
-            id: 1,
-            byte_pos: 1,
-            char_pos: 1,
-            insertion_type: InsertionType::After,
-        });
+        buf.register_marker(1, 1, InsertionType::After);
         buf.goto_char(1);
         buf.insert("XY");
         // Marker was at 1 with After => advances to 3.
-        assert_eq!(buf.markers[0].byte_pos, 3);
-        assert_eq!(buf.markers[0].char_pos, 3);
+        let marker = buf.marker_entry(1).expect("marker");
+        assert_eq!(marker.byte_pos, 3);
+        assert_eq!(marker.char_pos, 3);
     }
 
     #[test]
     fn marker_stays_on_insertion_before() {
         let mut buf = buf_with_text("ab");
-        buf.markers.push(MarkerEntry {
-            id: 1,
-            byte_pos: 1,
-            char_pos: 1,
-            insertion_type: InsertionType::Before,
-        });
+        buf.register_marker(1, 1, InsertionType::Before);
         buf.goto_char(1);
         buf.insert("XY");
         // Marker was at 1 with Before => stays at 1.
-        assert_eq!(buf.markers[0].byte_pos, 1);
-        assert_eq!(buf.markers[0].char_pos, 1);
+        let marker = buf.marker_entry(1).expect("marker");
+        assert_eq!(marker.byte_pos, 1);
+        assert_eq!(marker.char_pos, 1);
     }
 
     #[test]
     fn marker_adjusts_on_deletion() {
         let mut buf = buf_with_text("abcdef");
-        buf.markers.push(MarkerEntry {
-            id: 1,
-            byte_pos: 4,
-            char_pos: 4,
-            insertion_type: InsertionType::After,
-        });
+        buf.register_marker(1, 4, InsertionType::After);
         buf.delete_region(1, 3);
         // Marker was at 4 (past deleted range [1,3)), shifts by 2 => 2.
-        assert_eq!(buf.markers[0].byte_pos, 2);
-        assert_eq!(buf.markers[0].char_pos, 2);
+        let marker = buf.marker_entry(1).expect("marker");
+        assert_eq!(marker.byte_pos, 2);
+        assert_eq!(marker.char_pos, 2);
     }
 
     #[test]
     fn marker_inside_deleted_range_collapses() {
         let mut buf = buf_with_text("abcdef");
-        buf.markers.push(MarkerEntry {
-            id: 1,
-            byte_pos: 2,
-            char_pos: 2,
-            insertion_type: InsertionType::After,
-        });
+        buf.register_marker(1, 2, InsertionType::After);
         buf.delete_region(1, 5);
         // Marker at 2 inside [1,5) => collapses to 1.
-        assert_eq!(buf.markers[0].byte_pos, 1);
-        assert_eq!(buf.markers[0].char_pos, 1);
+        let marker = buf.marker_entry(1).expect("marker");
+        assert_eq!(marker.byte_pos, 1);
+        assert_eq!(marker.char_pos, 1);
     }
 
     #[test]
     fn marker_char_pos_tracks_multibyte_edits() {
         let mut buf = buf_with_text("ééz");
-        buf.markers.push(MarkerEntry {
-            id: 1,
-            byte_pos: 'é'.len_utf8(),
-            char_pos: 1,
-            insertion_type: InsertionType::After,
-        });
+        buf.register_marker(1, 'é'.len_utf8(), InsertionType::After);
         buf.goto_byte('é'.len_utf8());
         buf.insert("ß");
-        assert_eq!(buf.markers[0].byte_pos, 4);
-        assert_eq!(buf.markers[0].char_pos, 2);
+        let marker = buf.marker_entry(1).expect("marker");
+        assert_eq!(marker.byte_pos, 4);
+        assert_eq!(marker.char_pos, 2);
 
         buf.delete_region(2, 4);
-        assert_eq!(buf.markers[0].byte_pos, 2);
-        assert_eq!(buf.markers[0].char_pos, 1);
+        let marker = buf.marker_entry(1).expect("marker");
+        assert_eq!(marker.byte_pos, 2);
+        assert_eq!(marker.char_pos, 1);
     }
 
     // -----------------------------------------------------------------------

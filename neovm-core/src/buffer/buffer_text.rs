@@ -14,6 +14,7 @@ use std::rc::Rc;
 use crate::emacs_core::value::Value;
 use crate::gc::GcTrace;
 
+use super::buffer::{BufferId, InsertionType, MarkerEntry};
 use super::gap_buffer::GapBuffer;
 use super::text_props::{PropertyInterval, TextPropertyTable};
 
@@ -22,6 +23,7 @@ struct BufferTextStorage {
     gap: GapBuffer,
     char_count: usize,
     text_props: TextPropertyTable,
+    markers: Vec<MarkerEntry>,
 }
 
 pub struct BufferText {
@@ -50,6 +52,7 @@ impl BufferText {
                 gap: GapBuffer::new(),
                 char_count: 0,
                 text_props: TextPropertyTable::new(),
+                markers: Vec::new(),
             })),
         }
     }
@@ -60,6 +63,7 @@ impl BufferText {
                 gap: GapBuffer::from_str(text),
                 char_count: text.chars().count(),
                 text_props: TextPropertyTable::new(),
+                markers: Vec::new(),
             })),
         }
     }
@@ -155,6 +159,7 @@ impl BufferText {
                 gap,
                 char_count,
                 text_props: TextPropertyTable::new(),
+                markers: Vec::new(),
             })),
         }
     }
@@ -256,6 +261,119 @@ impl BufferText {
 
     pub fn trace_text_prop_roots(&self, roots: &mut Vec<Value>) {
         self.storage.borrow().text_props.trace_roots(roots);
+    }
+
+    pub fn register_marker(
+        &self,
+        buffer_id: BufferId,
+        marker_id: u64,
+        byte_pos: usize,
+        char_pos: usize,
+        insertion_type: InsertionType,
+    ) {
+        let mut storage = self.storage.borrow_mut();
+        storage.markers.retain(|marker| marker.id != marker_id);
+        storage.markers.push(MarkerEntry {
+            id: marker_id,
+            buffer_id,
+            byte_pos,
+            char_pos,
+            insertion_type,
+        });
+    }
+
+    pub fn marker_entry(&self, marker_id: u64) -> Option<MarkerEntry> {
+        self.storage
+            .borrow()
+            .markers
+            .iter()
+            .find(|marker| marker.id == marker_id)
+            .cloned()
+    }
+
+    pub fn remove_marker(&self, marker_id: u64) {
+        self.storage
+            .borrow_mut()
+            .markers
+            .retain(|marker| marker.id != marker_id);
+    }
+
+    pub fn update_marker_insertion_type(&self, marker_id: u64, insertion_type: InsertionType) {
+        let mut storage = self.storage.borrow_mut();
+        let Some(marker) = storage
+            .markers
+            .iter_mut()
+            .find(|marker| marker.id == marker_id)
+        else {
+            return;
+        };
+        marker.insertion_type = insertion_type;
+    }
+
+    pub fn adjust_markers_for_insert(&self, insert_pos: usize, byte_len: usize, char_len: usize) {
+        if byte_len == 0 {
+            return;
+        }
+        for marker in &mut self.storage.borrow_mut().markers {
+            if marker.byte_pos > insert_pos {
+                marker.byte_pos += byte_len;
+                marker.char_pos += char_len;
+            } else if marker.byte_pos == insert_pos && marker.insertion_type == InsertionType::After
+            {
+                marker.byte_pos += byte_len;
+                marker.char_pos += char_len;
+            }
+        }
+    }
+
+    pub fn adjust_markers_for_delete(
+        &self,
+        start: usize,
+        end: usize,
+        start_char: usize,
+        end_char: usize,
+    ) {
+        if start >= end {
+            return;
+        }
+        let byte_len = end - start;
+        let char_len = end_char - start_char;
+        for marker in &mut self.storage.borrow_mut().markers {
+            if marker.byte_pos >= end {
+                marker.byte_pos -= byte_len;
+                marker.char_pos -= char_len;
+            } else if marker.byte_pos > start {
+                marker.byte_pos = start;
+                marker.char_pos = start_char;
+            }
+        }
+    }
+
+    pub fn advance_markers_at(&self, pos: usize, byte_len: usize, char_len: usize) {
+        if byte_len == 0 {
+            return;
+        }
+        for marker in &mut self.storage.borrow_mut().markers {
+            if marker.byte_pos == pos {
+                marker.byte_pos += byte_len;
+                marker.char_pos += char_len;
+            }
+        }
+    }
+
+    pub fn clear_markers(&self) {
+        self.storage.borrow_mut().markers.clear();
+    }
+
+    pub fn remove_markers_for_buffers(&self, killed: &std::collections::HashSet<BufferId>) {
+        self.storage
+            .borrow_mut()
+            .markers
+            .retain(|marker| !killed.contains(&marker.buffer_id));
+    }
+
+    pub fn marker_entries_snapshot(&self) -> Vec<MarkerEntry> {
+        self.storage.borrow().markers.clone()
     }
 }
 
