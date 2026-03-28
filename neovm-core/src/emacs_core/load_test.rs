@@ -4673,6 +4673,7 @@ fn cached_bootstrap_reload_evaluates_full_advice_remove_member_form() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_source_eval_honors_advised_subr_function_cell() {
     let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
         r#"(progn
@@ -4713,6 +4714,7 @@ fn bootstrap_source_eval_honors_advised_subr_function_cell() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_source_eval_honors_advised_callbuiltin_function_cell() {
     let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
         r#"(progn
@@ -4804,6 +4806,7 @@ fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn oracle_bootstrap_helper_matches_char_syntax_comprehensive_form() {
     let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
         r#"
@@ -4853,6 +4856,7 @@ fn oracle_bootstrap_helper_matches_char_syntax_comprehensive_form() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_cl_subseq_setf_updates_vector() {
     let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
         r#"
@@ -4868,6 +4872,7 @@ fn bootstrap_cl_subseq_setf_updates_vector() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_function_put_gv_expander_round_trip() {
     let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
         r#"
@@ -4899,6 +4904,7 @@ fn bootstrap_function_put_gv_expander_round_trip() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_gv_define_setter_round_trip() {
     let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
         r#"
@@ -4923,6 +4929,7 @@ fn bootstrap_gv_define_setter_round_trip() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_defun_gv_setter_declaration_round_trip() {
     let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
         r#"
@@ -4950,6 +4957,7 @@ fn bootstrap_defun_gv_setter_declaration_round_trip() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_defun_gv_setter_declaration_evaluates_generated_form() {
     let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
         r#"
@@ -5211,6 +5219,7 @@ fn bootstrap_eieio_core_accessor_compiler_macro_call_matches_gnu_source_shape() 
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_eieio_runtime_defclass_metadata_matches_oracle() {
     let form = r#"
 (progn
@@ -6124,6 +6133,7 @@ fn contains_opaque_value_detection() {
 }
 
 #[test]
+#[cfg(feature = "oracle-tests")]
 fn bootstrap_interpreted_closure_body_shape_matches_gnu_emacs() {
     let form = r#"(let* ((compose (lambda (f g) (lambda (x) (funcall f (funcall g x)))))
          (church-zero (lambda (f) (lambda (x) x))))

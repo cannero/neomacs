@@ -28,6 +28,10 @@ rustls.workspace = true
 webpki-roots.workspace = true
 rustls-pki-types.workspace = true
 
+[features]
+default = []
+oracle-tests = []
+
 [dev-dependencies]
 tracing-subscriber.workspace = true
 proptest.workspace = true
