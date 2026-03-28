@@ -1522,7 +1522,6 @@ impl Context {
         ev.interpreted_closure_filter_fn = None;
         ev.interpreted_closure_trim_cache.clear();
         ev.materialize_public_evaluator_function_cells();
-        super::bootstrap_macros::install_bootstrap_macro_function_cells(&mut ev);
         ev
     }
 

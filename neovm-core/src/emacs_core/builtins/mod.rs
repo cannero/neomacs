@@ -8118,5 +8118,4 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     // real subrs in the function cell even though they are dispatched by the
     // evaluator rather than the ordinary builtin function table.
     ctx.materialize_public_evaluator_function_cells();
-    super::bootstrap_macros::install_bootstrap_macro_function_cells(ctx);
 }
