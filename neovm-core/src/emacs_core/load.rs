@@ -568,9 +568,6 @@ fn try_eval_generated_loaddefs_form(
                 super::builtins::builtin_defvaralias(eval, values).map_err(map_flow)?,
             ))
         }
-        "defvar-local" => Ok(Some(
-            super::custom::sf_defvar_local(eval, tail).map_err(map_flow)?,
-        )),
         _ => Ok(None),
     }
 }

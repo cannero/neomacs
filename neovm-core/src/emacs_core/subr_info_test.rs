@@ -2103,13 +2103,13 @@ fn func_arity_macro() {
 }
 
 #[test]
-fn fallback_macro_defvar_local_preserves_optional_arity() {
-    let macro_value = fallback_macro_value("defvar-local").expect("fallback macro exists");
+fn fallback_macro_eval_and_compile_preserves_rest_arity() {
+    let macro_value = fallback_macro_value("eval-and-compile").expect("fallback macro exists");
     let result = builtin_func_arity_impl(vec![macro_value]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
-        assert_eq!(pair.car.as_int(), Some(2));
-        assert_eq!(pair.cdr.as_int(), Some(3));
+        assert_eq!(pair.car.as_int(), Some(0));
+        assert_eq!(pair.cdr, Value::symbol("many"));
     } else {
         panic!("expected cons cell");
     }
