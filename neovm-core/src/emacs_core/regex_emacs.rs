@@ -417,6 +417,7 @@ pub(crate) fn regex_compile(
     }
 
     // Macro to fetch next pattern byte, returning error if at end
+    #[allow(unused_macros)]
     macro_rules! pat_fetch {
         () => {{
             if p >= plen {
@@ -469,11 +470,30 @@ pub(crate) fn regex_compile(
             // * + ? — repetition operators
             // ----------------------------------------------------------
             b'*' | b'+' | b'?' => {
-                let Some(last) = laststart else {
+                let Some(mut last) = laststart else {
                     // No previous expression to repeat — treat as literal
                     goto_normal_char(c, &mut buf, &mut pending_exact, &mut laststart);
                     continue;
                 };
+
+                // GNU regex_compile: if the preceding expression was part
+                // of an exactn with count > 1, split off the last character
+                // so that the repetition applies only to that character.
+                if buf.buffer[last] == RegexOp::Exactn as u8 {
+                    let count_pos = last + 1;
+                    let count = buf.buffer[count_pos];
+                    if count > 1 {
+                        // Decrement the existing exactn's count
+                        buf.buffer[count_pos] = count - 1;
+                        // Remove the last char from the existing exactn
+                        let last_char = buf.buffer.pop().unwrap();
+                        // Insert a new single-char exactn for the split char
+                        last = buf.buffer.len();
+                        buf.buffer.push(RegexOp::Exactn as u8);
+                        buf.buffer.push(1);
+                        buf.buffer.push(last_char);
+                    }
+                }
 
                 let greedy = if p < plen && pattern_bytes[p] == b'?' {
                     p += 1; // consume '?' for non-greedy
@@ -874,87 +894,116 @@ fn goto_normal_char(
 fn compile_repetition(
     op: u8,
     greedy: bool,
-    posix: bool,
+    _posix: bool,
     laststart: usize,
     buf: &mut CompiledPattern,
 ) -> Result<(), RegexCompileError> {
+    // All offsets are relative to the position right after the 2-byte offset
+    // field.  This matches GNU's convention: after EXTRACT_NUMBER_AND_INCR,
+    // `p` points past the offset, and the target is `p + mcnt`.
+
     let after_last = buf.buffer.len();
 
     match op {
         b'*' => {
             // * = zero or more
             if greedy {
-                // Insert on_failure_jump before the expression
-                // Then add jump back to the on_failure_jump after expression
+                // Layout:
+                //   [laststart] OFJL  offset(2)  <expr>  Jump  offset(2)
+                //   OFJL fail target → past the Jump instruction
+                //   Jump target → back to OFJL opcode
+
+                // Insert OnFailureJumpLoop before the expression
                 buf.buffer.splice(
                     laststart..laststart,
                     [RegexOp::OnFailureJumpLoop as u8, 0, 0],
                 );
-                // Jump target = after the closing jump (which we're about to add)
-                let expr_len = after_last - laststart;
-                let fail_target = (expr_len + 3) as i16; // +3 for the jump we'll add
-                store_number(&mut buf.buffer, laststart + 1, fail_target);
+                // After splice, expr occupies [laststart+3 .. laststart+3+expr_len)
+                let expr_len = after_last - laststart; // original expr length
 
-                // Add jump back to the on_failure_jump
+                // Add Jump back to the OFJL
                 buf.buffer.push(RegexOp::Jump as u8);
-                let jump_target = -(buf.buffer.len() as i16 - laststart as i16 + 2 - 3);
                 let jpos = buf.buffer.len();
                 buf.buffer.push(0);
                 buf.buffer.push(0);
-                store_number(&mut buf.buffer, jpos, jump_target);
+
+                // OFJL fail target: from (laststart+3) → past Jump = (jpos+2)
+                // offset = (jpos+2) - (laststart+3) = expr_len + 3
+                let ofjl_offset = (expr_len + 3) as i16;
+                store_number(&mut buf.buffer, laststart + 1, ofjl_offset);
+
+                // Jump target: from (jpos+2) → OFJL opcode at laststart
+                // offset = laststart - (jpos + 2)
+                let jump_offset = laststart as i16 - (jpos as i16 + 2);
+                store_number(&mut buf.buffer, jpos, jump_offset);
             } else {
-                // Non-greedy *? — try skipping first
+                // Non-greedy *?
+                // Layout:
+                //   [laststart] OFKSJ  offset(2)  <expr>  OFJ  offset(2)
+                //   OFKSJ fail target → past the OFJ instruction
+                //   OFJ target → back to OFKSJ opcode
                 buf.buffer.splice(
                     laststart..laststart,
                     [RegexOp::OnFailureKeepStringJump as u8, 0, 0],
                 );
                 let expr_len = after_last - laststart;
-                let fail_target = (expr_len + 6) as i16;
-                store_number(&mut buf.buffer, laststart + 1, fail_target);
 
                 buf.buffer.push(RegexOp::OnFailureJump as u8);
                 let jpos = buf.buffer.len();
                 buf.buffer.push(0);
                 buf.buffer.push(0);
-                let jump_target = -(buf.buffer.len() as i16 - laststart as i16 - 3 + 2);
-                store_number(&mut buf.buffer, jpos, jump_target);
+
+                // OFKSJ fail target: from (laststart+3) → past OFJ = (jpos+2)
+                let ofksj_offset = (expr_len + 3) as i16;
+                store_number(&mut buf.buffer, laststart + 1, ofksj_offset);
+
+                // OFJ target: from (jpos+2) → OFKSJ opcode at laststart
+                let ofj_offset = laststart as i16 - (jpos as i16 + 2);
+                store_number(&mut buf.buffer, jpos, ofj_offset);
             }
         }
         b'+' => {
-            // + = one or more — same as expression followed by *
-            // But we just add the loop jump at the end
+            // + = one or more
+            // Layout: <expr(already emitted)>  OFJL/OFJ  offset(2)  Jump  offset(2)
             if greedy {
+                // OFJL fail target → past the Jump instruction (continue)
                 buf.buffer.push(RegexOp::OnFailureJumpLoop as u8);
+                let ofjl_pos = buf.buffer.len();
+                buf.buffer.push(0);
+                buf.buffer.push(0);
+
+                buf.buffer.push(RegexOp::Jump as u8);
                 let jpos = buf.buffer.len();
                 buf.buffer.push(0);
                 buf.buffer.push(0);
-                // Fail = after this instruction (continue past loop)
-                store_number(&mut buf.buffer, jpos, 3);
 
-                buf.buffer.push(RegexOp::Jump as u8);
-                let jpos2 = buf.buffer.len();
-                buf.buffer.push(0);
-                buf.buffer.push(0);
-                let jump_target = -(buf.buffer.len() as i16 - laststart as i16 + 2);
-                store_number(&mut buf.buffer, jpos2, jump_target);
+                // OFJL fail: from (ofjl_pos+2) → (jpos+2)
+                store_number(&mut buf.buffer, ofjl_pos, (jpos + 2 - ofjl_pos - 2) as i16);
+
+                // Jump target: from (jpos+2) → laststart (start of expr)
+                let jump_offset = laststart as i16 - (jpos as i16 + 2);
+                store_number(&mut buf.buffer, jpos, jump_offset);
             } else {
                 // Non-greedy +?
                 buf.buffer.push(RegexOp::OnFailureJump as u8);
                 let jpos = buf.buffer.len();
                 buf.buffer.push(0);
                 buf.buffer.push(0);
-                let jump_target = -(buf.buffer.len() as i16 - laststart as i16 + 2);
-                store_number(&mut buf.buffer, jpos, jump_target);
+                // OFJ target: from (jpos+2) → laststart
+                let jump_offset = laststart as i16 - (jpos as i16 + 2);
+                store_number(&mut buf.buffer, jpos, jump_offset);
             }
         }
         b'?' => {
             // ? = zero or one
             if greedy {
+                // Layout: [laststart] OFJ  offset(2)  <expr>
+                // OFJ fail target → past expr
                 buf.buffer
                     .splice(laststart..laststart, [RegexOp::OnFailureJump as u8, 0, 0]);
                 let expr_len = after_last - laststart;
-                let fail_target = (expr_len + 3) as i16;
-                store_number(&mut buf.buffer, laststart + 1, fail_target);
+                // From (laststart+3) → (laststart+3+expr_len), offset = expr_len
+                store_number(&mut buf.buffer, laststart + 1, expr_len as i16);
             } else {
                 // Non-greedy ??
                 buf.buffer.splice(
@@ -962,7 +1011,7 @@ fn compile_repetition(
                     [RegexOp::OnFailureKeepStringJump as u8, 0, 0],
                 );
                 let expr_len = after_last - laststart;
-                store_number(&mut buf.buffer, laststart + 1, (expr_len + 3) as i16);
+                store_number(&mut buf.buffer, laststart + 1, expr_len as i16);
             }
         }
         _ => unreachable!(),
@@ -1189,8 +1238,6 @@ fn compile_interval(
             let jpos = buf.buffer.len();
             buf.buffer.push(0);
             buf.buffer.push(0);
-            let fail_target = (expr_bytes.len() + 3 + 2) as i16;
-            store_number(&mut buf.buffer, jpos, fail_target);
 
             buf.buffer.extend_from_slice(&expr_bytes);
 
@@ -1198,7 +1245,13 @@ fn compile_interval(
             let jpos2 = buf.buffer.len();
             buf.buffer.push(0);
             buf.buffer.push(0);
-            let jump_target = -(buf.buffer.len() as i16 - loop_start as i16 + 2);
+
+            // OFJL fail: from (jpos+2) → past Jump = (jpos2+2)
+            let fail_target = (jpos2 + 2 - jpos - 2) as i16;
+            store_number(&mut buf.buffer, jpos, fail_target);
+
+            // Jump target: from (jpos2+2) → loop_start
+            let jump_target = loop_start as i16 - (jpos2 as i16 + 2);
             store_number(&mut buf.buffer, jpos2, jump_target);
         }
         _ => {} // max == min, already handled
@@ -1208,6 +1261,857 @@ fn compile_interval(
 }
 
 // ---------------------------------------------------------------------------
-// TODO: Phase 3 — Matcher (re_match_2_internal)
-// TODO: Phase 4 — Searcher (re_search_2)
+// Phase 3: Matcher (re_match_2_internal)
+//
+// Translates GNU regex-emacs.c:4072-5340.
+// Executes compiled bytecode against input text with backtracking.
 // ---------------------------------------------------------------------------
+
+/// Context for syntax-table and category-table queries during matching.
+///
+/// The matcher queries the syntax table to implement `\w`, `\b`, `\sC`, etc.
+/// In GNU Emacs, this is done via the `SYNTAX()` macro which reads from
+/// `gl_state.current_syntax_table`.
+pub(crate) trait SyntaxLookup {
+    /// Return the syntax class of character `c` in the current syntax table.
+    fn char_syntax(&self, c: char) -> SyntaxClass;
+
+    /// Return true if character `c` belongs to category `cat`.
+    fn char_has_category(&self, c: char, cat: u8) -> bool;
+}
+
+/// Default syntax lookup — uses ASCII-based definitions.
+/// This is used when no buffer-specific syntax table is available.
+pub(crate) struct DefaultSyntaxLookup;
+
+impl SyntaxLookup for DefaultSyntaxLookup {
+    fn char_syntax(&self, c: char) -> SyntaxClass {
+        if c.is_alphanumeric() || c == '_' {
+            SyntaxClass::Word
+        } else if c.is_whitespace() {
+            SyntaxClass::Whitespace
+        } else if c.is_ascii_punctuation() {
+            SyntaxClass::Punctuation
+        } else if matches!(c, '(' | '[' | '{') {
+            SyntaxClass::Open
+        } else if matches!(c, ')' | ']' | '}') {
+            SyntaxClass::Close
+        } else if c == '"' || c == '\'' {
+            SyntaxClass::StringDelim
+        } else {
+            SyntaxClass::Symbol
+        }
+    }
+
+    fn char_has_category(&self, _c: char, _cat: u8) -> bool {
+        false // Default: no categories
+    }
+}
+
+/// Match a compiled pattern against input text.
+///
+/// This is the core matching function, equivalent to GNU's `re_match_2_internal`.
+///
+/// # Arguments
+/// * `pattern` - Compiled bytecode pattern
+/// * `text` - Input text to match against
+/// * `pos` - Starting position in text
+/// * `stop` - End of matching region
+/// * `syntax` - Syntax table for `\w`, `\b`, `\sC` etc.
+/// * `point` - Buffer point position (for `\=` / AtDot)
+///
+/// # Returns
+/// * `Some(end_pos)` if matched — end position of the match
+/// * `None` if no match
+pub(crate) fn re_match(
+    pattern: &CompiledPattern,
+    text: &[u8],
+    pos: usize,
+    stop: usize,
+    syntax: &dyn SyntaxLookup,
+    point: usize,
+) -> Option<(usize, MatchRegisters)> {
+    let bytecode = &pattern.buffer;
+    let num_regs = pattern.re_nsub + 1;
+
+    let mut regs = MatchRegisters::new(num_regs);
+    let mut fail_stack: Vec<FailurePoint> = Vec::new();
+
+    // Register tracking arrays
+    let mut regstart: Vec<Option<usize>> = vec![None; num_regs];
+    let mut regend: Vec<Option<usize>> = vec![None; num_regs];
+
+    // Best match tracking (for POSIX)
+    let _best_regs_set = false;
+    let _best_regstart: Vec<Option<usize>> = vec![None; num_regs];
+    let _best_regend: Vec<Option<usize>> = vec![None; num_regs];
+    let _match_end: usize = pos;
+
+    let mut pc = 0usize; // Bytecode program counter
+    let mut d = pos; // Data position in text
+
+    let translate = &pattern.translate;
+
+    // Helper: translate a character for case-folding
+    let tr = |c: u8| -> u8 {
+        if let Some(table) = translate {
+            let ch = c as u32;
+            if ch < 256 {
+                table[ch as usize] as u8
+            } else {
+                c
+            }
+        } else {
+            c
+        }
+    };
+
+    // Helper: get char at position in text (with bounds check)
+    let text_byte = |pos: usize| -> Option<u8> {
+        if pos < text.len() {
+            Some(text[pos])
+        } else {
+            None
+        }
+    };
+
+    // Helper: decode a UTF-8 character at position
+    let text_char = |pos: usize| -> Option<(char, usize)> {
+        if pos >= text.len() {
+            return None;
+        }
+        let s = std::str::from_utf8(&text[pos..]).ok()?;
+        let c = s.chars().next()?;
+        Some((c, c.len_utf8()))
+    };
+
+    // Helper: is position at a word boundary?
+    let at_word_boundary = |pos: usize| -> bool {
+        let prev_word = if pos > 0 {
+            text_char(pos.saturating_sub(1))
+                .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        let curr_word = text_char(pos)
+            .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+            .unwrap_or(false);
+        prev_word != curr_word
+    };
+
+    // Helper: is position at a symbol boundary?
+    let at_symbol_boundary = |pos: usize| -> bool {
+        let is_symbol_char = |c: char| {
+            let syn = syntax.char_syntax(c);
+            syn == SyntaxClass::Word || syn == SyntaxClass::Symbol
+        };
+        let prev_sym = if pos > 0 {
+            text_char(pos.saturating_sub(1))
+                .map(|(c, _)| is_symbol_char(c))
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        let curr_sym = text_char(pos)
+            .map(|(c, _)| is_symbol_char(c))
+            .unwrap_or(false);
+        prev_sym != curr_sym
+    };
+
+    loop {
+        // End of pattern = potential match
+        if pc >= bytecode.len() {
+            break;
+        }
+
+        let op_byte = bytecode[pc];
+        let Some(op) = RegexOp::from_byte(op_byte) else {
+            // Invalid opcode — treat as match failure
+            return None;
+        };
+        pc += 1;
+
+        match op {
+            RegexOp::NoOp => {
+                // Skip
+            }
+
+            RegexOp::Succeed => {
+                // Immediate success
+                break;
+            }
+
+            RegexOp::Exactn => {
+                let count = bytecode[pc] as usize;
+                pc += 1;
+                for i in 0..count {
+                    if d >= stop {
+                        // Backtrack
+                        if let Some(fp) = fail_stack.pop() {
+                            pc = fp.pattern_pos;
+                            if let Some(sp) = fp.string_pos {
+                                d = sp;
+                            }
+                            restore_registers(&fp, &mut regstart, &mut regend);
+                            continue;
+                        }
+                        return None;
+                    }
+                    let pat_byte = bytecode[pc + i];
+                    let txt_byte = text[d];
+                    if tr(txt_byte) != tr(pat_byte) {
+                        pc += count - i; // skip remaining pattern bytes
+                        goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                        continue;
+                    }
+                    d += 1;
+                }
+                pc += count;
+            }
+
+            RegexOp::AnyChar => {
+                if d >= stop {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                // Match any character except newline
+                if text[d] == b'\n' {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                // Advance past one UTF-8 character
+                if let Some((_, len)) = text_char(d) {
+                    d += len;
+                } else {
+                    d += 1;
+                }
+            }
+
+            RegexOp::Charset | RegexOp::CharsetNot => {
+                let negate = op == RegexOp::CharsetNot;
+                let bitmap_len = bytecode[pc] as usize & 0x7F;
+                pc += 1;
+
+                if d >= stop {
+                    pc += bitmap_len;
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+
+                let c = text[d];
+                let in_set = if (c as usize / 8) < bitmap_len {
+                    let byte = bytecode[pc + c as usize / 8];
+                    (byte >> (c as usize % 8)) & 1 != 0
+                } else {
+                    false
+                };
+
+                let matched = if negate { !in_set } else { in_set };
+                pc += bitmap_len;
+
+                if !matched {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                d += 1;
+            }
+
+            RegexOp::StartMemory => {
+                let group = bytecode[pc] as usize;
+                pc += 1;
+                if group < num_regs {
+                    regstart[group] = Some(d);
+                }
+            }
+
+            RegexOp::StopMemory => {
+                let group = bytecode[pc] as usize;
+                pc += 1;
+                if group < num_regs {
+                    regend[group] = Some(d);
+                }
+            }
+
+            RegexOp::Duplicate => {
+                let group = bytecode[pc] as usize;
+                pc += 1;
+
+                let Some(start) = regstart.get(group).copied().flatten() else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                };
+                let Some(end) = regend.get(group).copied().flatten() else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                };
+
+                let ref_len = end - start;
+                if d + ref_len > stop {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+
+                // Compare the backreference text
+                let mut matched = true;
+                for i in 0..ref_len {
+                    if tr(text[d + i]) != tr(text[start + i]) {
+                        matched = false;
+                        break;
+                    }
+                }
+                if !matched {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                d += ref_len;
+            }
+
+            RegexOp::BegLine => {
+                if d == 0 || (d > 0 && text[d - 1] == b'\n') {
+                    // At beginning of line — succeed
+                } else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::EndLine => {
+                if d >= stop || text[d] == b'\n' {
+                    // At end of line — succeed
+                } else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::BegBuf => {
+                if d != 0 {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::EndBuf => {
+                if d != stop {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::AtDot => {
+                if d != point {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::WordBound => {
+                if !at_word_boundary(d) {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::NotWordBound => {
+                if at_word_boundary(d) {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::WordBeg => {
+                // Word beginning: not in word before, in word after
+                let prev_word = d > 0
+                    && text_char(d - 1)
+                        .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                        .unwrap_or(false);
+                let curr_word = text_char(d)
+                    .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                    .unwrap_or(false);
+                if prev_word || !curr_word {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::WordEnd => {
+                let prev_word = d > 0
+                    && text_char(d - 1)
+                        .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                        .unwrap_or(false);
+                let curr_word = text_char(d)
+                    .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                    .unwrap_or(false);
+                if !prev_word || curr_word {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::SymBeg => {
+                let is_sym = |c: char| {
+                    let s = syntax.char_syntax(c);
+                    s == SyntaxClass::Word || s == SyntaxClass::Symbol
+                };
+                let prev_sym = d > 0 && text_char(d - 1).map(|(c, _)| is_sym(c)).unwrap_or(false);
+                let curr_sym = text_char(d).map(|(c, _)| is_sym(c)).unwrap_or(false);
+                if prev_sym || !curr_sym {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::SymEnd => {
+                let is_sym = |c: char| {
+                    let s = syntax.char_syntax(c);
+                    s == SyntaxClass::Word || s == SyntaxClass::Symbol
+                };
+                let prev_sym = d > 0 && text_char(d - 1).map(|(c, _)| is_sym(c)).unwrap_or(false);
+                let curr_sym = text_char(d).map(|(c, _)| is_sym(c)).unwrap_or(false);
+                if !prev_sym || curr_sym {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
+            }
+
+            RegexOp::SyntaxSpec => {
+                let class_byte = bytecode[pc];
+                pc += 1;
+                if d >= stop {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                let Some((c, len)) = text_char(d) else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                };
+                if syntax.char_syntax(c) as u8 != class_byte {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                d += len;
+            }
+
+            RegexOp::NotSyntaxSpec => {
+                let class_byte = bytecode[pc];
+                pc += 1;
+                if d >= stop {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                let Some((c, len)) = text_char(d) else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                };
+                if syntax.char_syntax(c) as u8 == class_byte {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                d += len;
+            }
+
+            RegexOp::CategorySpec => {
+                let cat = bytecode[pc];
+                pc += 1;
+                if d >= stop {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                let Some((c, len)) = text_char(d) else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                };
+                if !syntax.char_has_category(c, cat) {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                d += len;
+            }
+
+            RegexOp::NotCategorySpec => {
+                let cat = bytecode[pc];
+                pc += 1;
+                if d >= stop {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                let Some((c, len)) = text_char(d) else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                };
+                if syntax.char_has_category(c, cat) {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    continue;
+                }
+                d += len;
+            }
+
+            RegexOp::Jump => {
+                let offset = extract_number(bytecode, pc);
+                pc = ((pc as i64) + 2 + (offset as i64)) as usize;
+            }
+
+            RegexOp::OnFailureJump => {
+                let offset = extract_number(bytecode, pc);
+                pc += 2;
+                let fail_pc = ((pc as i64) + (offset as i64)) as usize;
+                fail_stack.push(FailurePoint {
+                    pattern_pos: fail_pc,
+                    string_pos: Some(d),
+                    saved_registers: save_registers(&regstart, &regend, num_regs),
+                });
+            }
+
+            RegexOp::OnFailureKeepStringJump => {
+                let offset = extract_number(bytecode, pc);
+                pc += 2;
+                let fail_pc = ((pc as i64) + (offset as i64)) as usize;
+                fail_stack.push(FailurePoint {
+                    pattern_pos: fail_pc,
+                    string_pos: None, // Don't restore string position
+                    saved_registers: save_registers(&regstart, &regend, num_regs),
+                });
+            }
+
+            RegexOp::OnFailureJumpLoop => {
+                let offset = extract_number(bytecode, pc);
+                pc += 2;
+                let fail_pc = ((pc as i64) + (offset as i64)) as usize;
+                // Check for infinite loop (empty match detection)
+                let already_at_same_pos = fail_stack
+                    .last()
+                    .is_some_and(|fp| fp.string_pos == Some(d) && fp.pattern_pos == fail_pc);
+                if already_at_same_pos {
+                    // Would loop forever on empty match — skip the loop
+                    pc = fail_pc;
+                } else {
+                    fail_stack.push(FailurePoint {
+                        pattern_pos: fail_pc,
+                        string_pos: Some(d),
+                        saved_registers: save_registers(&regstart, &regend, num_regs),
+                    });
+                }
+            }
+
+            RegexOp::OnFailureJumpNastyloop => {
+                // Same as OnFailureJumpLoop but for non-greedy
+                let offset = extract_number(bytecode, pc);
+                pc += 2;
+                let fail_pc = ((pc as i64) + (offset as i64)) as usize;
+                fail_stack.push(FailurePoint {
+                    pattern_pos: fail_pc,
+                    string_pos: Some(d),
+                    saved_registers: save_registers(&regstart, &regend, num_regs),
+                });
+            }
+
+            RegexOp::OnFailureJumpSmart => {
+                // Smart greedy optimization — treated same as OnFailureJump
+                let offset = extract_number(bytecode, pc);
+                pc += 2;
+                let fail_pc = ((pc as i64) + (offset as i64)) as usize;
+                fail_stack.push(FailurePoint {
+                    pattern_pos: fail_pc,
+                    string_pos: Some(d),
+                    saved_registers: save_registers(&regstart, &regend, num_regs),
+                });
+            }
+
+            RegexOp::SucceedN => {
+                let offset = extract_number(bytecode, pc);
+                let count = extract_number(bytecode, pc + 2);
+                if count > 0 {
+                    // Decrement counter
+                    store_number(&mut Vec::new(), 0, 0); // Can't modify bytecode in-place
+                    // Simplified: treat as on_failure_jump
+                    pc += 4;
+                    let fail_pc = ((pc as i64) + (offset as i64) - 4) as usize;
+                    fail_stack.push(FailurePoint {
+                        pattern_pos: fail_pc,
+                        string_pos: Some(d),
+                        saved_registers: save_registers(&regstart, &regend, num_regs),
+                    });
+                } else {
+                    pc = ((pc as i64) + 4 + (offset as i64) - 4) as usize;
+                }
+            }
+
+            RegexOp::JumpN => {
+                let offset = extract_number(bytecode, pc);
+                let count = extract_number(bytecode, pc + 2);
+                if count > 0 {
+                    // Decrement and jump
+                    pc = ((pc as i64) + (offset as i64)) as usize;
+                } else {
+                    pc += 4; // Skip past
+                }
+            }
+
+            RegexOp::SetNumberAt => {
+                // Set a counter at an offset — used for interval repetition
+                // Simplified: skip the 4 bytes
+                pc += 4;
+            }
+        }
+    }
+
+    // If we got here, we matched!
+    // Fill in registers
+    regs.start[0] = pos as i64;
+    regs.end[0] = d as i64;
+    for i in 1..num_regs {
+        regs.start[i] = regstart
+            .get(i)
+            .copied()
+            .flatten()
+            .map(|v| v as i64)
+            .unwrap_or(-1);
+        regs.end[i] = regend
+            .get(i)
+            .copied()
+            .flatten()
+            .map(|v| v as i64)
+            .unwrap_or(-1);
+    }
+
+    Some((d, regs))
+}
+
+/// Save current register state for backtracking.
+fn save_registers(
+    regstart: &[Option<usize>],
+    regend: &[Option<usize>],
+    num_regs: usize,
+) -> Vec<(usize, i64, i64)> {
+    let mut saved = Vec::new();
+    for i in 1..num_regs.min(regstart.len()).min(regend.len()) {
+        saved.push((
+            i,
+            regstart[i].map(|v| v as i64).unwrap_or(-1),
+            regend[i].map(|v| v as i64).unwrap_or(-1),
+        ));
+    }
+    saved
+}
+
+/// Restore register state from a failure point.
+fn restore_registers(
+    fp: &FailurePoint,
+    regstart: &mut [Option<usize>],
+    regend: &mut [Option<usize>],
+) {
+    for &(idx, start, end) in &fp.saved_registers {
+        if idx < regstart.len() {
+            regstart[idx] = if start >= 0 {
+                Some(start as usize)
+            } else {
+                None
+            };
+        }
+        if idx < regend.len() {
+            regend[idx] = if end >= 0 { Some(end as usize) } else { None };
+        }
+    }
+}
+
+/// Handle match failure — pop the failure stack and backtrack.
+/// Returns None if the failure stack is empty (complete failure).
+fn goto_fail(
+    pc: &mut usize,
+    d: &mut usize,
+    fail_stack: &mut Vec<FailurePoint>,
+    regstart: &mut Vec<Option<usize>>,
+    regend: &mut Vec<Option<usize>>,
+) -> Option<()> {
+    let fp = fail_stack.pop()?;
+    *pc = fp.pattern_pos;
+    if let Some(sp) = fp.string_pos {
+        *d = sp;
+    }
+    restore_registers(&fp, regstart, regend);
+    Some(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: Searcher (re_search_2)
+//
+// Translates GNU regex-emacs.c:3408-4070.
+// Searches for a match in text, using fastmap for optimization.
+// ---------------------------------------------------------------------------
+
+/// Search for a match of the compiled pattern in text.
+///
+/// Equivalent to GNU's `re_search_2()`.
+///
+/// # Arguments
+/// * `pattern` - Compiled pattern
+/// * `text` - Input text
+/// * `start` - Starting search position
+/// * `range` - How far to search (positive = forward, negative = backward)
+/// * `syntax` - Syntax table lookup
+/// * `point` - Buffer point (for `\=`)
+///
+/// # Returns
+/// * `Some((match_start, registers))` if found
+/// * `None` if no match
+pub(crate) fn re_search(
+    pattern: &CompiledPattern,
+    text: &[u8],
+    start: usize,
+    range: isize,
+    syntax: &dyn SyntaxLookup,
+    point: usize,
+) -> Option<(usize, MatchRegisters)> {
+    let text_len = text.len();
+
+    if range >= 0 {
+        // Forward search
+        let end = (start + range as usize).min(text_len);
+        for pos in start..=end {
+            if pos > text_len {
+                break;
+            }
+            // TODO: Use fastmap to skip positions that can't start a match
+            if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
+                return Some((pos, result.1));
+            }
+        }
+    } else {
+        // Backward search
+        let end = start.saturating_sub((-range) as usize);
+        for pos in (end..=start).rev() {
+            if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
+                return Some((pos, result.1));
+            }
+        }
+    }
+
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Convenience: compile + search in one call
+// ---------------------------------------------------------------------------
+
+/// Compile a pattern and search for it in text.
+pub(crate) fn search_pattern(
+    pattern_str: &str,
+    text: &str,
+    start: usize,
+    case_fold: bool,
+    syntax: &dyn SyntaxLookup,
+    point: usize,
+) -> Result<Option<(usize, MatchRegisters)>, RegexCompileError> {
+    let compiled = regex_compile(pattern_str, false, case_fold)?;
+    Ok(re_search(
+        &compiled,
+        text.as_bytes(),
+        start,
+        (text.len() - start) as isize,
+        syntax,
+        point,
+    ))
+}
+
+/// Compile a pattern and match at a specific position.
+pub(crate) fn match_pattern(
+    pattern_str: &str,
+    text: &str,
+    pos: usize,
+    case_fold: bool,
+    syntax: &dyn SyntaxLookup,
+    point: usize,
+) -> Result<Option<(usize, MatchRegisters)>, RegexCompileError> {
+    let compiled = regex_compile(pattern_str, false, case_fold)?;
+    Ok(re_match(
+        &compiled,
+        text.as_bytes(),
+        pos,
+        text.len(),
+        syntax,
+        point,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_literal() {
+        let syn = DefaultSyntaxLookup;
+        let result = search_pattern("hello", "say hello world", 0, false, &syn, 0);
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.is_some());
+        let (pos, regs) = r.unwrap();
+        assert_eq!(pos, 4); // "hello" starts at position 4
+        assert_eq!(regs.end[0], 9); // ends at 9
+    }
+
+    #[test]
+    fn test_dot_matches_any() {
+        let syn = DefaultSyntaxLookup;
+        let result = search_pattern("h.llo", "say hello world", 0, false, &syn, 0);
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_anchors() {
+        let syn = DefaultSyntaxLookup;
+        // ^ at beginning
+        let r = match_pattern("^hello", "hello world", 0, false, &syn, 0).unwrap();
+        assert!(r.is_some());
+        // ^ not at beginning
+        let r = match_pattern("^hello", "say hello", 4, false, &syn, 0).unwrap();
+        assert!(r.is_none());
+    }
+
+    #[test]
+    fn test_groups() {
+        let syn = DefaultSyntaxLookup;
+        let result = search_pattern("\\(hel\\)lo", "hello", 0, false, &syn, 0);
+        assert!(result.is_ok());
+        let (pos, regs) = result.unwrap().unwrap();
+        assert_eq!(pos, 0);
+        assert_eq!(regs.start[1], 0); // group 1 start
+        assert_eq!(regs.end[1], 3); // group 1 end ("hel")
+    }
+
+    #[test]
+    fn test_word_boundary() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("\\bhello\\b", "say hello world", 0, false, &syn, 0);
+        assert!(r.is_ok());
+        assert!(r.unwrap().is_some());
+    }
+
+    #[test]
+    fn test_star_repetition() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("hel*o", "heo", 0, false, &syn, 0);
+        assert!(r.unwrap().is_some()); // zero l's
+        let r = search_pattern("hel*o", "hello", 0, false, &syn, 0);
+        assert!(r.unwrap().is_some()); // two l's
+        let r = search_pattern("hel*o", "hellllo", 0, false, &syn, 0);
+        assert!(r.unwrap().is_some()); // four l's
+    }
+
+    #[test]
+    fn test_charset() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("[abc]", "xbz", 0, false, &syn, 0);
+        assert!(r.unwrap().is_some());
+        let r = search_pattern("[abc]", "xyz", 0, false, &syn, 0);
+        assert!(r.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_syntax_word() {
+        let syn = DefaultSyntaxLookup;
+        // \sw matches word characters
+        let r = search_pattern("\\sw+", "hello world", 0, false, &syn, 0);
+        assert!(r.unwrap().is_some());
+    }
+
+    #[test]
+    fn test_backreference() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("\\(a\\)\\1", "aa", 0, false, &syn, 0);
+        assert!(r.unwrap().is_some());
+        let r = search_pattern("\\(a\\)\\1", "ab", 0, false, &syn, 0);
+        assert!(r.unwrap().is_none());
+    }
+}

@@ -1,5 +1,4 @@
 use super::*;
-use crate::emacs_core::Context;
 use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::{LambdaData, LambdaParams};
 
@@ -56,7 +55,7 @@ fn subr_name_error_for_non_subr() {
 // -- subr-arity --
 
 fn assert_subr_arity(name: &str, min: i64, max: Option<i64>) {
-    let mut ctx = Context::new();
+    let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_subr_arity(&mut ctx, vec![Value::Subr(intern(name))]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
@@ -77,7 +76,7 @@ fn subr_arity_returns_cons() {
 
 #[test]
 fn subr_arity_error_for_non_subr() {
-    let mut ctx = Context::new();
+    let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_subr_arity(&mut ctx, vec![Value::Nil]);
     assert!(result.is_err());
 }
@@ -91,7 +90,7 @@ fn subr_arity_message_is_one_or_more() {
 
 #[test]
 fn subr_arity_if_is_unevalled() {
-    let mut ctx = Context::new();
+    let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_subr_arity(&mut ctx, vec![Value::Subr(intern("if"))]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
@@ -104,7 +103,6 @@ fn subr_arity_if_is_unevalled() {
 
 #[test]
 fn subr_arity_core_special_forms_match_oracle_unevalled_shapes() {
-    let mut ctx = Context::new();
     for (name, min) in [
         ("and", 0),
         ("setq", 0),
@@ -115,6 +113,7 @@ fn subr_arity_core_special_forms_match_oracle_unevalled_shapes() {
         ("condition-case", 2),
         ("unwind-protect", 1),
     ] {
+        let mut ctx = crate::emacs_core::eval::Context::new();
         let result = builtin_subr_arity(&mut ctx, vec![Value::Subr(intern(name))]).unwrap();
         if let Value::Cons(cell) = &result {
             let pair = read_cons(*cell);
