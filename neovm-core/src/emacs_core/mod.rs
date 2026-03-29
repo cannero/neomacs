@@ -86,6 +86,7 @@ pub mod process;
 pub mod reader;
 pub mod rect;
 pub mod regex;
+pub mod regex_emacs;
 pub mod register;
 pub mod search;
 pub(crate) mod string_escape;
