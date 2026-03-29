@@ -162,12 +162,30 @@ deduplication semantics.
 Either delete `neovm-core/src/hooks.rs` or quarantine it as non-Lisp
 infrastructure only. It should not represent a second Lisp hook architecture.
 
-## This Turn
+## Landed So Far
 
-This turn should land Slice A:
+- Slice A landed: generic hook iteration now lives in the shared
+  `hook_runtime.rs` owner and both the evaluator and VM delegate to it.
+- Slice B core landed: window hook callers now enter GNU-shaped caller context
+  instead of treating window hooks as generic hook lookups.
+- Slice B follow-up landed: `window-configuration-change-hook` now walks frame
+  windows with their own caller context without losing the selected window's
+  local hook through an incorrect `set-default` write path.
+- Slice C core landed: modification hooks now run with
+  `inhibit-modification-hooks` rebound, `first-change-hook` runs on the initial
+  transition to modified, and change-hook OLD-LEN is now character-based.
+- Shared variable-runtime fix landed: `set-default` no longer overwrites the
+  current buffer's local value just because a local binding exists; it now
+  updates the default/toplevel cell, which matches GNU's hook-variable owner
+  model and unblocks buffer-local window hooks.
+- The dead parallel Rust hook framework is now quarantined from the public
+  crate surface by removing `pub mod hooks;`.
 
-- add the shared hook runtime owner
-- route evaluator and VM hook builtins through it
-- route generic edit/window hook callers through it where that does not require
-  new caller-context work
-- add tests for `run-hook-wrapped` stop/return semantics
+## Next
+
+- finish Slice B edge cases around any remaining window/frame caller-context
+  mismatches beyond `window-configuration-change-hook` and
+  `window-scroll-functions`
+- finish Slice C error-cleanup parity wherever GNU resets more edit-owned state
+- decide whether `neovm-core/src/hooks.rs` should be deleted outright after one
+  more repo-wide confirmation pass

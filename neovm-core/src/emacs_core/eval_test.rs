@@ -4814,6 +4814,181 @@ fn run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
 }
 
 #[test]
+fn run_window_scroll_functions_uses_scrolled_window_buffer_context() {
+    let result = eval_one(
+        "(progn
+           (setq hook-log nil)
+           (let* ((buf1 (get-buffer-create \"scroll-a\"))
+                  (buf2 (get-buffer-create \"scroll-b\")))
+             (set-buffer buf1)
+             (set-window-buffer (selected-window) buf1)
+             (let ((w2 (split-window-internal (selected-window) nil nil nil)))
+               (set-window-buffer w2 buf2)
+               (set-buffer buf2)
+               (setq window-scroll-functions
+                     (list (lambda (_w _start)
+                             (setq hook-log (buffer-name)))))
+               (set-buffer buf1)
+               (run-window-scroll-functions w2)
+               (list hook-log (buffer-name)))))",
+    );
+    assert_eq!(result, "OK (\"scroll-b\" \"scroll-a\")");
+}
+
+#[test]
+fn run_window_configuration_change_hook_uses_window_buffer_context() {
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        "(progn
+           (setq hook-log nil)
+           (defalias 'wcch-log-current-buffer
+             #'(lambda ()
+                 (setq hook-log
+                       (cons (intern (buffer-name)) hook-log))))
+           (defalias 'wcch-log-global-buffer
+             #'(lambda ()
+                 (setq hook-log
+                       (cons (intern (concat \"global:\" (buffer-name))) hook-log)))))",
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("hook setup");
+
+    let buf1 = ev.buffers.create_buffer("wcch-a");
+    let buf2 = ev.buffers.create_buffer("wcch-b");
+    ev.switch_current_buffer(buf1).expect("switch to buf1");
+
+    let selected_window = crate::emacs_core::window_cmds::builtin_selected_window(&mut ev, vec![])
+        .expect("selected window");
+    crate::emacs_core::window_cmds::builtin_set_window_buffer(
+        &mut ev,
+        vec![selected_window, Value::Buffer(buf1)],
+    )
+    .expect("selected window buffer");
+    let split_window = ev
+        .eval_expr(
+            &parse_forms("(split-window-internal (selected-window) nil nil nil)")
+                .expect("parse split")[0],
+        )
+        .expect("split window");
+    crate::emacs_core::window_cmds::builtin_set_window_buffer(
+        &mut ev,
+        vec![split_window, Value::Buffer(buf2)],
+    )
+    .expect("split window buffer");
+
+    ev.buffers
+        .set_buffer_local_property(
+            buf1,
+            "window-configuration-change-hook",
+            Value::list(vec![Value::symbol("wcch-log-current-buffer")]),
+        )
+        .expect("buf1 local hook");
+    ev.buffers
+        .set_buffer_local_property(
+            buf2,
+            "window-configuration-change-hook",
+            Value::list(vec![Value::symbol("wcch-log-current-buffer")]),
+        )
+        .expect("buf2 local hook");
+    crate::emacs_core::custom::builtin_set_default(
+        &mut ev,
+        vec![
+            Value::symbol("window-configuration-change-hook"),
+            Value::list(vec![Value::symbol("wcch-log-global-buffer")]),
+        ],
+    )
+    .expect("default hook");
+    assert!(
+        ev.buffers
+            .get(buf1)
+            .and_then(|buffer| buffer.buffer_local_value("window-configuration-change-hook"))
+            .is_some()
+    );
+    assert!(
+        ev.buffers
+            .get(buf2)
+            .and_then(|buffer| buffer.buffer_local_value("window-configuration-change-hook"))
+            .is_some()
+    );
+    assert_eq!(
+        ev.frames
+            .selected_frame()
+            .expect("selected frame")
+            .window_list()
+            .len(),
+        2
+    );
+
+    ev.switch_current_buffer(buf1).expect("restore buf1");
+    super::builtins::builtin_run_window_configuration_change_hook(&mut ev, vec![])
+        .expect("run window-configuration-change-hook");
+
+    let hook_log = ev.eval_symbol("hook-log").expect("hook log");
+    let items = list_to_vec(&hook_log).expect("hook log list");
+    let names: Vec<String> = items
+        .iter()
+        .map(|value| value.as_symbol_name().expect("symbol").to_string())
+        .collect();
+    assert!(names.iter().any(|name| name == "wcch-a"), "names={names:?}");
+    assert!(names.iter().any(|name| name == "wcch-b"), "names={names:?}");
+    assert!(
+        names.iter().any(|name| name == "global:wcch-a"),
+        "names={names:?}"
+    );
+    assert_eq!(
+        ev.buffers.current_buffer().expect("current buffer").name,
+        "wcch-a"
+    );
+}
+
+#[test]
+fn first_change_and_before_change_hooks_run_with_inhibit_bound() {
+    let result = eval_one(
+        "(progn
+           (setq hook-log nil)
+           (setq first-change-hook
+                 (list (lambda ()
+                         (setq hook-log
+                               (cons (list 'first inhibit-modification-hooks) hook-log)))))
+           (setq before-change-functions
+                 (list (lambda (_beg _end)
+                         (setq hook-log
+                               (cons (list 'before inhibit-modification-hooks) hook-log)))))
+           (insert \"x\")
+           (nreverse hook-log))",
+    );
+    assert_eq!(result, "OK ((first t) (before t))");
+}
+
+#[test]
+fn after_change_functions_receive_character_old_len() {
+    let result = eval_one(
+        "(progn
+           (erase-buffer)
+           (insert \"é\")
+           (setq hook-log nil)
+           (setq after-change-functions
+                 (list (lambda (_beg _end old-len)
+                         (setq hook-log (list old-len inhibit-modification-hooks)))))
+           (delete-region 1 2)
+           hook-log)",
+    );
+    assert_eq!(result, "OK (1 t)");
+}
+
+#[test]
+fn before_change_functions_reset_to_nil_on_error() {
+    let result = eval_one(
+        "(progn
+           (setq before-change-functions
+                 (list (lambda (_beg _end) (error \"boom\"))))
+           (condition-case _ (insert \"x\") (error nil))
+           before-change-functions)",
+    );
+    assert_eq!(result, "OK nil");
+}
+
+#[test]
 fn symbol_operations() {
     let results = eval_all(
         "(defvar x 42)

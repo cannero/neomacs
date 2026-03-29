@@ -1377,7 +1377,8 @@ pub(crate) fn builtin_replace_match(
                         .and_then(|g| g.as_ref())
                         .map(|(_, e)| *e)
                         .unwrap_or(oldstart);
-                    let old_len = oldend - oldstart;
+                    let old_len =
+                        super::editfns::current_buffer_byte_span_char_len(eval, oldstart, oldend);
                     super::editfns::signal_after_change(eval, oldstart, new_end, old_len)?;
                     return Ok(result);
                 }

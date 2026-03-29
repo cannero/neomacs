@@ -371,7 +371,7 @@ fn replace_buffer_region(
     end_byte: usize,
     replacement: &str,
 ) -> Result<(), Flow> {
-    let old_len = end_byte - start_byte;
+    let old_len = super::editfns::current_buffer_byte_span_char_len(eval, start_byte, end_byte);
     let new_len = replacement.len();
     super::editfns::signal_before_change(eval, start_byte, end_byte)?;
     replace_buffer_region_in_manager(

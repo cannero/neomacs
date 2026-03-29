@@ -76,6 +76,66 @@ fn expect_optional_live_frame_designator_in_state(
     ))
 }
 
+#[derive(Clone, Copy)]
+struct HookCallerContextState {
+    selected_frame_id: Option<crate::window::FrameId>,
+    selected_window_id: Option<crate::window::WindowId>,
+    current_buffer_id: Option<crate::buffer::BufferId>,
+}
+
+fn save_hook_caller_context(eval: &super::eval::Context) -> HookCallerContextState {
+    let selected_frame_id = eval.frames.selected_frame().map(|frame| frame.id);
+    let selected_window_id = selected_frame_id
+        .and_then(|frame_id| eval.frames.get(frame_id).map(|frame| frame.selected_window));
+    HookCallerContextState {
+        selected_frame_id,
+        selected_window_id,
+        current_buffer_id: eval.buffers.current_buffer_id(),
+    }
+}
+
+fn window_buffer_id_in_state(
+    eval: &super::eval::Context,
+    frame_id: crate::window::FrameId,
+    window_id: crate::window::WindowId,
+) -> Option<crate::buffer::BufferId> {
+    eval.frames
+        .get(frame_id)
+        .and_then(|frame| frame.find_window(window_id))
+        .and_then(|window| window.buffer_id())
+}
+
+fn select_frame_window_for_hook_context(
+    eval: &mut super::eval::Context,
+    frame_id: crate::window::FrameId,
+    window_id: crate::window::WindowId,
+) {
+    let _ = eval.frames.select_frame(frame_id);
+    if let Some(frame) = eval.frames.get_mut(frame_id) {
+        let _ = frame.select_window(window_id);
+    }
+    if let Some(buffer_id) = window_buffer_id_in_state(eval, frame_id, window_id) {
+        let _ = eval.switch_current_buffer(buffer_id);
+    }
+}
+
+fn restore_hook_caller_context(eval: &mut super::eval::Context, saved: HookCallerContextState) {
+    if let Some(frame_id) = saved
+        .selected_frame_id
+        .filter(|frame_id| eval.frames.get(*frame_id).is_some())
+    {
+        let _ = eval.frames.select_frame(frame_id);
+        if let Some(window_id) = saved.selected_window_id
+            && let Some(frame) = eval.frames.get_mut(frame_id)
+        {
+            let _ = frame.select_window(window_id);
+        }
+    }
+    if let Some(buffer_id) = saved.current_buffer_id {
+        eval.restore_current_buffer_if_live(buffer_id);
+    }
+}
+
 pub(super) fn expect_optional_live_window_designator(
     value: &Value,
     eval: &super::eval::Context,
@@ -398,10 +458,62 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
     if let Some(frame) = args.first() {
         expect_optional_live_frame_designator(frame, eval)?;
     }
-    let hook_name = "window-configuration-change-hook";
-    let hook_sym = hook_runtime::hook_symbol_by_name(eval, hook_name);
-    let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
-    hook_runtime::run_hook_value(eval, hook_sym, hook_value, &[], true)
+    let frame = match args.first().copied().unwrap_or(Value::Nil) {
+        Value::Nil => {
+            super::window_cmds::selected_frame_impl(&mut eval.frames, &mut eval.buffers, vec![])?
+        }
+        value => value,
+    };
+    let Value::Frame(frame_raw_id) = frame else {
+        return Ok(Value::Nil);
+    };
+    let frame_id = crate::window::FrameId(frame_raw_id);
+    let Some(frame_state) = eval.frames.get(frame_id) else {
+        return Ok(Value::Nil);
+    };
+
+    let hook_sym = hook_runtime::hook_symbol_by_name(eval, "window-configuration-change-hook");
+    let global_hook_value = eval
+        .obarray
+        .default_value_id(hook_sym)
+        .copied()
+        .unwrap_or(Value::Nil);
+    let selected_window = frame_state.selected_window;
+    let window_ids = frame_state.window_list();
+    let hook_name = crate::emacs_core::intern::resolve_sym(hook_sym);
+    let saved = save_hook_caller_context(eval);
+
+    let result = (|| -> EvalResult {
+        select_frame_window_for_hook_context(eval, frame_id, selected_window);
+        for window_id in &window_ids {
+            let Some(buffer_id) = window_buffer_id_in_state(eval, frame_id, *window_id) else {
+                continue;
+            };
+            let has_local_hook = eval
+                .buffers
+                .get(buffer_id)
+                .and_then(|buffer| buffer.get_buffer_local_binding(hook_name))
+                .is_some();
+            if !has_local_hook {
+                continue;
+            }
+            select_frame_window_for_hook_context(eval, frame_id, *window_id);
+            let Some(local_hook_value) = eval
+                .buffers
+                .current_buffer()
+                .and_then(|buffer| buffer.buffer_local_value(hook_name))
+            else {
+                continue;
+            };
+            let _ = hook_runtime::run_hook_value(eval, hook_sym, local_hook_value, &[], false)?;
+            select_frame_window_for_hook_context(eval, frame_id, selected_window);
+        }
+        let _ = hook_runtime::run_hook_value(eval, hook_sym, global_hook_value, &[], false)?;
+        Ok(Value::Nil)
+    })();
+
+    restore_hook_caller_context(eval, saved);
+    result
 }
 
 pub(crate) fn builtin_run_window_scroll_functions(
@@ -413,23 +525,38 @@ pub(crate) fn builtin_run_window_scroll_functions(
         expect_optional_live_window_designator(window, eval)?;
     }
 
-    let window_arg = args.first().cloned().unwrap_or(Value::Nil);
-    let window_start = if window_arg.is_nil() {
-        super::window_cmds::builtin_window_start(eval, vec![])?
-    } else {
-        super::window_cmds::builtin_window_start(eval, vec![window_arg])?
+    let window_arg = match args.first().copied().unwrap_or(Value::Nil) {
+        Value::Nil => super::window_cmds::builtin_selected_window(eval, vec![])?,
+        value => value,
     };
-
-    let hook_name = "window-scroll-functions";
-    let hook_sym = hook_runtime::hook_symbol_by_name(eval, hook_name);
+    let Value::Window(window_raw_id) = window_arg else {
+        return Ok(Value::Nil);
+    };
+    let window_id = crate::window::WindowId(window_raw_id);
+    let frame_id = eval.frames.find_window_frame_id(window_id).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("window-live-p"), window_arg],
+        )
+    })?;
+    let window_start = super::window_cmds::builtin_window_start(eval, vec![window_arg])?;
+    let hook_sym = hook_runtime::hook_symbol_by_name(eval, "window-scroll-functions");
     let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
-    hook_runtime::run_hook_value(
+    let saved_buffer_id = eval.buffers.current_buffer_id();
+    if let Some(buffer_id) = window_buffer_id_in_state(eval, frame_id, window_id) {
+        let _ = eval.switch_current_buffer(buffer_id);
+    }
+    let result = hook_runtime::run_hook_value(
         eval,
         hook_sym,
         hook_value,
         &[window_arg, window_start],
         true,
-    )
+    );
+    if let Some(buffer_id) = saved_buffer_id {
+        eval.restore_current_buffer_if_live(buffer_id);
+    }
+    result
 }
 
 pub(crate) fn builtin_featurep(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {

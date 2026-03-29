@@ -393,16 +393,11 @@ pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Val
     }
     let value = args[1];
 
-    // GNU PLAINVAL path: for non-buffer-local variables, `set-default`
-    // behaves like `set` -- writes to the dynamic frame if let-bound.
-    let is_buffer_local = eval.obarray().is_buffer_local(resolved_name)
-        || eval.custom.is_auto_buffer_local(resolved_name);
-    if !is_buffer_local {
-        // PLAINVAL: delegate to set_runtime_binding which writes to the
-        // dynamic frame if the variable is let-bound, else to the obarray.
-        eval.set_runtime_binding_by_id(resolved, value);
-    } else {
-        // LOCALIZED: write to the obarray (default cell) directly.
+    if !crate::emacs_core::eval::set_default_toplevel_value_in_state(
+        eval.specpdl.as_mut_slice(),
+        resolved,
+        value,
+    ) {
         eval.obarray_mut().set_symbol_value_id(resolved, value);
     }
 

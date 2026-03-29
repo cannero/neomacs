@@ -3,7 +3,6 @@ pub mod emacs_core;
 pub mod encoding;
 pub mod face;
 pub mod gc;
-pub mod hooks;
 pub mod keyboard;
 pub mod window;
 

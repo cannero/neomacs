@@ -348,7 +348,7 @@ fn delete_extract_rectangle_eval(
 
     if let Some(_current_id) = eval.buffers.current_buffer_id() {
         super::editfns::signal_before_change(eval, pmin, pmax)?;
-        let old_len = pmax - pmin;
+        let old_len = super::editfns::current_buffer_byte_span_char_len(eval, pmin, pmax);
         if let Some(current_id) = eval.buffers.current_buffer_id() {
             let _ = eval.buffers.delete_buffer_region(current_id, pmin, pmax);
             let _ = eval.buffers.goto_buffer_byte(current_id, pmin);

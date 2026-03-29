@@ -2706,12 +2706,16 @@ pub(crate) fn builtin_insert_file_contents(
     let replace_requested = args.get(4).is_some_and(|v| !v.is_nil());
     let pre_state = eval.buffers.current_buffer().map(|buf| {
         if replace_requested {
-            (buf.point_min_byte(), buf.point_max_byte())
+            (
+                buf.point_min_byte(),
+                buf.point_max_byte(),
+                super::editfns::byte_span_char_len(buf, buf.point_min_byte(), buf.point_max_byte()),
+            )
         } else {
-            (buf.pt, buf.pt)
+            (buf.pt, buf.pt, 0)
         }
     });
-    if let Some((beg, end)) = pre_state {
+    if let Some((beg, end, _old_len)) = pre_state {
         super::editfns::signal_before_change(eval, beg, end)?;
     }
 
@@ -2726,8 +2730,7 @@ pub(crate) fn builtin_insert_file_contents(
     eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
 
     // Fire after-change hooks.
-    if let Some((beg, old_end)) = pre_state {
-        let old_len = old_end - beg;
+    if let Some((beg, old_end, old_len)) = pre_state {
         let new_end = eval
             .buffers
             .current_buffer()

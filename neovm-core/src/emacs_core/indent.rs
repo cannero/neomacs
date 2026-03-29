@@ -230,7 +230,7 @@ fn delete_horizontal_space_at_point(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let old_len = right - left;
+    let old_len = super::editfns::current_buffer_byte_span_char_len(eval, left, right);
     super::editfns::signal_before_change(eval, left, right)?;
     let _ = eval.buffers.delete_buffer_region(current_id, left, right);
     super::editfns::signal_after_change(eval, left, left, old_len)?;

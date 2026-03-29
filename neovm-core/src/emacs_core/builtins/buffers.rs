@@ -1156,12 +1156,13 @@ pub(crate) fn builtin_replace_buffer_contents(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .id;
 
-    let old_len = eval
+    let old_len_bytes = eval
         .buffers
         .get(current_id)
         .map(|buf| buf.text.len())
         .unwrap_or(0);
-    super::editfns::signal_before_change(eval, 0, old_len)?;
+    let old_len = super::editfns::current_buffer_byte_span_char_len(eval, 0, old_len_bytes);
+    super::editfns::signal_before_change(eval, 0, old_len_bytes)?;
     let _ = eval
         .buffers
         .replace_buffer_contents(current_id, &source_text);
@@ -1215,7 +1216,7 @@ pub(crate) fn builtin_replace_region_contents(
     };
     // Signal before the combined delete+insert operation.
     super::editfns::signal_before_change(eval, lo, hi)?;
-    let old_len = hi - lo;
+    let old_len = super::editfns::current_buffer_byte_span_char_len(eval, lo, hi);
     let _ = eval.buffers.delete_buffer_region(current_id, lo, hi);
     let _ = eval.buffers.goto_buffer_byte(current_id, lo);
     // The insert builtins already call signal hooks internally, but the
@@ -2577,7 +2578,7 @@ pub(crate) fn builtin_subst_char_in_region(
 
     // subst-char-in-region replaces characters of the same byte length,
     // so the region size does not change.
-    let region_len = byte_end - byte_start;
+    let region_len = super::editfns::current_buffer_byte_span_char_len(eval, byte_start, byte_end);
     super::editfns::signal_before_change(eval, byte_start, byte_end)?;
     let _ = &mut eval
         .buffers

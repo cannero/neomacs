@@ -1461,7 +1461,7 @@ fn replace_string_eval_impl(
             .buffers
             .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        let old_len = end - start;
+        let old_len = super::editfns::current_buffer_byte_span_char_len(eval, start, end);
         let new_len = out.len();
         super::editfns::signal_before_change(eval, start, end)?;
         let _ = eval.buffers.delete_buffer_region(current_id, start, end);
@@ -1574,7 +1574,7 @@ fn replace_string_eval_impl(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let old_len = end - start;
+    let old_len = super::editfns::current_buffer_byte_span_char_len(eval, start, end);
     let new_len = out.len();
     super::editfns::signal_before_change(eval, start, end)?;
     let _ = eval.buffers.delete_buffer_region(current_id, start, end);
@@ -1744,7 +1744,7 @@ fn replace_regexp_eval_impl(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let old_len = end - start;
+    let old_len = super::editfns::current_buffer_byte_span_char_len(eval, start, end);
     let new_len = out.len();
     super::editfns::signal_before_change(eval, start, end)?;
     let _ = eval.buffers.delete_buffer_region(current_id, start, end);
@@ -1877,6 +1877,8 @@ pub(crate) fn builtin_keep_lines(eval: &mut super::eval::Context, args: Vec<Valu
         let region_start = delete_ranges.last().map(|(s, _)| *s).unwrap_or(start);
         let region_end = delete_ranges.first().map(|(_, e)| *e).unwrap_or(start);
         let total_deleted: usize = delete_ranges.iter().map(|(s, e)| e - s).sum();
+        let old_len =
+            super::editfns::current_buffer_byte_span_char_len(eval, region_start, region_end);
         super::editfns::signal_before_change(eval, region_start, region_end)?;
         for (del_start, del_end) in delete_ranges.into_iter().rev() {
             let _ = eval
@@ -1887,7 +1889,7 @@ pub(crate) fn builtin_keep_lines(eval: &mut super::eval::Context, args: Vec<Valu
             eval,
             region_start,
             region_end - total_deleted,
-            region_end - region_start,
+            old_len,
         )?;
     }
     let _ = eval.buffers.goto_buffer_byte(current_id, start);
@@ -1954,6 +1956,8 @@ pub(crate) fn builtin_flush_lines(eval: &mut super::eval::Context, args: Vec<Val
         let region_start = delete_ranges.first().map(|(s, _)| *s).unwrap_or(start);
         let region_end = delete_ranges.last().map(|(_, e)| *e).unwrap_or(start);
         let total_deleted: usize = delete_ranges.iter().map(|(s, e)| e - s).sum();
+        let old_len =
+            super::editfns::current_buffer_byte_span_char_len(eval, region_start, region_end);
         super::editfns::signal_before_change(eval, region_start, region_end)?;
         for (del_start, del_end) in delete_ranges.into_iter().rev() {
             let _ = eval
@@ -1964,7 +1968,7 @@ pub(crate) fn builtin_flush_lines(eval: &mut super::eval::Context, args: Vec<Val
             eval,
             region_start,
             region_end - total_deleted,
-            region_end - region_start,
+            old_len,
         )?;
     }
     let _ = eval.buffers.goto_buffer_byte(current_id, start);

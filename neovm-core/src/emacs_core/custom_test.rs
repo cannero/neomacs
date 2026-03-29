@@ -317,6 +317,39 @@ fn set_default_sets_global() {
 }
 
 #[test]
+fn set_default_preserves_current_buffer_local_binding() {
+    let mut eval = Context::new();
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .set_buffer_local_property(current, "vm-set-default-local", Value::Int(7))
+        .expect("buffer-local binding");
+
+    builtin_set_default(
+        &mut eval,
+        vec![Value::symbol("vm-set-default-local"), Value::Int(99)],
+    )
+    .expect("set-default");
+
+    assert_eq!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .buffer_local_value("vm-set-default-local"),
+        Some(Value::Int(7))
+    );
+    assert_eq!(
+        builtin_default_value(&mut eval, vec![Value::symbol("vm-set-default-local")])
+            .expect("default-value"),
+        Value::Int(99)
+    );
+    assert_eq!(
+        builtin_symbol_value(&mut eval, vec![Value::symbol("vm-set-default-local")])
+            .expect("symbol-value"),
+        Value::Int(7)
+    );
+}
+
+#[test]
 fn set_default_and_default_value_follow_alias_resolution() {
     let results = eval_all(
         r#"(defvaralias 'vm-set-default-alias 'vm-set-default-base)
