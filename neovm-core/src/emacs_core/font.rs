@@ -176,6 +176,60 @@ fn mirror_runtime_face_into_frame(
     }
 }
 
+fn set_runtime_face_color_from_frame_parameter(
+    eval: &mut super::eval::Context,
+    frame_id: FrameId,
+    face_name: &str,
+    attr_name: &str,
+    value: Value,
+) {
+    let attr_value = value
+        .as_str()
+        .and_then(crate::face::Color::parse)
+        .map(crate::face::FaceAttrValue::Color)
+        .unwrap_or(crate::face::FaceAttrValue::Unspecified);
+    eval.set_face_attribute(face_name, attr_name, attr_value);
+    mirror_runtime_face_into_frame(eval, frame_id, face_name);
+}
+
+pub(crate) fn update_face_from_frame_parameter(
+    eval: &mut super::eval::Context,
+    frame_id: FrameId,
+    param_name: &str,
+    new_value: Value,
+) -> Result<(), crate::emacs_core::error::Flow> {
+    match param_name {
+        "foreground-color" => {
+            set_runtime_face_color_from_frame_parameter(
+                eval,
+                frame_id,
+                "default",
+                ":foreground",
+                new_value,
+            );
+        }
+        "background-color" => {
+            if let Some(function) = eval
+                .obarray()
+                .symbol_function("frame-set-background-mode")
+                .copied()
+                && !function.is_nil()
+            {
+                let _ = eval.apply(function, vec![Value::Frame(frame_id.0)])?;
+            }
+            set_runtime_face_color_from_frame_parameter(
+                eval,
+                frame_id,
+                "default",
+                ":background",
+                new_value,
+            );
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// Realize the selected frame's `font-parameter` into the runtime/frame-local
 /// `default` face without mutating Lisp override state.
 ///
@@ -3278,6 +3332,39 @@ fn expect_optional_color_frame_arg(args: &[Value], idx: usize) -> Result<(), Flo
     Ok(())
 }
 
+fn selected_or_designated_live_frame_id(
+    frames: &FrameManager,
+    frame: Option<&Value>,
+) -> Result<FrameId, Flow> {
+    match frame {
+        None | Some(Value::Nil) => frames
+            .selected_frame()
+            .map(|frame| frame.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No selected frame")])),
+        Some(value) if live_frame_designator_in_state(frames, value) => {
+            Ok(frame_id_from_designator(value)
+                .expect("live frame designator should decode to frame id"))
+        }
+        Some(other) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), *other],
+        )),
+    }
+}
+
+fn graphic_color_target_frame_id(
+    ctx: &super::eval::Context,
+    frame: Option<&Value>,
+) -> Result<Option<FrameId>, Flow> {
+    let frame_id = selected_or_designated_live_frame_id(&ctx.frames, frame)?;
+    Ok(ctx
+        .frames
+        .get(frame_id)
+        .and_then(|frame| frame.effective_window_system())
+        .filter(|window_system| super::display::gui_window_system_active_value(*window_system))
+        .map(|_| frame_id))
+}
+
 fn parse_color_16bit_any(color_name: &str) -> Option<(i64, i64, i64)> {
     let lower = color_name.trim().to_lowercase();
     if let Some(hex) = lower.strip_prefix('#') {
@@ -3297,6 +3384,28 @@ pub(crate) fn builtin_color_defined_p(args: Vec<Value>) -> EvalResult {
         Value::Str(_) => Ok(Value::bool(!builtin_color_values(vec![args[0]])?.is_nil())),
         _ => Ok(Value::Nil),
     }
+}
+
+pub(crate) fn builtin_xw_color_defined_p_ctx(
+    ctx: &super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("xw-color-defined-p", &args, 1)?;
+    expect_max_args("xw-color-defined-p", &args, 2)?;
+    expect_optional_color_frame_arg(&args, 1)?;
+    if graphic_color_target_frame_id(ctx, args.get(1))?.is_none() {
+        return Ok(Value::Nil);
+    }
+    let color_name = match &args[0] {
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), args[0]],
+            ));
+        }
+    };
+    Ok(Value::bool(parse_color_16bit_any(&color_name).is_some()))
 }
 
 /// `(color-values COLOR &optional FRAME)` -- resolve COLOR and return a
@@ -3319,6 +3428,35 @@ pub(crate) fn builtin_color_values(args: Vec<Value>) -> EvalResult {
         parse_named_color_16bit(&lower)
     };
     let Some((r, g, b)) = resolved.map(approximate_tty_color) else {
+        return Ok(Value::Nil);
+    };
+    Ok(Value::list(vec![
+        Value::Int(r),
+        Value::Int(g),
+        Value::Int(b),
+    ]))
+}
+
+pub(crate) fn builtin_xw_color_values_ctx(
+    ctx: &super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("xw-color-values", &args, 1)?;
+    expect_max_args("xw-color-values", &args, 2)?;
+    expect_optional_color_frame_arg(&args, 1)?;
+    if graphic_color_target_frame_id(ctx, args.get(1))?.is_none() {
+        return Ok(Value::Nil);
+    }
+    let color_name = match &args[0] {
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), args[0]],
+            ));
+        }
+    };
+    let Some((r, g, b)) = parse_color_16bit_any(&color_name) else {
         return Ok(Value::Nil);
     };
     Ok(Value::list(vec![

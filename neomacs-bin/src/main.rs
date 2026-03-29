@@ -274,11 +274,10 @@ fn bootstrap_display_config(frontend: FrontendKind) -> BootstrapDisplayConfig {
         FrontendKind::Gui => BootstrapDisplayConfig {
             frontend,
             color_cells: 16777216,
-            // GNU Emacs derives background-mode from the default background
-            // color.  Most modern GUI themes (including Doom) use dark
-            // backgrounds.  Default to "dark" to match the common case;
-            // the theme's frame-background-mode overrides this later.
-            background_mode: "dark",
+            // GNU `frame--current-background-mode` defaults GUI frames to
+            // `light` unless a real background color or terminal default says
+            // otherwise.  Live frame-parameter updates recompute this later.
+            background_mode: "light",
         },
         FrontendKind::Tty => BootstrapDisplayConfig {
             frontend,
@@ -666,9 +665,6 @@ fn main() {
 
     // 3. Bootstrap the host-side initial frame/buffers.
     let _bootstrap = bootstrap_buffers(&mut evaluator, width, height, bootstrap_display);
-    if let Err(e) = neovm_core::emacs_core::load::apply_runtime_startup_state(&mut evaluator) {
-        tracing::warn!("runtime startup state error (non-fatal): {:?}", e);
-    }
     let frame_id = evaluator
         .frame_manager()
         .selected_frame()

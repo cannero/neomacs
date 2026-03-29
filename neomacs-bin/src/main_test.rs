@@ -11,8 +11,7 @@ use neovm_core::emacs_core::Context;
 use neovm_core::emacs_core::GuiFrameHostRequest;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::load::{
-    apply_runtime_startup_state, create_bootstrap_evaluator_cached_with_features,
-    create_bootstrap_evaluator_with_features,
+    create_bootstrap_evaluator_cached_with_features, create_bootstrap_evaluator_with_features,
 };
 use neovm_core::emacs_core::parse_forms;
 use neovm_core::emacs_core::print_value_with_eval;
@@ -24,6 +23,11 @@ use std::sync::{Arc, Mutex};
 
 fn gui_display() -> BootstrapDisplayConfig {
     bootstrap_display_config(FrontendKind::Gui)
+}
+
+#[test]
+fn bootstrap_gui_display_defaults_to_gnu_light_background_mode() {
+    assert_eq!(gui_display().background_mode, "light");
 }
 
 fn gui_startup() -> StartupOptions {
@@ -48,7 +52,6 @@ fn gui_startup_with_args(args: &[&str]) -> StartupOptions {
 
 fn bootstrap_runtime_gui_startup(eval: &mut Context) -> FrameId {
     let _bootstrap = bootstrap_buffers(eval, 960, 640, gui_display());
-    apply_runtime_startup_state(eval).expect("runtime startup state should succeed");
     let frame_id = eval
         .frame_manager()
         .selected_frame()
@@ -1398,6 +1401,204 @@ fn frame_set_background_mode_uses_live_gui_window_system_after_startup_clears_in
         .eval_expr(&forms[0])
         .expect("frame-set-background-mode probe should evaluate");
     assert_eq!(result, Value::symbol("ok"));
+}
+
+#[test]
+fn modify_frame_parameters_updates_live_default_face_colors_for_gui_frames() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+
+    let forms = parse_forms(
+        r##"(progn
+             (modify-frame-parameters
+              (selected-frame)
+              '((foreground-color . "white")
+                (background-color . "#000000")))
+             (list
+              (frame-parameter nil 'background-mode)
+              (frame-parameter nil 'foreground-color)
+              (frame-parameter nil 'background-color)
+              (face-foreground 'default nil t)
+              (face-background 'default nil t)))"##,
+    )
+    .expect("parse modify-frame-parameters face probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("modify-frame-parameters face probe should evaluate");
+    assert_eq!(
+        print_value_with_eval(&mut eval, &result),
+        "(dark \"white\" \"#000000\" \"white\" \"#000000\")"
+    );
+}
+
+#[test]
+fn modify_frame_parameters_background_color_only_completes_for_gui_frames() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+
+    let forms = parse_forms(
+        r##"(progn
+             (modify-frame-parameters
+              (selected-frame)
+              '((background-color . "#000000")))
+             (list
+              'after-modify
+              (frame-parameter nil 'background-mode)
+              (frame-parameter nil 'background-color)))"##,
+    )
+    .expect("parse background-only frame parameter probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("background-only modify-frame-parameters should evaluate");
+    assert_eq!(
+        print_value_with_eval(&mut eval, &result),
+        "(after-modify dark \"#000000\")"
+    );
+}
+
+#[test]
+fn frame_set_background_mode_keep_face_specs_completes_after_dark_background_change() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let frame_id = bootstrap_runtime_gui_startup(&mut eval);
+    {
+        let frame = eval
+            .frame_manager_mut()
+            .get_mut(frame_id)
+            .expect("live frame");
+        frame
+            .parameters
+            .insert("background-color".to_string(), Value::string("#000000"));
+    }
+
+    let forms = parse_forms(
+        r##"(progn
+             (frame-set-background-mode (selected-frame) t)
+             (list
+              'after-frame-set-background-mode
+              (frame-parameter nil 'background-mode)
+              (frame-parameter nil 'display-type)))"##,
+    )
+    .expect("parse keep-face-specs background-mode probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("frame-set-background-mode keep-face-specs should evaluate");
+    assert_eq!(
+        print_value_with_eval(&mut eval, &result),
+        "(after-frame-set-background-mode dark color)"
+    );
+}
+
+fn seed_selected_frame_background_color(eval: &mut Context, color: &str) {
+    let frame_id = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame")
+        .id;
+    let frame = eval
+        .frame_manager_mut()
+        .get_mut(frame_id)
+        .expect("live frame");
+    frame
+        .parameters
+        .insert("background-color".to_string(), Value::string(color));
+}
+
+#[test]
+fn dark_gui_background_color_values_match_gnu_shape() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+    seed_selected_frame_background_color(&mut eval, "#000000");
+
+    let forms = parse_forms(r##"(color-values "#000000" (selected-frame))"##)
+        .expect("parse color-values probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("color-values probe should evaluate");
+    assert_eq!(print_value_with_eval(&mut eval, &result), "(0 0 0)");
+}
+
+#[test]
+fn dark_gui_background_color_dark_predicate_completes() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+    seed_selected_frame_background_color(&mut eval, "#000000");
+
+    let forms = parse_forms(
+        r##"(color-dark-p
+             (mapcar (lambda (c) (/ c 65535.0))
+                     (color-values "#000000" (selected-frame))))"##,
+    )
+    .expect("parse color-dark-p probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("color-dark-p probe should evaluate");
+    assert_eq!(result, Value::True);
+}
+
+#[test]
+fn dark_gui_frame_current_background_mode_completes() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+    seed_selected_frame_background_color(&mut eval, "#000000");
+
+    let forms = parse_forms(r#"(frame--current-background-mode (selected-frame))"#)
+        .expect("parse current background mode probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("current background mode probe should evaluate");
+    let debug_forms = parse_forms(
+        r##"(list
+            (frame-parameter nil 'background-color)
+            (frame-parameter nil 'background-mode)
+            frame-background-mode
+            (terminal-parameter nil 'background-mode)
+            (window-system (selected-frame))
+            (tty-type (selected-frame))
+            (color-values "#000000" (selected-frame))
+            (frame--current-background-mode (selected-frame)))"##,
+    )
+    .expect("parse current background mode debug probe");
+    let debug_result = eval
+        .eval_expr(&debug_forms[0])
+        .expect("current background mode debug probe should evaluate");
+    assert_eq!(
+        print_value_with_eval(&mut eval, &debug_result),
+        "(\"#000000\" light nil nil neo nil (0 0 0) dark)"
+    );
+    assert_eq!(result, Value::symbol("dark"));
+}
+
+#[test]
+fn modify_frame_parameters_prefers_first_duplicate_frame_parameter_like_gnu() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+
+    let forms = parse_forms(
+        r##"(progn
+             (modify-frame-parameters
+              (selected-frame)
+              '((background-color . "#000000")
+                (background-color . "white")))
+             (list
+              (frame-parameter nil 'background-color)
+              (face-background 'default nil t)
+              (frame-parameter nil 'background-mode)))"##,
+    )
+    .expect("parse duplicate frame parameter probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("duplicate frame parameter probe should evaluate");
+    assert_eq!(
+        print_value_with_eval(&mut eval, &result),
+        "(\"#000000\" \"#000000\" dark)"
+    );
 }
 
 #[test]

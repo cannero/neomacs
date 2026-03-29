@@ -5497,54 +5497,76 @@ pub(crate) fn builtin_modify_frame_parameters(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("modify-frame-parameters", &args, 2)?;
     expect_max_args("modify-frame-parameters", &args, 2)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        Some(&args[0]),
+        "frame-live-p",
+    )?;
     let items = super::value::list_to_vec(&args[1]).unwrap_or_default();
 
-    let frame = frames
-        .get_mut(fid)
-        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    if eval.frames.get(fid).is_none() {
+        return Err(signal("error", vec![Value::string("Frame not found")]));
+    }
 
-    for item in items {
+    for item in items.into_iter().rev() {
         if let Value::Cons(cell) = &item {
             let pair = read_cons(*cell);
             if let Value::Symbol(key) = &pair.car {
-                match resolve_sym(*key) {
+                let key_name = resolve_sym(*key).to_owned();
+                match key_name.as_str() {
                     "name" => {
                         if let Some(s) = pair.cdr.as_str() {
-                            frame.name = s.to_string();
+                            if let Some(frame) = eval.frames.get_mut(fid) {
+                                frame.name = s.to_string();
+                            }
                         }
                     }
                     "title" => {
                         if let Some(s) = pair.cdr.as_str() {
-                            frame.title = s.to_string();
+                            if let Some(frame) = eval.frames.get_mut(fid) {
+                                frame.title = s.to_string();
+                            }
                         }
                     }
                     "width" => {
                         if let Some(n) = pair.cdr.as_int() {
-                            frame.parameters.insert("width".to_string(), Value::Int(n));
+                            if let Some(frame) = eval.frames.get_mut(fid) {
+                                frame.parameters.insert("width".to_string(), Value::Int(n));
+                            }
                         }
                     }
                     "height" => {
                         if let Some(n) = pair.cdr.as_int() {
-                            frame.parameters.insert("height".to_string(), Value::Int(n));
+                            if let Some(frame) = eval.frames.get_mut(fid) {
+                                frame.parameters.insert("height".to_string(), Value::Int(n));
+                            }
                         }
                     }
                     "visibility" => {
-                        frame.visible = pair.cdr.is_truthy();
+                        if let Some(frame) = eval.frames.get_mut(fid) {
+                            frame.visible = pair.cdr.is_truthy();
+                        }
                     }
                     _ => {
-                        frame
-                            .parameters
-                            .insert(resolve_sym(*key).to_owned(), pair.cdr);
+                        if let Some(frame) = eval.frames.get_mut(fid) {
+                            frame.parameters.insert(key_name.clone(), pair.cdr);
+                        }
+                        if matches!(key_name.as_str(), "foreground-color" | "background-color") {
+                            super::font::update_face_from_frame_parameter(
+                                eval, fid, &key_name, pair.cdr,
+                            )?;
+                        }
                     }
                 }
             }
         }
     }
-    frame.sync_tab_bar_height_from_parameters();
+    if let Some(frame) = eval.frames.get_mut(fid) {
+        frame.sync_tab_bar_height_from_parameters();
+    }
     Ok(Value::Nil)
 }
 /// `(frame-visible-p FRAME)` -> t or nil.

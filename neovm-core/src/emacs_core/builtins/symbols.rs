@@ -2734,21 +2734,6 @@ pub(crate) fn builtin_x_menu_bar_open_internal(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_xw_color_defined_p(args: Vec<Value>) -> EvalResult {
-    expect_range_args("xw-color-defined-p", &args, 1, 2)?;
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_xw_color_values(args: Vec<Value>) -> EvalResult {
-    expect_range_args("xw-color-values", &args, 1, 2)?;
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_xw_display_color_p(args: Vec<Value>) -> EvalResult {
-    expect_range_args("xw-display-color-p", &args, 0, 1)?;
-    Ok(Value::Nil)
-}
-
 pub(crate) fn builtin_xw_display_color_p_ctx(
     ctx: &crate::emacs_core::eval::Context,
     args: Vec<Value>,

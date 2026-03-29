@@ -1998,6 +1998,48 @@ fn color_distance_semantics() {
 }
 
 #[test]
+fn xw_color_primitives_follow_live_gui_frame_state() {
+    let mut eval = crate::emacs_core::Context::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    {
+        let frame = eval
+            .frame_manager_mut()
+            .get_mut(frame_id)
+            .expect("selected frame");
+        frame.window_system = Some(Value::symbol("neo"));
+    }
+
+    assert_eq!(
+        builtin_xw_color_defined_p_ctx(
+            &eval,
+            vec![Value::string("#123456"), Value::Frame(frame_id.0)],
+        )
+        .expect("xw-color-defined-p should evaluate"),
+        Value::True
+    );
+    assert_eq!(
+        builtin_xw_color_values_ctx(
+            &eval,
+            vec![Value::string("#123456"), Value::Frame(frame_id.0)],
+        )
+        .expect("xw-color-values should evaluate"),
+        Value::list(vec![
+            Value::Int(0x12 * 257),
+            Value::Int(0x34 * 257),
+            Value::Int(0x56 * 257),
+        ])
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_ctx(
+            &eval,
+            vec![Value::Frame(frame_id.0)],
+        )
+        .expect("xw-display-color-p should evaluate"),
+        Value::True
+    );
+}
+
+#[test]
 fn color_distance_errors_match_oracle_shape() {
     let invalid_left =
         builtin_color_distance(vec![Value::string("#00"), Value::string("#fff")]).unwrap_err();
