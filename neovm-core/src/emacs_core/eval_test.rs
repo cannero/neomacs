@@ -1172,6 +1172,169 @@ fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
 }
 
 #[test]
+fn read_char_returns_lispy_select_window_for_transport_event() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let fid = ev.frames.selected_frame().expect("selected frame").id;
+    let w1 = ev.frames.get(fid).expect("frame").window_list()[0];
+    let other_buffer = ev.buffers.create_buffer("select-window-target");
+    let w2 = ev
+        .frames
+        .split_window(
+            fid,
+            w1,
+            crate::window::SplitDirection::Horizontal,
+            other_buffer,
+            None,
+        )
+        .expect("split window");
+
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::SelectWindow { window_id: w2 });
+
+    let event = ev
+        .read_char()
+        .expect("read_char should surface select-window");
+    assert_eq!(
+        event,
+        Value::list(vec![
+            Value::symbol("select-window"),
+            Value::list(vec![Value::Window(w2.0)]),
+        ])
+    );
+}
+
+#[test]
+fn read_key_sequence_defers_select_window_until_after_current_key_sequence() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let fid = ev.frames.selected_frame().expect("selected frame").id;
+    let w1 = ev.frames.get(fid).expect("frame").window_list()[0];
+    let other_buffer = ev.buffers.create_buffer("select-window-target");
+    let w2 = ev
+        .frames
+        .split_window(
+            fid,
+            w1,
+            crate::window::SplitDirection::Horizontal,
+            other_buffer,
+            None,
+        )
+        .expect("split window");
+
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    let setup = parse_forms(
+        r#"(fset 'neomacs-test-select-window-deferred-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::Int('a' as i64), Value::Int('b' as i64)],
+        Value::symbol("neomacs-test-select-window-deferred-command"),
+    )
+    .expect("define command");
+
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char('a'),
+        ));
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::SelectWindow { window_id: w2 });
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char('b'),
+        ));
+
+    let (keys, binding) = ev.read_key_sequence().expect("read key sequence");
+    assert_eq!(keys, vec![Value::Int('a' as i64), Value::Int('b' as i64)]);
+    assert_eq!(
+        binding,
+        Value::symbol("neomacs-test-select-window-deferred-command")
+    );
+
+    let deferred = ev
+        .read_char()
+        .expect("deferred select-window should be unread first");
+    assert_eq!(
+        deferred,
+        Value::list(vec![
+            Value::symbol("select-window"),
+            Value::list(vec![Value::Window(w2.0)]),
+        ])
+    );
+}
+
+#[test]
+fn read_key_sequence_can_return_select_window_at_sequence_start() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let fid = ev.frames.selected_frame().expect("selected frame").id;
+    let w1 = ev.frames.get(fid).expect("frame").window_list()[0];
+    let other_buffer = ev.buffers.create_buffer("select-window-target");
+    let w2 = ev
+        .frames
+        .split_window(
+            fid,
+            w1,
+            crate::window::SplitDirection::Horizontal,
+            other_buffer,
+            None,
+        )
+        .expect("split window");
+
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    let setup = parse_forms(
+        r#"(fset 'neomacs-test-handle-select-window
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::symbol("select-window")],
+        Value::symbol("neomacs-test-handle-select-window"),
+    )
+    .expect("define select-window binding");
+
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::SelectWindow { window_id: w2 });
+
+    let (keys, binding) = ev
+        .read_key_sequence_with_options(crate::keyboard::ReadKeySequenceOptions::new(
+            Value::Nil,
+            false,
+            true,
+        ))
+        .expect("read select-window sequence");
+
+    assert_eq!(
+        keys,
+        vec![Value::list(vec![
+            Value::symbol("select-window"),
+            Value::list(vec![Value::Window(w2.0)]),
+        ])]
+    );
+    assert_eq!(binding, Value::symbol("neomacs-test-handle-select-window"));
+}
+
+#[test]
 fn read_char_mouse_press_uses_clicked_window_geometry() {
     let mut ev = Context::new();
     ev.frames

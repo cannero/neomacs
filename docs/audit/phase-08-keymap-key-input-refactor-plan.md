@@ -361,15 +361,20 @@ Current status:
 - completed: `switch-frame` event transport and deferral now live in the
   keyboard owner too: frontend focus events preserve `emacs_frame_id`,
   `read_char` emits GNU-shaped `(switch-frame FRAME)` events, and
-  `read_key_sequence` now defers them through keyboard-owned
-  `unread_switch_frame` state when the current sequence cannot return them yet
+  `read_key_sequence` now defers them through keyboard-owned selection-event
+  state when the current sequence cannot return them yet
+- completed: delayed window-selection events now use the same low-level owner
+  path: the keyboard runtime carries generic selection events,
+  `read_char` can surface GNU-shaped `(select-window (WINDOW))` events, and
+  `read_key_sequence` now defers or returns them through the same
+  switch-frame-kind path GNU uses in `keyboard.c`
 - completed: mouse target-frame identity now survives frontend transport into
   the keyboard owner, mouse posn synthesis is frame/window aware instead of
   always falling back to the selected buffer, clicked-window buffer-local maps
   now participate in active-map lookup, and non-text mouse areas such as the
   mode line now prefix key lookup through the keyboard-owned sequence path
-- remaining: full GNU replay/rescan around delayed window-selection events and
-  the remaining non-text mouse-event edge cases
+- remaining: full GNU replay/rescan for the remaining non-text mouse-event
+  edge cases
 
 ### Slice E: unify modifier canonicalization
 
@@ -526,8 +531,12 @@ Completed on 2026-03-29:
   undefined-sequence restoration without bouncing back through evaluator glue.
 - Frontend focus events now preserve frame identity into the keyboard owner,
   and GNU-shaped `(switch-frame FRAME)` events plus keyboard-owned
-  `unread_switch_frame` deferral now live under `src/keyboard.rs` instead of
-  being dropped as transport-only focus notifications.
+  delayed-selection deferral now live under `src/keyboard.rs` instead of being
+  dropped as transport-only focus notifications.
+- Keyboard-owned selection events are now generic instead of hardcoded to
+  switch-frame, so the same low-level path also handles GNU-shaped
+  `(select-window (WINDOW))` events and defers them mid-sequence the same way
+  GNU `read_key_sequence` does.
 - Frontend mouse transport now preserves target-frame identity too, and the
   keyboard owner now synthesizes GNU-shaped mouse positions against the clicked
   frame/window geometry instead of always using the selected window/current
@@ -546,8 +555,8 @@ Still open:
   the remaining display-host reach-through and the keyboard-macro ownership
   split.
 - The keyboard owner still applies translation maps with a thin one-pass loop;
-  GNU's remaining replay/rescan behavior, especially delayed window-selection
-  handling and the harder mouse-event edge cases, still needs to move over as
+  GNU's remaining replay/rescan behavior, especially the harder mouse-event
+  edge cases beyond current area-prefix handling, still needs to move over as
   the rest of Slice D.
 - `input-decode-map` and `local-function-key-map` are still mirrored through
   evaluator globals for Lisp visibility; the next step is to make the keyboard

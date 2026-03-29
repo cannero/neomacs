@@ -612,6 +612,8 @@ pub enum InputEvent {
     },
     /// Window focus change.
     Focus { focused: bool, emacs_frame_id: u64 },
+    /// Window-selection change.
+    SelectWindow { window_id: crate::window::WindowId },
     /// Close request.
     CloseRequested,
 }
@@ -673,9 +675,10 @@ impl PrefixArg {
 /// keyboard-macro playback on `kboard` state. NeoVM still has one active
 /// keyboard, but it now models that owner explicitly.
 pub struct KBoard {
-    /// Deferred switch-frame event that should be delivered before ordinary
-    /// unread input, matching GNU `unread_switch_frame`.
-    pub unread_switch_frame: Option<Value>,
+    /// Deferred switch-frame/select-window event that should be delivered
+    /// before ordinary unread input, matching GNU
+    /// `unread_switch_frame` plus read-key-sequence delayed selection events.
+    pub unread_selection_event: Option<Value>,
     /// Unread command events in the Lisp-visible Emacs event form.
     pub unread_events: VecDeque<Value>,
     /// Current raw/translated key sequence being accumulated by `read_key_sequence`.
@@ -704,7 +707,7 @@ pub struct KBoard {
 impl KBoard {
     pub fn new() -> Self {
         Self {
-            unread_switch_frame: None,
+            unread_selection_event: None,
             unread_events: VecDeque::new(),
             current_key_sequence: ReadKeySequenceState::new(),
             command_keys: Vec::new(),
@@ -748,8 +751,8 @@ impl KBoard {
         self.unread_events.push_back(event);
     }
 
-    pub fn set_unread_switch_frame(&mut self, event: Value) {
-        self.unread_switch_frame = Some(event);
+    pub fn set_unread_selection_event(&mut self, event: Value) {
+        self.unread_selection_event = Some(event);
     }
 
     pub fn unread_key(&mut self, event: KeyEvent) {
@@ -839,7 +842,7 @@ impl Default for KBoard {
 
 impl crate::gc::GcTrace for KBoard {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
-        if let Some(event) = self.unread_switch_frame {
+        if let Some(event) = self.unread_selection_event {
             roots.push(event);
         }
         roots.extend(self.unread_events.iter().copied());
@@ -1440,20 +1443,23 @@ struct MousePosnDescriptor {
 }
 
 impl crate::emacs_core::eval::Context {
-    fn restore_delayed_switch_frame(&mut self, delayed_switch_frame: &mut Option<Value>) {
-        if let Some(event) = delayed_switch_frame.take() {
+    fn restore_delayed_selection_event(&mut self, delayed_selection_event: &mut Option<Value>) {
+        if let Some(event) = delayed_selection_event.take() {
             self.command_loop
                 .keyboard
                 .kboard
-                .set_unread_switch_frame(event);
+                .set_unread_selection_event(event);
         }
     }
 
-    fn is_switch_frame_event(event: &Value) -> bool {
+    fn has_switch_frame_event_kind(event: &Value) -> bool {
         match event {
             Value::Cons(cell) => {
                 let pair = crate::emacs_core::value::read_cons(*cell);
-                pair.car.as_symbol_name() == Some("switch-frame")
+                matches!(
+                    pair.car.as_symbol_name(),
+                    Some("switch-frame") | Some("select-window")
+                )
             }
             _ => false,
         }
@@ -1470,6 +1476,21 @@ impl crate::emacs_core::eval::Context {
             Value::Frame(emacs_frame_id)
         };
         Some(Value::list(vec![Value::symbol("switch-frame"), frame]))
+    }
+
+    fn make_lispy_select_window_event(&self, window_id: crate::window::WindowId) -> Option<Value> {
+        for frame_id in self.frames.frame_list() {
+            let Some(frame) = self.frames.get(frame_id) else {
+                continue;
+            };
+            if frame.find_window(window_id).is_some() {
+                return Some(Value::list(vec![
+                    Value::symbol("select-window"),
+                    Value::list(vec![Value::Window(window_id.0)]),
+                ]));
+            }
+        }
+        None
     }
 
     fn current_key_sequence_translation_maps(&self) -> [Value; 3] {
@@ -1828,7 +1849,7 @@ impl crate::emacs_core::eval::Context {
         self.command_loop.reset_key_sequence();
         self.assign("this-command-keys-shift-translated", Value::Nil);
         let mut shift_translation: Option<KeySequenceShiftTranslation> = None;
-        let mut delayed_switch_frame: Option<Value> = None;
+        let mut delayed_selection_event: Option<Value> = None;
         let mut replay_current_sequence = false;
 
         loop {
@@ -1839,11 +1860,11 @@ impl crate::emacs_core::eval::Context {
                 let emacs_event = match self.read_char() {
                     Ok(event) => event,
                     Err(err) => {
-                        self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+                        self.restore_delayed_selection_event(&mut delayed_selection_event);
                         return Err(err);
                     }
                 };
-                if Self::is_switch_frame_event(&emacs_event)
+                if Self::has_switch_frame_event_kind(&emacs_event)
                     && (!self
                         .command_loop
                         .keyboard
@@ -1853,8 +1874,8 @@ impl crate::emacs_core::eval::Context {
                         .is_empty()
                         || !options.can_return_switch_frame)
                 {
-                    delayed_switch_frame = Some(emacs_event);
-                    tracing::debug!("read_key_sequence: deferring switch-frame event");
+                    delayed_selection_event = Some(emacs_event);
+                    tracing::debug!("read_key_sequence: deferring selection event");
                     continue;
                 }
                 self.command_loop
@@ -1872,7 +1893,7 @@ impl crate::emacs_core::eval::Context {
             let translation = match self.apply_translation_maps_to_current_key_sequence(options) {
                 Ok(translation) => translation,
                 Err(err) => {
-                    self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+                    self.restore_delayed_selection_event(&mut delayed_selection_event);
                     return Err(err);
                 }
             };
@@ -1911,7 +1932,7 @@ impl crate::emacs_core::eval::Context {
             ) {
                 Ok(resolved) => resolved,
                 Err(err) => {
-                    self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+                    self.restore_delayed_selection_event(&mut delayed_selection_event);
                     return Err(err);
                 }
             };
@@ -1948,7 +1969,7 @@ impl crate::emacs_core::eval::Context {
                     options,
                     shift_translation.take(),
                 );
-                self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+                self.restore_delayed_selection_event(&mut delayed_selection_event);
                 let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
                 self.command_loop
                     .set_command_key_sequences(translated.clone(), raw);
@@ -1980,7 +2001,7 @@ impl crate::emacs_core::eval::Context {
                 options,
                 shift_translation.take(),
             );
-            self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+            self.restore_delayed_selection_event(&mut delayed_selection_event);
             let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
             self.command_loop
                 .set_command_key_sequences(translated.clone(), raw);
@@ -1994,7 +2015,13 @@ impl crate::emacs_core::eval::Context {
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
-        if let Some(event) = self.command_loop.keyboard.kboard.unread_switch_frame.take() {
+        if let Some(event) = self
+            .command_loop
+            .keyboard
+            .kboard
+            .unread_selection_event
+            .take()
+        {
             return Ok(event);
         }
 
@@ -2109,6 +2136,13 @@ impl crate::emacs_core::eval::Context {
                     if focused
                         && let Some(event) = self.make_lispy_switch_frame_event(emacs_frame_id)
                     {
+                        return Ok(event);
+                    }
+                    continue;
+                }
+                InputEvent::SelectWindow { window_id } => {
+                    self.timer_resume_idle();
+                    if let Some(event) = self.make_lispy_select_window_event(window_id) {
                         return Ok(event);
                     }
                     continue;
