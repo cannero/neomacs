@@ -2523,6 +2523,20 @@ fn condition_case_catches_uncaught_throw_as_no_catch() {
 }
 
 #[test]
+fn nested_condition_case_uses_current_shared_condition_slice() {
+    assert_eq!(
+        eval_one(
+            "(condition-case outer
+               (condition-case inner
+                   (signal 'error 1)
+                 (void-variable 'inner-miss))
+             (error (car outer)))"
+        ),
+        "OK error"
+    );
+}
+
+#[test]
 fn backward_compat_core_forms() {
     // Same tests as original elisp.rs
     let source = r#"

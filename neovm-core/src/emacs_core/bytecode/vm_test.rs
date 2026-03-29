@@ -1197,6 +1197,24 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
 }
 
 #[test]
+fn vm_nested_condition_case_uses_current_shared_condition_slice() {
+    with_vm_eval_full_context_state(
+        "(condition-case outer
+           (condition-case inner
+               (signal 'error 1)
+             (void-variable 'inner-miss))
+         (error (car outer)))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK error"
+            );
+        },
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_frames_across_eval_dependent_builtins() {
     assert_eq!(
         vm_eval_str("(frame-parameter (selected-frame) 'width)"),

@@ -1453,6 +1453,30 @@ impl Context {
         })
     }
 
+    pub(crate) fn find_matching_condition_case_resume_from(
+        &self,
+        signal: &SignalData,
+        stack_base: usize,
+    ) -> Option<ResumeTarget> {
+        self.condition_stack
+            .get(stack_base..)
+            .into_iter()
+            .flatten()
+            .rev()
+            .find_map(|frame| match frame {
+                ConditionFrame::ConditionCase { conditions, resume }
+                    if crate::emacs_core::errors::signal_matches_condition_value(
+                        &self.obarray,
+                        signal.symbol_name(),
+                        conditions,
+                    ) =>
+                {
+                    Some(resume.clone())
+                }
+                _ => None,
+            })
+    }
+
     fn new_inner(reset_thread_locals: bool) -> Self {
         // Create the interner and heap, set thread-locals so that Value
         // constructors (symbol, keyword, cons, list, etc.) work during init.
@@ -5800,53 +5824,42 @@ impl Context {
                 Ok(value)
             }
             Err(Flow::Signal(sig)) => {
+                let selected_resume =
+                    self.find_matching_condition_case_resume_from(&sig, condition_stack_base);
                 self.truncate_condition_stack(condition_stack_base);
-                for (i, handler) in handlers.iter().enumerate() {
-                    // Skip :success handler — it only runs on success.
-                    if success_handler_idx == Some(i) {
-                        continue;
-                    }
-                    if matches!(handler, Expr::Symbol(id) if resolve_sym(*id) == "nil") {
-                        continue;
-                    }
+                if let Some(ResumeTarget::InterpreterConditionCase { handler_index }) =
+                    selected_resume
+                {
+                    let handler = &handlers[handler_index];
                     let Expr::List(handler_items) = handler else {
                         return Err(signal("wrong-type-argument", vec![]));
                     };
-                    if handler_items.is_empty() {
-                        continue;
-                    }
 
-                    if crate::emacs_core::errors::signal_matches_condition_pattern(
-                        &self.obarray,
-                        sig.symbol_name(),
-                        &handler_items[0],
-                    ) {
-                        let bind_var = resolve_sym(var) != "nil";
-                        let binding_value = make_signal_binding_value(&sig);
-                        let use_lexical_binding = bind_var
-                            && self.lexical_binding()
-                            && !is_runtime_dynamically_special(&self.obarray, var)
-                            && !lexenv_declares_special(self.lexenv, var);
+                    let bind_var = resolve_sym(var) != "nil";
+                    let binding_value = make_signal_binding_value(&sig);
+                    let use_lexical_binding = bind_var
+                        && self.lexical_binding()
+                        && !is_runtime_dynamically_special(&self.obarray, var)
+                        && !lexenv_declares_special(self.lexenv, var);
 
-                        let specpdl_count = self.specpdl.len();
-                        let pushed_lexenv = if use_lexical_binding {
-                            let saved = self.lexenv;
-                            self.saved_lexenvs.push(saved);
-                            self.bind_lexical_value_rooted(var, binding_value);
-                            true
-                        } else {
-                            if bind_var {
-                                self.specbind(var, binding_value);
-                            }
-                            false
-                        };
-                        let result = self.sf_progn(&handler_items[1..]);
-                        self.unbind_to(specpdl_count);
-                        if pushed_lexenv {
-                            self.lexenv = self.saved_lexenvs.pop().unwrap();
+                    let specpdl_count = self.specpdl.len();
+                    let pushed_lexenv = if use_lexical_binding {
+                        let saved = self.lexenv;
+                        self.saved_lexenvs.push(saved);
+                        self.bind_lexical_value_rooted(var, binding_value);
+                        true
+                    } else {
+                        if bind_var {
+                            self.specbind(var, binding_value);
                         }
-                        return result;
+                        false
+                    };
+                    let result = self.sf_progn(&handler_items[1..]);
+                    self.unbind_to(specpdl_count);
+                    if pushed_lexenv {
+                        self.lexenv = self.saved_lexenvs.pop().unwrap();
                     }
+                    return result;
                 }
                 Err(Flow::Signal(sig))
             }

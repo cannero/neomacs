@@ -687,7 +687,8 @@ fn find_forward_match_data_compiled(
             let syn = DefaultSyntaxLookup;
             let text_bytes = text.as_bytes();
             let range = (limit - start) as isize;
-            let result = regex_emacs::re_search(cp, &text_bytes[..limit], start, range, &syn, 0);
+            let result =
+                regex_emacs::re_search(cp, &text_bytes[..limit], start, range, &syn, start);
             result.map(|(_pos, regs)| match_data_from_registers(&regs, offset))
         }
     }
@@ -1134,13 +1135,19 @@ pub fn re_search_forward(
             };
             let text_bytes = text.as_bytes();
             let range = (limit_rel - start_rel) as isize;
-            regex_emacs::re_search(&cp, &text_bytes[..limit_rel], start_rel, range, &syn, 0).map(
-                |(_pos, regs)| {
-                    let mut md = match_data_from_registers(&regs, region_start);
-                    md.searched_buffer = Some(buf.id);
-                    md
-                },
+            regex_emacs::re_search(
+                &cp,
+                &text_bytes[..limit_rel],
+                start_rel,
+                range,
+                &syn,
+                start_rel,
             )
+            .map(|(_pos, regs)| {
+                let mut md = match_data_from_registers(&regs, region_start);
+                md.searched_buffer = Some(buf.id);
+                md
+            })
         }
     };
 
@@ -1200,7 +1207,7 @@ pub fn re_search_backward(
             let text_bytes = text.as_bytes();
             // Backward search: negative range means search backward
             let range = -((start_rel - limit_rel) as isize);
-            regex_emacs::re_search(&cp, text_bytes, start_rel, range, &syn, 0).map(
+            regex_emacs::re_search(&cp, text_bytes, start_rel, range, &syn, start_rel).map(
                 |(_pos, regs)| {
                     let mut md = match_data_from_registers(&regs, region_start);
                     md.searched_buffer = Some(buf.id);
@@ -1262,9 +1269,14 @@ pub fn looking_at(
                 syntax_table: &buf.syntax_table,
             };
             let text_bytes = text.as_bytes();
-            if let Some((_end, regs)) =
-                regex_emacs::re_match(&cp, text_bytes, start_rel, text_bytes.len(), &syn, 0)
-            {
+            if let Some((_end, regs)) = regex_emacs::re_match(
+                &cp,
+                text_bytes,
+                start_rel,
+                text_bytes.len(),
+                &syn,
+                start_rel,
+            ) {
                 let mut md = match_data_from_registers(&regs, region_start);
                 md.searched_buffer = Some(buf.id);
                 *match_data = Some(md);

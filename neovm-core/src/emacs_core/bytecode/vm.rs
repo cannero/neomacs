@@ -10,12 +10,10 @@ use crate::emacs_core::builtins;
 use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;
-use crate::emacs_core::errors::signal_matches_condition_value;
 use crate::emacs_core::eval::{ConditionFrame, Context, ResumeTarget};
 use crate::emacs_core::intern::{SymId, intern, intern_uninterned, resolve_sym};
 use crate::emacs_core::regex::MatchData;
 use crate::emacs_core::string_escape::{storage_char_len, storage_substring};
-use crate::emacs_core::symbol::Obarray;
 use crate::emacs_core::value::*;
 use crate::window::{FrameId, FrameManager, Window};
 
@@ -317,7 +315,14 @@ impl<'a> Vm<'a> {
                         self.ctx.lexenv = lexenv_prepend(self.ctx.lexenv, *sym_id, val);
                     }
                 }
-                let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
+                let result = self.run_loop(
+                    func,
+                    &mut stack,
+                    &mut pc,
+                    &mut handlers,
+                    &mut specpdl,
+                    condition_stack_base,
+                );
                 self.ctx.truncate_condition_stack(condition_stack_base);
                 self.ctx.lexenv = saved_lexenv;
                 let cleanup = self.unwind_specpdl_all(&mut specpdl);
@@ -335,7 +340,14 @@ impl<'a> Vm<'a> {
                     );
                 }
             }
-            let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
+            let result = self.run_loop(
+                func,
+                &mut stack,
+                &mut pc,
+                &mut handlers,
+                &mut specpdl,
+                condition_stack_base,
+            );
             self.ctx.truncate_condition_stack(condition_stack_base);
             crate::emacs_core::eval::unbind_to_in_state(
                 &mut self.ctx.obarray,
@@ -355,7 +367,14 @@ impl<'a> Vm<'a> {
             None
         };
 
-        let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
+        let result = self.run_loop(
+            func,
+            &mut stack,
+            &mut pc,
+            &mut handlers,
+            &mut specpdl,
+            condition_stack_base,
+        );
         self.ctx.truncate_condition_stack(condition_stack_base);
 
         if let Some(old) = saved_lexenv {
@@ -378,6 +397,7 @@ impl<'a> Vm<'a> {
         pc: &mut usize,
         handlers: &mut Vec<Handler>,
         specpdl: &mut Vec<VmUnwindEntry>,
+        condition_stack_base: usize,
     ) -> EvalResult {
         let ops = &func.ops;
         let constants = &func.constants;
@@ -387,7 +407,15 @@ impl<'a> Vm<'a> {
                 match $expr {
                     Ok(value) => value,
                     Err(flow) => {
-                        self.resume_nonlocal(func, stack, pc, handlers, specpdl, flow)?;
+                        self.resume_nonlocal(
+                            func,
+                            stack,
+                            pc,
+                            handlers,
+                            specpdl,
+                            condition_stack_base,
+                            flow,
+                        )?;
                         continue;
                     }
                 }
@@ -637,6 +665,7 @@ impl<'a> Vm<'a> {
                                 pc,
                                 handlers,
                                 specpdl,
+                                condition_stack_base,
                                 signal(
                                     "wrong-type-argument",
                                     vec![Value::symbol("hash-table-p"), other],
@@ -1765,6 +1794,7 @@ impl<'a> Vm<'a> {
                         pc,
                         handlers,
                         specpdl,
+                        condition_stack_base,
                         Flow::Throw { tag, value: val },
                     )?;
                     continue;
@@ -3574,7 +3604,14 @@ impl<'a> Vm<'a> {
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
         let mut specpdl: Vec<VmUnwindEntry> = Vec::new();
-        let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
+        let result = self.run_loop(
+            func,
+            &mut stack,
+            &mut pc,
+            &mut handlers,
+            &mut specpdl,
+            condition_stack_base,
+        );
         self.ctx.truncate_condition_stack(condition_stack_base);
         let cleanup_roots = Self::result_roots(&result);
         let mut cleanup_extra_roots = cleanup_roots.clone();
@@ -3602,6 +3639,7 @@ impl<'a> Vm<'a> {
         pc: &mut usize,
         handlers: &mut Vec<Handler>,
         specpdl: &mut Vec<VmUnwindEntry>,
+        condition_stack_base: usize,
         flow: Flow,
     ) -> Result<(), Flow> {
         match flow {
@@ -3621,6 +3659,7 @@ impl<'a> Vm<'a> {
                             pc,
                             handlers,
                             specpdl,
+                            condition_stack_base,
                             cleanup_flow,
                         );
                     }
@@ -3637,6 +3676,7 @@ impl<'a> Vm<'a> {
                             pc,
                             handlers,
                             specpdl,
+                            condition_stack_base,
                             cleanup_flow,
                         );
                     }
@@ -3656,11 +3696,13 @@ impl<'a> Vm<'a> {
                 Err(signal("no-catch", vec![tag, value]))
             }
             Flow::Signal(sig) => {
+                let selected_resume = self
+                    .ctx
+                    .find_matching_condition_case_resume_from(&sig, condition_stack_base);
                 if let Some(res) = resolve_signal_target(
                     handlers,
                     &mut self.ctx.condition_stack,
-                    &self.ctx.obarray,
-                    &sig,
+                    selected_resume.as_ref(),
                 ) {
                     let mut signal_roots = Vec::new();
                     Self::collect_flow_roots(&Flow::Signal(sig.clone()), &mut signal_roots);
@@ -3678,6 +3720,7 @@ impl<'a> Vm<'a> {
                             pc,
                             handlers,
                             specpdl,
+                            condition_stack_base,
                             cleanup_flow,
                         );
                     }
@@ -3694,6 +3737,7 @@ impl<'a> Vm<'a> {
                             pc,
                             handlers,
                             specpdl,
+                            condition_stack_base,
                             cleanup_flow,
                         );
                     }
@@ -4596,8 +4640,7 @@ fn resolve_throw_target(
 fn resolve_signal_target(
     handlers: &mut Vec<Handler>,
     condition_stack: &mut Vec<ConditionFrame>,
-    obarray: &Obarray,
-    sig: &SignalData,
+    selected_resume: Option<&ResumeTarget>,
 ) -> Option<SignalResolution> {
     let cleanups = Vec::new();
     while let Some(handler) = handlers.pop() {
@@ -4606,13 +4649,22 @@ fn resolve_signal_target(
                 condition_stack.pop();
             }
             Handler::ConditionCase {
-                conditions,
                 target,
                 stack_len,
                 spec_depth,
+                ..
             } => {
                 condition_stack.pop();
-                if signal_matches_condition_value(obarray, sig.symbol_name(), &conditions) {
+                if matches!(
+                    selected_resume,
+                    Some(ResumeTarget::VmConditionCase {
+                        target: selected_target,
+                        stack_len: selected_stack_len,
+                        spec_depth: selected_spec_depth,
+                    }) if *selected_target == target
+                        && *selected_stack_len == stack_len
+                        && *selected_spec_depth == spec_depth
+                ) {
                     return Some(SignalResolution {
                         target,
                         stack_len,

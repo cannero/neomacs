@@ -2873,8 +2873,9 @@ pub(crate) fn re_search(
                 pos += 1;
                 continue;
             }
-            // Use fastmap to skip positions that can't start a match
-            if pattern.fastmap_accurate && pos < text_len {
+            // GNU disables fastmap skipping for nullable patterns so zero-width
+            // matches like `\\(?:...\\)\\=` are still considered at every point.
+            if pattern.fastmap_accurate && !pattern.can_be_null && pos < text_len {
                 if !pattern.fastmap[text[pos] as usize] {
                     pos += 1;
                     continue;
@@ -2893,8 +2894,9 @@ pub(crate) fn re_search(
             if pos < text_len && (text[pos] & 0xC0) == 0x80 {
                 continue;
             }
-            // Use fastmap to skip positions that can't start a match
-            if pattern.fastmap_accurate && pos < text_len {
+            // GNU disables fastmap skipping for nullable patterns so zero-width
+            // matches like `\\(?:...\\)\\=` are still considered at every point.
+            if pattern.fastmap_accurate && !pattern.can_be_null && pos < text_len {
                 if !pattern.fastmap[text[pos] as usize] {
                     continue;
                 }

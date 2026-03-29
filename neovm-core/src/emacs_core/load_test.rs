@@ -3224,6 +3224,105 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
 }
 
 #[test]
+fn partial_bootstrap_footer_local_variables_error_is_catchable() {
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(with-current-buffer (get-buffer-create " *footer-local-vars*")
+             (erase-buffer)
+             (insert ";;; footer-local-vars.el --- focused footer locals -*- lexical-binding: t; -*-\n\n"
+                     "(setq footer-local-vars-test t)\n\n"
+                     ";; Local Variables:\n"
+                     ";; no-byte-compile: t\n"
+                     ";; version-control: never\n"
+                     ";; no-update-autoloads: t\n"
+                     ";; End:\n")
+             (setq buffer-file-name "/tmp/footer-local-vars.el")
+             (setq default-directory "/tmp/")
+             (condition-case err
+                 (list 'ok (hack-local-variables 'no-mode))
+               (error (list 'error (car err) (cdr err)))))"#,
+    );
+
+    assert_eq!(
+        rendered,
+        "OK (error user-error (\"Local variables entry is missing the suffix\"))"
+    );
+}
+
+#[test]
+fn partial_bootstrap_with_demoted_errors_swallows_footer_local_variables_error() {
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(with-current-buffer (get-buffer-create " *footer-local-vars-demoted*")
+             (erase-buffer)
+             (insert ";;; footer-local-vars.el --- focused footer locals -*- lexical-binding: t; -*-\n\n"
+                     "(setq footer-local-vars-test t)\n\n"
+                     ";; Local Variables:\n"
+                     ";; no-byte-compile: t\n"
+                     ";; version-control: never\n"
+                     ";; no-update-autoloads: t\n"
+                     ";; End:\n")
+             (setq buffer-file-name "/tmp/footer-local-vars.el")
+             (setq default-directory "/tmp/")
+             (with-demoted-errors "File local-variables error: %s"
+               (hack-local-variables 'no-mode)))"#,
+    );
+
+    assert_eq!(rendered, "OK nil");
+}
+
+#[test]
+fn partial_bootstrap_load_with_code_conversion_swallows_footer_local_variables_error() {
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
+    eval.set_variable(
+        "load-source-file-function",
+        Value::symbol("load-with-code-conversion"),
+    );
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("footer-local-vars-load.el");
+    fs::write(
+        &path,
+        ";;; footer-local-vars-load.el --- focused footer locals -*- lexical-binding: t; -*-\n\n\
+         (setq footer-local-vars-load-test t)\n\n\
+         ;; Local Variables:\n\
+         ;; no-byte-compile: t\n\
+         ;; version-control: never\n\
+         ;; no-update-autoloads: t\n\
+         ;; End:\n",
+    )
+    .expect("write footer local vars load fixture");
+
+    let result = load_file(&mut eval, &path);
+    assert_eq!(
+        format_eval_result(&result),
+        "OK t",
+        "source load path should demote footer local variable parse errors"
+    );
+}
+
+#[test]
+fn partial_bootstrap_looking_back_matches_empty_suffix_at_line_end() {
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(with-current-buffer (get-buffer-create " *looking-back-eol*")
+             (erase-buffer)
+             (insert ";; no-byte-compile: t\n")
+             (goto-char (point-min))
+             (end-of-line)
+             (list (looking-back "$" (line-beginning-position))
+                   (looking-back "" (line-beginning-position))
+                   (looking-back "t$" (line-beginning-position))
+                   (looking-back "t" (line-beginning-position))))"#,
+    );
+
+    assert_eq!(rendered, "OK (t t t t)");
+}
+
+#[test]
 fn compiled_characters_loads_after_case_table() {
     let mut eval = partial_bootstrap_eval_until("international/characters", true);
     let load_path = get_load_path(&eval.obarray());

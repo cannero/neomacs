@@ -1057,6 +1057,30 @@ fn re_search_backward_basic() {
     assert_eq!(buf.pt, 14);
 }
 
+#[test]
+fn re_search_backward_finds_nullable_match_at_point() {
+    let mut buf = make_test_buffer("abc\n");
+    buf.goto_byte(3); // point before trailing newline
+    let mut md = None;
+    let result = re_search_backward(&mut buf, "\\(?:$\\)\\=", Some(0), true, false, &mut md);
+    assert_eq!(result, Ok(Some(3)));
+    assert_eq!(buf.pt, 3);
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((3, 3)));
+}
+
+#[test]
+fn re_search_forward_finds_nullable_match_at_buffer_end() {
+    let mut buf = make_test_buffer("abc");
+    buf.goto_byte(3);
+    let mut md = None;
+    let result = re_search_forward(&mut buf, "\\=", None, true, false, &mut md);
+    assert_eq!(result, Ok(Some(3)));
+    assert_eq!(buf.pt, 3);
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((3, 3)));
+}
+
 // -----------------------------------------------------------------------
 // looking_at
 // -----------------------------------------------------------------------
