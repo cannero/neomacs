@@ -19,10 +19,15 @@ use super::expr::Expr;
 use super::intern::{intern, resolve_sym};
 use super::keyboard::pure::make_event_array_value;
 use super::keymap::{
-    KeyEvent, expand_meta_prefix_char_events_in_obarray, format_key_event, format_key_sequence,
-    is_list_keymap, key_event_to_emacs_event, list_keymap_for_each_binding, list_keymap_lookup_one,
-    list_keymap_lookup_seq, make_list_keymap, make_sparse_list_keymap,
-    resolve_prefix_keymap_binding_in_obarray,
+    KeyEvent, command_remapping_command_name as keymap_command_remapping_command_name,
+    command_remapping_lookup_in_keymaps as keymap_command_remapping_lookup_in_keymaps,
+    command_remapping_lookup_in_lisp_keymap as keymap_command_remapping_lookup_in_lisp_keymap,
+    command_remapping_normalize_target as keymap_command_remapping_normalize_target,
+    current_active_maps_for_position, current_active_maps_for_position_read_only,
+    expand_meta_prefix_char_events_in_obarray, format_key_event, format_key_sequence,
+    is_list_keymap, key_binding_apply_remap_in_active_maps, key_event_to_emacs_event,
+    list_keymap_for_each_binding, list_keymap_lookup_seq, make_sparse_list_keymap,
+    minor_mode_map_entry,
 };
 use super::mode::{MajorMode, MinorMode};
 use super::symbol::Obarray;
@@ -607,7 +612,8 @@ pub(crate) fn builtin_command_remapping_impl(
                 return Ok(Value::Nil);
             }
             Value::Nil => {
-                let active_maps = crate::emacs_core::builtins::keymaps::current_active_maps_for_position_read_only(ctx, true, args.get(1))?;
+                let active_maps =
+                    current_active_maps_for_position_read_only(ctx, true, args.get(1))?;
                 return Ok(
                     command_remapping_lookup_in_keymaps(&active_maps, &command_name)
                         .unwrap_or(Value::Nil),
@@ -619,12 +625,7 @@ pub(crate) fn builtin_command_remapping_impl(
             }
         }
     }
-    let active_maps =
-        crate::emacs_core::builtins::keymaps::current_active_maps_for_position_read_only(
-            ctx,
-            true,
-            args.get(1),
-        )?;
+    let active_maps = current_active_maps_for_position_read_only(ctx, true, args.get(1))?;
     Ok(command_remapping_lookup_in_keymaps(&active_maps, &command_name).unwrap_or(Value::Nil))
 }
 
@@ -2796,19 +2797,11 @@ pub(crate) fn builtin_key_binding_impl(
         if !string_designator {
             return Ok(Value::Nil);
         }
-        let active_maps = crate::emacs_core::builtins::keymaps::current_active_maps_for_position(
-            ctx,
-            true,
-            args.get(3),
-        )?;
+        let active_maps = current_active_maps_for_position(ctx, true, args.get(3))?;
         return Ok(Value::list(active_maps));
     }
 
-    let active_maps = crate::emacs_core::builtins::keymaps::current_active_maps_for_position(
-        ctx,
-        true,
-        args.get(3),
-    )?;
+    let active_maps = current_active_maps_for_position(ctx, true, args.get(3))?;
     let keymaps = Value::list(active_maps.clone());
     let accept_default = args.get(1).copied().unwrap_or(Value::Nil);
     let lookup = crate::emacs_core::builtins::keymaps::builtin_lookup_key_impl(
@@ -2866,60 +2859,6 @@ pub(crate) fn builtin_local_key_binding_impl(
     ))
 }
 
-fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
-    let Value::Cons(cell) = entry else {
-        return None;
-    };
-
-    let (mode, cdr) = {
-        let pair = read_cons(*cell);
-        (pair.car, pair.cdr)
-    };
-    let mode_name = mode.as_symbol_name()?.to_string();
-    // The standard entry format is (MODE . KEYMAP) — a dotted pair.
-    // CDR is the keymap directly. With cons-list keymaps, CDR is a
-    // Value::Cons, so we return it as-is. The caller checks is_list_keymap.
-    if cdr == Value::Nil {
-        return None;
-    }
-    Some((mode_name, cdr))
-}
-
-/// Look up a key sequence in a keymap Value, returning the binding if found.
-fn key_binding_lookup_in_keymap(eval: &Context, keymap: &Value, events: &[Value]) -> Option<Value> {
-    key_binding_lookup_in_keymap_in_obarray(&eval.obarray, keymap, events)
-}
-
-fn key_binding_lookup_in_keymap_in_obarray(
-    obarray: &Obarray,
-    keymap: &Value,
-    events: &[Value],
-) -> Option<Value> {
-    if !is_list_keymap(keymap) {
-        return None;
-    }
-    if events.is_empty() {
-        return None;
-    }
-    // Walk events one at a time, resolving prefix symbols through the
-    // obarray so that e.g. the `Control-X-prefix` symbol is followed
-    // into `ctl-x-map`.
-    let mut current_map = *keymap;
-    for (i, event) in events.iter().enumerate() {
-        let binding = list_keymap_lookup_one(&current_map, event);
-        if binding.is_nil() {
-            return None;
-        }
-        if i == events.len() - 1 {
-            // Final event — return the binding (command/lambda/etc.)
-            return Some(binding);
-        }
-        // Intermediate event — must resolve to a prefix keymap.
-        current_map = resolve_prefix_keymap_binding_in_obarray(obarray, &binding)?;
-    }
-    None
-}
-
 /// Get the global keymap Value from obarray (without creating one).
 fn get_global_keymap(eval: &Context) -> Value {
     get_global_keymap_in_obarray(&eval.obarray)
@@ -2930,106 +2869,6 @@ fn get_global_keymap_in_obarray(obarray: &Obarray) -> Value {
         .symbol_value("global-map")
         .copied()
         .unwrap_or(Value::Nil)
-}
-
-fn key_binding_apply_remap_in_active_maps(
-    active_maps: &[Value],
-    binding: Value,
-    no_remap: bool,
-) -> Value {
-    if no_remap {
-        return binding;
-    }
-    let Some(command_name) = binding.as_symbol_name().map(ToString::to_string) else {
-        return binding;
-    };
-    match command_remapping_lookup_in_keymaps(active_maps, &command_name) {
-        Some(remapped) if !remapped.is_nil() => remapped,
-        _ => binding,
-    }
-}
-
-fn key_binding_lookup_in_minor_mode_alist(
-    eval: &Context,
-    events: &[Value],
-    alist_value: &Value,
-) -> Option<Value> {
-    key_binding_lookup_in_minor_mode_alist_in_state(&eval.obarray, &[], events, alist_value)
-}
-
-fn key_binding_lookup_in_minor_mode_alist_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    events: &[Value],
-    alist_value: &Value,
-) -> Option<Value> {
-    let entries = list_to_vec(alist_value)?;
-    for entry in entries {
-        let Some((mode_name, map_value)) = minor_mode_map_entry(&entry) else {
-            continue;
-        };
-        if !dynamic_or_global_symbol_value_in_state(obarray, dynamic, &mode_name)
-            .is_some_and(|v| v.is_truthy())
-        {
-            continue;
-        }
-
-        if !is_list_keymap(&map_value) {
-            continue;
-        }
-
-        if let Some(binding) = key_binding_lookup_in_keymap_in_obarray(obarray, &map_value, events)
-        {
-            return Some(binding);
-        }
-    }
-    None
-}
-
-fn key_binding_lookup_in_minor_mode_maps(eval: &Context, events: &[Value]) -> Option<Value> {
-    key_binding_lookup_in_minor_mode_maps_in_state(&eval.obarray, &[], events)
-}
-
-fn key_binding_lookup_in_minor_mode_maps_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    events: &[Value],
-) -> Option<Value> {
-    if let Some(emulation_raw) =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "emulation-mode-map-alists")
-    {
-        if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
-            for emulation_entry in emulation_entries {
-                let alist_value = match emulation_entry.as_symbol_name() {
-                    Some(name) => dynamic_or_global_symbol_value_in_state(obarray, dynamic, name)
-                        .unwrap_or(Value::Nil),
-                    None => emulation_entry,
-                };
-                if let Some(value) = key_binding_lookup_in_minor_mode_alist_in_state(
-                    obarray,
-                    dynamic,
-                    events,
-                    &alist_value,
-                ) {
-                    return Some(value);
-                }
-            }
-        }
-    }
-
-    for alist_name in ["minor-mode-overriding-map-alist", "minor-mode-map-alist"] {
-        let Some(alist_value) =
-            dynamic_or_global_symbol_value_in_state(obarray, dynamic, alist_name)
-        else {
-            continue;
-        };
-        if let Some(value) =
-            key_binding_lookup_in_minor_mode_alist_in_state(obarray, dynamic, events, &alist_value)
-        {
-            return Some(value);
-        }
-    }
-    None
 }
 
 fn lookup_minor_mode_binding_in_alist(
@@ -3348,245 +3187,20 @@ fn command_remapping_keymap_arg_valid(value: &Value) -> bool {
     matches!(value, Value::Cons(_)) || is_list_keymap(value)
 }
 
-fn command_remapping_lookup_in_keymap_value(keymap: &Value, command_name: &str) -> Option<Value> {
-    // Use the lisp keymap walker which handles the (remap keymap ...) structure
-    command_remapping_lookup_in_lisp_keymap(keymap, command_name)
-        .map(command_remapping_normalize_target)
-}
-
-fn command_remapping_lookup_in_minor_mode_alist(
-    eval: &Context,
-    command_name: &str,
-    alist_value: &Value,
-) -> Option<Value> {
-    command_remapping_lookup_in_minor_mode_alist_in_state(
-        &eval.obarray,
-        &[],
-        command_name,
-        alist_value,
-    )
-}
-
-fn command_remapping_lookup_in_minor_mode_alist_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    command_name: &str,
-    alist_value: &Value,
-) -> Option<Value> {
-    let entries = list_to_vec(alist_value)?;
-    for entry in entries {
-        let Some((mode_name, map_value)) = minor_mode_map_entry(&entry) else {
-            continue;
-        };
-        if !dynamic_or_global_symbol_value_in_state(obarray, dynamic, &mode_name)
-            .is_some_and(|v| v.is_truthy())
-        {
-            continue;
-        }
-
-        if !is_list_keymap(&map_value) {
-            continue;
-        }
-
-        if let Some(value) = command_remapping_lookup_in_keymap_value(&map_value, command_name) {
-            return Some(value);
-        }
-    }
-    None
-}
-
-fn command_remapping_lookup_in_minor_mode_maps(
-    eval: &Context,
-    command_name: &str,
-) -> Option<Value> {
-    command_remapping_lookup_in_minor_mode_maps_in_state(&eval.obarray, &[], command_name)
-}
-
-fn command_remapping_lookup_in_minor_mode_maps_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    command_name: &str,
-) -> Option<Value> {
-    if let Some(emulation_raw) =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "emulation-mode-map-alists")
-    {
-        if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
-            for emulation_entry in emulation_entries {
-                let alist_value = match emulation_entry.as_symbol_name() {
-                    Some(name) => dynamic_or_global_symbol_value_in_state(obarray, dynamic, name)
-                        .unwrap_or(Value::Nil),
-                    None => emulation_entry,
-                };
-                if let Some(value) = command_remapping_lookup_in_minor_mode_alist_in_state(
-                    obarray,
-                    dynamic,
-                    command_name,
-                    &alist_value,
-                ) {
-                    return Some(value);
-                }
-            }
-        }
-    }
-
-    for alist_name in ["minor-mode-overriding-map-alist", "minor-mode-map-alist"] {
-        let Some(alist_value) =
-            dynamic_or_global_symbol_value_in_state(obarray, dynamic, alist_name)
-        else {
-            continue;
-        };
-        if let Some(value) = command_remapping_lookup_in_minor_mode_alist_in_state(
-            obarray,
-            dynamic,
-            command_name,
-            &alist_value,
-        ) {
-            return Some(value);
-        }
-    }
-
-    None
-}
-
 fn command_remapping_lookup_in_keymaps(keymaps: &[Value], command_name: &str) -> Option<Value> {
-    for keymap in keymaps {
-        if !is_list_keymap(keymap) {
-            continue;
-        }
-        if let Some(value) = command_remapping_lookup_in_keymap_value(keymap, command_name) {
-            return Some(value);
-        }
-    }
-    None
+    keymap_command_remapping_lookup_in_keymaps(keymaps, command_name)
 }
 
 fn command_remapping_command_name(command: &Value) -> Option<String> {
-    Some(match command {
-        Value::Nil => "nil".to_string(),
-        Value::True => "t".to_string(),
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        _ => return None,
-    })
-}
-
-fn command_remapping_list_tail(value: &Value, n: usize) -> Option<Value> {
-    let mut cursor = *value;
-    for _ in 0..n {
-        match cursor {
-            Value::Cons(cell) => {
-                cursor = {
-                    let pair = read_cons(cell);
-                    pair.cdr
-                };
-            }
-            _ => return None,
-        }
-    }
-    Some(cursor)
-}
-
-fn command_remapping_nth_list_element(value: &Value, index: usize) -> Option<Value> {
-    let tail = command_remapping_list_tail(value, index)?;
-    match tail {
-        Value::Cons(cell) => {
-            let pair = read_cons(cell);
-            Some(pair.car)
-        }
-        _ => None,
-    }
-}
-
-fn command_remapping_lookup_in_lisp_remap_entry(
-    entry: &Value,
-    command_name: &str,
-) -> Option<Value> {
-    if command_remapping_nth_list_element(entry, 0)?.as_symbol_name() != Some("remap") {
-        return None;
-    }
-    if command_remapping_nth_list_element(entry, 1)?.as_symbol_name() != Some("keymap") {
-        return None;
-    }
-
-    let mut bindings = command_remapping_list_tail(entry, 2)?;
-    while let Value::Cons(cell) = bindings {
-        let (binding_entry, rest) = {
-            let pair = read_cons(cell);
-            (pair.car, pair.cdr)
-        };
-        if let Value::Cons(binding_pair) = binding_entry {
-            let (binding_key, binding_target) = {
-                let pair = read_cons(binding_pair);
-                (pair.car, pair.cdr)
-            };
-            if binding_key.as_symbol_name() == Some(command_name) {
-                return Some(binding_target);
-            }
-        }
-        bindings = rest;
-    }
-    None
+    keymap_command_remapping_command_name(command)
 }
 
 fn command_remapping_lookup_in_lisp_keymap(keymap: &Value, command_name: &str) -> Option<Value> {
-    let mut cursor = *keymap;
-    let mut first = true;
-    while let Value::Cons(cell) = cursor {
-        let (car, cdr) = {
-            let pair = read_cons(cell);
-            (pair.car, pair.cdr)
-        };
-        if first {
-            if car.as_symbol_name() != Some("keymap") {
-                return None;
-            }
-            first = false;
-        } else if let Some(target) =
-            command_remapping_lookup_in_lisp_remap_entry(&car, command_name)
-        {
-            return Some(target);
-        }
-        cursor = cdr;
-    }
-    None
-}
-
-fn command_remapping_menu_item_target(value: &Value) -> Option<Value> {
-    let mut current = *value;
-    let mut index = 0usize;
-    let mut head_is_menu_item = false;
-    while let Value::Cons(cell) = current {
-        let (car, cdr) = {
-            let pair = read_cons(cell);
-            (pair.car, pair.cdr)
-        };
-        if index == 0 {
-            head_is_menu_item = car.as_symbol_name() == Some("menu-item");
-        } else if index == 2 {
-            return head_is_menu_item.then_some(car);
-        }
-        current = cdr;
-        index += 1;
-    }
-    None
+    keymap_command_remapping_lookup_in_lisp_keymap(keymap, command_name)
 }
 
 fn command_remapping_normalize_target(raw: Value) -> Value {
-    if let Some(menu_target) = command_remapping_menu_item_target(&raw) {
-        // Oracle unwraps well-formed menu-item bindings for command remapping.
-        // Integer payloads in command slot still collapse to nil.
-        return if menu_target.is_integer() {
-            Value::Nil
-        } else {
-            menu_target
-        };
-    }
-
-    // Oracle treats plain integer and `t` remap targets as no-remap.
-    if matches!(raw, Value::Int(_) | Value::True) {
-        Value::Nil
-    } else {
-        raw
-    }
+    keymap_command_remapping_normalize_target(raw)
 }
 
 fn expect_keymap_value(eval: &Context, value: &Value) -> Result<Value, Flow> {
@@ -3652,10 +3266,7 @@ fn where_is_internal_explicit_keymaps(eval: &Context, value: &Value) -> Result<V
 }
 
 fn where_is_internal_active_keymaps(eval: &mut Context) -> Vec<Value> {
-    match super::builtins::keymaps::builtin_current_active_maps_impl(eval, &[]) {
-        Ok(value) => list_to_vec(&value).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    }
+    current_active_maps_for_position(eval, true, None).unwrap_or_default()
 }
 
 fn lookup_keymap_with_partial_value(keymap: &Value, events: &[KeyEvent]) -> Value {

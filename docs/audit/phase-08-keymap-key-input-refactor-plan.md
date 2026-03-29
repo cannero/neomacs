@@ -306,6 +306,21 @@ At the end of this slice:
 - `keyboard.rs` asks the keymap owner for active maps and lookups
 - `interactive.rs` no longer performs its own map walking
 
+Current status:
+
+- completed: `current-active-maps` owner logic now lives in `keymap.rs`,
+  including position-sensitive `keymap` / `local-map` text properties,
+  minor-mode map collection, and overriding local-map precedence
+- completed: shared command-remapping walkers and remap normalization now live
+  in `keymap.rs`, and `interactive.rs` now delegates instead of re-owning that
+  traversal logic
+- completed: `builtins/keymaps.rs` now acts as Lisp builtin surface over the
+  keymap owner instead of carrying its own active-map implementation
+- remaining: `interactive.rs` still contains some thin wrapper surfaces around
+  keymap-owner helpers, and `where-is` / `minor-mode-key-binding` still need a
+  final owner cleanup pass so the module boundary reads like GNU `keymap.c`
+  instead of a compatibility shim
+
 ### Slice D: replace the current thin `read_key_sequence`
 
 Rebuild `read_key_sequence` in the keyboard owner around GNU shape:

@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 
+use super::builtins::{builtin_get_pos_property_impl, expect_integer_or_marker_in_buffers};
 use super::chartable::{
     builtin_char_table_range, builtin_set_char_table_range, is_char_table, make_char_table_value,
 };
@@ -20,7 +21,9 @@ use super::keyboard::pure::{
     KEY_CHAR_MOD_MASK, KEY_CHAR_SHIFT, KEY_CHAR_SUPER,
 };
 use super::symbol::Obarray;
-use super::value::{Value, list_to_vec, read_cons, with_heap, with_heap_mut};
+use super::value::{
+    OrderedRuntimeBindingMap, Value, list_to_vec, read_cons, with_heap, with_heap_mut,
+};
 
 // ---------------------------------------------------------------------------
 // Key events
@@ -1076,6 +1079,522 @@ pub fn list_keymap_inherits_from(keymap: &Value, target: &Value) -> bool {
         current = list_keymap_parent(&current);
     }
     false
+}
+
+pub(crate) fn ensure_global_keymap_in_obarray(obarray: &mut Obarray) -> Value {
+    if let Some(val) = obarray.symbol_value("global-map").copied()
+        && is_list_keymap(&val)
+    {
+        return val;
+    }
+    let keymap = make_list_keymap();
+    obarray.set_symbol_value("global-map", keymap);
+    keymap
+}
+
+fn dynamic_or_global_symbol_value_in_state(
+    obarray: &Obarray,
+    _dynamic: &[OrderedRuntimeBindingMap],
+    name: &str,
+) -> Option<Value> {
+    obarray.symbol_value(name).cloned()
+}
+
+pub(crate) fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
+    let Value::Cons(cell) = entry else {
+        return None;
+    };
+
+    let (mode, cdr) = {
+        let pair = read_cons(*cell);
+        (pair.car, pair.cdr)
+    };
+    let mode_name = mode.as_symbol_name()?.to_string();
+    if cdr == Value::Nil {
+        return None;
+    }
+    Some((mode_name, cdr))
+}
+
+pub(crate) fn key_binding_lookup_in_keymap_in_obarray(
+    obarray: &Obarray,
+    keymap: &Value,
+    events: &[Value],
+) -> Option<Value> {
+    if !is_list_keymap(keymap) || events.is_empty() {
+        return None;
+    }
+
+    let mut current_map = *keymap;
+    for (index, event) in events.iter().enumerate() {
+        let binding = list_keymap_lookup_one(&current_map, event);
+        if binding.is_nil() {
+            return None;
+        }
+        if index == events.len() - 1 {
+            return Some(binding);
+        }
+        current_map = resolve_prefix_keymap_binding_in_obarray(obarray, &binding)?;
+    }
+
+    None
+}
+
+fn collect_maps_from_alist_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    alist: &Value,
+    skip_if_in: Option<&Value>,
+    maps: &mut Vec<Value>,
+) {
+    let Some(entries) = list_to_vec(alist) else {
+        return;
+    };
+    for entry in entries {
+        let Value::Cons(cell) = entry else {
+            continue;
+        };
+        let (mode_var, keymap_val) = {
+            let pair = read_cons(cell);
+            (pair.car, pair.cdr)
+        };
+        let Some(mode_name) = mode_var.as_symbol_name() else {
+            continue;
+        };
+
+        if let Some(skip_alist) = skip_if_in
+            && assq_in_alist(skip_alist, &mode_var)
+        {
+            continue;
+        }
+
+        let mode_active = dynamic_or_global_symbol_value_in_state(obarray, dynamic, mode_name)
+            .map(|value| value.is_truthy())
+            .unwrap_or(false);
+        if !mode_active {
+            continue;
+        }
+
+        if let Some(resolved) = maybe_keymap_in_obarray(obarray, &keymap_val) {
+            maps.push(resolved);
+        }
+    }
+}
+
+fn assq_in_alist(alist: &Value, key: &Value) -> bool {
+    let Some(entries) = list_to_vec(alist) else {
+        return false;
+    };
+
+    for entry in entries {
+        let Value::Cons(cell) = entry else {
+            continue;
+        };
+        let pair = read_cons(cell);
+        if pair.car == *key {
+            return true;
+        }
+    }
+
+    false
+}
+
+pub(crate) fn collect_minor_mode_maps_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+) -> Vec<Value> {
+    let mut maps = Vec::new();
+
+    if let Some(emulation_raw) =
+        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "emulation-mode-map-alists")
+    {
+        if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
+            for entry in emulation_entries {
+                let alist_value = match entry.as_symbol_name() {
+                    Some(name) => dynamic_or_global_symbol_value_in_state(obarray, dynamic, name)
+                        .unwrap_or(Value::Nil),
+                    None => entry,
+                };
+                collect_maps_from_alist_in_state(obarray, dynamic, &alist_value, None, &mut maps);
+            }
+        }
+    }
+
+    let overriding = dynamic_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        "minor-mode-overriding-map-alist",
+    );
+    if let Some(ref overriding_maps) = overriding {
+        collect_maps_from_alist_in_state(obarray, dynamic, overriding_maps, None, &mut maps);
+    }
+
+    if let Some(regular) =
+        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "minor-mode-map-alist")
+    {
+        collect_maps_from_alist_in_state(
+            obarray,
+            dynamic,
+            &regular,
+            overriding.as_ref(),
+            &mut maps,
+        );
+    }
+
+    maps
+}
+
+fn active_map_position_in_current_buffer(
+    buffers: &crate::buffer::BufferManager,
+    position: Option<&Value>,
+) -> Result<Option<(Value, i64)>, Flow> {
+    let Some(buffer) = buffers.current_buffer() else {
+        return Ok(None);
+    };
+
+    let (char_pos, original_position) = match position {
+        Some(value)
+            if matches!(value, Value::Int(_) | Value::Char(_))
+                || crate::emacs_core::marker::is_marker(value) =>
+        {
+            (expect_integer_or_marker_in_buffers(buffers, value)?, *value)
+        }
+        _ => (
+            buffer.point_char() as i64 + 1,
+            Value::Int(buffer.point_char() as i64 + 1),
+        ),
+    };
+
+    let point_min = buffer.point_min_char() as i64 + 1;
+    let point_max = buffer.point_max_char() as i64 + 1;
+    if char_pos < point_min || char_pos > point_max {
+        return Err(signal(
+            "args-out-of-range",
+            vec![Value::Buffer(buffer.id), original_position],
+        ));
+    }
+
+    Ok(Some((Value::Buffer(buffer.id), char_pos)))
+}
+
+fn keymap_property_at_position(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    buffer_object: Value,
+    char_pos: i64,
+    prop_name: &str,
+) -> Result<Value, Flow> {
+    let prop_symbol = Value::symbol(prop_name);
+    let char_property = super::builtins::textprop::builtin_get_char_property_in_state(
+        obarray,
+        buffers,
+        vec![Value::Int(char_pos), prop_symbol, buffer_object],
+    )?;
+    if !char_property.is_nil() {
+        return Ok(char_property);
+    }
+
+    builtin_get_pos_property_impl(
+        obarray,
+        &[],
+        buffers,
+        vec![Value::Int(char_pos), prop_symbol, buffer_object],
+    )
+}
+
+fn current_local_map_for_position(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    fallback_local_map: Value,
+    position: Option<&Value>,
+) -> Result<Value, Flow> {
+    let Some((buffer_object, char_pos)) = active_map_position_in_current_buffer(buffers, position)?
+    else {
+        return Ok(fallback_local_map);
+    };
+
+    let property =
+        keymap_property_at_position(obarray, buffers, buffer_object, char_pos, "local-map")?;
+    Ok(maybe_keymap_in_obarray(obarray, &property).unwrap_or(fallback_local_map))
+}
+
+fn position_keymap(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    position: Option<&Value>,
+) -> Result<Value, Flow> {
+    let Some((buffer_object, char_pos)) = active_map_position_in_current_buffer(buffers, position)?
+    else {
+        return Ok(Value::Nil);
+    };
+
+    let property =
+        keymap_property_at_position(obarray, buffers, buffer_object, char_pos, "keymap")?;
+    Ok(maybe_keymap_in_obarray(obarray, &property).unwrap_or(Value::Nil))
+}
+
+fn current_active_maps_from_parts(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    current_local_map: Value,
+    global_map: Value,
+    minor_maps: Vec<Value>,
+    overriding_local_map: Option<Value>,
+    overriding_terminal_local_map: Option<Value>,
+    obey_overriding_local_maps: bool,
+    position: Option<&Value>,
+) -> Result<Vec<Value>, Flow> {
+    if obey_overriding_local_maps
+        && overriding_terminal_local_map.is_none()
+        && let Some(overriding_local_map) = overriding_local_map
+    {
+        return Ok(vec![overriding_local_map, global_map]);
+    }
+
+    let mut maps = Vec::new();
+
+    if obey_overriding_local_maps
+        && let Some(overriding_terminal_local_map) = overriding_terminal_local_map
+    {
+        maps.push(overriding_terminal_local_map);
+    }
+
+    let property_keymap = position_keymap(obarray, buffers, position)?;
+    if !property_keymap.is_nil() {
+        maps.push(property_keymap);
+    }
+
+    maps.extend(minor_maps);
+
+    let local_map = current_local_map_for_position(obarray, buffers, current_local_map, position)?;
+    if !local_map.is_nil() {
+        maps.push(local_map);
+    }
+
+    maps.push(global_map);
+    Ok(maps)
+}
+
+pub(crate) fn current_active_maps_for_position(
+    ctx: &mut Context,
+    obey_overriding_local_maps: bool,
+    position: Option<&Value>,
+) -> Result<Vec<Value>, Flow> {
+    let global_map = ensure_global_keymap_in_obarray(&mut ctx.obarray);
+    let minor_maps = collect_minor_mode_maps_in_state(&ctx.obarray, &[]);
+    let overriding_local_map =
+        dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "overriding-local-map")
+            .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
+    let overriding_terminal_local_map =
+        dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "overriding-terminal-local-map")
+            .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
+
+    current_active_maps_from_parts(
+        &ctx.obarray,
+        &ctx.buffers,
+        ctx.buffers.current_local_map(),
+        global_map,
+        minor_maps,
+        overriding_local_map,
+        overriding_terminal_local_map,
+        obey_overriding_local_maps,
+        position,
+    )
+}
+
+pub(crate) fn current_active_maps_for_position_read_only(
+    ctx: &Context,
+    obey_overriding_local_maps: bool,
+    position: Option<&Value>,
+) -> Result<Vec<Value>, Flow> {
+    let global_map = ctx
+        .obarray
+        .symbol_value("global-map")
+        .copied()
+        .filter(is_list_keymap)
+        .unwrap_or_else(make_list_keymap);
+    let minor_maps = collect_minor_mode_maps_in_state(&ctx.obarray, &[]);
+    let overriding_local_map =
+        dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "overriding-local-map")
+            .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
+    let overriding_terminal_local_map =
+        dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "overriding-terminal-local-map")
+            .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
+
+    current_active_maps_from_parts(
+        &ctx.obarray,
+        &ctx.buffers,
+        ctx.buffers.current_local_map(),
+        global_map,
+        minor_maps,
+        overriding_local_map,
+        overriding_terminal_local_map,
+        obey_overriding_local_maps,
+        position,
+    )
+}
+
+fn command_remapping_list_tail(value: &Value, n: usize) -> Option<Value> {
+    let mut cursor = *value;
+    for _ in 0..n {
+        match cursor {
+            Value::Cons(cell) => {
+                cursor = read_cons(cell).cdr;
+            }
+            _ => return None,
+        }
+    }
+    Some(cursor)
+}
+
+fn command_remapping_nth_list_element(value: &Value, index: usize) -> Option<Value> {
+    let tail = command_remapping_list_tail(value, index)?;
+    match tail {
+        Value::Cons(cell) => Some(read_cons(cell).car),
+        _ => None,
+    }
+}
+
+fn command_remapping_lookup_in_lisp_remap_entry(
+    entry: &Value,
+    command_name: &str,
+) -> Option<Value> {
+    if command_remapping_nth_list_element(entry, 0)?.as_symbol_name() != Some("remap") {
+        return None;
+    }
+    if command_remapping_nth_list_element(entry, 1)?.as_symbol_name() != Some("keymap") {
+        return None;
+    }
+
+    let mut bindings = command_remapping_list_tail(entry, 2)?;
+    while let Value::Cons(cell) = bindings {
+        let (binding_entry, rest) = {
+            let pair = read_cons(cell);
+            (pair.car, pair.cdr)
+        };
+        if let Value::Cons(binding_pair) = binding_entry {
+            let (binding_key, binding_target) = {
+                let pair = read_cons(binding_pair);
+                (pair.car, pair.cdr)
+            };
+            if binding_key.as_symbol_name() == Some(command_name) {
+                return Some(binding_target);
+            }
+        }
+        bindings = rest;
+    }
+    None
+}
+
+pub(crate) fn command_remapping_lookup_in_lisp_keymap(
+    keymap: &Value,
+    command_name: &str,
+) -> Option<Value> {
+    if !is_list_keymap(keymap) {
+        return None;
+    }
+
+    let mut cursor = match keymap {
+        Value::Cons(cell) => read_cons(*cell).cdr,
+        _ => Value::Nil,
+    };
+
+    while let Value::Cons(cell) = cursor {
+        if is_list_keymap(&cursor) {
+            if let Some(parent) = command_remapping_lookup_in_lisp_keymap(&cursor, command_name) {
+                return Some(parent);
+            }
+            break;
+        }
+
+        let (car, cdr) = {
+            let pair = read_cons(cell);
+            (pair.car, pair.cdr)
+        };
+        if let Some(remap) = command_remapping_lookup_in_lisp_remap_entry(&car, command_name) {
+            return Some(remap);
+        }
+        cursor = cdr;
+    }
+
+    None
+}
+
+fn command_remapping_menu_item_target(value: &Value) -> Option<Value> {
+    let Value::Cons(cell) = value else {
+        return None;
+    };
+    let pair = read_cons(*cell);
+    if pair.car.as_symbol_name() != Some("menu-item") {
+        return None;
+    }
+
+    let tail = pair.cdr;
+    let title = command_remapping_nth_list_element(&tail, 0)?;
+    if title.is_nil() {
+        return None;
+    }
+    command_remapping_nth_list_element(&tail, 1)
+}
+
+pub(crate) fn command_remapping_normalize_target(raw: Value) -> Value {
+    if let Some(menu_target) = command_remapping_menu_item_target(&raw) {
+        return if menu_target.is_integer() {
+            Value::Nil
+        } else {
+            menu_target
+        };
+    }
+    if raw == Value::True || matches!(raw, Value::Int(_)) {
+        return Value::Nil;
+    }
+    raw
+}
+
+fn command_remapping_lookup_in_keymap_value(keymap: &Value, command_name: &str) -> Option<Value> {
+    command_remapping_lookup_in_lisp_keymap(keymap, command_name)
+        .map(command_remapping_normalize_target)
+}
+
+pub(crate) fn command_remapping_lookup_in_keymaps(
+    keymaps: &[Value],
+    command_name: &str,
+) -> Option<Value> {
+    for keymap in keymaps {
+        if !is_list_keymap(keymap) {
+            continue;
+        }
+        if let Some(value) = command_remapping_lookup_in_keymap_value(keymap, command_name) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+pub(crate) fn command_remapping_command_name(command: &Value) -> Option<String> {
+    Some(match command {
+        Value::Nil => "nil".to_string(),
+        Value::True => "t".to_string(),
+        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+        _ => return None,
+    })
+}
+
+pub(crate) fn key_binding_apply_remap_in_active_maps(
+    active_maps: &[Value],
+    binding: Value,
+    no_remap: bool,
+) -> Value {
+    if no_remap {
+        return binding;
+    }
+    let Some(command_name) = binding.as_symbol_name().map(ToString::to_string) else {
+        return binding;
+    };
+    match command_remapping_lookup_in_keymaps(active_maps, &command_name) {
+        Some(remapped) if !remapped.is_nil() => remapped,
+        _ => binding,
+    }
 }
 
 /// Convert a `KeyEvent` to an Emacs event value (integer with modifier bits, or symbol).
