@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -6,7 +7,13 @@ use std::process::Command;
 use neovm_core::emacs_core::load::{
     apply_runtime_startup_state, create_bootstrap_evaluator_cached,
 };
+use neovm_core::emacs_core::pdump;
 use neovm_core::emacs_core::{format_eval_result_with_eval, parse_forms};
+
+thread_local! {
+    static RUNTIME_TEMPLATE: RefCell<Option<neovm_core::emacs_core::pdump::types::DumpContextState>> =
+        const { RefCell::new(None) };
+}
 
 pub fn oracle_emacs_path() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("NEOVM_FORCE_ORACLE_PATH") {
@@ -154,10 +161,21 @@ pub fn run_oracle_eval(form: &str) -> Result<String, String> {
 }
 
 pub fn run_neovm_eval(form: &str) -> Result<String, String> {
-    let mut eval =
-        create_bootstrap_evaluator_cached().map_err(|_| "NeoVM bootstrap failed".to_string())?;
-    apply_runtime_startup_state(&mut eval)
-        .map_err(|_| "NeoVM runtime startup failed".to_string())?;
+    let mut eval = RUNTIME_TEMPLATE.with(|slot| {
+        if slot.borrow().is_none() {
+            let mut template = create_bootstrap_evaluator_cached()
+                .map_err(|_| "NeoVM bootstrap failed".to_string())?;
+            apply_runtime_startup_state(&mut template)
+                .map_err(|_| "NeoVM runtime startup failed".to_string())?;
+            *slot.borrow_mut() = Some(pdump::snapshot_evaluator(&template));
+        }
+
+        let template = slot.borrow();
+        let snapshot = template
+            .as_ref()
+            .ok_or_else(|| "NeoVM runtime template unavailable".to_string())?;
+        pdump::restore_snapshot(snapshot).map_err(|e| format!("NeoVM runtime clone failed: {e}"))
+    })?;
     eval.set_lexical_binding(true);
     let forms = parse_forms(form).map_err(|e| format!("NeoVM parse error: {e}"))?;
     let result = eval

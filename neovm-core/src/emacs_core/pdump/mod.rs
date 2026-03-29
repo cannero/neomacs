@@ -146,9 +146,21 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
 /// This gives bootstrap/load code an isolated working evaluator with the same
 /// logical runtime state, without sharing heap objects that can be mutated
 /// during eager macroexpansion.
-pub(crate) fn clone_evaluator(eval: &Context) -> Result<Context, DumpError> {
-    let state = dump_evaluator(eval);
-    reconstruct_evaluator(state)
+pub fn snapshot_evaluator(eval: &Context) -> DumpContextState {
+    dump_evaluator(eval)
+}
+
+/// Reconstruct an evaluator from a previously captured in-memory pdump snapshot.
+pub fn restore_snapshot(state: &DumpContextState) -> Result<Context, DumpError> {
+    reconstruct_evaluator(state.clone())
+}
+
+/// Clone a live evaluator through the pdump conversion pipeline.
+///
+/// Prefer `snapshot_evaluator` + `restore_snapshot` when cloning the same
+/// template repeatedly; that avoids rebuilding the intermediate dump state.
+pub fn clone_evaluator(eval: &Context) -> Result<Context, DumpError> {
+    restore_snapshot(&snapshot_evaluator(eval))
 }
 
 /// Reconstruct an `Context` from deserialized dump state.
@@ -458,6 +470,40 @@ mod tests {
                   (nil . \"gb18030\")))"
             ),
             "unexpected pdump fontset order: {rendered}"
+        );
+    }
+
+    #[test]
+    fn test_restore_snapshot_isolated_between_clones() {
+        let template = crate::emacs_core::load::create_bootstrap_evaluator_cached()
+            .expect("bootstrap template should succeed");
+        let snapshot = snapshot_evaluator(&template);
+
+        let setup = crate::emacs_core::parser::parse_forms(
+            "(progn
+               (setq compat-pdump-clone-smoke 'first)
+               compat-pdump-clone-smoke)",
+        )
+        .unwrap();
+        let probe =
+            crate::emacs_core::parser::parse_forms("(boundp 'compat-pdump-clone-smoke)").unwrap();
+
+        let mut first = restore_snapshot(&snapshot).expect("first clone should succeed");
+        let first_result = first
+            .eval_expr(&setup[0])
+            .expect("first clone evaluation should succeed");
+        assert_eq!(
+            crate::emacs_core::print_value_with_buffers(&first_result, &first.buffers),
+            "first"
+        );
+
+        let mut second = restore_snapshot(&snapshot).expect("second clone should succeed");
+        let second_result = second
+            .eval_expr(&probe[0])
+            .expect("second clone evaluation should succeed");
+        assert_eq!(
+            crate::emacs_core::print_value_with_buffers(&second_result, &second.buffers),
+            "nil"
         );
     }
 
