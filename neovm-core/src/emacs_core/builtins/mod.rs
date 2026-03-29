@@ -754,7 +754,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("current-buffer", builtin_current_buffer, 0, Some(0));
     ctx.defsubr("buffer-name", builtin_buffer_name, 0, Some(1));
     ctx.defsubr("buffer-file-name", builtin_buffer_file_name, 0, Some(1));
-    ctx.defsubr("buffer-base-buffer", builtin_buffer_base_buffer, 0, None);
+    ctx.defsubr("buffer-base-buffer", builtin_buffer_base_buffer, 0, Some(1));
     ctx.defsubr("buffer-last-name", builtin_buffer_last_name, 0, Some(1));
     ctx.defsubr("rename-buffer", builtin_rename_buffer, 1, Some(2));
     ctx.defsubr("buffer-string", builtin_buffer_string, 0, Some(0));
@@ -878,7 +878,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr("buffer-enable-undo", builtin_buffer_enable_undo, 0, None);
+    ctx.defsubr("buffer-enable-undo", builtin_buffer_enable_undo, 0, Some(1));
     ctx.defsubr("buffer-size", builtin_buffer_size, 0, Some(1));
     ctx.defsubr("narrow-to-region", builtin_narrow_to_region, 2, Some(2));
     ctx.defsubr("widen", builtin_widen, 0, Some(0));
@@ -894,7 +894,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr("buffer-modified-p", builtin_buffer_modified_p, 0, None);
+    ctx.defsubr("buffer-modified-p", builtin_buffer_modified_p, 0, Some(1));
     ctx.defsubr(
         "set-buffer-modified-p",
         builtin_set_buffer_modified_p,
@@ -926,7 +926,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("byte-to-position", builtin_byte_to_position, 1, Some(1));
     ctx.defsubr("position-bytes", builtin_position_bytes, 1, Some(1));
     ctx.defsubr("get-byte", builtin_get_byte, 0, Some(2));
-    ctx.defsubr("buffer-local-value", builtin_buffer_local_value, 0, None);
+    ctx.defsubr("buffer-local-value", builtin_buffer_local_value, 2, Some(2));
     ctx.defsubr(
         "local-variable-if-set-p",
         builtin_local_variable_if_set_p,
@@ -6659,7 +6659,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
 
     // -- Type predicates --
     ctx.defsubr("null", |_ctx, args| builtin_null(args), 1, Some(1));
-    ctx.defsubr("not", |_ctx, args| builtin_not(args), 0, None);
+    ctx.defsubr("not", |_ctx, args| builtin_not(args), 1, Some(1));
     ctx.defsubr("atom", |_ctx, args| builtin_atom(args), 1, Some(1));
     ctx.defsubr("consp", |_ctx, args| builtin_consp(args), 1, Some(1));
     ctx.defsubr("listp", |_ctx, args| builtin_listp(args), 1, Some(1));
@@ -6671,7 +6671,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("nlistp", |_ctx, args| builtin_nlistp(args), 1, Some(1));
     ctx.defsubr("symbolp", |_ctx, args| builtin_symbolp(args), 1, Some(1));
-    ctx.defsubr("booleanp", |_ctx, args| builtin_booleanp(args), 0, None);
+    ctx.defsubr("booleanp", |_ctx, args| builtin_booleanp(args), 1, Some(1));
     ctx.defsubr("numberp", |_ctx, args| builtin_numberp(args), 1, Some(1));
     ctx.defsubr("integerp", |_ctx, args| builtin_integerp(args), 1, Some(1));
     ctx.defsubr(
