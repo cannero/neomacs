@@ -250,6 +250,8 @@ Observed GNU result:
 
 ## Recommended next steps
 
+See also: `docs/plans/error-condition-unification.md`
+
 1. Introduce a unified condition-handler stack owned by the evaluator runtime, not by individual special forms or wrapper builtins.
 2. Rework `handler-bind` so handler frames live in that active stack during body execution, with GNU-style masking of lower condition handlers.
 3. Move debugger entry decisions into the same signal-dispatch path, including GNU's special handling of `debug` and `debugger-ignored-errors`.

@@ -1,0 +1,264 @@
+# Error / Condition Unification Plan
+
+Date: 2026-03-29
+
+## Recommendation
+
+Yes, neomacs should unify this subsystem.
+
+But the correct target is not "one giant stack for everything".
+
+GNU Emacs uses multiple stacks:
+
+- C stack
+- `specpdl` for dynamic bindings, backtraces, and unwind-protect cleanup
+- handler stack for `catch`, `condition-case`, and `handler-bind`
+
+So the right neomacs goal is:
+
+- unify condition dispatch
+- keep unwind/binding state separate
+
+That is the GNU design we should copy.
+
+## Why unification is the right move
+
+The remaining incompatibilities are not independent bugs.
+
+They all come from the same architectural split:
+
+- interpreter `condition-case` is handled in `eval.rs`
+- `handler-bind-1` is a wrapper builtin in `builtins/symbols.rs`
+- VM condition handling is local to `bytecode/vm.rs`
+- debugger policy is isolated in `debug.rs` and not part of signal dispatch
+
+GNU does not split those semantics this way.
+
+In GNU:
+
+- `signal_or_quit` searches active handlers
+- `handler-bind` participates in that search directly
+- `condition-case` participates in that search directly
+- debugger entry is decided from the result of that search
+- bytecode and interpreter use the same condition runtime
+
+So if neomacs keeps patching local symptoms, more parity bugs will keep
+reappearing around the same boundary.
+
+## Current neomacs pieces
+
+Pieces that are useful and should stay:
+
+- `Context.specpdl`
+- `Flow::Signal` with `raw_data`
+- lexical-environment save/restore machinery
+- GC rooting machinery (`temp_roots`, `vm_gc_roots`)
+
+Pieces that should stop being authoritative:
+
+- `Context.catch_tags`
+- interpreter-only `sf_condition_case` matching loop
+- wrapper-style `builtin_handler_bind_1`
+- VM-local `Handler` stack as the source of truth
+
+Pieces that are currently detached:
+
+- `DebugState`
+
+`DebugState` is not wired into `Context` or the actual signal path.  That means
+it should not be treated as the kernel of the future design.  At most it can
+survive as debugger UI/session state after signal dispatch is unified.
+
+## Target architecture
+
+Add a Context-owned condition handler stack.
+
+Example shape:
+
+```rust
+enum ConditionFrame {
+    Catch {
+        tag: Value,
+        resume: ResumeTarget,
+    },
+    ConditionCase {
+        conditions: Value,
+        resume: ResumeTarget,
+    },
+    HandlerBind {
+        conditions: Value,
+        handler: Value,
+        mute_span: usize,
+    },
+    SkipConditions {
+        remaining: usize,
+    },
+}
+```
+
+`ResumeTarget` should encode where control returns:
+
+- interpreter catch
+- interpreter condition-case clause
+- VM catch target
+- VM condition-case target
+
+The important point is not the exact enum layout.  The important point is that
+all condition search happens against one stack owned by `Context`.
+
+## What should remain separate
+
+Do not merge these into the condition stack:
+
+- `specpdl`
+- unwind-protect cleanup records
+- plain dynamic let bindings
+- backtrace records
+
+GNU keeps those on `specpdl`, and neomacs already has a reasonable analogue.
+
+This also implies one concrete cleanup:
+
+- VM `Handler::UnwindProtect` should stop pretending to be part of the
+  condition-handler model
+
+`unwind-protect` belongs with unwind records, not with condition dispatch.
+
+## Required runtime entry points
+
+Neomacs needs a single internal runtime path for nonlocal condition dispatch.
+
+Conceptually:
+
+```rust
+fn dispatch_signal(sig: SignalData) -> Result<Value, Flow>
+fn dispatch_throw(tag: Value, value: Value) -> Result<Value, Flow>
+```
+
+`dispatch_signal` should own:
+
+1. building the GNU-style error object
+2. `signal-hook-function`
+3. error hierarchy lookup
+4. handler-stack search
+5. `handler-bind` immediate invocation
+6. temporary muting of lower condition handlers
+7. debugger decision
+8. transfer to the chosen resume target
+
+`dispatch_throw` should own:
+
+1. searching active catch frames
+2. deciding throw vs `no-catch`
+3. resuming interpreter or VM target
+
+This is the GNU boundary.  Today neomacs spreads these responsibilities across
+special forms, builtins, and the VM.
+
+## Debugger policy
+
+Debugger policy should move into signal dispatch.
+
+The authoritative inputs should be Lisp-visible variables already seeded in the
+obarray:
+
+- `debug-on-error`
+- `debug-on-signal`
+- `debug-on-quit`
+- `debug-ignored-errors`
+- `inhibit-debugger`
+- `debugger`
+
+That matches GNU much more closely than the current standalone `DebugState`
+booleans.
+
+Recommendation:
+
+- keep `debug.rs` only for debugger session/backtrace tooling
+- stop using it as the semantic owner of "should this signal enter debugger?"
+
+## Bytecode integration
+
+The VM should stop owning its own separate condition semantics.
+
+Today it has:
+
+- local `handlers: Vec<Handler>`
+- `resolve_signal_target`
+- `resolve_throw_target`
+
+That duplicates interpreter behavior and guarantees drift.
+
+Target:
+
+- VM pushes/pops `ConditionFrame`s on `Context`
+- VM-specific resume metadata stays in `ResumeTarget`
+- common dispatch logic resolves the frame
+- VM only performs the actual low-level resume once a target is selected
+
+This preserves VM efficiency while removing semantic duplication.
+
+## Migration order
+
+### Phase 1: Introduce the shared stack
+
+- Add `Context.condition_stack`
+- Keep existing code paths, but mirror `catch` / `condition-case` / VM pushes
+  into it
+- Use assertions/tests to verify stack balance
+
+### Phase 2: Unify `catch` and `throw`
+
+- Make throw resolution consult the shared stack
+- Reduce `catch_tags` to a compatibility mirror
+- Remove it once no runtime code depends on it
+
+### Phase 3: Unify `condition-case`
+
+- Move interpreter `condition-case` selection to shared dispatch
+- VM condition targets use the same selection logic
+
+### Phase 4: Rebuild `handler-bind`
+
+- Remove wrapper retry semantics
+- Invoke handlers during dispatch
+- Implement GNU-style lower-handler muting
+
+### Phase 5: Move debugger policy into dispatch
+
+- Implement `debug` marker semantics
+- consult `debug-on-error`, `debug-on-signal`, `debug-ignored-errors`,
+  `inhibit-debugger`
+- make `condition-case-unless-debug` and `with-demoted-errors` true GNU-style
+
+### Phase 6: Delete redundant logic
+
+- remove VM-local resolution logic
+- remove detached debugger-policy logic from `DebugState`
+- simplify special forms that only wrapped local searches
+
+## Acceptance criteria
+
+This refactor is only done when all of these are true:
+
+- GNU `handler-bind` semantics match, especially dynamic extent and muted lower
+  handlers
+- GNU `condition-case-unless-debug` semantics match
+- bytecode and interpreter produce the same error-dispatch behavior
+- raw signal payloads stay preserved
+- no remaining runtime dependency on `catch_tags` or wrapper-style
+  `handler-bind-1`
+
+## Bottom line
+
+Yes, unify.
+
+But unify the same thing GNU unifies:
+
+- the condition runtime
+
+Do not unify the wrong thing:
+
+- `specpdl`, unwind cleanup, and all evaluator state into one generic stack
+
+If we follow GNU's split precisely, the design gets simpler, not more complex.
