@@ -4135,6 +4135,19 @@ fn while_processes_quit_flag_without_loop_local_gc() {
 }
 
 #[test]
+fn throw_on_input_is_special_and_dynamically_bound() {
+    let results = eval_all(
+        "(special-variable-p 'throw-on-input)
+         (let ((throw-on-input 'tag))
+           throw-on-input)
+         throw-on-input",
+    );
+    assert_eq!(results[0], "OK t");
+    assert_eq!(results[1], "OK tag");
+    assert_eq!(results[2], "OK nil");
+}
+
+#[test]
 fn with_temp_message_accepts_min_arity_and_runs_body() {
     let results = bootstrap_eval_all(
         "(with-temp-message nil 42)

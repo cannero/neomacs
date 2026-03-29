@@ -608,6 +608,16 @@ pub struct Context {
     /// public `internal-interpreter-environment` symbol can stay visible
     /// while remaining unbound and non-special.
     pub(crate) internal_interpreter_environment_symbol: SymId,
+    /// GNU `eval.c` hot-path DEFVARs exposed via direct globals like
+    /// `Vquit_flag`, `Vinhibit_quit`, and `Vthrow_on_input`.
+    ///
+    /// NeoVM still stores their values in the obarray's symbol cells so Lisp
+    /// sees ordinary variables, but evaluator boundaries keep their symbol
+    /// identities cached here to avoid repeated name interning/lookups.
+    quit_flag_symbol: SymId,
+    inhibit_quit_symbol: SymId,
+    throw_on_input_symbol: SymId,
+    kill_emacs_symbol: SymId,
     /// Features list (for require/provide).
     pub(crate) features: Vec<SymId>,
     /// Features currently being resolved through `require`.
@@ -2068,11 +2078,17 @@ impl Context {
         obarray.make_special("read-symbol-shorthands");
         obarray.set_symbol_value("macroexp--dynvars", Value::Nil);
         obarray.make_special("macroexp--dynvars");
-        // GNU DEFVAR_LISP variables from eval.c
-        obarray.set_symbol_value("quit-flag", Value::Nil);
-        obarray.make_special("quit-flag");
-        obarray.set_symbol_value("inhibit-quit", Value::Nil);
-        obarray.make_special("inhibit-quit");
+        // GNU DEFVAR_LISP variables from eval.c / keyboard.c.
+        let quit_flag_symbol = intern("quit-flag");
+        obarray.set_symbol_value_id(quit_flag_symbol, Value::Nil);
+        obarray.make_special_id(quit_flag_symbol);
+        let inhibit_quit_symbol = intern("inhibit-quit");
+        obarray.set_symbol_value_id(inhibit_quit_symbol, Value::Nil);
+        obarray.make_special_id(inhibit_quit_symbol);
+        let throw_on_input_symbol = intern("throw-on-input");
+        obarray.set_symbol_value_id(throw_on_input_symbol, Value::Nil);
+        obarray.make_special_id(throw_on_input_symbol);
+        let kill_emacs_symbol = intern("kill-emacs");
         obarray.set_symbol_value("inhibit-debugger", Value::Nil);
         obarray.make_special("inhibit-debugger");
         obarray.set_symbol_value("debug-on-error", Value::Nil);
@@ -2552,7 +2568,6 @@ impl Context {
         obarray.set_symbol_value("this-command-keys-shift-translated", Value::Nil);
         obarray.set_symbol_value("current-prefix-arg", Value::Nil);
         obarray.set_symbol_value("track-mouse", Value::Nil);
-        obarray.set_symbol_value("throw-on-input", Value::Nil);
         obarray.set_symbol_value(
             "while-no-input-ignore-events",
             Value::list(vec![
@@ -3043,6 +3058,10 @@ impl Context {
             specpdl: Vec::new(),
             lexenv: Value::Nil,
             internal_interpreter_environment_symbol,
+            quit_flag_symbol,
+            inhibit_quit_symbol,
+            throw_on_input_symbol,
+            kill_emacs_symbol,
             features: Vec::new(),
             require_stack: Vec::new(),
             loads_in_progress: Vec::new(),
@@ -3153,6 +3172,13 @@ impl Context {
             intern_uninterned("internal-interpreter-environment");
         obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::Nil);
         obarray.make_special_id(internal_interpreter_environment_symbol);
+        let quit_flag_symbol = intern("quit-flag");
+        obarray.make_special_id(quit_flag_symbol);
+        let inhibit_quit_symbol = intern("inhibit-quit");
+        obarray.make_special_id(inhibit_quit_symbol);
+        let throw_on_input_symbol = intern("throw-on-input");
+        obarray.make_special_id(throw_on_input_symbol);
+        let kill_emacs_symbol = intern("kill-emacs");
 
         let mut ev = Self {
             subr_registry: Vec::new(),
@@ -3162,6 +3188,10 @@ impl Context {
             specpdl: Vec::new(),
             lexenv,
             internal_interpreter_environment_symbol,
+            quit_flag_symbol,
+            inhibit_quit_symbol,
+            throw_on_input_symbol,
+            kill_emacs_symbol,
             features,
             require_stack,
             loads_in_progress: Vec::new(),
@@ -4718,18 +4748,19 @@ impl Context {
     fn process_quit_flag(&mut self) -> Result<(), Flow> {
         let flag = self
             .obarray
-            .symbol_value("quit-flag")
+            .symbol_value_id(self.quit_flag_symbol)
             .copied()
             .unwrap_or(Value::Nil);
-        self.obarray.set_symbol_value("quit-flag", Value::Nil);
+        self.obarray
+            .set_symbol_value_id(self.quit_flag_symbol, Value::Nil);
 
         let throw_on_input = self
             .obarray
-            .symbol_value("throw-on-input")
+            .symbol_value_id(self.throw_on_input_symbol)
             .copied()
             .unwrap_or(Value::Nil);
 
-        if flag.is_symbol_named("kill-emacs") {
+        if matches!(flag, Value::Symbol(sym) if sym == self.kill_emacs_symbol) {
             self.request_shutdown(0, false);
             return Err(signal("quit", vec![]));
         }
@@ -4749,7 +4780,7 @@ impl Context {
     fn maybe_quit(&mut self) -> Result<(), Flow> {
         let quit_flag = self
             .obarray
-            .symbol_value("quit-flag")
+            .symbol_value_id(self.quit_flag_symbol)
             .copied()
             .unwrap_or(Value::Nil);
         if quit_flag.is_nil() {
@@ -4758,7 +4789,7 @@ impl Context {
 
         let inhibit_quit = self
             .obarray
-            .symbol_value("inhibit-quit")
+            .symbol_value_id(self.inhibit_quit_symbol)
             .copied()
             .unwrap_or(Value::Nil);
         if inhibit_quit.is_truthy() {
