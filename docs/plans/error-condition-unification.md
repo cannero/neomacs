@@ -292,8 +292,8 @@ Phase 5 progress:
 - neomacs-compiled `unwind-protect` now lowers through GNU-style cleanup
   closures plus `UnwindProtectPop`
 - the VM local handler list now mirrors only condition frames; the legacy
-  jump-target opcode is explicit compatibility-only failure instead of a live
-  dispatch path
+  jump-target opcode has been removed from the live runtime `Op` surface and
+  survives only as an explicit pdump compatibility rejection boundary
 
 ### Phase 6: Delete redundant logic
 

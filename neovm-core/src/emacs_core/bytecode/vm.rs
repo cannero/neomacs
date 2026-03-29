@@ -1709,14 +1709,6 @@ impl<'a> Vm<'a> {
                         self.ctx.pop_condition_frame();
                     }
                 }
-                Op::UnwindProtect(target) => {
-                    vm_try!(Err(signal(
-                        "error",
-                        vec![Value::string(format!(
-                            "Legacy neomacs unwind-protect opcode is unsupported; recompile this bytecode (target {target})"
-                        ))],
-                    )));
-                }
                 Op::UnwindProtectPop => {
                     let cleanup = stack.pop().unwrap_or(Value::Nil);
                     specpdl.push(VmUnwindEntry::Cleanup { cleanup });

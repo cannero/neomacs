@@ -96,8 +96,7 @@ impl ByteCodeFunction {
             | Op::GotoIfNotNilElsePop(addr)
             | Op::PushConditionCase(addr)
             | Op::PushConditionCaseRaw(addr)
-            | Op::PushCatch(addr)
-            | Op::UnwindProtect(addr) => {
+            | Op::PushCatch(addr) => {
                 *addr = target;
             }
             _ => panic!("patch_jump on non-jump instruction at {}", idx),

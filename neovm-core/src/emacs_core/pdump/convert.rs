@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use super::DumpError;
 use super::types::*;
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType, MarkerEntry};
 use crate::buffer::buffer_text::BufferText;
@@ -204,7 +205,6 @@ pub(crate) fn dump_op(op: &Op) -> DumpOp {
         Op::PushConditionCaseRaw(n) => DumpOp::PushConditionCaseRaw(n),
         Op::PushCatch(n) => DumpOp::PushCatch(n),
         Op::PopHandler => DumpOp::PopHandler,
-        Op::UnwindProtect(n) => DumpOp::UnwindProtect(n),
         Op::UnwindProtectPop => DumpOp::UnwindProtectPop,
         Op::Throw => DumpOp::Throw,
         Op::SaveCurrentBuffer => DumpOp::SaveCurrentBuffer,
@@ -1355,8 +1355,8 @@ pub(crate) fn load_expr(e: &DumpExpr) -> Expr {
 
 // --- Op ---
 
-pub(crate) fn load_op(op: &DumpOp) -> Op {
-    match *op {
+pub(crate) fn load_op(op: &DumpOp) -> Result<Op, DumpError> {
+    let op = match *op {
         DumpOp::Constant(n) => Op::Constant(n),
         DumpOp::Nil => Op::Nil,
         DumpOp::True => Op::True,
@@ -1436,7 +1436,11 @@ pub(crate) fn load_op(op: &DumpOp) -> Op {
         DumpOp::PushConditionCaseRaw(n) => Op::PushConditionCaseRaw(n),
         DumpOp::PushCatch(n) => Op::PushCatch(n),
         DumpOp::PopHandler => Op::PopHandler,
-        DumpOp::UnwindProtect(n) => Op::UnwindProtect(n),
+        DumpOp::UnwindProtect(n) => {
+            return Err(DumpError::DeserializationError(format!(
+                "legacy neomacs unwind-protect opcode is unsupported in pdump snapshots; rebuild the dump or recompile this bytecode (target {n})"
+            )));
+        }
         DumpOp::UnwindProtectPop => Op::UnwindProtectPop,
         DumpOp::Throw => Op::Throw,
         DumpOp::SaveCurrentBuffer => Op::SaveCurrentBuffer,
@@ -1444,7 +1448,8 @@ pub(crate) fn load_op(op: &DumpOp) -> Op {
         DumpOp::SaveRestriction => Op::SaveRestriction,
         DumpOp::MakeClosure(n) => Op::MakeClosure(n),
         DumpOp::CallBuiltin(a, b) => Op::CallBuiltin(a, b),
-    }
+    };
+    Ok(op)
 }
 
 // --- Lambda / ByteCode ---
@@ -1468,9 +1473,9 @@ pub(crate) fn load_lambda_data(d: &DumpLambdaData) -> LambdaData {
     }
 }
 
-pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> ByteCodeFunction {
-    ByteCodeFunction {
-        ops: bc.ops.iter().map(load_op).collect(),
+pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> Result<ByteCodeFunction, DumpError> {
+    Ok(ByteCodeFunction {
+        ops: bc.ops.iter().map(load_op).collect::<Result<Vec<_>, _>>()?,
         constants: bc.constants.iter().map(load_value).collect(),
         max_stack: bc.max_stack,
         params: load_lambda_params(&bc.params),
@@ -1485,7 +1490,7 @@ pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> ByteCodeFunction {
         docstring: bc.docstring.clone(),
         doc_form: load_opt_value(&bc.doc_form),
         interactive: load_opt_value(&bc.interactive),
-    }
+    })
 }
 
 // --- Hash tables ---
@@ -1562,8 +1567,8 @@ pub(crate) fn load_hash_table(ht: &DumpLispHashTable) -> LispHashTable {
 /// Load a heap object, but defer hash table population.
 /// Hash tables need CURRENT_HEAP set for HashKey::Str hashing,
 /// so we create empty placeholders first, then populate after heap is set.
-fn load_heap_object_phase1(obj: &DumpHeapObject) -> HeapObject {
-    match obj {
+fn load_heap_object_phase1(obj: &DumpHeapObject) -> Result<HeapObject, DumpError> {
+    let object = match obj {
         DumpHeapObject::Cons { car, cdr } => HeapObject::Cons {
             car: load_value(car),
             cdr: load_value(cdr),
@@ -1588,7 +1593,7 @@ fn load_heap_object_phase1(obj: &DumpHeapObject) -> HeapObject {
         }
         DumpHeapObject::Lambda(d) => HeapObject::Lambda(load_lambda_data(d)),
         DumpHeapObject::Macro(d) => HeapObject::Macro(load_lambda_data(d)),
-        DumpHeapObject::ByteCode(bc) => HeapObject::ByteCode(load_bytecode(bc)),
+        DumpHeapObject::ByteCode(bc) => HeapObject::ByteCode(load_bytecode(bc)?),
         DumpHeapObject::Marker(marker) => HeapObject::Marker(crate::gc::types::MarkerData {
             buffer: marker.buffer.map(|id| BufferId(id.0)),
             position: marker.position,
@@ -1604,7 +1609,8 @@ fn load_heap_object_phase1(obj: &DumpHeapObject) -> HeapObject {
             rear_advance: o.rear_advance,
         }),
         DumpHeapObject::Free => HeapObject::Free,
-    }
+    };
+    Ok(object)
 }
 
 // --- Heap ---
@@ -1613,9 +1619,17 @@ fn load_heap_object_phase1(obj: &DumpHeapObject) -> HeapObject {
 /// Phase 1: Create all objects with empty hash tables (no heap access needed)
 /// Phase 2: After CURRENT_HEAP is set, populate hash table entries
 ///          (HashKey::Str hashing requires heap access)
-pub(crate) fn load_heap(dh: &DumpLispHeap) -> LispHeap {
-    let objects: Vec<HeapObject> = dh.objects.iter().map(load_heap_object_phase1).collect();
-    LispHeap::from_dump(objects, dh.generations.clone(), dh.free_list.clone())
+pub(crate) fn load_heap(dh: &DumpLispHeap) -> Result<LispHeap, DumpError> {
+    let objects: Vec<HeapObject> = dh
+        .objects
+        .iter()
+        .map(load_heap_object_phase1)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(LispHeap::from_dump(
+        objects,
+        dh.generations.clone(),
+        dh.free_list.clone(),
+    ))
 }
 
 /// Phase 2: Populate hash table entries after CURRENT_HEAP is set.

@@ -1957,7 +1957,6 @@ fn stack_delta(op: &Op) -> i32 {
         Op::PushConditionCaseRaw(_) => -1,
         Op::PushCatch(_) => -1,
         Op::PopHandler => 0,
-        Op::UnwindProtect(_) => 0,
         Op::UnwindProtectPop => -1, // pops cleanup fn from TOS
         Op::Throw => -1,
         Op::SaveCurrentBuffer | Op::SaveExcursion | Op::SaveRestriction => 0,

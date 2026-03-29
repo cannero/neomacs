@@ -170,7 +170,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     set_current_interner(&mut interner);
 
     // 2. Reconstruct heap (phase 1: all objects except hash table entries)
-    let mut heap = Box::new(load_heap(&state.heap));
+    let mut heap = Box::new(load_heap(&state.heap)?);
     set_current_heap(&mut heap);
 
     // 2b. Phase 2: populate hash table entries (requires CURRENT_HEAP for HashKey::Str hashing)
@@ -241,6 +241,9 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::emacs_core::pdump::types::{
+        DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp,
+    };
     use crate::emacs_core::value::Value;
 
     #[test]
@@ -547,5 +550,44 @@ mod tests {
         let result = load_from_dump(&dump_path);
         // Should fail with checksum mismatch or deserialization error
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_restore_snapshot_rejects_legacy_unwind_protect_dump_opcode() {
+        let mut snapshot = snapshot_evaluator(&Context::new());
+        snapshot
+            .heap
+            .objects
+            .push(DumpHeapObject::ByteCode(DumpByteCodeFunction {
+                ops: vec![DumpOp::UnwindProtect(7), DumpOp::Nil, DumpOp::Return],
+                constants: vec![],
+                max_stack: 1,
+                params: DumpLambdaParams {
+                    required: vec![],
+                    optional: vec![],
+                    rest: None,
+                },
+                lexical: false,
+                env: None,
+                gnu_byte_offset_map: None,
+                docstring: None,
+                doc_form: None,
+                interactive: None,
+            }));
+        snapshot.heap.generations.push(0);
+
+        let result = restore_snapshot(&snapshot);
+        match result {
+            Err(DumpError::DeserializationError(message)) => {
+                assert!(
+                    message.contains(
+                        "legacy neomacs unwind-protect opcode is unsupported in pdump snapshots"
+                    ),
+                    "unexpected error: {message}"
+                );
+            }
+            Ok(_) => panic!("expected deserialization error, got successful restore"),
+            Err(err) => panic!("expected deserialization error, got {err}"),
+        }
     }
 }

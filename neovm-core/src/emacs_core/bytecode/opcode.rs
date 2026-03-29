@@ -153,11 +153,6 @@ pub enum Op {
     PushCatch(u32),
     /// Pop the most recent condition-case handler.
     PopHandler,
-    /// Legacy neomacs-only unwind-protect cleanup marker.
-    /// Operand = start of cleanup code.
-    /// Retained for compatibility with older locally compiled bytecode;
-    /// new compiler output uses `UnwindProtectPop` like GNU Emacs.
-    UnwindProtect(u32),
     /// GNU-style unwind-protect: pop cleanup handler function from TOS.
     /// Used when decoding GNU bytecodes where byte-unwind-protect (142)
     /// pops a cleanup function rather than jumping to a code offset.
@@ -282,7 +277,6 @@ impl Op {
             Op::PushConditionCaseRaw(addr) => format!("push-condition-case-raw {}", addr),
             Op::PushCatch(addr) => format!("push-catch {}", addr),
             Op::PopHandler => "pop-handler".to_string(),
-            Op::UnwindProtect(addr) => format!("unwind-protect {}", addr),
             Op::UnwindProtectPop => "unwind-protect-pop".to_string(),
             Op::Throw => "throw".to_string(),
             Op::SaveCurrentBuffer => "save-current-buffer".to_string(),
