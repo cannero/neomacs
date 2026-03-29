@@ -2794,6 +2794,9 @@ impl Context {
                 Value::symbol("selection-request"),
             ]),
         );
+        obarray.make_special("while-no-input-ignore-events");
+        obarray.set_symbol_value("input-pending-p-filter-events", Value::True);
+        obarray.make_special("input-pending-p-filter-events");
         obarray.set_symbol_value("deactivate-mark", Value::True);
         obarray.set_symbol_value("mark-active", Value::Nil);
         obarray.set_symbol_value("mark-even-if-inactive", Value::True);
@@ -4239,6 +4242,82 @@ impl Context {
         self.process_quit_flag()
     }
 
+    pub(crate) fn input_pending_p_filters_events(&self) -> bool {
+        self.obarray
+            .symbol_value("input-pending-p-filter-events")
+            .copied()
+            .unwrap_or(Value::True)
+            .is_truthy()
+    }
+
+    fn should_ignore_while_no_input_event(&self, event: &crate::keyboard::InputEvent) -> bool {
+        let ignore_symbol = match event {
+            crate::keyboard::InputEvent::Focus { focused, .. } => {
+                Some(if *focused { "focus-in" } else { "focus-out" })
+            }
+            _ => None,
+        };
+        let Some(ignore_symbol) = ignore_symbol else {
+            return false;
+        };
+
+        let ignore_list = self
+            .obarray
+            .symbol_value("while-no-input-ignore-events")
+            .copied()
+            .unwrap_or(Value::Nil);
+        super::value::list_to_vec(&ignore_list)
+            .into_iter()
+            .flatten()
+            .any(|value| value.is_symbol_named(ignore_symbol))
+    }
+
+    pub(crate) fn input_event_counts_as_pending(
+        &self,
+        event: &crate::keyboard::InputEvent,
+        filter_events: bool,
+    ) -> bool {
+        match event {
+            crate::keyboard::InputEvent::Resize { .. } => false,
+            crate::keyboard::InputEvent::Focus { .. } if !filter_events => false,
+            _ if filter_events && self.should_ignore_while_no_input_event(event) => false,
+            _ => true,
+        }
+    }
+
+    fn poll_pending_input_for_throw_on_input(&mut self) {
+        self.sync_pending_resize_events();
+
+        let throw_on_input = self
+            .obarray
+            .symbol_value_id(self.throw_on_input_symbol)
+            .copied()
+            .unwrap_or(Value::Nil);
+        if throw_on_input.is_nil() {
+            return;
+        }
+
+        let quit_flag = self
+            .obarray
+            .symbol_value_id(self.quit_flag_symbol)
+            .copied()
+            .unwrap_or(Value::Nil);
+        if !quit_flag.is_nil() {
+            return;
+        }
+
+        if self
+            .command_loop
+            .keyboard
+            .pending_input_events
+            .iter()
+            .any(|event| self.input_event_counts_as_pending(event, true))
+        {
+            self.obarray
+                .set_symbol_value_id(self.quit_flag_symbol, throw_on_input);
+        }
+    }
+
     /// Interrupt on input for GNU-style `throw-on-input` users such as
     /// `while-no-input`, while preserving the input event for later reads.
     pub(crate) fn interrupt_for_input_event_if_requested(
@@ -4275,6 +4354,7 @@ impl Context {
 
     /// Match GNU `eval_sub` / `funcall_general`: quit check first, then GC.
     fn maybe_gc_and_quit(&mut self) -> Result<(), Flow> {
+        self.poll_pending_input_for_throw_on_input();
         self.maybe_quit()?;
         self.gc_safe_point();
         Ok(())

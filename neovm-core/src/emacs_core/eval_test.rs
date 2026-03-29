@@ -642,6 +642,31 @@ fn read_char_close_requested_honors_throw_on_input_before_quit() {
 }
 
 #[test]
+fn eval_list_form_throws_on_pending_host_input() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+    ev.obarray
+        .set_symbol_value("throw-on-input", Value::symbol("tag"));
+
+    let forms = parse_forms("(list 1 2)").expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    assert!(matches!(
+        result,
+        Err(EvalError::UncaughtThrow { tag, value })
+            if tag == Value::symbol("tag") && value == Value::True
+    ));
+
+    ev.obarray.set_symbol_value("throw-on-input", Value::Nil);
+    let event = ev.read_char().expect("keypress should remain queued");
+    assert_eq!(event, Value::Int('a' as i64));
+}
+
+#[test]
 fn frame_native_width_syncs_pending_resize_without_read_char() {
     let mut ev = Context::new();
     let fid = ev

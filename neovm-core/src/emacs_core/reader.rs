@@ -1638,8 +1638,41 @@ pub(crate) fn builtin_input_pending_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("input-pending-p", &args, 1)?;
+
+    if args.first().is_some_and(Value::is_truthy) {
+        ctx.fire_pending_timers();
+    }
+
+    ctx.sync_pending_resize_events();
+
+    if peek_unread_command_event_in_state(&ctx.obarray, &[]).is_some() {
+        return Ok(Value::True);
+    }
+
+    if ctx
+        .command_loop
+        .keyboard
+        .kboard
+        .unread_selection_event
+        .is_some()
+        || !ctx.command_loop.keyboard.kboard.unread_events.is_empty()
+    {
+        return Ok(Value::True);
+    }
+
+    if let Some(macro_events) = &ctx.command_loop.keyboard.kboard.executing_kbd_macro
+        && ctx.command_loop.keyboard.kboard.kbd_macro_index < macro_events.len()
+    {
+        return Ok(Value::True);
+    }
+
+    let filter_events = ctx.input_pending_p_filters_events();
     Ok(Value::bool(
-        peek_unread_command_event_in_state(&ctx.obarray, &[]).is_some(),
+        ctx.command_loop
+            .keyboard
+            .pending_input_events
+            .iter()
+            .any(|event| ctx.input_event_counts_as_pending(event, filter_events)),
     ))
 }
 

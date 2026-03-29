@@ -1158,6 +1158,38 @@ fn input_pending_p_accepts_optional_check_timers_arg() {
 }
 
 #[test]
+fn input_pending_p_returns_t_with_host_keypress() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+
+    let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
+    assert_eq!(result, Value::True);
+
+    let event = ev.read_char().expect("keypress should remain available");
+    assert_eq!(event, Value::Int('a' as i64));
+}
+
+#[test]
+fn input_pending_p_ignores_focus_events_by_default() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::Focus {
+        focused: true,
+        emacs_frame_id: 0,
+    })
+    .expect("queue focus event");
+    ev.input_rx = Some(rx);
+
+    let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
+    assert!(result.is_nil());
+}
+
+#[test]
 fn input_pending_p_rejects_more_than_one_arg() {
     let mut ev = Context::new();
     let result = builtin_input_pending_p(&mut ev, vec![Value::Nil, Value::Nil]);
