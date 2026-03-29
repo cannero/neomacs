@@ -1608,8 +1608,15 @@ pub(crate) trait SyntaxLookup {
 }
 
 /// Default syntax lookup — uses ASCII-based definitions.
-/// This is used when no buffer-specific syntax table is available.
+/// This is used when no buffer-specific syntax table is available
+/// (e.g. in unit tests or string-only matching).
 pub(crate) struct DefaultSyntaxLookup;
+
+/// Syntax lookup backed by a buffer's actual syntax table.
+/// Used when regex searching within a buffer context.
+pub(crate) struct BufferSyntaxLookup<'a> {
+    pub syntax_table: &'a crate::emacs_core::syntax::SyntaxTable,
+}
 
 impl SyntaxLookup for DefaultSyntaxLookup {
     fn char_syntax(&self, c: char) -> SyntaxClass {
@@ -1636,6 +1643,44 @@ impl SyntaxLookup for DefaultSyntaxLookup {
         if cat == b'|' {
             return !c.is_ascii();
         }
+        false
+    }
+}
+
+/// Convert from the syntax module's SyntaxClass to the regex engine's SyntaxClass.
+fn convert_syntax_class(sc: crate::emacs_core::syntax::SyntaxClass) -> SyntaxClass {
+    use crate::emacs_core::syntax::SyntaxClass as SC;
+    match sc {
+        SC::Whitespace => SyntaxClass::Whitespace,
+        SC::Word => SyntaxClass::Word,
+        SC::Symbol => SyntaxClass::Symbol,
+        SC::Punctuation => SyntaxClass::Punctuation,
+        SC::Open => SyntaxClass::Open,
+        SC::Close => SyntaxClass::Close,
+        SC::Prefix | SC::InheritStandard => SyntaxClass::Quote,
+        SC::StringDelim => SyntaxClass::StringDelim,
+        SC::MathDelim => SyntaxClass::Math,
+        SC::Escape => SyntaxClass::Escape,
+        SC::CharQuote => SyntaxClass::CharQuote,
+        SC::Comment => SyntaxClass::Comment,
+        SC::EndComment => SyntaxClass::EndComment,
+        SC::Generic => SyntaxClass::CommentFence,
+        SC::StringFence => SyntaxClass::StringFence,
+    }
+}
+
+impl<'a> SyntaxLookup for BufferSyntaxLookup<'a> {
+    fn char_syntax(&self, c: char) -> SyntaxClass {
+        convert_syntax_class(self.syntax_table.char_syntax(c))
+    }
+
+    fn char_has_category(&self, c: char, cat: u8) -> bool {
+        // Category '|' = multibyte characters (always available)
+        if cat == b'|' {
+            return !c.is_ascii();
+        }
+        // TODO: wire up actual category table lookup when
+        // category tables are passed through the matching context
         false
     }
 }

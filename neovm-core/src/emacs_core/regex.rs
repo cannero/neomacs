@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use crate::buffer::{Buffer, BufferId};
 use crate::emacs_core::casefiddle::apply_replace_match_case;
 use crate::emacs_core::regex_emacs::{
-    self, CompiledPattern, DefaultSyntaxLookup, MatchRegisters, SyntaxLookup,
+    self, BufferSyntaxLookup, CompiledPattern, DefaultSyntaxLookup, MatchRegisters, SyntaxLookup,
 };
 use crate::emacs_core::value::with_heap;
 
@@ -1129,7 +1129,9 @@ pub fn re_search_forward(
             )
         }
         CompiledSearchPattern::Emacs(cp) => {
-            let syn = DefaultSyntaxLookup;
+            let syn = BufferSyntaxLookup {
+                syntax_table: &buf.syntax_table,
+            };
             let text_bytes = text.as_bytes();
             let range = (limit_rel - start_rel) as isize;
             regex_emacs::re_search(&cp, &text_bytes[..limit_rel], start_rel, range, &syn, 0).map(
@@ -1192,7 +1194,9 @@ pub fn re_search_backward(
             )
         }
         CompiledSearchPattern::Emacs(cp) => {
-            let syn = DefaultSyntaxLookup;
+            let syn = BufferSyntaxLookup {
+                syntax_table: &buf.syntax_table,
+            };
             let text_bytes = text.as_bytes();
             // Backward search: negative range means search backward
             let range = -((start_rel - limit_rel) as isize);
@@ -1254,7 +1258,9 @@ pub fn looking_at(
             Ok(true)
         }
         CompiledSearchPattern::Emacs(cp) => {
-            let syn = DefaultSyntaxLookup;
+            let syn = BufferSyntaxLookup {
+                syntax_table: &buf.syntax_table,
+            };
             let text_bytes = text.as_bytes();
             if let Some((_end, regs)) =
                 regex_emacs::re_match(&cp, text_bytes, start_rel, text_bytes.len(), &syn, 0)
