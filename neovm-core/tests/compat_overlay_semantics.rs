@@ -1,6 +1,42 @@
 mod common;
 
 use common::{oracle_enabled, run_neovm_eval, run_oracle_eval};
+use neovm_core::emacs_core::intern::{StringInterner, set_current_interner};
+use neovm_core::emacs_core::parse_forms;
+
+const EMPTY_OVERLAY_QUERIES_AND_CROSS_BUFFER_MOVE_FORM: &str = r#"(let ((a (get-buffer-create " *compat-overlay-a*"))
+      (b (get-buffer-create " *compat-overlay-b*")))
+  (unwind-protect
+      (progn
+        (with-current-buffer a
+          (erase-buffer)
+          (insert "abcdef"))
+        (with-current-buffer b
+          (erase-buffer)
+          (insert "uvwxyz"))
+        (let ((empty (make-overlay 2 2 a))
+              (movable (make-overlay 2 4 a))
+              (project
+               (lambda (ovs)
+                 (sort (mapcar (lambda (ov)
+                                 (list (overlay-start ov) (overlay-end ov)))
+                               ovs)
+                       (lambda (lhs rhs)
+                         (if (= (car lhs) (car rhs))
+                             (< (cadr lhs) (cadr rhs))
+                           (< (car lhs) (car rhs))))))))
+          (move-overlay movable 1 3 b)
+          (list
+           (funcall project (overlays-in 2 2))
+           (buffer-name (overlay-buffer movable))
+           (overlay-start movable)
+           (overlay-end movable)
+           (with-current-buffer a
+             (funcall project (overlays-in 1 6)))
+           (with-current-buffer b
+             (funcall project (overlays-in 1 3))))))
+    (kill-buffer b)
+    (kill-buffer a)))"#;
 
 struct OverlayCase {
     name: &'static str,
@@ -52,39 +88,7 @@ fn compat_overlay_semantics_matches_gnu_emacs() {
         },
         OverlayCase {
             name: "empty_overlay_queries_and_cross_buffer_move",
-            form: r#"(let ((a (get-buffer-create " *compat-overlay-a*"))
-      (b (get-buffer-create " *compat-overlay-b*")))
-  (unwind-protect
-      (progn
-        (with-current-buffer a
-          (erase-buffer)
-          (insert "abcdef")
-          (with-current-buffer b
-            (erase-buffer)
-            (insert "uvwxyz"))
-          (let ((empty (make-overlay 2 2 a))
-                (movable (make-overlay 2 4 a)))
-            (move-overlay movable 1 3 b)
-            (let ((project
-                   (lambda (ovs)
-                     (sort (mapcar (lambda (ov)
-                                     (list (overlay-start ov) (overlay-end ov)))
-                                   ovs)
-                           (lambda (lhs rhs)
-                             (if (= (car lhs) (car rhs))
-                                 (< (cadr lhs) (cadr rhs))
-                               (< (car lhs) (car rhs))))))))
-              (list
-               (funcall project (overlays-in 2 2))
-               (buffer-name (overlay-buffer movable))
-               (overlay-start movable)
-               (overlay-end movable)
-               (with-current-buffer a
-                 (funcall project (overlays-in 1 6)))
-               (with-current-buffer b
-                 (funcall project (overlays-in 1 3)))))))
-    (kill-buffer b)
-    (kill-buffer a)))"#,
+            form: EMPTY_OVERLAY_QUERIES_AND_CROSS_BUFFER_MOVE_FORM,
         },
         OverlayCase {
             name: "deleted_overlay_identity_and_plist",
@@ -121,4 +125,13 @@ fn compat_overlay_semantics_matches_gnu_emacs() {
             case.name, gnu, neovm
         );
     }
+}
+
+#[test]
+fn empty_overlay_cross_buffer_form_parses_in_neovm() {
+    let interner = Box::new(StringInterner::new());
+    set_current_interner(Box::leak(interner));
+    let forms = parse_forms(EMPTY_OVERLAY_QUERIES_AND_CROSS_BUFFER_MOVE_FORM)
+        .expect("overlay audit form should parse");
+    assert_eq!(forms.len(), 1);
 }
