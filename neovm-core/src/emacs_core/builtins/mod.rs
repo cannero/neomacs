@@ -406,8 +406,8 @@ mod types;
 
 pub(crate) use arithmetic::*;
 pub(crate) use collections::*;
-pub(crate) use cons_list::*;
 pub use cons_list::lambda_to_closure_vector;
+pub(crate) use cons_list::*;
 pub(crate) use misc_pure::*;
 pub(crate) use strings::*;
 pub(crate) use types::*;

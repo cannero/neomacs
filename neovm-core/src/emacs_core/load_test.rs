@@ -4686,8 +4686,6 @@ fn cached_bootstrap_reload_evaluates_full_advice_remove_member_form() {
     );
 }
 
-
-
 #[test]
 fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
@@ -4738,12 +4736,6 @@ fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
         "(119 119 119 119 95 32 32 62 40 41 40 41 95 95 95 39 60 34 95 95 95 95 39 (119 119 119 40))"
     );
 }
-
-
-
-
-
-
 
 #[test]
 fn bootstrap_eieio_core_preserves_accessor_compiler_macro() {
@@ -4977,7 +4969,6 @@ fn bootstrap_eieio_core_accessor_compiler_macro_call_matches_gnu_source_shape() 
         "OK (progn (or (eieio--class-p class) (signal 'wrong-type-argument (list 'eieio--class class))) (aref class 5))"
     );
 }
-
 
 #[test]
 fn bootstrap_cl_extra_source_vs_compiled_cl_subseq_setf() {

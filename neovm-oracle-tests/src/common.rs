@@ -754,7 +754,8 @@ fn normalize_interpreted_function_for_oracle(value: Value) -> Option<Value> {
     let args = normalize_neovm_oracle_value(closure_vec[0]);
     neovm_core::emacs_core::eval::push_scratch_gc_root(args);
 
-    let body_forms = neovm_core::emacs_core::value::list_to_vec(&closure_vec[1]).unwrap_or_default();
+    let body_forms =
+        neovm_core::emacs_core::value::list_to_vec(&closure_vec[1]).unwrap_or_default();
     let mut elements = Vec::with_capacity(body_forms.len() + 3);
 
     if lambda.env.is_some() {

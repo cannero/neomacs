@@ -97,6 +97,18 @@ impl PropertyInterval {
     }
 }
 
+/// Check if an interval has `front-sticky` set to a non-nil value.
+///
+/// GNU Emacs (intervals.c:869): when `front-sticky` is `t`, ALL properties
+/// are front-sticky.  When it's a list, only the named properties are sticky.
+/// We return true if `front-sticky` is non-nil (any property is sticky).
+fn has_front_sticky_property(interval: &PropertyInterval) -> bool {
+    interval
+        .properties
+        .get("front-sticky")
+        .is_some_and(|v| !v.is_nil())
+}
+
 // ---------------------------------------------------------------------------
 // Helper: compare two property maps for structural equality
 // ---------------------------------------------------------------------------
@@ -307,8 +319,25 @@ impl TextPropertyTable {
         }
         let mut shifted = BTreeMap::new();
         for interval in self.intervals_snapshot() {
-            if interval.start >= pos {
-                // Interval starts AT or AFTER insertion: shift right.
+            if interval.start == pos {
+                // Interval starts EXACTLY at insertion point.
+                // GNU Emacs (intervals.c:900-969): check front-sticky.
+                // If the interval has front-sticky properties, EXTEND the
+                // interval leftward to cover the inserted text (the interval
+                // "sticks" to the front).  Otherwise, shift right.
+                if has_front_sticky_property(&interval) {
+                    let mut extended = interval;
+                    extended.end += len;
+                    // start stays the same — interval grows to cover insertion
+                    shifted.insert(extended.start, extended);
+                } else {
+                    let mut shifted_interval = interval;
+                    shifted_interval.start += len;
+                    shifted_interval.end += len;
+                    shifted.insert(shifted_interval.start, shifted_interval);
+                }
+            } else if interval.start > pos {
+                // Interval starts AFTER insertion: shift right.
                 let mut shifted_interval = interval;
                 shifted_interval.start += len;
                 shifted_interval.end += len;

@@ -560,10 +560,7 @@ fn skip_ws_comments(input: &str, mut pos: usize) -> usize {
 /// - If STREAM is a string, read from that string (equivalent to car of read-from-string).
 /// - If STREAM is nil, would read from stdin (returns nil in non-interactive mode).
 /// - If STREAM is a buffer, read from buffer at point.
-pub fn builtin_read(
-    ctx: &mut crate::emacs_core::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
+pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("read", &args, 1)?;
 
     if args.is_empty() || args[0].is_nil() {
