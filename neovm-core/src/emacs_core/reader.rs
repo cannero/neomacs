@@ -1631,8 +1631,8 @@ pub(crate) fn read_key_sequence_options_from_args(
 
 /// `(input-pending-p &optional CHECK-TIMERS)`
 ///
-/// Return non-nil when `unread-command-events` has at least one pending event.
-/// `CHECK-TIMERS` is currently accepted for arity compatibility and ignored.
+/// Return non-nil when unread input, staged host input, or `quit-flag` is pending.
+/// `CHECK-TIMERS` is accepted and fires due timers before checking.
 pub(crate) fn builtin_input_pending_p(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
@@ -1663,6 +1663,10 @@ pub(crate) fn builtin_input_pending_p(
     if let Some(macro_events) = &ctx.command_loop.keyboard.kboard.executing_kbd_macro
         && ctx.command_loop.keyboard.kboard.kbd_macro_index < macro_events.len()
     {
+        return Ok(Value::True);
+    }
+
+    if !ctx.quit_flag_value().is_nil() {
         return Ok(Value::True);
     }
 
@@ -1709,18 +1713,19 @@ pub(crate) fn builtin_current_input_mode(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-input-mode", &args, 0)?;
+    let (interrupt, flow, meta, quit) = ctx.current_input_mode_tuple();
     Ok(Value::list(vec![
-        Value::bool(ctx.input_mode_interrupt),
-        Value::Nil,
-        Value::True,
-        Value::Int(7),
+        Value::bool(interrupt),
+        Value::bool(flow),
+        Value::bool(meta),
+        Value::Int(quit),
     ]))
 }
 
 /// `(set-input-mode INTERRUPT FLOW META QUIT)`
 ///
-/// Batch-compatible behavior currently tracks only INTERRUPT and ignores
-/// FLOW/META/QUIT while preserving arity/return-value semantics.
+/// Batch-compatible behavior currently tracks INTERRUPT plus Lisp-visible
+/// QUIT while leaving FLOW/META fixed.
 pub(crate) fn builtin_set_input_mode(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1728,6 +1733,11 @@ pub(crate) fn builtin_set_input_mode(
     expect_min_args("set-input-mode", &args, 3)?;
     expect_max_args("set-input-mode", &args, 4)?;
     eval.set_input_mode_interrupt(args[0].is_truthy());
+    if let Some(quit) = args.get(3).copied()
+        && !quit.is_nil()
+    {
+        set_quit_char_in_context(eval, quit)?;
+    }
     Ok(Value::Nil)
 }
 
@@ -1862,10 +1872,31 @@ pub(crate) fn builtin_set_output_flow_control(args: Vec<Value>) -> EvalResult {
 
 /// `(set-quit-char CHAR)`
 ///
-/// Batch-compatible behavior: accepts one argument and returns nil.
-pub(crate) fn builtin_set_quit_char(args: Vec<Value>) -> EvalResult {
-    expect_args("set-quit-char", &args, 1)?;
+fn set_quit_char_in_context(eval: &mut super::eval::Context, quit: Value) -> EvalResult {
+    let Value::Int(quit) = quit else {
+        return Err(signal(
+            "error",
+            vec![Value::string("QUIT must be an ASCII character")],
+        ));
+    };
+    if !(0..=0o400).contains(&quit) {
+        return Err(signal(
+            "error",
+            vec![Value::string("QUIT must be an ASCII character")],
+        ));
+    }
+
+    eval.set_quit_char(quit);
     Ok(Value::Nil)
+}
+
+/// GNU-compatible quit-char setter for the current evaluator.
+pub(crate) fn builtin_set_quit_char(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-quit-char", &args, 1)?;
+    set_quit_char_in_context(eval, args[0])
 }
 
 // ---------------------------------------------------------------------------

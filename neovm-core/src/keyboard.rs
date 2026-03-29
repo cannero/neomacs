@@ -1882,6 +1882,7 @@ impl crate::emacs_core::eval::Context {
                         return Err(err);
                     }
                 };
+                self.clear_quit_flag_after_read_key_sequence_event(&emacs_event);
                 if Self::has_switch_frame_event_kind(&emacs_event)
                     && (!self
                         .command_loop
@@ -2198,6 +2199,9 @@ impl crate::emacs_core::eval::Context {
                     tracing::debug!("read_char: received KeyPress {:?}", key);
                     self.clear_current_message();
                     let emacs_event = key.to_emacs_event_value();
+                    if self.event_is_quit_char(&emacs_event) {
+                        self.request_quit_from_keyboard_input();
+                    }
                     if self.command_loop.keyboard.kboard.defining_kbd_macro {
                         self.command_loop
                             .keyboard
@@ -2205,7 +2209,7 @@ impl crate::emacs_core::eval::Context {
                             .kbd_macro_events
                             .push(emacs_event);
                     }
-                    return Ok(key.to_emacs_event_value());
+                    return Ok(emacs_event);
                 }
                 InputEvent::MousePress {
                     button,

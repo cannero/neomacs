@@ -1190,6 +1190,14 @@ fn input_pending_p_ignores_focus_events_by_default() {
 }
 
 #[test]
+fn input_pending_p_returns_t_when_quit_flag_is_set() {
+    let mut ev = Context::new();
+    ev.set_quit_flag_value(Value::True);
+    let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
+    assert_eq!(result, Value::True);
+}
+
+#[test]
 fn input_pending_p_rejects_more_than_one_arg() {
     let mut ev = Context::new();
     let result = builtin_input_pending_p(&mut ev, vec![Value::Nil, Value::Nil]);
@@ -1276,7 +1284,7 @@ fn set_input_mode_toggles_interrupt_only() {
     .unwrap();
     assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
-        Value::list(vec![Value::Nil, Value::Nil, Value::True, Value::Int(7)])
+        Value::list(vec![Value::Nil, Value::Nil, Value::True, Value::Int(65)])
     );
 
     let _ = builtin_set_input_mode(
@@ -1286,7 +1294,7 @@ fn set_input_mode_toggles_interrupt_only() {
     .unwrap();
     assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
-        Value::list(vec![Value::True, Value::Nil, Value::True, Value::Int(7)])
+        Value::list(vec![Value::True, Value::Nil, Value::True, Value::Int(65)])
     );
 }
 
@@ -1395,13 +1403,26 @@ fn set_output_flow_control_rejects_wrong_arity() {
 
 #[test]
 fn set_quit_char_accepts_one_arg_and_returns_nil() {
-    let result = builtin_set_quit_char(vec![Value::Int(65)]).unwrap();
+    let mut ev = Context::new();
+    let result = builtin_set_quit_char(&mut ev, vec![Value::Int(65)]).unwrap();
     assert!(result.is_nil());
+    assert_eq!(
+        builtin_current_input_mode(&mut ev, vec![]).unwrap(),
+        Value::list(vec![Value::True, Value::Nil, Value::True, Value::Int(65)])
+    );
+}
+
+#[test]
+fn set_quit_char_rejects_non_ascii_values() {
+    let mut ev = Context::new();
+    let result = builtin_set_quit_char(&mut ev, vec![Value::Int(0o401)]);
+    assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "error"));
 }
 
 #[test]
 fn set_quit_char_rejects_wrong_arity() {
-    let result = builtin_set_quit_char(vec![]);
+    let mut ev = Context::new();
+    let result = builtin_set_quit_char(&mut ev, vec![]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -1488,6 +1509,21 @@ fn read_char_preserves_existing_command_keys_context() {
     let result = builtin_read_char(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(0)]).unwrap();
     assert_eq!(result.as_int(), Some(98));
     assert_eq!(ev.read_command_keys(), &[Value::Int(97)]);
+}
+
+#[test]
+fn read_char_host_quit_char_returns_event_and_sets_quit_flag() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char_with_mods('g', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-g");
+    ev.input_rx = Some(rx);
+
+    let result = builtin_read_char(&mut ev, vec![]).unwrap();
+    assert_eq!(result, Value::Int(7));
+    assert_eq!(ev.quit_flag_value(), Value::True);
 }
 
 #[test]
@@ -1735,6 +1771,22 @@ fn read_key_sequence_accepts_nil_prompt() {
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key_sequence(&mut ev, vec![Value::Nil]).unwrap();
     assert!(matches!(result, Value::Str(_)) && result.as_str() == Some("a"));
+}
+
+#[test]
+fn read_key_sequence_treats_host_quit_char_as_ordinary_input() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char_with_mods('g', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-g");
+    ev.input_rx = Some(rx);
+
+    let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
+    assert!(matches!(result, Value::Str(_)) && result.as_str() == Some("\u{7}"));
+    assert!(ev.quit_flag_value().is_nil());
+    assert_eq!(ev.read_command_keys(), &[Value::Int(7)]);
 }
 
 #[test]

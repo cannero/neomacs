@@ -6120,7 +6120,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set-quit-char",
-        |_ctx, args| super::reader::builtin_set_quit_char(args),
+        super::reader::builtin_set_quit_char,
         1,
         Some(1),
     );

@@ -754,6 +754,9 @@ pub struct Context {
     pub(crate) shutdown_request: Option<ShutdownRequest>,
     /// Batch-compatible input-mode interrupt flag for `current-input-mode`.
     pub(crate) input_mode_interrupt: bool,
+    /// Lisp-visible `quit_char` used by `current-input-mode` and low-level
+    /// keyboard quit detection.
+    pub(crate) quit_char: i64,
     /// True while the command loop is blocked waiting for external input.
     pub(crate) waiting_for_user_input: bool,
     /// Frame manager — owns all frames and windows.
@@ -3310,6 +3313,7 @@ impl Context {
             active_minibuffer_window: None,
             shutdown_request: None,
             input_mode_interrupt: true,
+            quit_char: 7,
             waiting_for_user_input: false,
             frames: FrameManager::new(),
             modes: ModeRegistry::new(),
@@ -3437,6 +3441,7 @@ impl Context {
             active_minibuffer_window: None,
             shutdown_request: None,
             input_mode_interrupt: true,
+            quit_char: 7,
             waiting_for_user_input: false,
             frames: FrameManager::new(),
             modes,
@@ -4242,6 +4247,58 @@ impl Context {
         self.process_quit_flag()
     }
 
+    pub(crate) fn quit_flag_value(&self) -> Value {
+        self.obarray
+            .symbol_value_id(self.quit_flag_symbol)
+            .copied()
+            .unwrap_or(Value::Nil)
+    }
+
+    pub(crate) fn set_quit_flag_value(&mut self, value: Value) {
+        self.obarray
+            .set_symbol_value_id(self.quit_flag_symbol, value);
+    }
+
+    pub(crate) fn quit_char(&self) -> i64 {
+        self.quit_char
+    }
+
+    pub(crate) fn set_quit_char(&mut self, quit: i64) {
+        self.quit_char = quit & 0o377;
+    }
+
+    pub(crate) fn event_is_quit_char(&self, event: &Value) -> bool {
+        matches!(event, Value::Int(code) if *code == self.quit_char)
+    }
+
+    pub(crate) fn request_quit_from_keyboard_input(&mut self) {
+        if self.quit_flag_value().is_nil() {
+            self.set_quit_flag_value(Value::True);
+        }
+    }
+
+    pub(crate) fn clear_quit_flag_after_read_key_sequence_event(&mut self, event: &Value) {
+        if !self.event_is_quit_char(event) {
+            return;
+        }
+
+        let quit_flag = self.quit_flag_value();
+        if quit_flag.is_nil() {
+            return;
+        }
+
+        let throw_on_input = self
+            .obarray
+            .symbol_value_id(self.throw_on_input_symbol)
+            .copied()
+            .unwrap_or(Value::Nil);
+        if equal_value(&quit_flag, &throw_on_input, 0) {
+            return;
+        }
+
+        self.set_quit_flag_value(Value::Nil);
+    }
+
     pub(crate) fn input_pending_p_filters_events(&self) -> bool {
         self.obarray
             .symbol_value("input-pending-p-filter-events")
@@ -4384,8 +4441,8 @@ impl Context {
 
     pub(crate) fn current_input_mode_tuple(&self) -> (bool, bool, bool, i64) {
         // Batch oracle compatibility: flow-control and meta are fixed to
-        // nil/t respectively, and quit char is fixed to C-g (7).
-        (self.input_mode_interrupt, false, true, 7)
+        // nil/t respectively; quit-char remains mutable like GNU Emacs.
+        (self.input_mode_interrupt, false, true, self.quit_char)
     }
 
     pub(crate) fn set_input_mode_interrupt(&mut self, interrupt: bool) {
