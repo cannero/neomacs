@@ -138,7 +138,7 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
 
     // Reconstruct evaluator
-    reconstruct_evaluator(state)
+    reconstruct_evaluator(&state)
 }
 
 /// Clone a live evaluator through the pdump conversion pipeline.
@@ -152,7 +152,7 @@ pub fn snapshot_evaluator(eval: &Context) -> DumpContextState {
 
 /// Reconstruct an evaluator from a previously captured in-memory pdump snapshot.
 pub fn restore_snapshot(state: &DumpContextState) -> Result<Context, DumpError> {
-    reconstruct_evaluator(state.clone())
+    reconstruct_evaluator(state)
 }
 
 /// Clone a live evaluator through the pdump conversion pipeline.
@@ -164,7 +164,7 @@ pub fn clone_evaluator(eval: &Context) -> Result<Context, DumpError> {
 }
 
 /// Reconstruct an `Context` from deserialized dump state.
-fn reconstruct_evaluator(state: DumpContextState) -> Result<Context, DumpError> {
+fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError> {
     // 1. Reconstruct interner and set thread-local
     let mut interner = Box::new(load_interner(&state.interner));
     set_current_interner(&mut interner);
