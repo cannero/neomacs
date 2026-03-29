@@ -241,9 +241,9 @@ fn common_prefix_identical() {
 #[test]
 fn history_navigation() {
     let mut mgr = MinibufferManager::new();
-    mgr.add_to_history("test-history", "first");
-    mgr.add_to_history("test-history", "second");
-    mgr.add_to_history("test-history", "third");
+    mgr.add_to_history("test-history", "first", 100);
+    mgr.add_to_history("test-history", "second", 100);
+    mgr.add_to_history("test-history", "third", 100);
 
     // Enter minibuffer with history.
     mgr.read_from_minibuffer(BufferId(1), "prompt: ", None, Some("test-history"))
@@ -276,12 +276,12 @@ fn history_navigation() {
 #[test]
 fn history_dedup() {
     let mut mgr = MinibufferManager::new();
-    mgr.add_to_history("h", "same");
-    mgr.add_to_history("h", "same");
-    mgr.add_to_history("h", "same");
+    mgr.add_to_history("h", "same", 100);
+    mgr.add_to_history("h", "same", 100);
+    mgr.add_to_history("h", "same", 100);
     assert_eq!(mgr.history.get("h").len(), 1);
 
-    mgr.add_to_history("h", "different");
+    mgr.add_to_history("h", "different", 100);
     assert_eq!(mgr.history.get("h").len(), 2);
     assert_eq!(mgr.history.get("h")[0], "different");
     assert_eq!(mgr.history.get("h")[1], "same");

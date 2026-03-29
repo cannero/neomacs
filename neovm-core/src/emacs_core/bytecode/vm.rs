@@ -3999,9 +3999,15 @@ impl<'a> Vm<'a> {
             crate::emacs_core::minibuffer::completion_candidates_from_collection_in_state(
                 &*self.ctx, &args[1],
             )?;
+        let ignore_case = self
+            .ctx
+            .obarray
+            .symbol_value("completion-ignore-case")
+            .is_some_and(|v| v.is_truthy());
         crate::emacs_core::minibuffer::builtin_try_completion_with_candidates(
             args,
             candidates,
+            ignore_case,
             |function, call_args| self.call_function_with_roots(function, &call_args),
         )
     }
@@ -4011,9 +4017,15 @@ impl<'a> Vm<'a> {
             crate::emacs_core::minibuffer::completion_candidates_from_collection_in_state(
                 &*self.ctx, &args[1],
             )?;
+        let ignore_case = self
+            .ctx
+            .obarray
+            .symbol_value("completion-ignore-case")
+            .is_some_and(|v| v.is_truthy());
         crate::emacs_core::minibuffer::builtin_all_completions_with_candidates(
             args,
             candidates,
+            ignore_case,
             |function, call_args| self.call_function_with_roots(function, &call_args),
         )
     }
@@ -4043,6 +4055,7 @@ impl<'a> Vm<'a> {
                 plan.directory,
                 plan.file,
                 plan.completions,
+                plan.ignore_case,
                 |predicate_arg| {
                     self.with_default_directory_binding(bound_directory.as_str(), |vm| {
                         vm.call_function_with_roots(predicate, &[predicate_arg])
@@ -4066,9 +4079,15 @@ impl<'a> Vm<'a> {
             crate::emacs_core::minibuffer::completion_candidates_from_collection_in_state(
                 &*self.ctx, &args[1],
             )?;
+        let ignore_case = self
+            .ctx
+            .obarray
+            .symbol_value("completion-ignore-case")
+            .is_some_and(|v| v.is_truthy());
         crate::emacs_core::minibuffer::builtin_test_completion_with_candidates(
             args,
             candidates,
+            ignore_case,
             |function, call_args| self.call_function_with_roots(function, &call_args),
         )
     }

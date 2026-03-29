@@ -232,14 +232,12 @@ impl MinibufferState {
 /// Named history lists (e.g. "minibuffer-history", "file-name-history", ...).
 pub struct MinibufferHistory {
     histories: HashMap<String, Vec<String>>,
-    max_length: usize,
 }
 
 impl MinibufferHistory {
     pub fn new() -> Self {
         Self {
             histories: HashMap::new(),
-            max_length: 100,
         }
     }
 
@@ -250,14 +248,19 @@ impl MinibufferHistory {
         }
     }
 
-    pub fn add(&mut self, name: &str, value: &str) {
+    /// Add a value to a named history list.
+    ///
+    /// `max_length` controls how many entries to keep.  Callers that have
+    /// access to the obarray should read the `history-length` symbol and
+    /// pass it here; the default in GNU Emacs is 100.
+    pub fn add(&mut self, name: &str, value: &str, max_length: usize) {
         let list = self.histories.entry(name.to_string()).or_default();
         // Avoid consecutive duplicates at the front.
         if list.first().map(|s| s.as_str()) != Some(value) {
             list.insert(0, value.to_string());
         }
-        if list.len() > self.max_length {
-            list.truncate(self.max_length);
+        if list.len() > max_length {
+            list.truncate(max_length);
         }
     }
 }
@@ -453,8 +456,19 @@ impl MinibufferManager {
     }
 
     /// Add a value to a named history list.
-    pub fn add_to_history(&mut self, name: &str, value: &str) {
-        self.history.add(name, value);
+    ///
+    /// `max_length` controls how many entries to keep.  Callers should read
+    /// the `history-length` symbol from the obarray (default 100).
+    pub fn add_to_history(&mut self, name: &str, value: &str, max_length: usize) {
+        self.history.add(name, value, max_length);
+    }
+
+    /// Read the effective `history-length` from the obarray, defaulting to 100.
+    pub fn history_length_from_obarray(obarray: &Obarray) -> usize {
+        match obarray.symbol_value("history-length") {
+            Some(Value::Int(n)) if *n > 0 => *n as usize,
+            _ => 100,
+        }
     }
 
     /// Reference to the current (innermost) minibuffer state, if any.
@@ -1413,6 +1427,7 @@ fn completion_predicate_matches_with(
 pub(crate) fn builtin_try_completion_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
+    ignore_case: bool,
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("try-completion", args, 2)?;
@@ -1427,7 +1442,7 @@ pub(crate) fn builtin_try_completion_with_candidates(
 
     let mut matches = Vec::new();
     for candidate in &candidates {
-        if !completion_matches_prefix(&string, &candidate.completion) {
+        if !completion_matches_prefix(&string, &candidate.completion, ignore_case) {
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
@@ -1450,6 +1465,7 @@ pub(crate) fn builtin_try_completion_with_candidates(
 pub(crate) fn builtin_all_completions_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
+    ignore_case: bool,
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("all-completions", args, 2)?;
@@ -1464,7 +1480,7 @@ pub(crate) fn builtin_all_completions_with_candidates(
 
     let mut matches = Vec::new();
     for candidate in &candidates {
-        if !completion_matches_prefix(&string, &candidate.completion) {
+        if !completion_matches_prefix(&string, &candidate.completion, ignore_case) {
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
@@ -1477,6 +1493,7 @@ pub(crate) fn builtin_all_completions_with_candidates(
 pub(crate) fn builtin_test_completion_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
+    ignore_case: bool,
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("test-completion", args, 2)?;
@@ -1492,8 +1509,16 @@ pub(crate) fn builtin_test_completion_with_candidates(
         );
     };
 
+    let matches = |a: &str, b: &str| -> bool {
+        if ignore_case {
+            a.to_lowercase() == b.to_lowercase()
+        } else {
+            a == b
+        }
+    };
+
     for candidate in &candidates {
-        if candidate.completion != string {
+        if !matches(&candidate.completion, &string) {
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
@@ -1548,8 +1573,21 @@ fn completion_candidates_from_hash_table(table_id: crate::gc::ObjId) -> Vec<Comp
     candidates
 }
 
-fn completion_matches_prefix(prefix: &str, completion: &str) -> bool {
-    completion.starts_with(prefix)
+fn completion_matches_prefix(prefix: &str, completion: &str, ignore_case: bool) -> bool {
+    if ignore_case {
+        let lp = prefix.to_lowercase();
+        let lc = completion.to_lowercase();
+        lc.starts_with(&lp)
+    } else {
+        completion.starts_with(prefix)
+    }
+}
+
+/// Read the `completion-ignore-case` symbol from the obarray.
+fn completion_ignore_case(obarray: &Obarray) -> bool {
+    obarray
+        .symbol_value("completion-ignore-case")
+        .is_some_and(|v| v.is_truthy())
 }
 
 pub(crate) fn builtin_try_completion(
@@ -1557,7 +1595,8 @@ pub(crate) fn builtin_try_completion(
     args: Vec<Value>,
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
-    builtin_try_completion_with_candidates(&args, candidates, |function, call_args| {
+    let ignore_case = completion_ignore_case(&eval.obarray);
+    builtin_try_completion_with_candidates(&args, candidates, ignore_case, |function, call_args| {
         eval.apply(function, call_args)
     })
 }
@@ -1567,9 +1606,13 @@ pub(crate) fn builtin_all_completions(
     args: Vec<Value>,
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
-    builtin_all_completions_with_candidates(&args, candidates, |function, call_args| {
-        eval.apply(function, call_args)
-    })
+    let ignore_case = completion_ignore_case(&eval.obarray);
+    builtin_all_completions_with_candidates(
+        &args,
+        candidates,
+        ignore_case,
+        |function, call_args| eval.apply(function, call_args),
+    )
 }
 
 pub(crate) fn builtin_test_completion(
@@ -1577,9 +1620,13 @@ pub(crate) fn builtin_test_completion(
     args: Vec<Value>,
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
-    builtin_test_completion_with_candidates(&args, candidates, |function, call_args| {
-        eval.apply(function, call_args)
-    })
+    let ignore_case = completion_ignore_case(&eval.obarray);
+    builtin_test_completion_with_candidates(
+        &args,
+        candidates,
+        ignore_case,
+        |function, call_args| eval.apply(function, call_args),
+    )
 }
 
 fn end_of_file_stdin_error() -> Flow {

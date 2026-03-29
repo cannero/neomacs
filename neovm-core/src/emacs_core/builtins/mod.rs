@@ -2648,6 +2648,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(8),
     );
     ctx.defsubr(
+        "read-number",
+        super::reader::builtin_read_number,
+        1,
+        Some(2),
+    );
+    ctx.defsubr(
         "read-buffer",
         super::minibuffer::builtin_read_buffer,
         1,

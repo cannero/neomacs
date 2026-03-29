@@ -551,6 +551,7 @@ pub(crate) fn builtin_file_name_completion(eval: &mut Context, args: Vec<Value>)
         plan.directory,
         plan.file,
         plan.completions,
+        plan.ignore_case,
     )
 }
 
@@ -572,18 +573,30 @@ pub(crate) fn builtin_file_name_all_completions(
     if file.contains('/') {
         return Ok(Value::Nil);
     }
-    let completions = collect_file_name_completions(&file, &directory)?;
+    let ignore_case = get_completion_ignore_case(&eval.obarray);
+    // GNU Emacs: file-name-all-completions does NOT filter by
+    // completion-ignored-extensions (the "all_flag" path).
+    let completions = collect_file_name_completions(&file, &directory, ignore_case)?;
     Ok(Value::list(
         completions.into_iter().map(Value::string).collect(),
     ))
 }
 
-fn collect_file_name_completions(file: &str, directory: &str) -> Result<Vec<String>, Flow> {
+fn collect_file_name_completions(
+    file: &str,
+    directory: &str,
+    ignore_case: bool,
+) -> Result<Vec<String>, Flow> {
     let names = read_directory_names(directory)?;
     let mut completions = VecDeque::new();
 
     for name in names {
-        if !name.starts_with(file) {
+        let matches = if ignore_case {
+            name.to_lowercase().starts_with(&file.to_lowercase())
+        } else {
+            name.starts_with(file)
+        };
+        if !matches {
             continue;
         }
 
@@ -598,10 +611,128 @@ fn collect_file_name_completions(file: &str, directory: &str) -> Result<Vec<Stri
     Ok(completions.into_iter().collect())
 }
 
+/// Extract the list of ignored extensions from the `completion-ignored-extensions` variable.
+fn get_ignored_extensions(obarray: &super::symbol::Obarray) -> Vec<String> {
+    let Some(val) = obarray.symbol_value("completion-ignored-extensions") else {
+        return Vec::new();
+    };
+    let val = *val;
+    let Some(items) = list_to_vec(&val) else {
+        return Vec::new();
+    };
+    items.into_iter().filter_map(|v| v.as_str_owned()).collect()
+}
+
+/// Check whether `completion-ignore-case` is truthy.
+fn get_completion_ignore_case(obarray: &super::symbol::Obarray) -> bool {
+    obarray
+        .symbol_value("completion-ignore-case")
+        .is_some_and(|v| v.is_truthy())
+}
+
+/// Apply `completion-ignored-extensions` filtering to a set of completions.
+///
+/// This follows GNU Emacs semantics:
+/// - If a file name (not exact match with FILE) ends with an ignored extension,
+///   it can be excluded.
+/// - If a directory name ends with an ignored extension that itself ends in '/',
+///   it can be excluded.
+/// - "." and ".." directories are always excludable.
+/// - If there is at least one non-excludable match, all excludable matches are
+///   dropped. If ALL matches are excludable, they are all kept (the "includeall"
+///   fallback).
+fn filter_by_ignored_extensions(
+    file: &str,
+    completions: Vec<String>,
+    ignored_extensions: &[String],
+    ignore_case: bool,
+) -> Vec<String> {
+    if completions.is_empty() {
+        return completions;
+    }
+
+    let file_len = file.len();
+
+    // Classify each completion as excludable or not.
+    let mut classified: Vec<(String, bool)> = Vec::with_capacity(completions.len());
+    for comp in completions {
+        let is_dir = comp.ends_with('/');
+        // The base name (without trailing '/' for directories)
+        let base = if is_dir {
+            &comp[..comp.len() - 1]
+        } else {
+            comp.as_str()
+        };
+
+        let mut can_exclude = false;
+
+        // "." and ".." are always excludable
+        if base == "." || base == ".." {
+            can_exclude = true;
+        } else if base.len() > file_len {
+            // Only check ignored-extensions when the name is longer than FILE
+            // (i.e., not an exact match).
+            for ext in ignored_extensions {
+                if is_dir {
+                    // For directories, only match extensions that end in '/'.
+                    if !ext.ends_with('/') {
+                        continue;
+                    }
+                    let ext_base = &ext[..ext.len() - 1]; // strip trailing '/'
+                    if ext_base.is_empty() {
+                        continue;
+                    }
+                    let matches = if ignore_case {
+                        base.to_lowercase().ends_with(&ext_base.to_lowercase())
+                    } else {
+                        base.ends_with(ext_base)
+                    };
+                    if matches {
+                        can_exclude = true;
+                        break;
+                    }
+                } else {
+                    // For files, match extensions (which should not end in '/').
+                    if ext.ends_with('/') {
+                        continue;
+                    }
+                    let matches = if ignore_case {
+                        base.to_lowercase().ends_with(&ext.to_lowercase())
+                    } else {
+                        base.ends_with(ext.as_str())
+                    };
+                    if matches {
+                        can_exclude = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        classified.push((comp, can_exclude));
+    }
+
+    // GNU Emacs "includeall" logic:
+    // If there's at least one non-excludable match, drop all excludable ones.
+    // Otherwise (all are excludable), keep them all.
+    let has_non_excludable = classified.iter().any(|(_, excl)| !excl);
+
+    if has_non_excludable {
+        classified
+            .into_iter()
+            .filter(|(_, excl)| !excl)
+            .map(|(comp, _)| comp)
+            .collect()
+    } else {
+        classified.into_iter().map(|(comp, _)| comp).collect()
+    }
+}
+
 pub(crate) struct FileNameCompletionPlan {
     pub(crate) file: String,
     pub(crate) directory: String,
     pub(crate) completions: Vec<String>,
+    pub(crate) ignore_case: bool,
 }
 
 pub(crate) fn prepare_file_name_completion_in_state(
@@ -619,16 +750,22 @@ pub(crate) fn prepare_file_name_completion_in_state(
         buffers,
         &expect_string("file-name-completion", &args[1])?,
     );
+    let ignore_case = get_completion_ignore_case(obarray);
+    let ignored_extensions = get_ignored_extensions(obarray);
     let completions = if file.contains('/') {
         Vec::new()
     } else {
-        collect_file_name_completions(&file, &directory)?
+        let raw = collect_file_name_completions(&file, &directory, ignore_case)?;
+        // Apply completion-ignored-extensions filtering for file-name-completion
+        // (but not for file-name-all-completions, per GNU Emacs).
+        filter_by_ignored_extensions(&file, raw, &ignored_extensions, ignore_case)
     };
 
     Ok(FileNameCompletionPlan {
         file,
         directory,
         completions,
+        ignore_case,
     })
 }
 
@@ -638,12 +775,21 @@ pub(crate) fn finish_file_name_completion_with_eval_predicate(
     directory: String,
     file: String,
     completions: Vec<String>,
+    ignore_case: bool,
 ) -> EvalResult {
     let Some(predicate) = predicate.copied() else {
-        return Ok(resolve_file_name_completion(&file, completions));
+        return Ok(resolve_file_name_completion(
+            &file,
+            completions,
+            ignore_case,
+        ));
     };
     if predicate.is_nil() {
-        return Ok(resolve_file_name_completion(&file, completions));
+        return Ok(resolve_file_name_completion(
+            &file,
+            completions,
+            ignore_case,
+        ));
     }
 
     let use_absolute_path = predicate_uses_absolute_file_argument(&eval.obarray, &predicate);
@@ -653,6 +799,7 @@ pub(crate) fn finish_file_name_completion_with_eval_predicate(
         directory,
         file,
         completions,
+        ignore_case,
         |predicate_arg| {
             with_default_directory_binding(eval, bound_directory.as_str(), |eval| {
                 eval.apply(predicate, vec![predicate_arg])
@@ -676,6 +823,7 @@ pub(crate) fn finish_file_name_completion_with_callable_predicate(
     directory: String,
     file: String,
     completions: Vec<String>,
+    ignore_case: bool,
     mut predicate_call: impl FnMut(Value) -> Result<Value, Flow>,
 ) -> EvalResult {
     let completions = filter_completions_by_callable_predicate(
@@ -684,10 +832,14 @@ pub(crate) fn finish_file_name_completion_with_callable_predicate(
         completions,
         |predicate_arg| predicate_call(predicate_arg),
     )?;
-    Ok(resolve_file_name_completion(&file, completions))
+    Ok(resolve_file_name_completion(
+        &file,
+        completions,
+        ignore_case,
+    ))
 }
 
-fn resolve_file_name_completion(file: &str, completions: Vec<String>) -> Value {
+fn resolve_file_name_completion(file: &str, completions: Vec<String>, ignore_case: bool) -> Value {
     if completions.is_empty() {
         return Value::Nil;
     }
@@ -702,20 +854,36 @@ fn resolve_file_name_completion(file: &str, completions: Vec<String>) -> Value {
     // string when FILE lacks the trailing slash (e.g. ".." -> "../").
     if filtered.len() == 1 {
         let comp = &filtered[0];
-        if comp == file {
+        let eq = if ignore_case {
+            comp.eq_ignore_ascii_case(file)
+        } else {
+            comp == file
+        };
+        if eq {
             return Value::True;
         }
         return Value::string(comp.clone());
     }
 
     // Find the longest common prefix among completions.
+    // When completion-ignore-case is set, use case-insensitive comparison
+    // but preserve the case of the first match (which GNU Emacs refines to
+    // prefer the match whose case matches the input).
     let mut prefix = filtered[0].clone();
     for comp in &filtered[1..] {
-        let common_len = prefix
-            .chars()
-            .zip(comp.chars())
-            .take_while(|(a, b)| a == b)
-            .count();
+        let common_len = if ignore_case {
+            prefix
+                .chars()
+                .zip(comp.chars())
+                .take_while(|(a, b)| a.to_lowercase().eq(b.to_lowercase()))
+                .count()
+        } else {
+            prefix
+                .chars()
+                .zip(comp.chars())
+                .take_while(|(a, b)| a == b)
+                .count()
+        };
         prefix.truncate(
             prefix
                 .char_indices()
