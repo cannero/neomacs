@@ -24,8 +24,12 @@ fn find_bin(name: &str) -> String {
     panic!("binary {name} not found on PATH");
 }
 
-fn with_vm_eval<R>(src: &str, lexical: bool, f: impl FnOnce(Result<Value, EvalError>) -> R) -> R {
-    let mut eval = Context::new_vm_harness();
+fn with_vm_eval_in_context<R>(
+    mut eval: Context,
+    src: &str,
+    lexical: bool,
+    f: impl FnOnce(Result<Value, EvalError>, &Context) -> R,
+) -> R {
     eval.set_lexical_binding(lexical);
     let forms = parse_forms(src).expect("parse");
     let mut compiler = Compiler::new(lexical);
@@ -36,10 +40,30 @@ fn with_vm_eval<R>(src: &str, lexical: bool, f: impl FnOnce(Result<Value, EvalEr
         let mut vm = new_vm(&mut eval);
         match vm.execute(&func, vec![]) {
             Ok(value) => last = value,
-            Err(flow) => return f(Err(map_flow(flow))),
+            Err(flow) => return f(Err(map_flow(flow)), &eval),
         }
     }
-    f(Ok(last))
+    f(Ok(last), &eval)
+}
+
+fn with_vm_eval<R>(src: &str, lexical: bool, f: impl FnOnce(Result<Value, EvalError>) -> R) -> R {
+    with_vm_eval_state(src, lexical, |result, _| f(result))
+}
+
+fn with_vm_eval_state<R>(
+    src: &str,
+    lexical: bool,
+    f: impl FnOnce(Result<Value, EvalError>, &Context) -> R,
+) -> R {
+    with_vm_eval_in_context(Context::new_vm_harness(), src, lexical, f)
+}
+
+fn with_vm_eval_full_context_state<R>(
+    src: &str,
+    lexical: bool,
+    f: impl FnOnce(Result<Value, EvalError>, &Context) -> R,
+) -> R {
+    with_vm_eval_in_context(Context::new(), src, lexical, f)
 }
 
 fn vm_eval_str(src: &str) -> String {
@@ -72,6 +96,51 @@ fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
         }
     }
     crate::emacs_core::error::format_eval_result(&Ok(last))
+}
+
+#[test]
+fn vm_catch_leaves_shared_condition_stack_balanced() {
+    with_vm_eval_state("(catch 'tag (throw 'tag 42))", false, |result, eval| {
+        assert_eq!(
+            crate::emacs_core::error::format_eval_result(&result),
+            "OK 42"
+        );
+        assert_eq!(eval.condition_stack_depth_for_test(), 0);
+    });
+}
+
+#[test]
+fn vm_condition_case_leaves_shared_condition_stack_balanced() {
+    with_vm_eval_full_context_state(
+        "(condition-case err (signal 'error 1) (error (car err)))",
+        false,
+        |result, eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK error"
+            );
+            assert_eq!(eval.condition_stack_depth_for_test(), 0);
+        },
+    );
+}
+
+#[test]
+fn vm_handler_bind_1_leaves_shared_condition_stack_balanced() {
+    with_vm_eval_full_context_state(
+        "(condition-case err
+           (handler-bind-1 (lambda () (signal 'error 1))
+                           '(error)
+                           (lambda (_data) 'handled))
+         (error (car err)))",
+        false,
+        |result, eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK error"
+            );
+            assert_eq!(eval.condition_stack_depth_for_test(), 0);
+        },
+    );
 }
 
 fn quoted_dispatch_names(source: &str, predicate: impl Fn(&str) -> bool) -> BTreeSet<String> {

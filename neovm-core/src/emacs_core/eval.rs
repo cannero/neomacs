@@ -582,6 +582,48 @@ pub struct SubrObject {
     pub name: SymId,
 }
 
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub(crate) enum ResumeTarget {
+    CommandLoopExit,
+    CommandLoopTopLevel,
+    InterpreterCatch,
+    InterpreterConditionCase {
+        handler_index: usize,
+    },
+    VmCatch {
+        target: u32,
+        stack_len: usize,
+        spec_depth: usize,
+    },
+    VmConditionCase {
+        target: u32,
+        stack_len: usize,
+        spec_depth: usize,
+    },
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub(crate) enum ConditionFrame {
+    Catch {
+        tag: Value,
+        resume: ResumeTarget,
+    },
+    ConditionCase {
+        conditions: Value,
+        resume: ResumeTarget,
+    },
+    HandlerBind {
+        conditions: Value,
+        handler: Value,
+        mute_span: usize,
+    },
+    SkipConditions {
+        remaining: usize,
+    },
+}
+
 pub struct Context {
     /// Builtin function registry — directly indexed by `SymId`.
     ///
@@ -741,6 +783,8 @@ pub struct Context {
     /// GNU Emacs's `Fthrow` which calls `xsignal2(Qno_catch, ...)` when no
     /// catch handler is found).
     pub(crate) catch_tags: Vec<Value>,
+    /// Shared condition runtime mirror for active catch/condition handlers.
+    pub(crate) condition_stack: Vec<ConditionFrame>,
     /// Saved lexical environments stack — when apply_lambda replaces
     /// self.lexenv with a closure's captured env, the old lexenv is pushed
     /// here so GC can still scan it.  Popped when apply_lambda restores.
@@ -1364,6 +1408,7 @@ impl Context {
         ev.gc_stress = false;
         ev.temp_roots.clear();
         ev.catch_tags.clear();
+        ev.condition_stack.clear();
         ev.saved_lexenvs.clear();
         ev.named_call_cache.clear();
         ev.source_literal_cache.clear();
@@ -1376,6 +1421,22 @@ impl Context {
         ev.interpreted_closure_trim_cache.clear();
         ev.materialize_public_evaluator_function_cells();
         ev
+    }
+
+    pub(crate) fn push_condition_frame(&mut self, frame: ConditionFrame) {
+        self.condition_stack.push(frame);
+    }
+
+    pub(crate) fn pop_condition_frame(&mut self) -> Option<ConditionFrame> {
+        self.condition_stack.pop()
+    }
+
+    pub(crate) fn truncate_condition_stack(&mut self, len: usize) {
+        self.condition_stack.truncate(len);
+    }
+
+    pub(crate) fn condition_stack_len(&self) -> usize {
+        self.condition_stack.len()
     }
 
     fn new_inner(reset_thread_locals: bool) -> Self {
@@ -2922,6 +2983,7 @@ impl Context {
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             catch_tags: Vec::new(),
+            condition_stack: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             source_literal_cache: HashMap::new(),
@@ -3048,6 +3110,7 @@ impl Context {
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             catch_tags: Vec::new(),
+            condition_stack: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             source_literal_cache: HashMap::new(),
@@ -3095,6 +3158,21 @@ impl Context {
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
         roots.extend(self.catch_tags.iter().cloned());
+        for frame in &self.condition_stack {
+            match frame {
+                ConditionFrame::Catch { tag, .. } => roots.push(*tag),
+                ConditionFrame::ConditionCase { conditions, .. } => roots.push(*conditions),
+                ConditionFrame::HandlerBind {
+                    conditions,
+                    handler,
+                    ..
+                } => {
+                    roots.push(*conditions);
+                    roots.push(*handler);
+                }
+                ConditionFrame::SkipConditions { .. } => {}
+            }
+        }
         // Root old_value entries on the specpdl so GC doesn't collect them.
         for entry in &self.specpdl {
             match entry {
@@ -3299,9 +3377,14 @@ impl Context {
         // Register catch tag for 'exit (mirrors keyboard.c catch handler).
         let exit_tag = Value::symbol("exit");
         self.catch_tags.push(exit_tag);
+        self.push_condition_frame(ConditionFrame::Catch {
+            tag: exit_tag,
+            resume: ResumeTarget::CommandLoopExit,
+        });
 
         let result = self.command_loop_inner();
 
+        self.pop_condition_frame();
         self.catch_tags.pop();
         if increment_depth {
             self.command_loop.recursive_depth -= 1;
@@ -3334,6 +3417,10 @@ impl Context {
             // Catch 'top-level throws (from (top-level) function).
             let top_level_tag = Value::symbol("top-level");
             self.catch_tags.push(top_level_tag);
+            self.push_condition_frame(ConditionFrame::Catch {
+                tag: top_level_tag,
+                resume: ResumeTarget::CommandLoopTopLevel,
+            });
 
             let result = if outermost_command_loop {
                 match self.command_loop_top_level_1() {
@@ -3345,6 +3432,7 @@ impl Context {
                 self.command_loop_2()
             };
 
+            self.pop_condition_frame();
             self.catch_tags.pop();
 
             match result {
@@ -3929,6 +4017,7 @@ impl Context {
         self.lexenv = Value::Nil;
         self.temp_roots.clear();
         self.catch_tags.clear();
+        self.condition_stack.clear();
         self.depth = 0;
     }
 
@@ -3939,7 +4028,13 @@ impl Context {
             && self.saved_lexenvs.is_empty()
             && self.temp_roots.is_empty()
             && self.catch_tags.is_empty()
+            && self.condition_stack.is_empty()
             && self.depth == 0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn condition_stack_depth_for_test(&self) -> usize {
+        self.condition_stack.len()
     }
 
     pub(crate) fn set_interpreted_closure_filter_fn(&mut self, filter_fn: Option<Value>) {
@@ -5505,6 +5600,10 @@ impl Context {
         self.temp_roots.push(tag);
         // Register this catch tag so `throw` can check for a matching catch.
         self.catch_tags.push(tag);
+        self.push_condition_frame(ConditionFrame::Catch {
+            tag,
+            resume: ResumeTarget::InterpreterCatch,
+        });
         let result = match self.sf_progn(&tail[1..]) {
             Ok(value) => Ok(value),
             Err(Flow::Throw {
@@ -5513,6 +5612,7 @@ impl Context {
             }) if eq_value(&tag, &thrown_tag) => Ok(value),
             Err(flow) => Err(flow),
         };
+        self.pop_condition_frame();
         self.catch_tags.pop();
         self.temp_roots.pop();
         result
@@ -5608,8 +5708,30 @@ impl Context {
             }
         }
 
+        let condition_stack_base = self.condition_stack_len();
+        for (i, handler) in handlers.iter().enumerate().rev() {
+            if success_handler_idx == Some(i) {
+                continue;
+            }
+            if matches!(handler, Expr::Symbol(id) if resolve_sym(*id) == "nil") {
+                continue;
+            }
+            let Expr::List(handler_items) = handler else {
+                continue;
+            };
+            if handler_items.is_empty() {
+                continue;
+            }
+            let conditions = self.quote_to_runtime_value(&handler_items[0]);
+            self.push_condition_frame(ConditionFrame::ConditionCase {
+                conditions,
+                resume: ResumeTarget::InterpreterConditionCase { handler_index: i },
+            });
+        }
+
         match self.eval(body) {
             Ok(value) => {
+                self.truncate_condition_stack(condition_stack_base);
                 // GNU eval.c:1618 — if there's a :success handler, bind VAR
                 // to the body's return value and evaluate the handler body.
                 if let Some(idx) = success_handler_idx {
@@ -5630,6 +5752,7 @@ impl Context {
                 Ok(value)
             }
             Err(Flow::Signal(sig)) => {
+                self.truncate_condition_stack(condition_stack_base);
                 for (i, handler) in handlers.iter().enumerate() {
                     // Skip :success handler — it only runs on success.
                     if success_handler_idx == Some(i) {
@@ -5683,7 +5806,10 @@ impl Context {
             // The throw was already validated to have a matching catch when it was
             // created in sf_throw / builtin_throw.  If there's no matching catch,
             // sf_throw signals no-catch as a Flow::Signal, which is handled above.
-            Err(flow @ Flow::Throw { .. }) => Err(flow),
+            Err(flow @ Flow::Throw { .. }) => {
+                self.truncate_condition_stack(condition_stack_base);
+                Err(flow)
+            }
         }
     }
 

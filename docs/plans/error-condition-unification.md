@@ -207,6 +207,16 @@ This preserves VM efficiency while removing semantic duplication.
   into it
 - Use assertions/tests to verify stack balance
 
+Phase 1 scaffold status:
+
+- `Context.condition_stack` mirrors interpreter `catch`,
+  `condition-case`, `handler-bind-1`, and VM catch/condition-case frames
+- top-level evaluator cleanup and VM frame exit both truncate the shared stack
+- GC root collection now traces mirrored condition frames
+- runtime dispatch semantics are still unchanged in this phase:
+  `catch_tags`, interpreter-local `condition-case`, wrapper-style
+  `handler-bind-1`, and VM-local resolution still decide behavior
+
 ### Phase 2: Unify `catch` and `throw`
 
 - Make throw resolution consult the shared stack

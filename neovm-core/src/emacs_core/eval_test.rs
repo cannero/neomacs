@@ -151,6 +151,43 @@ fn load_minimal_backquote_runtime(eval: &mut Context) {
 }
 
 #[test]
+fn catch_leaves_shared_condition_stack_balanced() {
+    let mut ev = Context::new();
+    let forms = parse_forms("(catch 'tag (throw 'tag 42))").expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    assert_eq!(format_eval_result(&result), "OK 42");
+    assert_eq!(ev.condition_stack_depth_for_test(), 0);
+    assert!(ev.top_level_eval_state_is_clean());
+}
+
+#[test]
+fn condition_case_leaves_shared_condition_stack_balanced() {
+    let mut ev = Context::new();
+    let forms = parse_forms("(condition-case err (signal 'error 1) (error err))").expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    assert_eq!(format_eval_result(&result), "OK (error . 1)");
+    assert_eq!(ev.condition_stack_depth_for_test(), 0);
+    assert!(ev.top_level_eval_state_is_clean());
+}
+
+#[test]
+fn handler_bind_1_leaves_shared_condition_stack_balanced() {
+    let mut ev = Context::new();
+    let forms = parse_forms(
+        "(condition-case err
+           (handler-bind-1 (lambda () (signal 'error 1))
+                           '(error)
+                           (lambda (_data) 'handled))
+         (error err))",
+    )
+    .expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    assert_eq!(format_eval_result(&result), "OK (error . 1)");
+    assert_eq!(ev.condition_stack_depth_for_test(), 0);
+    assert!(ev.top_level_eval_state_is_clean());
+}
+
+#[test]
 fn evaluator_drop_clears_owned_thread_locals() {
     {
         let mut ev = Context::new_vm_harness();

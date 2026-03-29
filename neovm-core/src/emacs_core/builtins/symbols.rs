@@ -3671,7 +3671,19 @@ pub(crate) fn builtin_handler_bind_1(
         .filter_map(|pair| (!pair[0].is_nil()).then_some((pair[0], pair[1])))
         .collect();
 
-    let result = match eval.apply(bodyfun, vec![]) {
+    let condition_stack_base = eval.condition_stack_len();
+    for (mute_span, (conditions, handler)) in handlers.iter().rev().enumerate() {
+        eval.push_condition_frame(super::eval::ConditionFrame::HandlerBind {
+            conditions: *conditions,
+            handler: *handler,
+            mute_span,
+        });
+    }
+
+    let body_result = eval.apply(bodyfun, vec![]);
+    eval.truncate_condition_stack(condition_stack_base);
+
+    let result = match body_result {
         Ok(value) => Ok(value),
         Err(Flow::Signal(sig)) => resume_handler_bind_signal(eval, &handlers, 0, sig),
         Err(flow @ Flow::Throw { .. }) => Err(flow),

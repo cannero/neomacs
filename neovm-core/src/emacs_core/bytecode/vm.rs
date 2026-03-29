@@ -11,7 +11,7 @@ use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;
 use crate::emacs_core::errors::signal_matches_condition_value;
-use crate::emacs_core::eval::Context;
+use crate::emacs_core::eval::{ConditionFrame, Context, ResumeTarget};
 use crate::emacs_core::intern::{SymId, intern, intern_uninterned, resolve_sym};
 use crate::emacs_core::regex::MatchData;
 use crate::emacs_core::string_escape::{storage_char_len, storage_substring};
@@ -215,6 +215,7 @@ impl<'a> Vm<'a> {
         args: Vec<Value>,
         func_value: Value,
     ) -> EvalResult {
+        let condition_stack_base = self.ctx.condition_stack_len();
         let mut stack: Vec<Value> = Vec::with_capacity(func.max_stack as usize);
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
@@ -317,6 +318,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
+                self.ctx.truncate_condition_stack(condition_stack_base);
                 self.ctx.lexenv = saved_lexenv;
                 let cleanup = self.unwind_specpdl_all(&mut specpdl);
                 return merge_result_with_cleanup(result, cleanup);
@@ -334,6 +336,7 @@ impl<'a> Vm<'a> {
                 }
             }
             let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
+            self.ctx.truncate_condition_stack(condition_stack_base);
             crate::emacs_core::eval::unbind_to_in_state(
                 &mut self.ctx.obarray,
                 &mut self.ctx.specpdl,
@@ -353,6 +356,7 @@ impl<'a> Vm<'a> {
         };
 
         let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
+        self.ctx.truncate_condition_stack(condition_stack_base);
 
         if let Some(old) = saved_lexenv {
             self.ctx.lexenv = old;
@@ -1674,34 +1678,66 @@ impl<'a> Vm<'a> {
 
                 // -- Error handling --
                 Op::PushConditionCase(target) => {
+                    let stack_len = stack.len();
+                    let spec_depth = specpdl.len();
                     handlers.push(Handler::ConditionCase {
                         conditions: Value::symbol("error"),
                         target: *target,
-                        stack_len: stack.len(),
-                        spec_depth: specpdl.len(),
+                        stack_len,
+                        spec_depth,
                     });
+                    self.ctx
+                        .push_condition_frame(ConditionFrame::ConditionCase {
+                            conditions: Value::symbol("error"),
+                            resume: ResumeTarget::VmConditionCase {
+                                target: *target,
+                                stack_len,
+                                spec_depth,
+                            },
+                        });
                 }
                 Op::PushConditionCaseRaw(target) => {
                     // GNU bytecode consumes the handler pattern operand from TOS.
                     let conditions = stack.pop().unwrap_or(Value::Nil);
+                    let stack_len = stack.len();
+                    let spec_depth = specpdl.len();
                     handlers.push(Handler::ConditionCase {
                         conditions,
                         target: *target,
-                        stack_len: stack.len(),
-                        spec_depth: specpdl.len(),
+                        stack_len,
+                        spec_depth,
                     });
+                    self.ctx
+                        .push_condition_frame(ConditionFrame::ConditionCase {
+                            conditions,
+                            resume: ResumeTarget::VmConditionCase {
+                                target: *target,
+                                stack_len,
+                                spec_depth,
+                            },
+                        });
                 }
                 Op::PushCatch(target) => {
                     let tag = stack.pop().unwrap_or(Value::Nil);
+                    let stack_len = stack.len();
+                    let spec_depth = specpdl.len();
                     handlers.push(Handler::Catch {
                         tag,
                         target: *target,
-                        stack_len: stack.len(),
-                        spec_depth: specpdl.len(),
+                        stack_len,
+                        spec_depth,
                     });
                     // Register in evaluator so sf_throw / nested VM throws can
                     // see this catch tag when deciding throw vs no-catch.
                     self.ctx.catch_tags.push(tag);
+                    self.ctx.push_condition_frame(ConditionFrame::Catch {
+                        tag,
+                        resume: ResumeTarget::VmCatch {
+                            target: *target,
+                            stack_len,
+                            spec_depth,
+                        },
+                    });
                 }
                 Op::PopHandler => {
                     if let Some(handler) = handlers.pop() {
@@ -1709,6 +1745,10 @@ impl<'a> Vm<'a> {
                             Handler::Catch { .. } => {
                                 // Remove from evaluator's catch_tags registry.
                                 self.ctx.catch_tags.pop();
+                                self.ctx.pop_condition_frame();
+                            }
+                            Handler::ConditionCase { .. } => {
+                                self.ctx.pop_condition_frame();
                             }
                             _ => {}
                         }
@@ -3565,7 +3605,12 @@ impl<'a> Vm<'a> {
     ) -> Result<(), Flow> {
         match flow {
             Flow::Throw { tag, value } => {
-                if let Some(res) = resolve_throw_target(handlers, &mut self.ctx.catch_tags, &tag) {
+                if let Some(res) = resolve_throw_target(
+                    handlers,
+                    &mut self.ctx.catch_tags,
+                    &mut self.ctx.condition_stack,
+                    &tag,
+                ) {
                     let extra = [tag, value];
                     if let Err(cleanup_flow) =
                         self.with_frame_roots(_func, stack, handlers, specpdl, &extra, |vm| {
@@ -3616,6 +3661,7 @@ impl<'a> Vm<'a> {
                 if let Some(res) = resolve_signal_target(
                     handlers,
                     &mut self.ctx.catch_tags,
+                    &mut self.ctx.condition_stack,
                     &self.ctx.obarray,
                     &sig,
                 ) {
@@ -4520,6 +4566,7 @@ struct SignalResolution {
 fn resolve_throw_target(
     handlers: &mut Vec<Handler>,
     catch_tags: &mut Vec<Value>,
+    condition_stack: &mut Vec<ConditionFrame>,
     tag: &Value,
 ) -> Option<ThrowResolution> {
     let cleanups = Vec::new();
@@ -4533,6 +4580,7 @@ fn resolve_throw_target(
             } => {
                 // Remove from evaluator catch_tags registry (this catch is being unwound).
                 catch_tags.pop();
+                condition_stack.pop();
                 if !tag.is_nil() && eq_value(&catch_tag, tag) {
                     return Some(ThrowResolution {
                         target,
@@ -4542,7 +4590,10 @@ fn resolve_throw_target(
                     });
                 }
             }
-            _ => {}
+            Handler::ConditionCase { .. } => {
+                condition_stack.pop();
+            }
+            Handler::UnwindProtect { .. } => {}
         }
     }
     None
@@ -4551,6 +4602,7 @@ fn resolve_throw_target(
 fn resolve_signal_target(
     handlers: &mut Vec<Handler>,
     catch_tags: &mut Vec<Value>,
+    condition_stack: &mut Vec<ConditionFrame>,
     obarray: &Obarray,
     sig: &SignalData,
 ) -> Option<SignalResolution> {
@@ -4559,6 +4611,7 @@ fn resolve_signal_target(
         match handler {
             Handler::Catch { .. } => {
                 catch_tags.pop();
+                condition_stack.pop();
             }
             Handler::ConditionCase {
                 conditions,
@@ -4566,6 +4619,7 @@ fn resolve_signal_target(
                 stack_len,
                 spec_depth,
             } => {
+                condition_stack.pop();
                 if signal_matches_condition_value(obarray, sig.symbol_name(), &conditions) {
                     return Some(SignalResolution {
                         target,
