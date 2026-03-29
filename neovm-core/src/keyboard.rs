@@ -610,17 +610,12 @@ impl PrefixArg {
 // Command loop state
 // ---------------------------------------------------------------------------
 
-/// Keyboard-local runtime state.
+/// Keyboard-local state owned by the active terminal/keyboard.
 ///
-/// GNU Emacs keeps these queues, key-sequence buffers, and terminal-local
-/// translation maps on `kboard` / `keyboard.c` state rather than scattering
-/// them across the evaluator. NeoVM still has a single active keyboard, but it
-/// now gives that keyboard state one owner.
-pub struct KeyboardRuntime {
-    /// Input event queue used by unit tests and non-blocking command-loop paths.
-    pub event_queue: VecDeque<InputEvent>,
-    /// Input already received from the host but not yet returned by `read_char`.
-    pub pending_input_events: VecDeque<InputEvent>,
+/// GNU Emacs keeps unread events, command-key history, translation maps, and
+/// keyboard-macro playback on `kboard` state. NeoVM still has one active
+/// keyboard, but it now models that owner explicitly.
+pub struct KBoard {
     /// Unread command events in the Lisp-visible Emacs event form.
     pub unread_events: VecDeque<Value>,
     /// Current raw/translated key sequence being accumulated by `read_key_sequence`.
@@ -646,11 +641,9 @@ pub struct KeyboardRuntime {
     pub kbd_macro_index: usize,
 }
 
-impl KeyboardRuntime {
+impl KBoard {
     pub fn new() -> Self {
         Self {
-            event_queue: VecDeque::new(),
-            pending_input_events: VecDeque::new(),
             unread_events: VecDeque::new(),
             current_key_sequence: ReadKeySequenceState::new(),
             command_keys: Vec::new(),
@@ -690,42 +683,12 @@ impl KeyboardRuntime {
         self.local_function_key_map
     }
 
-    pub fn enqueue_event(&mut self, event: InputEvent) {
-        self.event_queue.push_back(event);
-    }
-
     pub fn unread_event(&mut self, event: Value) {
         self.unread_events.push_back(event);
     }
 
     pub fn unread_key(&mut self, event: KeyEvent) {
         self.unread_event(event.to_emacs_event_value());
-    }
-
-    pub fn read_key_event(&mut self) -> Option<Value> {
-        if let Some(event) = self.unread_events.pop_front() {
-            return Some(event);
-        }
-
-        if let Some(ref macro_events) = self.executing_kbd_macro {
-            if self.kbd_macro_index < macro_events.len() {
-                let event = macro_events[self.kbd_macro_index];
-                self.kbd_macro_index += 1;
-                return Some(event);
-            }
-        }
-
-        while let Some(event) = self.event_queue.pop_front() {
-            if let InputEvent::KeyPress(key) = event {
-                let emacs_event = key.to_emacs_event_value();
-                if self.defining_kbd_macro {
-                    self.kbd_macro_events.push(emacs_event);
-                }
-                return Some(emacs_event);
-            }
-        }
-
-        None
     }
 
     pub fn reset_key_sequence(&mut self) {
@@ -803,13 +766,13 @@ impl KeyboardRuntime {
     }
 }
 
-impl Default for KeyboardRuntime {
+impl Default for KBoard {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl crate::gc::GcTrace for KeyboardRuntime {
+impl crate::gc::GcTrace for KBoard {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         roots.extend(self.unread_events.iter().copied());
         roots.extend(self.current_key_sequence.raw_events().iter().copied());
@@ -828,6 +791,182 @@ impl crate::gc::GcTrace for KeyboardRuntime {
         if let Some(events) = &self.executing_kbd_macro {
             roots.extend(events.iter().copied());
         }
+    }
+}
+
+/// Keyboard runtime state shared by the command loop.
+///
+/// This owns transport-facing queues plus the active keyboard-local `KBoard`
+/// state, which is the nearest NeoVM equivalent to GNU `keyboard.c` +
+/// `kboard`.
+pub struct KeyboardRuntime {
+    /// Input event queue used by unit tests and non-blocking command-loop paths.
+    pub event_queue: VecDeque<InputEvent>,
+    /// Input already received from the host but not yet returned by `read_char`.
+    pub pending_input_events: VecDeque<InputEvent>,
+    /// Keyboard-local command-loop state.
+    pub kboard: KBoard,
+}
+
+impl KeyboardRuntime {
+    pub fn new() -> Self {
+        Self {
+            event_queue: VecDeque::new(),
+            pending_input_events: VecDeque::new(),
+            kboard: KBoard::new(),
+        }
+    }
+
+    pub fn set_terminal_translation_maps(
+        &mut self,
+        input_decode_map: Value,
+        local_function_key_map: Value,
+    ) {
+        self.kboard
+            .set_terminal_translation_maps(input_decode_map, local_function_key_map);
+    }
+
+    pub fn set_input_decode_map(&mut self, map: Value) {
+        self.kboard.set_input_decode_map(map);
+    }
+
+    pub fn input_decode_map(&self) -> Value {
+        self.kboard.input_decode_map()
+    }
+
+    pub fn set_local_function_key_map(&mut self, map: Value) {
+        self.kboard.set_local_function_key_map(map);
+    }
+
+    pub fn local_function_key_map(&self) -> Value {
+        self.kboard.local_function_key_map()
+    }
+
+    pub fn enqueue_event(&mut self, event: InputEvent) {
+        self.event_queue.push_back(event);
+    }
+
+    pub fn unread_event(&mut self, event: Value) {
+        self.kboard.unread_events.push_back(event);
+    }
+
+    pub fn unread_key(&mut self, event: KeyEvent) {
+        self.unread_event(event.to_emacs_event_value());
+    }
+
+    pub fn read_key_event(&mut self) -> Option<Value> {
+        if let Some(event) = self.kboard.unread_events.pop_front() {
+            return Some(event);
+        }
+
+        if let Some(ref macro_events) = self.kboard.executing_kbd_macro
+            && self.kboard.kbd_macro_index < macro_events.len()
+        {
+            let event = macro_events[self.kboard.kbd_macro_index];
+            self.kboard.kbd_macro_index += 1;
+            return Some(event);
+        }
+
+        while let Some(event) = self.event_queue.pop_front() {
+            if let InputEvent::KeyPress(key) = event {
+                let emacs_event = key.to_emacs_event_value();
+                if self.kboard.defining_kbd_macro {
+                    self.kboard.kbd_macro_events.push(emacs_event);
+                }
+                return Some(emacs_event);
+            }
+        }
+
+        None
+    }
+
+    pub fn reset_key_sequence(&mut self) {
+        self.kboard.current_key_sequence.reset();
+    }
+
+    pub fn push_key_sequence_input_event(&mut self, event: Value) {
+        self.kboard.current_key_sequence.push_input_event(event);
+    }
+
+    pub fn rewrite_key_sequence_translation(&mut self, events: Vec<Value>) {
+        self.kboard
+            .current_key_sequence
+            .replace_translated_events(events);
+    }
+
+    pub fn key_sequence_snapshot(&self) -> (Vec<Value>, Vec<Value>) {
+        self.kboard.current_key_sequence.snapshot()
+    }
+
+    pub fn set_command_key_sequences(&mut self, translated: Vec<Value>, raw: Vec<Value>) {
+        self.kboard.command_keys = translated;
+        self.kboard.raw_command_keys = raw;
+    }
+
+    pub fn set_translated_command_keys(&mut self, keys: Vec<Value>) {
+        self.kboard.command_keys = keys;
+    }
+
+    pub fn set_read_command_keys(&mut self, keys: Vec<Value>) {
+        self.kboard.command_keys = keys.clone();
+        self.kboard.raw_command_keys = keys;
+    }
+
+    pub fn clear_read_command_keys(&mut self) {
+        self.kboard.command_keys.clear();
+        self.kboard.raw_command_keys.clear();
+    }
+
+    pub fn read_command_keys(&self) -> &[Value] {
+        &self.kboard.command_keys
+    }
+
+    pub fn read_raw_command_keys(&self) -> &[Value] {
+        &self.kboard.raw_command_keys
+    }
+
+    pub fn record_input_event(&mut self, event: Value) {
+        self.kboard.recent_input_events.push(event);
+        if self.kboard.recent_input_events.len() > crate::emacs_core::eval::RECENT_INPUT_EVENT_LIMIT
+        {
+            self.kboard.recent_input_events.remove(0);
+        }
+    }
+
+    pub fn recent_input_events(&self) -> &[Value] {
+        &self.kboard.recent_input_events
+    }
+
+    pub fn clear_recent_input_events(&mut self) {
+        self.kboard.recent_input_events.clear();
+    }
+
+    pub fn start_kbd_macro(&mut self) {
+        self.kboard.defining_kbd_macro = true;
+        self.kboard.kbd_macro_events.clear();
+    }
+
+    pub fn end_kbd_macro(&mut self) {
+        self.kboard.defining_kbd_macro = false;
+    }
+
+    pub fn call_last_kbd_macro(&mut self) {
+        if !self.kboard.kbd_macro_events.is_empty() {
+            self.kboard.executing_kbd_macro = Some(self.kboard.kbd_macro_events.clone());
+            self.kboard.kbd_macro_index = 0;
+        }
+    }
+}
+
+impl Default for KeyboardRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::gc::GcTrace for KeyboardRuntime {
+    fn trace_roots(&self, roots: &mut Vec<Value>) {
+        self.kboard.trace_roots(roots);
     }
 }
 
@@ -1236,6 +1375,7 @@ impl crate::emacs_core::eval::Context {
                 &map,
                 self.command_loop
                     .keyboard
+                    .kboard
                     .current_key_sequence
                     .translated_events(),
             );
@@ -1369,6 +1509,7 @@ impl crate::emacs_core::eval::Context {
             let translated_events = self
                 .command_loop
                 .keyboard
+                .kboard
                 .current_key_sequence
                 .translated_events()
                 .to_vec();
@@ -1428,14 +1569,14 @@ impl crate::emacs_core::eval::Context {
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
-        if let Some(event) = self.command_loop.keyboard.unread_events.pop_front() {
+        if let Some(event) = self.command_loop.keyboard.kboard.unread_events.pop_front() {
             return Ok(event);
         }
 
-        if let Some(ref macro_events) = self.command_loop.keyboard.executing_kbd_macro {
-            if self.command_loop.keyboard.kbd_macro_index < macro_events.len() {
-                let event = macro_events[self.command_loop.keyboard.kbd_macro_index];
-                self.command_loop.keyboard.kbd_macro_index += 1;
+        if let Some(ref macro_events) = self.command_loop.keyboard.kboard.executing_kbd_macro {
+            if self.command_loop.keyboard.kboard.kbd_macro_index < macro_events.len() {
+                let event = macro_events[self.command_loop.keyboard.kboard.kbd_macro_index];
+                self.command_loop.keyboard.kboard.kbd_macro_index += 1;
                 return Ok(event);
             }
         }
@@ -1539,9 +1680,10 @@ impl crate::emacs_core::eval::Context {
                     tracing::debug!("read_char: received KeyPress {:?}", key);
                     self.clear_current_message();
                     let emacs_event = key.to_emacs_event_value();
-                    if self.command_loop.keyboard.defining_kbd_macro {
+                    if self.command_loop.keyboard.kboard.defining_kbd_macro {
                         self.command_loop
                             .keyboard
+                            .kboard
                             .kbd_macro_events
                             .push(emacs_event);
                     }
@@ -2239,7 +2381,7 @@ mod tests {
         cl.read_key_event(); // 'i' — recorded
 
         cl.end_kbd_macro();
-        assert_eq!(cl.keyboard.kbd_macro_events.len(), 2);
+        assert_eq!(cl.keyboard.kboard.kbd_macro_events.len(), 2);
 
         // Replay.
         cl.call_last_kbd_macro();

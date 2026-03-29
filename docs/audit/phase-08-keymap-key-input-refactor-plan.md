@@ -479,6 +479,10 @@ Completed on 2026-03-29:
   on keyboard-owned state instead of stack-local vectors, which gives Slice D a
   real owner boundary for later GNU replay/rescan, `dont-downcase-last`, and
   `this-command-keys-shift-translated` work.
+- Terminal-local keyboard state now has an explicit `KBoard`-equivalent owner
+  inside `src/keyboard.rs`, so unread events, command-key history,
+  keyboard-macro playback, and terminal-local translation maps stop living as
+  loose top-level keyboard fields.
 
 Still open:
 
@@ -493,6 +497,9 @@ Still open:
   GNU's replay/rescan state machine, function-valued translation bindings, and
   delayed frame-switch handling still need to move over as one coherent Slice D
   rewrite.
+- `input-decode-map` and `local-function-key-map` are still mirrored through
+  evaluator globals for Lisp visibility; the next step is to make the keyboard
+  owner the clearer source of truth for terminal-local translation state.
 - Keymap autoload and parent-cycle semantics are still thinner than GNU.
 
 ### Slice 1: Active maps and `key-binding`

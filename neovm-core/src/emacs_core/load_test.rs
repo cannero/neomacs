@@ -1172,10 +1172,11 @@ fn bootstrap_runtime_execute_extended_command_exits_minibuffer_on_ret() {
     for ch in "neo-ret-probe".chars() {
         eval.command_loop
             .keyboard
+            .kboard
             .unread_events
             .push_back(Value::Int(ch as i64));
     }
-    eval.command_loop.keyboard.unread_events.push_back(
+    eval.command_loop.keyboard.kboard.unread_events.push_back(
         crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value(),
     );
 
@@ -1384,11 +1385,12 @@ fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
-    eval.command_loop.keyboard.unread_events.push_back(
+    eval.command_loop.keyboard.kboard.unread_events.push_back(
         crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape).to_emacs_event_value(),
     );
     eval.command_loop
         .keyboard
+        .kboard
         .unread_events
         .push_back(Value::Int('x' as i64));
 
@@ -1402,7 +1404,7 @@ fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
-    eval.command_loop.keyboard.unread_events.push_back(
+    eval.command_loop.keyboard.kboard.unread_events.push_back(
         crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta())
             .to_emacs_event_value(),
     );
