@@ -1993,6 +1993,15 @@ impl crate::emacs_core::eval::Context {
                     );
                     continue;
                 }
+                if Self::should_drop_undefined_mouse_press_sequence(&translated_events) {
+                    tracing::debug!(
+                        "read_key_sequence: dropping undefined down-mouse event and continuing"
+                    );
+                    self.command_loop.keyboard.reset_key_sequence();
+                    self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
+                    shift_translation = None;
+                    continue;
+                }
                 if self.translate_upper_case_key_bindings_enabled()
                     && let Some(applied_shift_translation) =
                         self.apply_shift_translation_to_current_key_sequence()
@@ -2361,6 +2370,22 @@ impl crate::emacs_core::eval::Context {
         prefixed.push(area);
         prefixed.extend_from_slice(events);
         Some(prefixed)
+    }
+
+    fn should_drop_undefined_mouse_press_sequence(events: &[Value]) -> bool {
+        let mouse_event = match events {
+            [event] => *event,
+            [prefix, event] if prefix.as_symbol_name().is_some() => *event,
+            _ => return false,
+        };
+
+        crate::emacs_core::value::list_to_vec(&mouse_event).is_some_and(|slots| {
+            slots.first().is_some_and(|value| {
+                value
+                    .as_symbol_name()
+                    .is_some_and(|name| name.contains("down-mouse-"))
+            })
+        })
     }
 
     fn window_point(window: &crate::window::Window) -> Option<i64> {
