@@ -8429,6 +8429,52 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(2),
     );
 
+    // -- Window builtins: display-buffer, switch-to-buffer, pop-to-buffer --
+    ctx.defsubr(
+        "switch-to-buffer",
+        super::window_cmds::builtin_switch_to_buffer,
+        1,
+        Some(3),
+    );
+    ctx.defsubr(
+        "display-buffer",
+        super::window_cmds::builtin_display_buffer,
+        1,
+        Some(3),
+    );
+    ctx.defsubr(
+        "pop-to-buffer",
+        super::window_cmds::builtin_pop_to_buffer,
+        1,
+        Some(3),
+    );
+
+    // -- Window tree / resize builtins --
+    ctx.defsubr(
+        "balance-windows",
+        super::window_cmds::builtin_balance_windows,
+        0,
+        Some(1),
+    );
+    ctx.defsubr(
+        "enlarge-window",
+        super::window_cmds::builtin_enlarge_window,
+        1,
+        Some(2),
+    );
+    ctx.defsubr(
+        "shrink-window",
+        super::window_cmds::builtin_shrink_window,
+        1,
+        Some(2),
+    );
+    ctx.defsubr(
+        "window-tree",
+        super::window_cmds::builtin_window_tree,
+        0,
+        Some(1),
+    );
+
     // GNU exposes public evaluator-owned entries like `if` and `throw` as
     // real subrs in the function cell even though they are dispatched by the
     // evaluator rather than the ordinary builtin function table.

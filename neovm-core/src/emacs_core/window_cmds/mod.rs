@@ -5991,6 +5991,310 @@ pub(crate) fn builtin_window_resize_apply_total(
 }
 
 // ===========================================================================
+// balance-windows
+// ===========================================================================
+
+/// `(balance-windows &optional WINDOW-OR-FRAME)` -> nil.
+///
+/// Redistribute space equally among sibling windows.  When
+/// WINDOW-OR-FRAME is a frame (or nil for the selected frame), balance
+/// the entire window tree of that frame.  When it is a window, balance
+/// the subtree rooted at its parent.
+pub(crate) fn builtin_balance_windows(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("balance-windows", &args, 1)?;
+    let fid = ensure_selected_frame_id(eval);
+    let frame = eval
+        .frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("No frame")]))?;
+
+    fn balance_subtree(window: &mut Window) {
+        if let Window::Internal {
+            direction,
+            children,
+            bounds,
+            ..
+        } = window
+        {
+            let parent_bounds = *bounds;
+            let n = children.len() as f32;
+            if n < 1.0 {
+                return;
+            }
+            match direction {
+                SplitDirection::Horizontal => {
+                    let w = parent_bounds.width / n;
+                    for (i, child) in children.iter_mut().enumerate() {
+                        child.set_bounds(Rect::new(
+                            parent_bounds.x + i as f32 * w,
+                            parent_bounds.y,
+                            w,
+                            parent_bounds.height,
+                        ));
+                    }
+                }
+                SplitDirection::Vertical => {
+                    let h = parent_bounds.height / n;
+                    for (i, child) in children.iter_mut().enumerate() {
+                        child.set_bounds(Rect::new(
+                            parent_bounds.x,
+                            parent_bounds.y + i as f32 * h,
+                            parent_bounds.width,
+                            h,
+                        ));
+                    }
+                }
+            }
+            for child in children.iter_mut() {
+                balance_subtree(child);
+            }
+        }
+    }
+
+    balance_subtree(&mut frame.root_window);
+    frame.recalculate_minibuffer_bounds();
+    Ok(Value::Nil)
+}
+
+// ===========================================================================
+// enlarge-window / shrink-window
+// ===========================================================================
+
+/// Minimum window dimension in pixels when resizing.
+const MIN_WINDOW_PIXEL_SIZE: f32 = 1.0;
+
+/// `(enlarge-window DELTA &optional HORIZONTAL)` -> nil.
+///
+/// Make the selected window DELTA lines taller.  If HORIZONTAL is
+/// non-nil, make it DELTA columns wider instead.  Interactively, if no
+/// argument is given, make the window one line taller.
+pub(crate) fn builtin_enlarge_window(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("enlarge-window", &args, 1)?;
+    expect_max_args("enlarge-window", &args, 2)?;
+    let delta = expect_int(&args[0])?;
+    let horizontal = args.get(1).is_some_and(|v| !v.is_nil());
+    resize_selected_window(eval, delta, horizontal, "enlarge-window")
+}
+
+/// `(shrink-window DELTA &optional HORIZONTAL)` -> nil.
+///
+/// Make the selected window DELTA lines shorter.  If HORIZONTAL is
+/// non-nil, make it DELTA columns narrower instead.
+pub(crate) fn builtin_shrink_window(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("shrink-window", &args, 1)?;
+    expect_max_args("shrink-window", &args, 2)?;
+    let delta = expect_int(&args[0])?;
+    let horizontal = args.get(1).is_some_and(|v| !v.is_nil());
+    // shrink = enlarge by negative delta
+    resize_selected_window(eval, -delta, horizontal, "shrink-window")
+}
+
+/// Shared implementation for enlarge-window and shrink-window.
+///
+/// Finds the selected window's parent internal node, then grows/shrinks
+/// the selected window by `delta` character units along the appropriate
+/// axis.  The space is taken from (or given to) sibling windows equally.
+fn resize_selected_window(
+    eval: &mut super::eval::Context,
+    delta: i64,
+    horizontal: bool,
+    name: &str,
+) -> EvalResult {
+    if delta == 0 {
+        return Ok(Value::Nil);
+    }
+
+    let fid = ensure_selected_frame_id(eval);
+    let frame = eval
+        .frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("No frame")]))?;
+
+    let sel_wid = frame.selected_window;
+    let char_size = if horizontal {
+        frame.char_width.max(1.0)
+    } else {
+        frame.char_height.max(1.0)
+    };
+    let delta_px = delta as f32 * char_size;
+
+    // Walk the tree to find the parent of the selected window and resize.
+    fn resize_in_tree(
+        node: &mut Window,
+        target: WindowId,
+        delta_px: f32,
+        horizontal: bool,
+    ) -> bool {
+        let Window::Internal {
+            direction,
+            children,
+            ..
+        } = node
+        else {
+            return false;
+        };
+
+        // Check if target is a direct child.
+        if let Some(target_idx) = children.iter().position(|c| c.id() == target) {
+            // Direction must match: horizontal split for horizontal resize,
+            // vertical split for vertical resize.
+            let dir_matches = (*direction == SplitDirection::Horizontal) == horizontal;
+            if !dir_matches || children.len() < 2 {
+                // Can't resize — try parent.  But since we don't have a parent
+                // pointer in this recursive approach, we just return false.
+                return false;
+            }
+
+            let sibling_count = (children.len() - 1) as f32;
+            let shrink_each = delta_px / sibling_count;
+
+            // Check if siblings can absorb the shrink.
+            for (i, child) in children.iter().enumerate() {
+                if i == target_idx {
+                    continue;
+                }
+                let dim = if horizontal {
+                    child.bounds().width
+                } else {
+                    child.bounds().height
+                };
+                if dim - shrink_each < MIN_WINDOW_PIXEL_SIZE {
+                    // Not enough room — clamp what we can.
+                    // (We proceed anyway with clamping below.)
+                }
+                let _ = dim; // suppress unused warning
+            }
+
+            // Apply: grow target, shrink siblings.
+            // First, compute the new sizes.
+            let sizes: Vec<f32> = children
+                .iter()
+                .enumerate()
+                .map(|(i, child)| {
+                    let dim = if horizontal {
+                        child.bounds().width
+                    } else {
+                        child.bounds().height
+                    };
+                    if i == target_idx {
+                        (dim + delta_px).max(MIN_WINDOW_PIXEL_SIZE)
+                    } else {
+                        (dim - shrink_each).max(MIN_WINDOW_PIXEL_SIZE)
+                    }
+                })
+                .collect();
+
+            // Re-layout children with new sizes.
+            let parent_bounds = *node.bounds();
+            if let Window::Internal { children, .. } = node {
+                let mut edge = if horizontal {
+                    parent_bounds.x
+                } else {
+                    parent_bounds.y
+                };
+                for (i, child) in children.iter_mut().enumerate() {
+                    let b = *child.bounds();
+                    if horizontal {
+                        child.set_bounds(Rect::new(edge, b.y, sizes[i], b.height));
+                        edge += sizes[i];
+                    } else {
+                        child.set_bounds(Rect::new(b.x, edge, b.width, sizes[i]));
+                        edge += sizes[i];
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        // Recurse into children.
+        for child in children.iter_mut() {
+            if resize_in_tree(child, target, delta_px, horizontal) {
+                return true;
+            }
+        }
+        false
+    }
+
+    if !resize_in_tree(&mut frame.root_window, sel_wid, delta_px, horizontal) {
+        return Err(signal(
+            "error",
+            vec![Value::string(format!(
+                "{name}: cannot resize the only window"
+            ))],
+        ));
+    }
+
+    frame.recalculate_minibuffer_bounds();
+    Ok(Value::Nil)
+}
+
+// ===========================================================================
+// window-tree
+// ===========================================================================
+
+/// `(window-tree &optional FRAME)` -> nested list describing the window tree.
+///
+/// For a leaf window, returns the window object.
+/// For an internal node, returns:
+///   `(HORIZONTAL-P TOP LEFT RIGHT BOTTOM CHILD1 CHILD2 ...)`
+/// where HORIZONTAL-P is t for horizontal combination, nil for vertical.
+pub(crate) fn builtin_window_tree(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    expect_max_args("window-tree", &args, 1)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let frame = eval
+        .frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("No frame")]))?;
+
+    fn window_tree_to_value(window: &Window) -> Value {
+        match window {
+            Window::Leaf { id, .. } => Value::Window(id.0),
+            Window::Internal {
+                direction,
+                children,
+                bounds,
+                ..
+            } => {
+                let horizontal_p = if *direction == SplitDirection::Horizontal {
+                    Value::True
+                } else {
+                    Value::Nil
+                };
+                // Edges: top left right bottom (in pixel coordinates)
+                let top = Value::Int(bounds.y as i64);
+                let left = Value::Int(bounds.x as i64);
+                let right = Value::Int(bounds.right() as i64);
+                let bottom = Value::Int(bounds.bottom() as i64);
+
+                let mut elts = vec![horizontal_p, top, left, right, bottom];
+                for child in children {
+                    elts.push(window_tree_to_value(child));
+                }
+                Value::list(elts)
+            }
+        }
+    }
+
+    let tree = window_tree_to_value(&frame.root_window);
+    // GNU returns (TREE . MINI-WINDOW)
+    let mini = frame
+        .minibuffer_window
+        .map(|wid| Value::Window(wid.0))
+        .unwrap_or(Value::Nil);
+    Ok(Value::cons(tree, mini))
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 #[cfg(test)]

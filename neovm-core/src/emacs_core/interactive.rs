@@ -2762,7 +2762,11 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
         text.push(ch);
     }
     if let Some(current_id) = eval.buffers.current_buffer_id() {
+        let insert_pos = eval.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
+        let text_len = text.len();
+        super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
         let _ = eval.buffers.insert_into_buffer(current_id, &text);
+        super::editfns::signal_after_change(eval, insert_pos, insert_pos + text_len, 0)?;
     }
     Ok(Value::Nil)
 }
