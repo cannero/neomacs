@@ -3029,18 +3029,22 @@ impl<'a> Vm<'a> {
             builtins::expect_max_args("map-keymap", args, 3)?;
             (
                 args[0],
-                crate::emacs_core::builtins::keymaps::expect_keymap_in_obarray(
-                    &self.ctx.obarray,
+                crate::emacs_core::keymap::get_keymap_in_runtime(
+                    &mut *self.ctx,
                     &args[1],
+                    true,
+                    true,
                 )?,
             )
         } else {
             builtins::expect_args("map-keymap-internal", args, 2)?;
             (
                 args[0],
-                crate::emacs_core::builtins::keymaps::expect_keymap_in_obarray(
-                    &self.ctx.obarray,
+                crate::emacs_core::keymap::get_keymap_in_runtime(
+                    &mut *self.ctx,
                     &args[1],
+                    true,
+                    true,
                 )?,
             )
         };

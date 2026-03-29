@@ -137,6 +137,95 @@ fn compat_keymap_semantics_matches_gnu_emacs() {
              (current-active-maps t 1))
      (key-binding "a" t nil 1)))))"#,
         },
+        KeymapCase {
+            name: "set_keymap_parent_rejects_cyclic_inheritance",
+            form: r#"(let ((a (make-sparse-keymap))
+      (b (make-sparse-keymap)))
+  (set-keymap-parent a b)
+  (condition-case err
+      (progn
+        (set-keymap-parent b a)
+        'no-error)
+    (error (list (car err) (cadr err)))))"#,
+        },
+        KeymapCase {
+            name: "keymap_parent_and_set_keymap_parent_follow_symbol_function_indirection",
+            form: r#"(let ((parent (make-sparse-keymap))
+      (child (make-sparse-keymap)))
+  (fset 'compat-parent-map parent)
+  (fset 'compat-child-map child)
+  (list
+   (eq (set-keymap-parent 'compat-child-map 'compat-parent-map) parent)
+   (eq (keymap-parent 'compat-child-map) parent)))"#,
+        },
+        KeymapCase {
+            name: "keymap_parent_autoloads_keymap_symbols",
+            form: r#"(let* ((sym 'compat-autoload-keymap)
+       (file (make-temp-file "compat-keymap-" nil ".el"))
+       (base (file-name-sans-extension file)))
+  (unwind-protect
+      (progn
+        (with-temp-file file
+          (insert
+           "(let ((parent (make-sparse-keymap)) (map (make-sparse-keymap)))"
+           "  (define-key parent \"z\" 'autoload-parent-z)"
+           "  (set-keymap-parent map parent)"
+           "  (fset 'compat-autoload-keymap map))"))
+        (fmakunbound sym)
+        (autoload sym base nil nil 'keymap)
+        (list
+         (autoloadp (symbol-function sym))
+         (keymapp (keymap-parent sym))
+         (autoloadp (symbol-function sym))))
+    (ignore-errors (delete-file file))
+    (fmakunbound sym)))"#,
+        },
+        KeymapCase {
+            name: "lookup_key_autoloads_keymap_symbols",
+            form: r#"(let* ((sym 'compat-lookup-autoload-keymap)
+       (file (make-temp-file "compat-keymap-" nil ".el"))
+       (base (file-name-sans-extension file)))
+  (unwind-protect
+      (progn
+        (with-temp-file file
+          (insert
+           "(let ((map (make-sparse-keymap)))"
+           "  (define-key map \"z\" 'autoload-lookup-z)"
+           "  (fset 'compat-lookup-autoload-keymap map))"))
+        (fmakunbound sym)
+        (autoload sym base nil nil 'keymap)
+        (list
+         (autoloadp (symbol-function sym))
+         (lookup-key sym "z")
+         (autoloadp (symbol-function sym))))
+    (ignore-errors (delete-file file))
+    (fmakunbound sym)))"#,
+        },
+        KeymapCase {
+            name: "define_key_autoloads_keymap_symbols",
+            form: r#"(let* ((sym 'compat-define-autoload-keymap)
+       (file (make-temp-file "compat-keymap-" nil ".el"))
+       (base (file-name-sans-extension file)))
+  (unwind-protect
+      (progn
+        (with-temp-file file
+          (insert "(fset 'compat-define-autoload-keymap (make-sparse-keymap))"))
+        (fmakunbound sym)
+        (autoload sym base nil nil 'keymap)
+        (list
+         (autoloadp (symbol-function sym))
+         (progn
+           (define-key sym "z" 'autoload-define-z)
+           (lookup-key sym "z"))
+         (autoloadp (symbol-function sym))))
+    (ignore-errors (delete-file file))
+    (fmakunbound sym)))"#,
+        },
+        KeymapCase {
+            name: "lookup_key_accepts_nil_keymap",
+            form: r#"(list (lookup-key nil "a")
+      (lookup-key nil ""))"#,
+        },
     ];
 
     for case in cases {

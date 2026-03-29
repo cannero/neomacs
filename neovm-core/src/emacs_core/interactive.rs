@@ -22,6 +22,7 @@ use super::keymap::{
     KeyEvent, expand_meta_prefix_char_events_in_obarray, format_key_event, format_key_sequence,
     is_list_keymap, key_event_to_emacs_event, list_keymap_for_each_binding, list_keymap_lookup_one,
     list_keymap_lookup_seq, make_list_keymap, make_sparse_list_keymap,
+    resolve_prefix_keymap_binding_in_obarray,
 };
 use super::mode::{MajorMode, MinorMode};
 use super::symbol::Obarray;
@@ -2914,20 +2915,7 @@ fn key_binding_lookup_in_keymap_in_obarray(
             return Some(binding);
         }
         // Intermediate event — must resolve to a prefix keymap.
-        if is_list_keymap(&binding) {
-            current_map = binding;
-        } else if binding.as_symbol_name().is_some() {
-            // Resolve symbol function cell to a keymap
-            if let Some(func) = obarray.symbol_function_of_value(&binding).copied() {
-                if is_list_keymap(&func) {
-                    current_map = func;
-                    continue;
-                }
-            }
-            return None; // Symbol doesn't resolve to a keymap
-        } else {
-            return None; // Non-keymap, non-symbol binding in prefix position
-        }
+        current_map = resolve_prefix_keymap_binding_in_obarray(obarray, &binding)?;
     }
     None
 }

@@ -5,10 +5,12 @@ use crate::emacs_core::symbol::Obarray;
 // Keymap builtins
 // ===========================================================================
 use super::keymap::{
-    KeyEvent, expand_meta_prefix_char_events_in_obarray, is_list_keymap, key_event_to_emacs_event,
-    list_keymap_accessible, list_keymap_copy, list_keymap_define_seq_in_obarray,
-    list_keymap_define_seq_in_obarray_ex, list_keymap_lookup_one, list_keymap_lookup_one_t_ok,
+    KeyEvent, expand_meta_prefix_char_events_in_obarray, get_keymap_in_obarray,
+    get_keymap_in_runtime, is_list_keymap, key_event_to_emacs_event, list_keymap_accessible,
+    list_keymap_copy, list_keymap_define_seq_in_obarray, list_keymap_define_seq_in_obarray_ex,
+    list_keymap_inherits_from, list_keymap_lookup_one, list_keymap_lookup_one_t_ok,
     list_keymap_parent, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
+    maybe_keymap_in_obarray, maybe_keymap_in_runtime, resolve_prefix_keymap_binding_in_obarray,
 };
 
 /// Validate that a value is a keymap, returning it if so.
@@ -16,26 +18,11 @@ use super::keymap::{
 /// - Cons cells starting with 'keymap
 /// - Symbols whose function definition is a keymap
 pub(crate) fn expect_keymap_in_obarray(obarray: &Obarray, value: &Value) -> Result<Value, Flow> {
-    if is_list_keymap(value) {
-        return Ok(*value);
-    }
-    // Check if it's a symbol whose function cell is a keymap.
-    // Use symbol_function_of_value to handle uninterned symbols correctly.
-    if value.as_symbol_name().is_some() {
-        if let Some(func) = obarray.symbol_function_of_value(value).copied() {
-            if is_list_keymap(&func) {
-                return Ok(func);
-            }
-        }
-    }
-    Err(signal(
-        "wrong-type-argument",
-        vec![Value::symbol("keymapp"), *value],
-    ))
+    get_keymap_in_obarray(obarray, value, true)
 }
 
-fn expect_keymap(eval: &super::eval::Context, value: &Value) -> Result<Value, Flow> {
-    expect_keymap_in_obarray(&eval.obarray, value)
+fn expect_keymap(eval: &mut super::eval::Context, value: &Value) -> EvalResult {
+    get_keymap_in_runtime(eval, value, true, true)
 }
 
 /// Get the global keymap from obarray, creating one if needed.
@@ -273,7 +260,34 @@ pub(super) fn builtin_define_key(eval: &mut super::eval::Context, args: Vec<Valu
 
 /// (lookup-key KEYMAP KEY &optional ACCEPT-DEFAULTS) -> binding or nil
 pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_lookup_key_impl(eval.obarray(), &args)
+    expect_min_args("lookup-key", &args, 2)?;
+    expect_max_args("lookup-key", &args, 3)?;
+    let t_ok = args.get(2).is_some_and(Value::is_truthy);
+    let events = expect_key_events(&args[1])?;
+    let keymaps = resolve_lookup_keymaps_in_runtime(eval, &args[0])?;
+
+    if events.is_empty() {
+        return Ok(keymaps.first().copied().unwrap_or(Value::Nil));
+    }
+
+    let mut best = Value::Nil;
+    for keymap in &keymaps {
+        let direct = lookup_key_in_runtime(eval, keymap, &events, t_ok)?;
+        if !direct.is_nil() && !matches!(direct, Value::Int(_)) {
+            return Ok(direct);
+        }
+        if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(eval.obarray(), &events) {
+            let expanded_result = lookup_key_in_runtime(eval, keymap, &expanded, t_ok)?;
+            if !expanded_result.is_nil() && !matches!(expanded_result, Value::Int(_)) {
+                return Ok(expanded_result);
+            }
+        }
+        if best.is_nil() {
+            best = direct;
+        }
+    }
+
+    Ok(best)
 }
 
 pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
@@ -285,66 +299,7 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
 
     let events = expect_key_events(&args[1])?;
 
-    // KEYMAP can also be a list of keymaps (gap #8).
-    // GNU keymap.c:1304: "KEYMAP can also be a list of keymaps."
-    // Check if first arg is a list of keymaps (a cons whose car is itself a keymap).
-    let keymaps: Vec<Value> = if is_list_keymap(&args[0]) {
-        vec![args[0]]
-    } else if args[0].as_symbol_name().is_some() {
-        // Symbol whose function cell is a keymap
-        if let Some(func) = obarray.symbol_function_of_value(&args[0]).copied() {
-            if is_list_keymap(&func) {
-                vec![func]
-            } else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("keymapp"), args[0]],
-                ));
-            }
-        } else {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("keymapp"), args[0]],
-            ));
-        }
-    } else if let Value::Cons(_) = args[0] {
-        // Could be a list of keymaps
-        if let Some(items) = list_to_vec(&args[0]) {
-            if !items.is_empty()
-                && items.iter().all(|v| {
-                    is_list_keymap(v)
-                        || v.as_symbol_name().is_some()
-                            && obarray
-                                .symbol_function_of_value(v)
-                                .is_some_and(|f| is_list_keymap(f))
-                })
-            {
-                // It's a list of keymaps — resolve each one
-                items
-                    .iter()
-                    .map(|v| {
-                        if is_list_keymap(v) {
-                            *v
-                        } else if v.as_symbol_name().is_some() {
-                            obarray.symbol_function_of_value(v).copied().unwrap_or(*v)
-                        } else {
-                            *v
-                        }
-                    })
-                    .collect()
-            } else {
-                // Not a list of keymaps — try as a single keymap
-                vec![expect_keymap_in_obarray(obarray, &args[0])?]
-            }
-        } else {
-            vec![expect_keymap_in_obarray(obarray, &args[0])?]
-        }
-    } else {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("keymapp"), args[0]],
-        ));
-    };
+    let keymaps = resolve_lookup_keymaps_in_obarray(obarray, &args[0])?;
 
     if events.is_empty() {
         return Ok(keymaps.first().copied().unwrap_or(Value::Nil));
@@ -371,6 +326,107 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
     }
 
     Ok(best)
+}
+
+fn resolve_lookup_keymaps_in_runtime(
+    eval: &mut super::eval::Context,
+    value: &Value,
+) -> Result<Vec<Value>, Flow> {
+    if is_list_keymap(value) {
+        return Ok(vec![*value]);
+    }
+    if value.is_nil() {
+        return Ok(vec![Value::Nil]);
+    }
+    if let Some(items) = list_to_vec(value) {
+        if items.is_empty() {
+            return Ok(vec![Value::Nil]);
+        }
+        let mut resolved = Vec::with_capacity(items.len());
+        for item in &items {
+            if item.is_nil() {
+                resolved.push(Value::Nil);
+                continue;
+            }
+            let keymap = maybe_keymap_in_runtime(eval, item, true)?;
+            if keymap.is_nil() {
+                resolved.clear();
+                break;
+            }
+            resolved.push(keymap);
+        }
+        if !resolved.is_empty() {
+            return Ok(resolved);
+        }
+    }
+
+    Ok(vec![get_keymap_in_runtime(eval, value, true, true)?])
+}
+
+fn resolve_lookup_keymaps_in_obarray(obarray: &Obarray, value: &Value) -> Result<Vec<Value>, Flow> {
+    if is_list_keymap(value) {
+        return Ok(vec![*value]);
+    }
+    if value.is_nil() {
+        return Ok(vec![Value::Nil]);
+    }
+    if let Some(items) = list_to_vec(value) {
+        if items.is_empty() {
+            return Ok(vec![Value::Nil]);
+        }
+        let mut resolved = Vec::with_capacity(items.len());
+        for item in &items {
+            if item.is_nil() {
+                resolved.push(Value::Nil);
+                continue;
+            }
+            let Some(keymap) = maybe_keymap_in_obarray(obarray, item) else {
+                resolved.clear();
+                break;
+            };
+            resolved.push(keymap);
+        }
+        if !resolved.is_empty() {
+            return Ok(resolved);
+        }
+    }
+
+    Ok(vec![expect_keymap_in_obarray(obarray, value)?])
+}
+
+fn lookup_key_in_runtime(
+    eval: &mut super::eval::Context,
+    keymap: &Value,
+    events: &[Value],
+    t_ok: bool,
+) -> EvalResult {
+    if events.is_empty() {
+        return Ok(*keymap);
+    }
+
+    let mut current_map = *keymap;
+    for (i, event) in events.iter().enumerate() {
+        let binding = if t_ok {
+            list_keymap_lookup_one_t_ok(&current_map, event)
+        } else {
+            list_keymap_lookup_one(&current_map, event)
+        };
+        let is_last = i == events.len() - 1;
+        if is_last {
+            return Ok(binding);
+        }
+        if binding.is_nil() {
+            return Ok(Value::Int((i + 1) as i64));
+        }
+        let prefix_keymap = maybe_keymap_in_runtime(eval, &binding, true)?;
+        if !prefix_keymap.is_nil() {
+            current_map = prefix_keymap;
+            continue;
+        }
+        return Ok(Value::Int((i + 1) as i64));
+    }
+
+    Ok(Value::Nil)
 }
 
 fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value], t_ok: bool) -> Value {
@@ -402,18 +458,9 @@ fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value], t_
             return Value::Int((i + 1) as i64);
         }
 
-        // Try to resolve to a keymap for the next level of lookup.
-        if is_list_keymap(&binding) {
-            current_map = binding;
+        if let Some(prefix_keymap) = resolve_prefix_keymap_binding_in_obarray(obarray, &binding) {
+            current_map = prefix_keymap;
             continue;
-        }
-        if binding.as_symbol_name().is_some() {
-            if let Some(func) = obarray.symbol_function_of_value(&binding).copied() {
-                if is_list_keymap(&func) {
-                    current_map = func;
-                    continue;
-                }
-            }
         }
         // Non-prefix binding found before all keys consumed: "too long"
         return Value::Int((i + 1) as i64);
@@ -478,7 +525,10 @@ pub(super) fn builtin_use_global_map(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_use_global_map_impl(&mut eval.obarray, &args)
+    expect_args("use-global-map", &args, 1)?;
+    let keymap = get_keymap_in_runtime(eval, &args[0], true, true)?;
+    eval.obarray.set_symbol_value("global-map", keymap);
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_use_global_map_impl(obarray: &mut Obarray, args: &[Value]) -> EvalResult {
@@ -608,7 +658,7 @@ fn current_local_map_for_position(
 
     let property =
         keymap_property_at_position(obarray, buffers, buffer_object, char_pos, "local-map")?;
-    Ok(expect_keymap_in_obarray(obarray, &property).unwrap_or(fallback_local_map))
+    Ok(maybe_keymap_in_obarray(obarray, &property).unwrap_or(fallback_local_map))
 }
 
 fn position_keymap(
@@ -623,7 +673,7 @@ fn position_keymap(
 
     let property =
         keymap_property_at_position(obarray, buffers, buffer_object, char_pos, "keymap")?;
-    Ok(expect_keymap_in_obarray(obarray, &property).unwrap_or(Value::Nil))
+    Ok(maybe_keymap_in_obarray(obarray, &property).unwrap_or(Value::Nil))
 }
 
 pub(crate) fn current_active_maps_for_position(
@@ -638,13 +688,13 @@ pub(crate) fn current_active_maps_for_position(
         &[],
         "overriding-local-map",
     )
-    .and_then(|value| expect_keymap_in_obarray(&ctx.obarray, &value).ok());
+    .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
     let overriding_terminal_local_map = super::misc_eval::dynamic_or_global_symbol_value_in_state(
         &ctx.obarray,
         &[],
         "overriding-terminal-local-map",
     )
-    .and_then(|value| expect_keymap_in_obarray(&ctx.obarray, &value).ok());
+    .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
     current_active_maps_from_parts(
         &ctx.obarray,
         &ctx.buffers,
@@ -675,13 +725,13 @@ pub(crate) fn current_active_maps_for_position_read_only(
         &[],
         "overriding-local-map",
     )
-    .and_then(|value| expect_keymap_in_obarray(&ctx.obarray, &value).ok());
+    .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
     let overriding_terminal_local_map = super::misc_eval::dynamic_or_global_symbol_value_in_state(
         &ctx.obarray,
         &[],
         "overriding-terminal-local-map",
     )
-    .and_then(|value| expect_keymap_in_obarray(&ctx.obarray, &value).ok());
+    .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
     current_active_maps_from_parts(
         &ctx.obarray,
         &ctx.buffers,
@@ -864,20 +914,7 @@ fn collect_maps_from_alist_in_state(
             continue;
         }
 
-        // Resolve indirect keymaps (symbol → its function definition).
-        let resolved = if is_list_keymap(&keymap_val) {
-            keymap_val
-        } else if keymap_val.as_symbol_name().is_some() {
-            obarray
-                .symbol_function_of_value(&keymap_val)
-                .cloned()
-                .filter(|v| is_list_keymap(v))
-                .unwrap_or(Value::Nil)
-        } else {
-            Value::Nil
-        };
-
-        if !resolved.is_nil() && is_list_keymap(&resolved) {
+        if let Some(resolved) = maybe_keymap_in_obarray(obarray, &keymap_val) {
             maps.push(resolved);
         }
     }
@@ -1014,12 +1051,14 @@ pub(super) fn builtin_keymap_parent(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_keymap_parent_impl(eval.obarray(), &args)
+    expect_args("keymap-parent", &args, 1)?;
+    let keymap = get_keymap_in_runtime(eval, &args[0], true, true)?;
+    Ok(list_keymap_parent(&keymap))
 }
 
 pub(crate) fn builtin_keymap_parent_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("keymap-parent", &args, 1)?;
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    let keymap = get_keymap_in_obarray(obarray, &args[0], true)?;
     Ok(list_keymap_parent(&keymap))
 }
 
@@ -1028,19 +1067,39 @@ pub(super) fn builtin_set_keymap_parent(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_keymap_parent_impl(eval.obarray(), &args)
+    expect_args("set-keymap-parent", &args, 2)?;
+    let keymap = get_keymap_in_runtime(eval, &args[0], true, true)?;
+    let parent = if args[1].is_nil() {
+        Value::Nil
+    } else {
+        get_keymap_in_runtime(eval, &args[1], true, false)?
+    };
+    if !parent.is_nil() && list_keymap_inherits_from(&parent, &keymap) {
+        return Err(signal(
+            "error",
+            vec![Value::string("Cyclic keymap inheritance")],
+        ));
+    }
+    list_keymap_set_parent(keymap, parent);
+    Ok(parent)
 }
 
 pub(crate) fn builtin_set_keymap_parent_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("set-keymap-parent", &args, 2)?;
-    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    let keymap = get_keymap_in_obarray(obarray, &args[0], true)?;
     let parent = if args[1].is_nil() {
         Value::Nil
     } else {
-        expect_keymap_in_obarray(obarray, &args[1])?
+        get_keymap_in_obarray(obarray, &args[1], true)?
     };
+    if !parent.is_nil() && list_keymap_inherits_from(&parent, &keymap) {
+        return Err(signal(
+            "error",
+            vec![Value::string("Cyclic keymap inheritance")],
+        ));
+    }
     list_keymap_set_parent(keymap, parent);
-    Ok(args[1])
+    Ok(parent)
 }
 
 pub(super) fn is_lisp_keymap_object(value: &Value) -> bool {
@@ -1054,19 +1113,9 @@ pub(super) fn builtin_keymapp(eval: &mut super::eval::Context, args: Vec<Value>)
 
 pub(crate) fn builtin_keymapp_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("keymapp", &args, 1)?;
-    if is_list_keymap(&args[0]) {
-        return Ok(Value::True);
-    }
-    // Check if it's a symbol whose function cell is a keymap.
-    // Use symbol_function_of_value to handle uninterned symbols correctly.
-    if args[0].as_symbol_name().is_some() {
-        if let Some(func) = obarray.symbol_function_of_value(&args[0]) {
-            if is_list_keymap(func) {
-                return Ok(Value::True);
-            }
-        }
-    }
-    Ok(Value::Nil)
+    Ok(maybe_keymap_in_obarray(obarray, &args[0])
+        .map(|_| Value::True)
+        .unwrap_or(Value::Nil))
 }
 
 /// `(event-convert-list EVENT-DESC)` -> event object or nil

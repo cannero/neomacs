@@ -6,16 +6,21 @@
 //! - Key description parsing (`kbd` style: "C-x C-f", "M-x", "RET", etc.)
 //! - Global and local (buffer) keymap support
 
+use std::collections::HashSet;
+
 use super::chartable::{
     builtin_char_table_range, builtin_set_char_table_range, is_char_table, make_char_table_value,
 };
+use super::error::{EvalResult, Flow, signal};
+use super::eval::Context;
 use super::intern::resolve_sym;
+use super::intern::{SymId, intern};
 use super::keyboard::pure::{
     KEY_CHAR_ALT, KEY_CHAR_CODE_MASK, KEY_CHAR_CTRL, KEY_CHAR_HYPER, KEY_CHAR_META,
     KEY_CHAR_MOD_MASK, KEY_CHAR_SHIFT, KEY_CHAR_SUPER,
 };
 use super::symbol::Obarray;
-use super::value::{Value, read_cons, with_heap, with_heap_mut};
+use super::value::{Value, list_to_vec, read_cons, with_heap, with_heap_mut};
 
 // ---------------------------------------------------------------------------
 // Key events
@@ -386,6 +391,160 @@ pub fn is_list_keymap(v: &Value) -> bool {
     }
 }
 
+fn keymap_symbol_id(value: &Value) -> Option<SymId> {
+    match value {
+        Value::Nil => Some(intern("nil")),
+        Value::True => Some(intern("t")),
+        Value::Symbol(id) | Value::Keyword(id) => Some(*id),
+        _ => None,
+    }
+}
+
+fn resolve_indirect_function_by_id_in_obarray(
+    obarray: &Obarray,
+    symbol: SymId,
+) -> Option<(SymId, Value)> {
+    let mut current = symbol;
+    let mut seen = HashSet::new();
+
+    loop {
+        if !seen.insert(current) {
+            return None;
+        }
+        let function = obarray.get_by_id(current)?.function?;
+        if let Some(next_symbol) = keymap_symbol_id(&function) {
+            current = next_symbol;
+            continue;
+        }
+        return Some((current, function));
+    }
+}
+
+pub(crate) fn is_keymap_autoload_form(value: &Value) -> bool {
+    if !crate::emacs_core::autoload::is_autoload_value(value) {
+        return false;
+    }
+    list_to_vec(value)
+        .and_then(|items| items.get(4).copied())
+        .is_some_and(|kind| kind.as_symbol_name() == Some("keymap"))
+}
+
+pub(crate) fn get_keymap_in_obarray(
+    obarray: &Obarray,
+    value: &Value,
+    error_if_not_keymap: bool,
+) -> Result<Value, Flow> {
+    if value.is_nil() {
+        return if error_if_not_keymap {
+            Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("keymapp"), *value],
+            ))
+        } else {
+            Ok(Value::Nil)
+        };
+    }
+
+    if is_list_keymap(value) {
+        return Ok(*value);
+    }
+
+    if let Some(symbol) = keymap_symbol_id(value)
+        && let Some((_, function)) = resolve_indirect_function_by_id_in_obarray(obarray, symbol)
+    {
+        if is_list_keymap(&function) {
+            return Ok(function);
+        }
+        if is_keymap_autoload_form(&function) && !error_if_not_keymap {
+            return Ok(*value);
+        }
+    }
+
+    if error_if_not_keymap {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("keymapp"), *value],
+        ))
+    } else {
+        Ok(Value::Nil)
+    }
+}
+
+pub(crate) fn maybe_keymap_in_obarray(obarray: &Obarray, value: &Value) -> Option<Value> {
+    get_keymap_in_obarray(obarray, value, false)
+        .ok()
+        .filter(is_list_keymap)
+}
+
+pub(crate) fn get_keymap_in_runtime(
+    eval: &mut Context,
+    value: &Value,
+    error_if_not_keymap: bool,
+    autoload: bool,
+) -> EvalResult {
+    let original = *value;
+    let mut current = original;
+
+    loop {
+        if current.is_nil() {
+            break;
+        }
+        if is_list_keymap(&current) {
+            return Ok(current);
+        }
+
+        let Some(symbol) = keymap_symbol_id(&current) else {
+            break;
+        };
+        let Some((_, function)) =
+            resolve_indirect_function_by_id_in_obarray(eval.obarray(), symbol)
+        else {
+            break;
+        };
+
+        if is_list_keymap(&function) {
+            return Ok(function);
+        }
+
+        if is_keymap_autoload_form(&function) {
+            if autoload {
+                current = crate::emacs_core::autoload::builtin_autoload_do_load(
+                    eval,
+                    vec![function, original, Value::Nil],
+                )?;
+                continue;
+            }
+            if !error_if_not_keymap {
+                return Ok(original);
+            }
+        }
+
+        break;
+    }
+
+    if error_if_not_keymap {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("keymapp"), original],
+        ))
+    } else {
+        Ok(Value::Nil)
+    }
+}
+
+pub(crate) fn maybe_keymap_in_runtime(
+    eval: &mut Context,
+    value: &Value,
+    autoload: bool,
+) -> EvalResult {
+    let resolved = get_keymap_in_runtime(eval, value, false, autoload)?;
+    if is_list_keymap(&resolved) {
+        Ok(resolved)
+    } else {
+        Ok(Value::Nil)
+    }
+}
+
 /// Strip menu-item wrappers from a keymap binding, mirroring `get_keyelt`
 /// in official Emacs `keymap.c`.
 ///
@@ -705,16 +864,14 @@ pub(crate) fn expand_meta_prefix_char_events_in_obarray(
     changed.then_some(expanded)
 }
 
-fn resolve_prefix_keymap_binding_in_obarray(obarray: &Obarray, binding: &Value) -> Option<Value> {
+pub(crate) fn resolve_prefix_keymap_binding_in_obarray(
+    obarray: &Obarray,
+    binding: &Value,
+) -> Option<Value> {
     if is_list_keymap(binding) {
         return Some(*binding);
     }
-    // Use symbol_function_of_value to handle uninterned symbols correctly.
-    binding.as_symbol_name()?; // verify it's a symbol
-    obarray
-        .symbol_function_of_value(binding)
-        .copied()
-        .filter(is_list_keymap)
+    maybe_keymap_in_obarray(obarray, binding)
 }
 
 /// Define a binding in a keymap.
@@ -903,6 +1060,22 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
             }
         }
     }
+}
+
+/// Check whether `target` appears in `keymap`'s parent chain.
+pub fn list_keymap_inherits_from(keymap: &Value, target: &Value) -> bool {
+    let mut current = *keymap;
+    while is_list_keymap(&current) {
+        let same_keymap = match (current, *target) {
+            (Value::Cons(current_id), Value::Cons(target_id)) => current_id == target_id,
+            _ => current == *target,
+        };
+        if same_keymap {
+            return true;
+        }
+        current = list_keymap_parent(&current);
+    }
+    false
 }
 
 /// Convert a `KeyEvent` to an Emacs event value (integer with modifier bits, or symbol).
