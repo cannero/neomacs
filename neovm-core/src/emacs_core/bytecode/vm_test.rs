@@ -944,6 +944,34 @@ fn vm_unbind_counts_unwind_protect_entries_like_gnu() {
 }
 
 #[test]
+fn vm_legacy_unwind_protect_opcode_is_rejected() {
+    let mut eval = Context::new_vm_harness();
+    let mut func = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    func.ops = vec![Op::UnwindProtect(7), Op::Nil, Op::Return];
+    func.max_stack = 1;
+
+    let mut vm = new_vm(&mut eval);
+    let flow = vm
+        .execute(&func, vec![])
+        .expect_err("legacy unwind-protect opcode should be rejected");
+
+    let Flow::Signal(sig) = flow else {
+        panic!("expected signal, got {flow:?}");
+    };
+    assert_eq!(sig.symbol_name(), "error");
+    assert_eq!(
+        sig.data.first().and_then(Value::as_str),
+        Some(
+            "Legacy neomacs unwind-protect opcode is unsupported; recompile this bytecode (target 7)"
+        )
+    );
+}
+
+#[test]
 fn vm_unbind_restores_saved_excursion_point() {
     let (result, buffers, (buffer_id, saved_point)) = execute_manual_vm_built(|buffers| {
         let buffer_id = buffers.create_buffer("excursion");

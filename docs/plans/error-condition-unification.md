@@ -118,8 +118,8 @@ GNU keeps those on `specpdl`, and neomacs already has a reasonable analogue.
 
 This also implies one concrete cleanup:
 
-- VM `Handler::UnwindProtect` should stop pretending to be part of the
-  condition-handler model
+- VM local handler markers should only mirror condition frames; unwind cleanup
+  belongs entirely to unwind records
 
 `unwind-protect` belongs with unwind records, not with condition dispatch.
 
@@ -290,8 +290,10 @@ Phase 5 progress:
 - VM local state still owns low-level unwind structure, especially
   `unwind-protect` cleanup sequencing
 - neomacs-compiled `unwind-protect` now lowers through GNU-style cleanup
-  closures plus `UnwindProtectPop`; the legacy jump-target opcode remains
-  compatibility-only and is no longer emitted by the compiler
+  closures plus `UnwindProtectPop`
+- the VM local handler list now mirrors only condition frames; the legacy
+  jump-target opcode is explicit compatibility-only failure instead of a live
+  dispatch path
 
 ### Phase 6: Delete redundant logic
 

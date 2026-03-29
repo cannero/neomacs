@@ -17,17 +17,13 @@ use crate::emacs_core::string_escape::{storage_char_len, storage_substring};
 use crate::emacs_core::value::*;
 use crate::window::{FrameId, FrameManager, Window};
 
-/// Handler frame for catch/condition-case/unwind-protect.
+/// Local marker for catch/condition-case frames mirrored into the shared
+/// condition runtime.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 enum Handler {
     /// Local marker corresponding to a catch/condition-case frame already
     /// stored in `Context.condition_stack`.
     Condition,
-    /// Legacy neomacs-only unwind-protect cleanup target.
-    /// New compiler output uses `VmUnwindEntry::Cleanup` via
-    /// `Op::UnwindProtectPop`, which is closer to GNU bytecode.
-    UnwindProtect { target: u32 },
 }
 
 #[derive(Clone, Debug)]
@@ -116,14 +112,7 @@ impl<'a> Vm<'a> {
         result
     }
 
-    fn collect_handler_roots(handlers: &[Handler], out: &mut Vec<Value>) {
-        for handler in handlers {
-            match handler {
-                Handler::Condition => {}
-                Handler::UnwindProtect { .. } => {}
-            }
-        }
-    }
+    fn collect_handler_roots(_handlers: &[Handler], _out: &mut Vec<Value>) {}
 
     fn collect_specpdl_roots(specpdl: &[VmUnwindEntry], out: &mut Vec<Value>) {
         for entry in specpdl {
@@ -1716,17 +1705,17 @@ impl<'a> Vm<'a> {
                     });
                 }
                 Op::PopHandler => {
-                    if let Some(handler) = handlers.pop() {
-                        match handler {
-                            Handler::Condition => {
-                                self.ctx.pop_condition_frame();
-                            }
-                            _ => {}
-                        }
+                    if handlers.pop().is_some() {
+                        self.ctx.pop_condition_frame();
                     }
                 }
                 Op::UnwindProtect(target) => {
-                    handlers.push(Handler::UnwindProtect { target: *target });
+                    vm_try!(Err(signal(
+                        "error",
+                        vec![Value::string(format!(
+                            "Legacy neomacs unwind-protect opcode is unsupported; recompile this bytecode (target {target})"
+                        ))],
+                    )));
                 }
                 Op::UnwindProtectPop => {
                     let cleanup = stack.pop().unwrap_or(Value::Nil);
@@ -4537,7 +4526,6 @@ fn unwind_handlers_to_selected_resume(
                     return Some(resume);
                 }
             }
-            Handler::UnwindProtect { .. } => {}
         }
     }
     None
