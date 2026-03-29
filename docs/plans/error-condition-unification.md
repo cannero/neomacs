@@ -223,6 +223,12 @@ Phase 1 scaffold status:
 - Reduce `catch_tags` to a compatibility mirror
 - Remove it once no runtime code depends on it
 
+Phase 2 progress:
+
+- interpreter `throw` and `validate_throw` now consult `Context.condition_stack`
+- VM outer-catch fallback now consults the shared stack after local VM unwind
+- `catch_tags` remains only as mirror bookkeeping for still-local VM/signal paths
+
 ### Phase 3: Unify `condition-case`
 
 - Move interpreter `condition-case` selection to shared dispatch

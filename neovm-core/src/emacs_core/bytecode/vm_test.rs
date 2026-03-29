@@ -1,6 +1,7 @@
 use super::*;
 use crate::emacs_core::bytecode::compiler::Compiler;
-use crate::emacs_core::eval::{Context, GuiFrameHostSize};
+use crate::emacs_core::error::Flow;
+use crate::emacs_core::eval::{ConditionFrame, Context, GuiFrameHostSize, ResumeTarget};
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
 use crate::window::SplitDirection;
@@ -1160,6 +1161,38 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
 
     let result = vm.execute(&func, vec![]).expect("vm catch should execute");
     assert_eq!(result, Value::list(vec![Value::Int(42), Value::Int(99)]));
+}
+
+#[test]
+fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror() {
+    let mut eval = Context::new_vm_harness();
+    let tag = Value::symbol("vm-shared-outer");
+    eval.push_condition_frame(ConditionFrame::Catch {
+        tag,
+        resume: ResumeTarget::InterpreterCatch,
+    });
+
+    assert!(eval.catch_tags.is_empty());
+
+    let forms = parse_forms("(throw 'vm-shared-outer 42)").expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+    let mut vm = new_vm(&mut eval);
+    let result = vm.execute(&func, vec![]);
+    drop(vm);
+
+    assert!(matches!(
+        result,
+        Err(Flow::Throw {
+            tag: thrown_tag,
+            value
+        }) if thrown_tag == tag && value == Value::Int(42)
+    ));
+    assert_eq!(eval.condition_stack_depth_for_test(), 1);
+
+    eval.pop_condition_frame();
+    assert!(eval.catch_tags.is_empty());
+    assert_eq!(eval.condition_stack_depth_for_test(), 0);
 }
 
 #[test]

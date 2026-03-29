@@ -3574,11 +3574,13 @@ impl<'a> Vm<'a> {
 
     /// Execute a compiled function without param binding (for inline compilation).
     fn execute_inline(&mut self, func: &ByteCodeFunction) -> EvalResult {
+        let condition_stack_base = self.ctx.condition_stack_len();
         let mut stack: Vec<Value> = Vec::with_capacity(func.max_stack as usize);
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
         let mut specpdl: Vec<VmUnwindEntry> = Vec::new();
         let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
+        self.ctx.truncate_condition_stack(condition_stack_base);
         let cleanup_roots = Self::result_roots(&result);
         let mut cleanup_extra_roots = cleanup_roots.clone();
         Self::collect_specpdl_roots(&specpdl, &mut cleanup_extra_roots);
@@ -3652,11 +3654,11 @@ impl<'a> Vm<'a> {
                     return Ok(());
                 }
 
-                // No matching catch in VM handler stack. Check evaluator
-                // catch_tags (catches established by the interpreter above us).
-                // If found -> Flow::Throw (will be caught by sf_catch).
-                // If not -> signal no-catch immediately (GNU Emacs semantics).
-                if !tag.is_nil() && self.ctx.catch_tags.iter().rev().any(|t| eq_value(t, &tag)) {
+                // No matching catch in the VM-local handler stack. Check the
+                // remaining shared condition stack for outer interpreter catches.
+                // If found -> Flow::Throw (will be caught above us). If not ->
+                // signal no-catch immediately (GNU Emacs semantics).
+                if self.ctx.has_active_catch(&tag) {
                     return Err(Flow::Throw { tag, value });
                 }
                 Err(signal("no-catch", vec![tag, value]))

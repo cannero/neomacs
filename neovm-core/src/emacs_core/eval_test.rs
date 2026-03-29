@@ -1,4 +1,6 @@
 use super::*;
+use crate::emacs_core::error::Flow;
+use crate::emacs_core::eval::{ConditionFrame, ResumeTarget};
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::cell::RefCell;
@@ -2208,6 +2210,31 @@ fn funcall_throw_is_callable_and_preserves_throw_semantics() {
         eval_one("(condition-case err (funcall 'throw) (error err))"),
         "OK (wrong-number-of-arguments #<subr throw> 0)"
     );
+}
+
+#[test]
+fn funcall_throw_uses_shared_condition_stack_without_catch_tag_mirror() {
+    let mut ev = Context::new();
+    let tag = Value::symbol("vm-shared-throw");
+    ev.push_condition_frame(ConditionFrame::Catch {
+        tag,
+        resume: ResumeTarget::InterpreterCatch,
+    });
+
+    assert!(ev.catch_tags.is_empty());
+
+    let result = ev.funcall_general(Value::symbol("throw"), vec![tag, Value::Int(42)]);
+    assert!(matches!(
+        result,
+        Err(Flow::Throw {
+            tag: thrown_tag,
+            value
+        }) if thrown_tag == tag && value == Value::Int(42)
+    ));
+    assert_eq!(ev.condition_stack_depth_for_test(), 1);
+
+    ev.pop_condition_frame();
+    assert!(ev.top_level_eval_state_is_clean());
 }
 
 #[test]

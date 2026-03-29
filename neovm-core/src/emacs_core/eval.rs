@@ -777,11 +777,11 @@ pub struct Context {
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
     pub(crate) vm_gc_roots: Vec<Value>,
-    /// Active catch tags — tracks all `catch` tags currently on the call stack.
-    /// Used by `throw` to determine whether a matching catch exists: if yes,
-    /// emit `Flow::Throw`; if no, signal `no-catch` immediately (matching
-    /// GNU Emacs's `Fthrow` which calls `xsignal2(Qno_catch, ...)` when no
-    /// catch handler is found).
+    /// Compatibility mirror of active catch tags.
+    ///
+    /// The shared `condition_stack` is the authoritative handler runtime; this
+    /// vector remains only as a temporary mirror while the rest of condition
+    /// dispatch is migrated off the old split paths.
     pub(crate) catch_tags: Vec<Value>,
     /// Shared condition runtime mirror for active catch/condition handlers.
     pub(crate) condition_stack: Vec<ConditionFrame>,
@@ -1436,6 +1436,21 @@ impl Context {
 
     pub(crate) fn condition_stack_len(&self) -> usize {
         self.condition_stack.len()
+    }
+
+    pub(crate) fn has_active_catch(&self, tag: &Value) -> bool {
+        if tag.is_nil() {
+            return false;
+        }
+
+        self.condition_stack.iter().rev().any(|frame| {
+            matches!(
+                frame,
+                ConditionFrame::Catch {
+                    tag: catch_tag, ..
+                } if eq_value(catch_tag, tag)
+            )
+        })
     }
 
     fn new_inner(reset_thread_locals: bool) -> Self {
@@ -5604,13 +5619,13 @@ impl Context {
         Ok(Value::symbol(name))
     }
 
-    /// Validate a `Flow::Throw` against the active catch tags.
+    /// Validate a `Flow::Throw` against the active catch stack.
     /// If a matching catch exists, pass through.  If not, convert to
     /// `Flow::Signal("no-catch", ...)` — mirrors GNU Emacs `Fthrow`.
     fn validate_throw(&self, flow: Flow) -> Flow {
         match flow {
             Flow::Throw { ref tag, ref value } => {
-                if !tag.is_nil() && self.catch_tags.iter().rev().any(|t| eq_value(t, tag)) {
+                if self.has_active_catch(tag) {
                     flow
                 } else {
                     signal("no-catch", vec![*tag, *value])
@@ -5630,7 +5645,8 @@ impl Context {
         let tag = self.eval(&tail[0])?;
         // Root tag so GC during body can't collect it.
         self.temp_roots.push(tag);
-        // Register this catch tag so `throw` can check for a matching catch.
+        // Maintain the compatibility mirror while the shared condition stack
+        // becomes the authoritative catch runtime.
         self.catch_tags.push(tag);
         self.push_condition_frame(ConditionFrame::Catch {
             tag,
@@ -5835,9 +5851,10 @@ impl Context {
                 Err(Flow::Signal(sig))
             }
             // Flow::Throw bypasses condition-case entirely (GNU Emacs semantics).
-            // The throw was already validated to have a matching catch when it was
-            // created in sf_throw / builtin_throw.  If there's no matching catch,
-            // sf_throw signals no-catch as a Flow::Signal, which is handled above.
+            // The throw was already validated against the active catch stack when
+            // it was created in sf_throw / builtin_throw. If there's no matching
+            // catch, sf_throw signals no-catch as a Flow::Signal, which is
+            // handled above.
             Err(flow @ Flow::Throw { .. }) => {
                 self.truncate_condition_stack(condition_stack_base);
                 Err(flow)
@@ -6831,9 +6848,7 @@ impl Context {
             return self.apply_evaluator_callable_by_id(sym_id, args);
         }
         if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
-            // Validate throws from builtins: builtins may generate Flow::Throw
-            // (e.g. exit-minibuffer) without checking catch_tags.  Convert to
-            // no-catch signal when no matching catch exists (GNU Emacs semantics).
+            // Validate throws from builtins against the shared catch stack.
             let result = result.map_err(|flow| self.validate_throw(flow));
             if rewrite_builtin_wrong_arity {
                 result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
@@ -7132,7 +7147,7 @@ impl Context {
                 }
                 let tag = args[0];
                 let value = args[1];
-                if self.catch_tags.iter().rev().any(|t| eq_value(t, &tag)) {
+                if self.has_active_catch(&tag) {
                     Err(Flow::Throw { tag, value })
                 } else {
                     Err(signal("no-catch", vec![tag, value]))
