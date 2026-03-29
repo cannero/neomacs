@@ -181,85 +181,99 @@ impl KeyEvent {
 
     /// Format as Emacs key description (e.g., "C-x", "M-f", "RET").
     pub fn to_description(&self) -> String {
-        let prefix = self.modifiers.prefix_string();
-        let key_str = match &self.key {
-            Key::Char(' ') => "SPC".to_string(),
-            Key::Char(c) => c.to_string(),
-            Key::Named(n) => match n {
-                NamedKey::Return => "RET".to_string(),
-                NamedKey::Tab => "TAB".to_string(),
-                NamedKey::Escape => "ESC".to_string(),
-                NamedKey::Backspace => "DEL".to_string(),
-                NamedKey::Delete => "<delete>".to_string(),
-                NamedKey::Insert => "<insert>".to_string(),
-                NamedKey::Home => "<home>".to_string(),
-                NamedKey::End => "<end>".to_string(),
-                NamedKey::PageUp => "<prior>".to_string(),
-                NamedKey::PageDown => "<next>".to_string(),
-                NamedKey::Left => "<left>".to_string(),
-                NamedKey::Right => "<right>".to_string(),
-                NamedKey::Up => "<up>".to_string(),
-                NamedKey::Down => "<down>".to_string(),
-                NamedKey::F(n) => format!("<f{}>", n),
-            },
-        };
-        format!("{}{}", prefix, key_str)
+        let event = crate::emacs_core::keymap::KeyEvent::from(self.clone());
+        let emacs_event = crate::emacs_core::keymap::key_event_to_emacs_event(&event);
+        crate::emacs_core::keyboard::pure::describe_single_key_value(&emacs_event, false)
+            .unwrap_or_else(|_| format!("{:?}", emacs_event))
     }
 
     /// Parse an Emacs key description (e.g., "C-x", "M-f").
     pub fn from_description(desc: &str) -> Option<Self> {
-        let mut mods = Modifiers::none();
-        let mut rest = desc;
+        let encoded = crate::emacs_core::kbd::parse_kbd_string(desc).ok()?;
+        let events = crate::emacs_core::kbd::key_events_from_designator(&encoded).ok()?;
+        let [event] = events.as_slice() else {
+            return None;
+        };
+        Self::from_emacs_key_event(event.clone())
+    }
 
-        loop {
-            if let Some(r) = rest.strip_prefix("C-") {
-                mods.ctrl = true;
-                rest = r;
-            } else if let Some(r) = rest.strip_prefix("M-") {
-                mods.meta = true;
-                rest = r;
-            } else if let Some(r) = rest.strip_prefix("S-") {
-                mods.shift = true;
-                rest = r;
-            } else if let Some(r) = rest.strip_prefix("s-") {
-                mods.super_ = true;
-                rest = r;
-            } else if let Some(r) = rest.strip_prefix("H-") {
-                mods.hyper = true;
-                rest = r;
-            } else {
-                break;
+    fn from_emacs_key_event(event: crate::emacs_core::keymap::KeyEvent) -> Option<Self> {
+        match event {
+            crate::emacs_core::keymap::KeyEvent::Char {
+                code,
+                ctrl,
+                meta,
+                shift,
+                super_,
+                hyper,
+                alt,
+            } => {
+                if alt {
+                    return None;
+                }
+                let key = match code {
+                    '\r' => Key::Named(NamedKey::Return),
+                    '\t' => Key::Named(NamedKey::Tab),
+                    '\u{1b}' => Key::Named(NamedKey::Escape),
+                    '\u{7f}' => Key::Named(NamedKey::Backspace),
+                    other => Key::Char(other),
+                };
+                Some(KeyEvent {
+                    key,
+                    modifiers: Modifiers {
+                        ctrl,
+                        meta,
+                        shift,
+                        super_,
+                        hyper,
+                    },
+                })
+            }
+            crate::emacs_core::keymap::KeyEvent::Function {
+                name,
+                ctrl,
+                meta,
+                shift,
+                super_,
+                hyper,
+                alt,
+            } => {
+                if alt {
+                    return None;
+                }
+                let key = match name.as_str() {
+                    "return" => Key::Named(NamedKey::Return),
+                    "tab" => Key::Named(NamedKey::Tab),
+                    "escape" => Key::Named(NamedKey::Escape),
+                    "backspace" => Key::Named(NamedKey::Backspace),
+                    "delete" => Key::Named(NamedKey::Delete),
+                    "insert" => Key::Named(NamedKey::Insert),
+                    "home" => Key::Named(NamedKey::Home),
+                    "end" => Key::Named(NamedKey::End),
+                    "prior" => Key::Named(NamedKey::PageUp),
+                    "next" => Key::Named(NamedKey::PageDown),
+                    "left" => Key::Named(NamedKey::Left),
+                    "right" => Key::Named(NamedKey::Right),
+                    "up" => Key::Named(NamedKey::Up),
+                    "down" => Key::Named(NamedKey::Down),
+                    other if other.starts_with('f') => {
+                        let num = other.strip_prefix('f')?.parse::<u8>().ok()?;
+                        Key::Named(NamedKey::F(num))
+                    }
+                    _ => return None,
+                };
+                Some(KeyEvent {
+                    key,
+                    modifiers: Modifiers {
+                        ctrl,
+                        meta,
+                        shift,
+                        super_,
+                        hyper,
+                    },
+                })
             }
         }
-
-        let key = match rest {
-            "SPC" | "spc" => Key::Char(' '),
-            "RET" | "ret" | "return" => Key::Named(NamedKey::Return),
-            "TAB" | "tab" => Key::Named(NamedKey::Tab),
-            "ESC" | "esc" => Key::Named(NamedKey::Escape),
-            "DEL" | "del" | "backspace" => Key::Named(NamedKey::Backspace),
-            "<delete>" => Key::Named(NamedKey::Delete),
-            "<insert>" => Key::Named(NamedKey::Insert),
-            "<home>" => Key::Named(NamedKey::Home),
-            "<end>" => Key::Named(NamedKey::End),
-            "<prior>" => Key::Named(NamedKey::PageUp),
-            "<next>" => Key::Named(NamedKey::PageDown),
-            "<left>" => Key::Named(NamedKey::Left),
-            "<right>" => Key::Named(NamedKey::Right),
-            "<up>" => Key::Named(NamedKey::Up),
-            "<down>" => Key::Named(NamedKey::Down),
-            s if s.starts_with("<f") && s.ends_with('>') => {
-                let n: u8 = s[2..s.len() - 1].parse().ok()?;
-                Key::Named(NamedKey::F(n))
-            }
-            s if s.len() == 1 => Key::Char(s.chars().next()?),
-            _ => return None,
-        };
-
-        Some(KeyEvent {
-            key,
-            modifiers: mods,
-        })
     }
 
     /// Convert to Emacs integer event representation.
@@ -322,12 +336,13 @@ impl KeySequence {
 
     /// Parse an Emacs key sequence description (e.g., "C-x C-f").
     pub fn from_description(desc: &str) -> Option<Self> {
-        let parts: Vec<&str> = desc.split_whitespace().collect();
-        let events: Option<Vec<KeyEvent>> = parts
-            .iter()
-            .map(|p| KeyEvent::from_description(p))
-            .collect();
-        events.map(|e| Self { events: e })
+        let encoded = crate::emacs_core::kbd::parse_kbd_string(desc).ok()?;
+        let emacs_events = crate::emacs_core::kbd::key_events_from_designator(&encoded).ok()?;
+        let events = emacs_events
+            .into_iter()
+            .map(KeyEvent::from_emacs_key_event)
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self { events })
     }
 }
 

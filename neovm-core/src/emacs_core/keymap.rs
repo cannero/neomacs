@@ -60,7 +60,7 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                 meta: ke.modifiers.meta,
                 shift: ke.modifiers.shift,
                 super_: ke.modifiers.super_,
-                hyper: false,
+                hyper: ke.modifiers.hyper,
                 alt: false,
             },
             Key::Named(named) => {
@@ -99,7 +99,7 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                             meta: ke.modifiers.meta,
                             shift: ke.modifiers.shift,
                             super_: ke.modifiers.super_,
-                            hyper: false,
+                            hyper: ke.modifiers.hyper,
                             alt: false,
                         };
                     }
@@ -110,7 +110,7 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                     meta: ke.modifiers.meta,
                     shift: ke.modifiers.shift,
                     super_: ke.modifiers.super_,
-                    hyper: false,
+                    hyper: ke.modifiers.hyper,
                     alt: false,
                 }
             }
