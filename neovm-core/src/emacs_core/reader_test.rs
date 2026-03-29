@@ -1743,6 +1743,7 @@ struct BlockingKeySequenceRuntime {
     unread: VecDeque<Value>,
     read_command_keys: Vec<Value>,
     blocking_keys: Vec<Value>,
+    last_options: Option<crate::keyboard::ReadKeySequenceOptions>,
 }
 
 impl KeyboardInputRuntime for BlockingKeySequenceRuntime {
@@ -1783,7 +1784,11 @@ impl KeyboardInputRuntime for BlockingKeySequenceRuntime {
         unreachable!("read-char should not be used in this test runtime")
     }
 
-    fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow> {
+    fn read_key_sequence_blocking(
+        &mut self,
+        options: crate::keyboard::ReadKeySequenceOptions,
+    ) -> Result<(Vec<Value>, Value), Flow> {
+        self.last_options = Some(options);
         Ok((self.blocking_keys.clone(), Value::Nil))
     }
 }
@@ -1794,11 +1799,36 @@ fn read_key_sequence_vector_interactive_runtime_returns_blocking_sequence() {
         blocking_keys: vec![Value::Int(97), Value::symbol("f1")],
         ..Default::default()
     };
-    let result =
-        finish_read_key_sequence_vector_interactive_in_runtime(&mut runtime).expect("vector read");
+    let result = finish_read_key_sequence_vector_interactive_in_runtime(
+        &mut runtime,
+        crate::keyboard::ReadKeySequenceOptions::default(),
+    )
+    .expect("vector read");
     assert_eq!(
         result,
         Value::vector(vec![Value::Int(97), Value::symbol("f1")])
+    );
+}
+
+#[test]
+fn read_key_sequence_interactive_runtime_passes_prompt_options() {
+    let mut runtime = BlockingKeySequenceRuntime {
+        blocking_keys: vec![Value::Int(97)],
+        ..Default::default()
+    };
+    let result = finish_read_key_sequence_interactive_in_runtime(
+        &mut runtime,
+        crate::keyboard::ReadKeySequenceOptions::new(Value::string("Prompt> "), true, true),
+    )
+    .expect("interactive read");
+    assert_eq!(result, Value::string("a"));
+    assert_eq!(
+        runtime.last_options,
+        Some(crate::keyboard::ReadKeySequenceOptions::new(
+            Value::string("Prompt> "),
+            true,
+            true,
+        ))
     );
 }
 

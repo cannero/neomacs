@@ -4800,7 +4800,7 @@ impl Context {
         }
     }
 
-    fn function_value_is_callable(&self, function: &Value) -> bool {
+    pub(crate) fn function_value_is_callable(&self, function: &Value) -> bool {
         match function {
             Value::Lambda(_) | Value::ByteCode(_) | Value::Macro(_) => true,
             Value::Subr(bound_name) => !super::subr_info::is_special_form(resolve_sym(*bound_name)),

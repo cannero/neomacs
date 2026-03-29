@@ -4260,7 +4260,10 @@ impl<'a> Vm<'a> {
         {
             return Ok(value);
         }
-        crate::emacs_core::reader::finish_read_key_sequence_interactive_in_runtime(self.ctx)
+        crate::emacs_core::reader::finish_read_key_sequence_interactive_in_runtime(
+            self.ctx,
+            crate::emacs_core::reader::read_key_sequence_options_from_args(args),
+        )
     }
 
     fn builtin_read_key_sequence_vector_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4269,7 +4272,10 @@ impl<'a> Vm<'a> {
         {
             return Ok(value);
         }
-        crate::emacs_core::reader::finish_read_key_sequence_vector_interactive_in_runtime(self.ctx)
+        crate::emacs_core::reader::finish_read_key_sequence_vector_interactive_in_runtime(
+            self.ctx,
+            crate::emacs_core::reader::read_key_sequence_options_from_args(args),
+        )
     }
 
     fn builtin_recent_keys_shared(&mut self, args: &[Value]) -> EvalResult {

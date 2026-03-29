@@ -1560,7 +1560,10 @@ pub(crate) trait KeyboardInputRuntime {
     fn read_command_keys(&self) -> &[Value];
     fn has_input_receiver(&self) -> bool;
     fn read_char_blocking(&mut self) -> Result<Value, Flow>;
-    fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow>;
+    fn read_key_sequence_blocking(
+        &mut self,
+        options: crate::keyboard::ReadKeySequenceOptions,
+    ) -> Result<(Vec<Value>, Value), Flow>;
 }
 
 impl KeyboardInputRuntime for super::eval::Context {
@@ -1604,9 +1607,22 @@ impl KeyboardInputRuntime for super::eval::Context {
         super::eval::Context::read_char(self)
     }
 
-    fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow> {
-        super::eval::Context::read_key_sequence(self)
+    fn read_key_sequence_blocking(
+        &mut self,
+        options: crate::keyboard::ReadKeySequenceOptions,
+    ) -> Result<(Vec<Value>, Value), Flow> {
+        super::eval::Context::read_key_sequence_with_options(self, options)
     }
+}
+
+pub(crate) fn read_key_sequence_options_from_args(
+    args: &[Value],
+) -> crate::keyboard::ReadKeySequenceOptions {
+    crate::keyboard::ReadKeySequenceOptions::new(
+        args.first().copied().unwrap_or(Value::Nil),
+        args.get(2).is_some_and(Value::is_truthy),
+        args.get(3).is_some_and(Value::is_truthy),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -2066,18 +2082,22 @@ pub(crate) fn builtin_read_key_sequence(
         return Ok(value);
     }
 
-    finish_read_key_sequence_in_eval(eval)
+    finish_read_key_sequence_in_eval(eval, &args)
 }
 
-pub(crate) fn finish_read_key_sequence_in_eval(eval: &mut super::eval::Context) -> EvalResult {
-    finish_read_key_sequence_interactive_in_runtime(eval)
+pub(crate) fn finish_read_key_sequence_in_eval(
+    eval: &mut super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    finish_read_key_sequence_interactive_in_runtime(eval, read_key_sequence_options_from_args(args))
 }
 
 pub(crate) fn finish_read_key_sequence_interactive_in_runtime(
     runtime: &mut impl KeyboardInputRuntime,
+    options: crate::keyboard::ReadKeySequenceOptions,
 ) -> EvalResult {
     if runtime.has_input_receiver() {
-        let (keys, _binding) = runtime.read_key_sequence_blocking()?;
+        let (keys, _binding) = runtime.read_key_sequence_blocking(options)?;
         let mut chars_only = true;
         let mut s = String::new();
         for k in &keys {
@@ -2109,14 +2129,18 @@ pub(crate) fn builtin_read_key_sequence_vector(
     if let Some(value) = builtin_read_key_sequence_vector_in_runtime(eval, &args)? {
         return Ok(value);
     }
-    finish_read_key_sequence_vector_interactive_in_runtime(eval)
+    finish_read_key_sequence_vector_interactive_in_runtime(
+        eval,
+        read_key_sequence_options_from_args(&args),
+    )
 }
 
 pub(crate) fn finish_read_key_sequence_vector_interactive_in_runtime(
     runtime: &mut impl KeyboardInputRuntime,
+    options: crate::keyboard::ReadKeySequenceOptions,
 ) -> EvalResult {
     if runtime.has_input_receiver() {
-        let (keys, _binding) = runtime.read_key_sequence_blocking()?;
+        let (keys, _binding) = runtime.read_key_sequence_blocking(options)?;
         return Ok(Value::vector(keys));
     }
 

@@ -398,6 +398,49 @@ impl ReadKeySequenceState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ReadKeySequenceOptions {
+    pub prompt: Value,
+    pub dont_downcase_last: bool,
+    pub can_return_switch_frame: bool,
+}
+
+impl ReadKeySequenceOptions {
+    pub(crate) fn new(
+        prompt: Value,
+        dont_downcase_last: bool,
+        can_return_switch_frame: bool,
+    ) -> Self {
+        Self {
+            prompt,
+            dont_downcase_last,
+            can_return_switch_frame,
+        }
+    }
+}
+
+impl Default for ReadKeySequenceOptions {
+    fn default() -> Self {
+        Self {
+            prompt: Value::Nil,
+            dont_downcase_last: false,
+            can_return_switch_frame: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct KeySequenceSuffixTranslation {
+    start: usize,
+    replacement: Vec<Value>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct CurrentKeySequenceTranslation {
+    translated_events: Vec<Value>,
+    has_pending_translation_prefix: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Keysym conversion (X11/winit keysyms → neovm-core KeyEvent)
 // ---------------------------------------------------------------------------
@@ -1363,29 +1406,87 @@ impl crate::emacs_core::eval::Context {
         ]
     }
 
-    fn apply_translation_maps_to_current_key_sequence(&mut self) {
+    fn resolve_key_sequence_translation_binding(
+        &mut self,
+        binding: Value,
+        prompt: Value,
+    ) -> Result<Option<Vec<Value>>, crate::emacs_core::error::Flow> {
+        let resolved = if self.function_value_is_callable(&binding) {
+            self.apply(binding, vec![prompt])?
+        } else {
+            binding
+        };
+        Ok(key_sequence_translation_events(resolved))
+    }
+
+    fn lookup_key_sequence_suffix_translation(
+        &mut self,
+        map: Value,
+        events: &[Value],
+        prompt: Value,
+    ) -> Result<Option<KeySequenceSuffixTranslation>, crate::emacs_core::error::Flow> {
         use crate::emacs_core::keymap::{is_list_keymap, list_keymap_lookup_seq};
 
-        for map in self.current_key_sequence_translation_maps() {
-            if map.is_nil() || !is_list_keymap(&map) {
-                continue;
-            }
+        if map.is_nil() || !is_list_keymap(&map) {
+            return Ok(None);
+        }
 
-            let lookup = list_keymap_lookup_seq(
-                &map,
-                self.command_loop
-                    .keyboard
-                    .kboard
-                    .current_key_sequence
-                    .translated_events(),
-            );
-            let Some(translated) = key_sequence_translation_events(lookup) else {
+        for start in 0..events.len() {
+            let lookup = list_keymap_lookup_seq(&map, &events[start..]);
+            let Some(replacement) =
+                self.resolve_key_sequence_translation_binding(lookup, prompt)?
+            else {
                 continue;
             };
-            self.command_loop
-                .keyboard
-                .rewrite_key_sequence_translation(translated);
+            return Ok(Some(KeySequenceSuffixTranslation { start, replacement }));
         }
+
+        Ok(None)
+    }
+
+    fn translation_map_has_pending_suffix_prefix(&self, map: Value, events: &[Value]) -> bool {
+        use crate::emacs_core::keymap::{is_list_keymap, list_keymap_lookup_seq};
+
+        if map.is_nil() || !is_list_keymap(&map) {
+            return false;
+        }
+
+        (0..events.len())
+            .any(|start| is_list_keymap(&list_keymap_lookup_seq(&map, &events[start..])))
+    }
+
+    fn apply_translation_maps_to_current_key_sequence(
+        &mut self,
+        options: ReadKeySequenceOptions,
+    ) -> Result<CurrentKeySequenceTranslation, crate::emacs_core::error::Flow> {
+        let mut translated = self
+            .command_loop
+            .keyboard
+            .kboard
+            .current_key_sequence
+            .translated_events()
+            .to_vec();
+        let mut has_pending_translation_prefix = false;
+
+        for map in self.current_key_sequence_translation_maps() {
+            if let Some(suffix_translation) =
+                self.lookup_key_sequence_suffix_translation(map, &translated, options.prompt)?
+            {
+                translated.truncate(suffix_translation.start);
+                translated.extend(suffix_translation.replacement);
+            }
+            has_pending_translation_prefix |=
+                self.translation_map_has_pending_suffix_prefix(map, &translated);
+        }
+
+        self.command_loop
+            .keyboard
+            .rewrite_key_sequence_translation(translated.clone());
+
+        Ok(CurrentKeySequenceTranslation {
+            translated_events: translated,
+            has_pending_translation_prefix,
+        })
     }
 
     pub(crate) fn apply_resize_input_event(
@@ -1486,6 +1587,13 @@ impl crate::emacs_core::eval::Context {
     pub(crate) fn read_key_sequence(
         &mut self,
     ) -> Result<(Vec<Value>, Value), crate::emacs_core::error::Flow> {
+        self.read_key_sequence_with_options(ReadKeySequenceOptions::default())
+    }
+
+    pub(crate) fn read_key_sequence_with_options(
+        &mut self,
+        options: ReadKeySequenceOptions,
+    ) -> Result<(Vec<Value>, Value), crate::emacs_core::error::Flow> {
         use crate::emacs_core::keymap::{
             resolve_active_key_binding, resolve_prefix_keymap_binding_in_obarray,
         };
@@ -1505,14 +1613,8 @@ impl crate::emacs_core::eval::Context {
                 crate::emacs_core::print::print_value(&emacs_event)
             );
 
-            self.apply_translation_maps_to_current_key_sequence();
-            let translated_events = self
-                .command_loop
-                .keyboard
-                .kboard
-                .current_key_sequence
-                .translated_events()
-                .to_vec();
+            let translation = self.apply_translation_maps_to_current_key_sequence(options)?;
+            let translated_events = translation.translated_events;
 
             tracing::debug!(
                 "read_key_sequence: looking up binding for {:?}",
@@ -1530,6 +1632,12 @@ impl crate::emacs_core::eval::Context {
             );
 
             if binding.is_nil() {
+                if translation.has_pending_translation_prefix {
+                    tracing::debug!(
+                        "read_key_sequence: continuing because translation suffix is still a prefix"
+                    );
+                    continue;
+                }
                 let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
                 self.command_loop
                     .set_command_key_sequences(translated.clone(), raw);

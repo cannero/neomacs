@@ -681,6 +681,119 @@ fn assigning_terminal_translation_maps_updates_keyboard_runtime_owner() {
 }
 
 #[test]
+fn read_key_sequence_function_translation_receives_prompt() {
+    let mut ev = Context::new();
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    let setup = parse_forms(
+        r#"(progn
+             (setq neomacs-test-read-key-sequence-prompt nil)
+             (fset 'neomacs-test-read-key-sequence-command
+                   (lambda () (interactive) 'ok))
+             (fset 'neomacs-test-key-translation
+                   (lambda (prompt)
+                     (setq neomacs-test-read-key-sequence-prompt prompt)
+                     [f1])))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::symbol("f1")],
+        Value::symbol("neomacs-test-read-key-sequence-command"),
+    )
+    .expect("define translated command");
+
+    let key_translation_map = ev
+        .eval_symbol("key-translation-map")
+        .expect("key-translation-map");
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        key_translation_map,
+        &[Value::Int('a' as i64)],
+        Value::symbol("neomacs-test-key-translation"),
+    )
+    .expect("define translation");
+
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::Int('a' as i64));
+
+    let (keys, binding) = ev
+        .read_key_sequence_with_options(crate::keyboard::ReadKeySequenceOptions::new(
+            Value::string("Prompt> "),
+            false,
+            false,
+        ))
+        .expect("read translated key sequence");
+
+    assert_eq!(keys, vec![Value::symbol("f1")]);
+    assert_eq!(
+        binding,
+        Value::symbol("neomacs-test-read-key-sequence-command")
+    );
+
+    let prompt_form = parse_forms("neomacs-test-read-key-sequence-prompt").expect("parse");
+    let prompt = ev
+        .eval_expr(&prompt_form[0])
+        .expect("prompt should evaluate");
+    assert_eq!(prompt, Value::string("Prompt> "));
+}
+
+#[test]
+fn read_key_sequence_continues_through_pending_suffix_translation_prefix() {
+    let mut ev = Context::new();
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    let setup = parse_forms(
+        r#"(fset 'neomacs-test-suffix-translation-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::Int('a' as i64), Value::symbol("f1")],
+        Value::symbol("neomacs-test-suffix-translation-command"),
+    )
+    .expect("define suffix command");
+
+    let input_decode_map = ev
+        .eval_symbol("input-decode-map")
+        .expect("input-decode-map");
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        input_decode_map,
+        &[Value::Int('b' as i64), Value::Int('c' as i64)],
+        Value::vector(vec![Value::symbol("f1")]),
+    )
+    .expect("define input-decode suffix translation");
+
+    for event in [
+        Value::Int('a' as i64),
+        Value::Int('b' as i64),
+        Value::Int('c' as i64),
+    ] {
+        ev.command_loop
+            .keyboard
+            .kboard
+            .unread_events
+            .push_back(event);
+    }
+
+    let (keys, binding) = ev
+        .read_key_sequence()
+        .expect("read suffix-translated sequence");
+    assert_eq!(keys, vec![Value::Int('a' as i64), Value::symbol("f1")]);
+    assert_eq!(
+        binding,
+        Value::symbol("neomacs-test-suffix-translation-command")
+    );
+}
+
+#[test]
 fn redisplay_preserves_non_resize_input_for_read_char() {
     let mut ev = Context::new();
     let fid = ev

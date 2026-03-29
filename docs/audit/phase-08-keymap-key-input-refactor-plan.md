@@ -85,9 +85,10 @@ This is not GNU-shaped enough yet.
 
 ### Refreshed audit on latest upstream
 
-Latest upstream re-check on 2026-03-29 at `origin/main` `cddff4b23` did not
-change the keymap/input owner boundary.  The new upstream commits were
-condition-runtime and syntax-table work, not keyboard/keymap refactors.
+Latest upstream re-check on 2026-03-29 at `origin/main` `b7d296abf` still did
+not change the keymap/input owner boundary. The newer upstream work was
+process/PTY support plus missing process builtins, not keyboard/keymap owner
+refactors.
 
 So the keymap/input audit remains:
 
@@ -341,6 +342,20 @@ Rebuild `read_key_sequence` in the keyboard owner around GNU shape:
 
 This is the biggest semantic slice in Phase 8.
 
+Current status:
+
+- completed: `read-key-sequence` prompt / `DONT-DOWNCASE-LAST` /
+  `CAN-RETURN-SWITCH-FRAME` option parsing now flows through one
+  keyboard-owner options type instead of ad hoc wrapper paths
+- completed: function-valued translation bindings now run inside the keyboard
+  owner, including prompt delivery to translation functions
+- completed: suffix translation replay now keeps reading when a translated
+  suffix is still only a prefix key sequence, instead of incorrectly bailing
+  out early with an undefined binding
+- remaining: full GNU replay/rescan, delayed `switch-frame`, real
+  `dont-downcase-last`, `this-command-keys-shift-translated`, and fake mouse
+  prefix handling
+
 ### Slice E: unify modifier canonicalization
 
 After `read_key_sequence` is GNU-shaped, unify:
@@ -483,6 +498,13 @@ Completed on 2026-03-29:
   inside `src/keyboard.rs`, so unread events, command-key history,
   keyboard-macro playback, and terminal-local translation maps stop living as
   loose top-level keyboard fields.
+- `read_key_sequence` now threads a real keyboard-owned options object through
+  builtin wrappers, VM/runtime callers, and the keyboard owner, so prompt,
+  `dont-downcase-last`, and `can-return-switch-frame` semantics no longer need
+  evaluator-local wrapper glue.
+- Function-valued translation bindings now execute inside the keyboard owner,
+  and suffix translation replay now keeps reading through pending translation
+  prefixes instead of returning an incomplete undefined sequence.
 
 Still open:
 

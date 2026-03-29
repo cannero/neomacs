@@ -1513,7 +1513,10 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 {
                     arg
                 } else {
-                    super::reader::finish_read_key_sequence_interactive_in_runtime(shared)?
+                    super::reader::finish_read_key_sequence_interactive_in_runtime(
+                        shared,
+                        super::reader::read_key_sequence_options_from_args(&letter_args),
+                    )?
                 };
                 interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
                 args.push(arg);
@@ -1527,7 +1530,10 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     )? {
                     arg
                 } else {
-                    super::reader::finish_read_key_sequence_vector_interactive_in_runtime(shared)?
+                    super::reader::finish_read_key_sequence_vector_interactive_in_runtime(
+                        shared,
+                        super::reader::read_key_sequence_options_from_args(&letter_args),
+                    )?
                 };
                 interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
                 args.push(arg);
