@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::value::list_to_vec;
 use crate::emacs_core::{format_eval_result, parse_forms};
@@ -12,6 +13,13 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
         .iter()
         .map(format_eval_result)
         .collect()
+}
+
+macro_rules! call_fileio_builtin {
+    ($builtin:ident, $args:expr) => {{
+        let mut eval = Context::new();
+        $builtin(&mut eval, $args)
+    }};
 }
 
 #[cfg(unix)]
@@ -322,12 +330,19 @@ fn test_builtin_delete_file_accepts_optional_trash_arg() {
     let _ = fs::remove_file(&path);
     fs::write(&path, b"x").unwrap();
 
-    let result = builtin_delete_file(vec![Value::string(&path_str), Value::True]).unwrap();
+    let result = call_fileio_builtin!(
+        builtin_delete_file,
+        vec![Value::string(&path_str), Value::True]
+    )
+    .unwrap();
     assert_eq!(result, Value::Nil);
     assert!(!path.exists());
 
-    let err =
-        builtin_delete_file(vec![Value::string(&path_str), Value::Nil, Value::Nil]).unwrap_err();
+    let err = call_fileio_builtin!(
+        builtin_delete_file,
+        vec![Value::string(&path_str), Value::Nil, Value::Nil]
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
@@ -346,7 +361,7 @@ fn test_builtin_delete_directory_basic_and_recursive() {
 
     // Non-recursive removal succeeds for empty directories.
     assert_eq!(
-        builtin_delete_directory(vec![Value::string(&root_str)]).unwrap(),
+        call_fileio_builtin!(builtin_delete_directory, vec![Value::string(&root_str)]).unwrap(),
         Value::Nil
     );
     assert!(!root.exists());
@@ -355,7 +370,8 @@ fn test_builtin_delete_directory_basic_and_recursive() {
     fs::create_dir_all(&root).unwrap();
     let nested = root.join("child.txt");
     fs::write(&nested, b"x").unwrap();
-    let err = builtin_delete_directory(vec![Value::string(&root_str)]).unwrap_err();
+    let err =
+        call_fileio_builtin!(builtin_delete_directory, vec![Value::string(&root_str)]).unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "file-error");
@@ -365,7 +381,11 @@ fn test_builtin_delete_directory_basic_and_recursive() {
 
     // Recursive removal succeeds.
     assert_eq!(
-        builtin_delete_directory(vec![Value::string(&root_str), Value::True]).unwrap(),
+        call_fileio_builtin!(
+            builtin_delete_directory,
+            vec![Value::string(&root_str), Value::True]
+        )
+        .unwrap(),
         Value::Nil
     );
     assert!(!root.exists());
@@ -384,7 +404,7 @@ fn test_builtin_delete_directory_eval_resolves_default_directory() {
 
     let child = base.join("child");
     fs::create_dir_all(&child).unwrap();
-    builtin_delete_directory_eval(&mut eval, vec![Value::string("child")]).unwrap();
+    builtin_delete_directory(&mut eval, vec![Value::string("child")]).unwrap();
     assert!(!child.exists());
 
     let _ = fs::remove_dir_all(base);
@@ -403,26 +423,34 @@ fn test_builtin_make_symbolic_link_core_semantics() {
     let link_str = link.to_string_lossy().to_string();
 
     assert_eq!(
-        builtin_make_symbolic_link(vec![Value::string(&target_str), Value::string(&link_str)])
-            .unwrap(),
+        call_fileio_builtin!(
+            builtin_make_symbolic_link,
+            vec![Value::string(&target_str), Value::string(&link_str)]
+        )
+        .unwrap(),
         Value::Nil
     );
     assert!(file_symlink_p(&link_str));
 
-    let err =
-        builtin_make_symbolic_link(vec![Value::string(&target_str), Value::string(&link_str)])
-            .unwrap_err();
+    let err = call_fileio_builtin!(
+        builtin_make_symbolic_link,
+        vec![Value::string(&target_str), Value::string(&link_str)]
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-already-exists"),
         other => panic!("expected signal, got {:?}", other),
     }
 
     assert_eq!(
-        builtin_make_symbolic_link(vec![
-            Value::string(&target_str),
-            Value::string(&link_str),
-            Value::True,
-        ])
+        call_fileio_builtin!(
+            builtin_make_symbolic_link,
+            vec![
+                Value::string(&target_str),
+                Value::string(&link_str),
+                Value::True,
+            ]
+        )
         .unwrap(),
         Value::Nil
     );
@@ -445,7 +473,7 @@ fn test_builtin_make_symbolic_link_eval_uses_default_directory() {
     );
 
     fs::write(base.join("target.txt"), b"x").unwrap();
-    builtin_make_symbolic_link_eval(
+    builtin_make_symbolic_link(
         &mut eval,
         vec![Value::string("target.txt"), Value::string("link.txt")],
     )
@@ -558,30 +586,36 @@ fn test_builtin_rename_file_overwrite_semantics() {
     let src_s = src.to_string_lossy().to_string();
     let dst_s = dst.to_string_lossy().to_string();
 
-    let err = builtin_rename_file(vec![Value::string(&src_s), Value::string(&dst_s)]).unwrap_err();
+    let err = call_fileio_builtin!(
+        builtin_rename_file,
+        vec![Value::string(&src_s), Value::string(&dst_s)]
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-already-exists"),
         other => panic!("expected signal, got {:?}", other),
     }
 
     assert_eq!(
-        builtin_rename_file(vec![
-            Value::string(&src_s),
-            Value::string(&dst_s),
-            Value::True
-        ])
+        call_fileio_builtin!(
+            builtin_rename_file,
+            vec![Value::string(&src_s), Value::string(&dst_s), Value::True]
+        )
         .unwrap(),
         Value::Nil
     );
     assert!(!src.exists());
     assert!(dst.exists());
 
-    let err = builtin_rename_file(vec![
-        Value::string("a"),
-        Value::string("b"),
-        Value::Nil,
-        Value::Nil,
-    ])
+    let err = call_fileio_builtin!(
+        builtin_rename_file,
+        vec![
+            Value::string("a"),
+            Value::string("b"),
+            Value::Nil,
+            Value::Nil,
+        ]
+    )
     .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
@@ -604,44 +638,53 @@ fn test_builtin_copy_file_optional_arg_semantics() {
     let src_s = src.to_string_lossy().to_string();
     let dst_s = dst.to_string_lossy().to_string();
 
-    let err = builtin_copy_file(vec![Value::string(&src_s), Value::string(&dst_s)]).unwrap_err();
+    let err = call_fileio_builtin!(
+        builtin_copy_file,
+        vec![Value::string(&src_s), Value::string(&dst_s)]
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-already-exists"),
         other => panic!("expected signal, got {:?}", other),
     }
 
     assert_eq!(
-        builtin_copy_file(vec![
-            Value::string(&src_s),
-            Value::string(&dst_s),
-            Value::True
-        ])
+        call_fileio_builtin!(
+            builtin_copy_file,
+            vec![Value::string(&src_s), Value::string(&dst_s), Value::True]
+        )
         .unwrap(),
         Value::Nil
     );
 
     assert_eq!(
-        builtin_copy_file(vec![
-            Value::string(&src_s),
-            Value::string(&dst_s),
-            Value::True,
-            Value::True,
-            Value::True,
-            Value::True,
-        ])
+        call_fileio_builtin!(
+            builtin_copy_file,
+            vec![
+                Value::string(&src_s),
+                Value::string(&dst_s),
+                Value::True,
+                Value::True,
+                Value::True,
+                Value::True,
+            ]
+        )
         .unwrap(),
         Value::Nil
     );
 
-    let err = builtin_copy_file(vec![
-        Value::string("a"),
-        Value::string("b"),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-    ])
+    let err = call_fileio_builtin!(
+        builtin_copy_file,
+        vec![
+            Value::string("a"),
+            Value::string("b"),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+        ]
+    )
     .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
@@ -665,25 +708,35 @@ fn test_builtin_add_name_to_file_semantics() {
     let dst_str = dst.to_string_lossy().to_string();
 
     assert_eq!(
-        builtin_add_name_to_file(vec![Value::string(&src_str), Value::string(&dst_str)]).unwrap(),
+        call_fileio_builtin!(
+            builtin_add_name_to_file,
+            vec![Value::string(&src_str), Value::string(&dst_str)]
+        )
+        .unwrap(),
         Value::Nil
     );
     assert!(file_exists_p(&dst_str));
     assert_same_file_paths(&src_str, &dst_str);
 
-    let err = builtin_add_name_to_file(vec![Value::string(&src_str), Value::string(&dst_str)])
-        .unwrap_err();
+    let err = call_fileio_builtin!(
+        builtin_add_name_to_file,
+        vec![Value::string(&src_str), Value::string(&dst_str)]
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-already-exists"),
         other => panic!("expected signal, got {:?}", other),
     }
 
     assert_eq!(
-        builtin_add_name_to_file(vec![
-            Value::string(&src_str),
-            Value::string(&dst_str),
-            Value::True,
-        ])
+        call_fileio_builtin!(
+            builtin_add_name_to_file,
+            vec![
+                Value::string(&src_str),
+                Value::string(&dst_str),
+                Value::True,
+            ]
+        )
         .unwrap(),
         Value::Nil
     );
@@ -691,8 +744,11 @@ fn test_builtin_add_name_to_file_semantics() {
 
     let missing = dir.join("missing.txt").to_string_lossy().to_string();
     let dst2 = dir.join("alias2.txt").to_string_lossy().to_string();
-    let err =
-        builtin_add_name_to_file(vec![Value::string(&missing), Value::string(&dst2)]).unwrap_err();
+    let err = call_fileio_builtin!(
+        builtin_add_name_to_file,
+        vec![Value::string(&missing), Value::string(&dst2)]
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-missing"),
         other => panic!("expected signal, got {:?}", other),
@@ -738,15 +794,24 @@ fn test_file_attributes() {
 
 #[test]
 fn test_builtin_expand_file_name() {
-    let result = builtin_expand_file_name(vec![Value::string("/usr/local/bin/emacs")]);
+    let result = call_fileio_builtin!(
+        builtin_expand_file_name,
+        vec![Value::string("/usr/local/bin/emacs")]
+    );
     assert!(result.is_ok());
     assert_eq!(result.unwrap().as_str(), Some("/usr/local/bin/emacs"));
 
     // Emacs treats non-string DEFAULT-DIRECTORY as root.
-    let result = builtin_expand_file_name(vec![Value::string("a"), Value::symbol("x")]);
+    let result = call_fileio_builtin!(
+        builtin_expand_file_name,
+        vec![Value::string("a"), Value::symbol("x")]
+    );
     assert_eq!(result.unwrap().as_str(), Some("/a"));
 
-    let result = builtin_expand_file_name(vec![Value::string("a"), Value::Nil, Value::Nil]);
+    let result = call_fileio_builtin!(
+        builtin_expand_file_name,
+        vec![Value::string("a"), Value::Nil, Value::Nil]
+    );
     assert!(result.is_err());
 }
 
@@ -756,14 +821,13 @@ fn test_builtin_expand_file_name_eval_uses_default_directory() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/neovm-expand/"));
 
-    let with_implicit = builtin_expand_file_name_eval(&mut eval, vec![Value::string("alpha.txt")]);
+    let with_implicit = builtin_expand_file_name(&mut eval, vec![Value::string("alpha.txt")]);
     assert_eq!(
         with_implicit.unwrap().as_str(),
         Some("/tmp/neovm-expand/alpha.txt")
     );
 
-    let with_nil =
-        builtin_expand_file_name_eval(&mut eval, vec![Value::string("beta.txt"), Value::Nil]);
+    let with_nil = builtin_expand_file_name(&mut eval, vec![Value::string("beta.txt"), Value::Nil]);
     assert_eq!(
         with_nil.unwrap().as_str(),
         Some("/tmp/neovm-expand/beta.txt")
@@ -788,27 +852,27 @@ fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
         .expect("buffer local default-directory should set");
 
     assert_eq!(
-        builtin_expand_file_name_eval(&mut eval, vec![Value::string("alpha.txt")])
+        builtin_expand_file_name(&mut eval, vec![Value::string("alpha.txt")])
             .unwrap()
             .as_str(),
         Some(base.join("alpha.txt").to_string_lossy().as_ref())
     );
     assert_eq!(
-        builtin_file_truename_eval(&mut eval, vec![Value::string("alpha.txt")])
+        builtin_file_truename(&mut eval, vec![Value::string("alpha.txt")])
             .unwrap()
             .as_str(),
         Some(base.join("alpha.txt").to_string_lossy().as_ref())
     );
     assert_eq!(
-        builtin_file_exists_p_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap(),
+        builtin_file_exists_p(&mut eval, vec![Value::string("alpha.txt")]).unwrap(),
         Value::True
     );
     assert_eq!(
-        builtin_file_directory_p_eval(&mut eval, vec![Value::string("subdir")]).unwrap(),
+        builtin_file_directory_p(&mut eval, vec![Value::string("subdir")]).unwrap(),
         Value::True
     );
     assert_eq!(
-        builtin_file_regular_p_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap(),
+        builtin_file_regular_p(&mut eval, vec![Value::string("alpha.txt")]).unwrap(),
         Value::True
     );
 
@@ -817,10 +881,18 @@ fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
 
 #[test]
 fn test_builtin_file_truename_counter_validation() {
-    let value = builtin_file_truename(vec![Value::string("/tmp"), Value::list(vec![])]).unwrap();
+    let value = call_fileio_builtin!(
+        builtin_file_truename,
+        vec![Value::string("/tmp"), Value::list(vec![])]
+    )
+    .unwrap();
     assert_eq!(value.as_str(), Some("/tmp"));
 
-    let err = builtin_file_truename(vec![Value::string("/tmp"), Value::Int(1)]).unwrap_err();
+    let err = call_fileio_builtin!(
+        builtin_file_truename,
+        vec![Value::string("/tmp"), Value::Int(1)]
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -829,10 +901,13 @@ fn test_builtin_file_truename_counter_validation() {
         other => panic!("expected signal, got {:?}", other),
     }
 
-    let err = builtin_file_truename(vec![
-        Value::string("/tmp"),
-        Value::list(vec![Value::symbol("visited")]),
-    ])
+    let err = call_fileio_builtin!(
+        builtin_file_truename,
+        vec![
+            Value::string("/tmp"),
+            Value::list(vec![Value::symbol("visited")]),
+        ]
+    )
     .unwrap_err();
     match err {
         Flow::Signal(sig) => {
@@ -857,28 +932,36 @@ fn test_builtin_file_truename_eval_uses_default_directory() {
         Value::string("/tmp/neovm-file-truename/"),
     );
 
-    let value = builtin_file_truename_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
+    let value = builtin_file_truename(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     assert_eq!(value.as_str(), Some("/tmp/neovm-file-truename/alpha.txt"));
 }
 
 #[test]
 fn test_builtin_make_temp_file_core_paths() {
-    let file = builtin_make_temp_file(vec![Value::string("neovm-mtf-")]).unwrap();
+    let file =
+        call_fileio_builtin!(builtin_make_temp_file, vec![Value::string("neovm-mtf-")]).unwrap();
     let file_path = file.as_str().unwrap().to_string();
     assert!(file_exists_p(&file_path));
     delete_file(&file_path).unwrap();
 
-    let dir = builtin_make_temp_file(vec![Value::string("neovm-mtf-dir-"), Value::True]).unwrap();
+    let dir = call_fileio_builtin!(
+        builtin_make_temp_file,
+        vec![Value::string("neovm-mtf-dir-"), Value::True]
+    )
+    .unwrap();
     let dir_path = dir.as_str().unwrap().to_string();
     assert!(file_directory_p(&dir_path));
     fs::remove_dir(&dir_path).unwrap();
 
-    let with_text = builtin_make_temp_file(vec![
-        Value::string("neovm-mtf-text-"),
-        Value::Nil,
-        Value::string(".txt"),
-        Value::string("abc"),
-    ])
+    let with_text = call_fileio_builtin!(
+        builtin_make_temp_file,
+        vec![
+            Value::string("neovm-mtf-text-"),
+            Value::Nil,
+            Value::string(".txt"),
+            Value::string("abc"),
+        ]
+    )
     .unwrap();
     let text_path = with_text.as_str().unwrap().to_string();
     assert_eq!(read_file_contents(&text_path).unwrap(), "abc");
@@ -887,7 +970,7 @@ fn test_builtin_make_temp_file_core_paths() {
 
 #[test]
 fn test_builtin_make_temp_file_validation() {
-    let err = builtin_make_temp_file(vec![Value::Int(1)]).unwrap_err();
+    let err = call_fileio_builtin!(builtin_make_temp_file, vec![Value::Int(1)]).unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -896,8 +979,11 @@ fn test_builtin_make_temp_file_validation() {
         other => panic!("expected signal, got {:?}", other),
     }
 
-    let err =
-        builtin_make_temp_file(vec![Value::string("neo"), Value::Nil, Value::Int(1)]).unwrap_err();
+    let err = call_fileio_builtin!(
+        builtin_make_temp_file,
+        vec![Value::string("neo"), Value::Nil, Value::Int(1)]
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -917,7 +1003,7 @@ fn test_builtin_make_temp_file_eval_honors_temp_directory() {
         Value::string(format!("{}/", dir.to_string_lossy())),
     );
 
-    let value = builtin_make_temp_file_eval(&mut eval, vec![Value::string("eval-neo-")]).unwrap();
+    let value = builtin_make_temp_file(&mut eval, vec![Value::string("eval-neo-")]).unwrap();
     let path = value.as_str().unwrap().to_string();
     assert!(path.starts_with(&dir.to_string_lossy().to_string()));
     assert!(file_exists_p(&path));
@@ -927,13 +1013,20 @@ fn test_builtin_make_temp_file_eval_honors_temp_directory() {
 
 #[test]
 fn test_builtin_make_nearby_temp_file_core_semantics() {
-    let path = builtin_make_nearby_temp_file(vec![Value::string("neovm-nearby-")]).unwrap();
+    let path = call_fileio_builtin!(
+        builtin_make_nearby_temp_file,
+        vec![Value::string("neovm-nearby-")]
+    )
+    .unwrap();
     let path_str = path.as_str().unwrap().to_string();
     assert!(file_exists_p(&path_str));
     delete_file(&path_str).unwrap();
 
-    let dir = builtin_make_nearby_temp_file(vec![Value::string("neovm-nearby-dir-"), Value::True])
-        .unwrap();
+    let dir = call_fileio_builtin!(
+        builtin_make_nearby_temp_file,
+        vec![Value::string("neovm-nearby-dir-"), Value::True]
+    )
+    .unwrap();
     let dir_str = dir.as_str().unwrap().to_string();
     assert!(file_directory_p(&dir_str));
     fs::remove_dir(&dir_str).unwrap();
@@ -942,7 +1035,8 @@ fn test_builtin_make_nearby_temp_file_core_semantics() {
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
     let prefix = base.join("child-").to_string_lossy().to_string();
-    let nearby = builtin_make_nearby_temp_file(vec![Value::string(&prefix)]).unwrap();
+    let nearby =
+        call_fileio_builtin!(builtin_make_nearby_temp_file, vec![Value::string(&prefix)]).unwrap();
     let nearby_str = nearby.as_str().unwrap().to_string();
     assert_eq!(
         file_name_directory(&nearby_str),
@@ -965,8 +1059,8 @@ fn test_builtin_make_nearby_temp_file_eval_relative_prefix_uses_temp_dir() {
         Value::string(format!("{}/", base.to_string_lossy())),
     );
 
-    let err = builtin_make_nearby_temp_file_eval(&mut eval, vec![Value::string("sub/child-")])
-        .unwrap_err();
+    let err =
+        builtin_make_nearby_temp_file(&mut eval, vec![Value::string("sub/child-")]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-missing"),
         other => panic!("expected signal, got {:?}", other),
@@ -976,15 +1070,18 @@ fn test_builtin_make_nearby_temp_file_eval_relative_prefix_uses_temp_dir() {
 
 #[test]
 fn test_builtin_file_predicates() {
-    let result = builtin_file_exists_p(vec![Value::string("/tmp")]);
+    let result = call_fileio_builtin!(builtin_file_exists_p, vec![Value::string("/tmp")]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_truthy());
 
-    let result = builtin_file_directory_p(vec![Value::string("/tmp")]);
+    let result = call_fileio_builtin!(builtin_file_directory_p, vec![Value::string("/tmp")]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_truthy());
 
-    let result = builtin_file_exists_p(vec![Value::string("/no_such_file_xyz")]);
+    let result = call_fileio_builtin!(
+        builtin_file_exists_p,
+        vec![Value::string("/no_such_file_xyz")]
+    );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -992,14 +1089,21 @@ fn test_builtin_file_predicates() {
 #[test]
 fn test_builtin_access_file_semantics() {
     assert_eq!(
-        builtin_access_file(vec![Value::string("/tmp"), Value::string("read")]).unwrap(),
+        call_fileio_builtin!(
+            builtin_access_file,
+            vec![Value::string("/tmp"), Value::string("read")]
+        )
+        .unwrap(),
         Value::Nil
     );
 
-    let missing = builtin_access_file(vec![
-        Value::string("/definitely-not-here-neovm"),
-        Value::string("read"),
-    ])
+    let missing = call_fileio_builtin!(
+        builtin_access_file,
+        vec![
+            Value::string("/definitely-not-here-neovm"),
+            Value::string("read"),
+        ]
+    )
     .expect_err("missing file should signal");
     match missing {
         Flow::Signal(sig) => {
@@ -1013,8 +1117,11 @@ fn test_builtin_access_file_semantics() {
         other => panic!("expected file-missing signal, got {:?}", other),
     }
 
-    let file_type = builtin_access_file(vec![Value::Int(1), Value::string("read")])
-        .expect_err("FILE should require string");
+    let file_type = call_fileio_builtin!(
+        builtin_access_file,
+        vec![Value::Int(1), Value::string("read")]
+    )
+    .expect_err("FILE should require string");
     match file_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -1023,8 +1130,11 @@ fn test_builtin_access_file_semantics() {
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
 
-    let op_type = builtin_access_file(vec![Value::string("/tmp"), Value::Int(1)])
-        .expect_err("OPERATION should require string");
+    let op_type = call_fileio_builtin!(
+        builtin_access_file,
+        vec![Value::string("/tmp"), Value::Int(1)]
+    )
+    .expect_err("OPERATION should require string");
     match op_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -1037,15 +1147,27 @@ fn test_builtin_access_file_semantics() {
 #[test]
 fn test_builtin_file_modes_semantics() {
     assert_eq!(
-        builtin_file_modes(vec![Value::string("/tmp/neovm-file-modes-missing")]).unwrap(),
+        call_fileio_builtin!(
+            builtin_file_modes,
+            vec![Value::string("/tmp/neovm-file-modes-missing")]
+        )
+        .unwrap(),
         Value::Nil
     );
 
-    let path = builtin_make_temp_file(vec![Value::string("neovm-file-modes-")]).unwrap();
+    let path = call_fileio_builtin!(
+        builtin_make_temp_file,
+        vec![Value::string("neovm-file-modes-")]
+    )
+    .unwrap();
     let path_str = path.as_str().unwrap().to_string();
-    let mode = builtin_file_modes(vec![Value::string(&path_str)]).unwrap();
+    let mode = call_fileio_builtin!(builtin_file_modes, vec![Value::string(&path_str)]).unwrap();
     assert!(matches!(mode, Value::Int(_)));
-    let with_flag = builtin_file_modes(vec![Value::string(&path_str), Value::True]).unwrap();
+    let with_flag = call_fileio_builtin!(
+        builtin_file_modes,
+        vec![Value::string(&path_str), Value::True]
+    )
+    .unwrap();
     assert!(matches!(with_flag, Value::Int(_)));
     delete_file(&path_str).unwrap();
 }
@@ -1063,7 +1185,7 @@ fn test_builtin_file_modes_eval_respects_default_directory() {
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
     );
-    let mode = builtin_file_modes_eval(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
+    let mode = builtin_file_modes(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     assert!(matches!(mode, Value::Int(_)));
 
     let _ = fs::remove_dir_all(&base);
@@ -1071,24 +1193,31 @@ fn test_builtin_file_modes_eval_respects_default_directory() {
 
 #[test]
 fn test_builtin_set_file_modes_semantics() {
-    let path = builtin_make_temp_file(vec![Value::string("neovm-set-file-modes-")]).unwrap();
+    let path = call_fileio_builtin!(
+        builtin_make_temp_file,
+        vec![Value::string("neovm-set-file-modes-")]
+    )
+    .unwrap();
     let path_str = path.as_str().unwrap().to_string();
 
     assert_eq!(
-        builtin_set_file_modes(vec![Value::string(&path_str), Value::Int(0o600)]).unwrap(),
-        Value::Nil
-    );
-    assert_eq!(
-        builtin_set_file_modes(vec![
-            Value::string(&path_str),
-            Value::Int(0o640),
-            Value::True
-        ])
+        call_fileio_builtin!(
+            builtin_set_file_modes,
+            vec![Value::string(&path_str), Value::Int(0o600)]
+        )
         .unwrap(),
         Value::Nil
     );
     assert_eq!(
-        builtin_file_modes(vec![Value::string(&path_str)])
+        call_fileio_builtin!(
+            builtin_set_file_modes,
+            vec![Value::string(&path_str), Value::Int(0o640), Value::True]
+        )
+        .unwrap(),
+        Value::Nil
+    );
+    assert_eq!(
+        call_fileio_builtin!(builtin_file_modes, vec![Value::string(&path_str)])
             .unwrap()
             .as_int(),
         Some(0o640)
@@ -1110,15 +1239,18 @@ fn test_builtin_set_file_modes_eval_respects_default_directory() {
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
     );
-    builtin_set_file_modes_eval(
+    builtin_set_file_modes(
         &mut eval,
         vec![Value::string("alpha.txt"), Value::Int(0o600)],
     )
     .unwrap();
     assert_eq!(
-        builtin_file_modes(vec![Value::string(file.to_string_lossy().to_string())])
-            .unwrap()
-            .as_int(),
+        call_fileio_builtin!(
+            builtin_file_modes,
+            vec![Value::string(file.to_string_lossy().to_string())]
+        )
+        .unwrap()
+        .as_int(),
         Some(0o600)
     );
 
@@ -1136,46 +1268,53 @@ fn test_builtin_directory_files_args() {
     fs::write(dir.join("alpha.txt"), "").unwrap();
     fs::write(dir.join(".hidden"), "").unwrap();
 
-    let result = builtin_directory_files(vec![
-        Value::string(&dir_str),
-        Value::Nil,
-        Value::string("\\.el$"),
-        Value::Nil,
-        Value::Int(1),
-    ])
+    let result = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![
+            Value::string(&dir_str),
+            Value::Nil,
+            Value::string("\\.el$"),
+            Value::Nil,
+            Value::Int(1),
+        ]
+    )
     .unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].as_str(), Some("beta.el"));
 
-    let unsorted = builtin_directory_files(vec![
-        Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::True,
-    ])
+    let unsorted = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![Value::string(&dir_str), Value::Nil, Value::Nil, Value::True,]
+    )
     .unwrap();
     let unsorted_items = list_to_vec(&unsorted).unwrap();
 
-    let unsorted_limited = builtin_directory_files(vec![
-        Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::True,
-        Value::Int(2),
-    ])
+    let unsorted_limited = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![
+            Value::string(&dir_str),
+            Value::Nil,
+            Value::Nil,
+            Value::True,
+            Value::Int(2),
+        ]
+    )
     .unwrap();
     let unsorted_limited_items = list_to_vec(&unsorted_limited).unwrap();
     let tail = &unsorted_items[unsorted_items.len() - 2..];
     assert_eq!(unsorted_limited_items.as_slice(), tail);
 
-    let sorted_limited = builtin_directory_files(vec![
-        Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Int(2),
-    ])
+    let sorted_limited = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![
+            Value::string(&dir_str),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Int(2),
+        ]
+    )
     .unwrap();
     let mut sorted_from_unsorted = unsorted_limited_items.clone();
     sorted_from_unsorted.sort_by(|a, b| {
@@ -1185,33 +1324,42 @@ fn test_builtin_directory_files_args() {
     });
     assert_eq!(list_to_vec(&sorted_limited).unwrap(), sorted_from_unsorted);
 
-    let result = builtin_directory_files(vec![
-        Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::True,
-        Value::Int(0),
-    ])
+    let result = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![
+            Value::string(&dir_str),
+            Value::Nil,
+            Value::Nil,
+            Value::True,
+            Value::Int(0),
+        ]
+    )
     .unwrap();
     assert!(list_to_vec(&result).unwrap().is_empty());
 
-    let result = builtin_directory_files(vec![
-        Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Int(-1),
-    ]);
+    let result = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![
+            Value::string(&dir_str),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Int(-1),
+        ]
+    );
     assert!(result.is_err());
 
-    let result = builtin_directory_files(vec![
-        Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Int(0),
-        Value::Nil,
-    ]);
+    let result = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![
+            Value::string(&dir_str),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Int(0),
+            Value::Nil,
+        ]
+    );
     assert!(result.is_err());
 
     let _ = fs::remove_dir_all(&dir);
@@ -1231,7 +1379,7 @@ fn test_builtin_directory_files_eval_respects_default_directory() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
 
-    let result = builtin_directory_files_eval(
+    let result = builtin_directory_files(
         &mut eval,
         vec![
             Value::string("fixtures"),
@@ -1249,7 +1397,10 @@ fn test_builtin_directory_files_eval_respects_default_directory() {
 
 #[test]
 fn test_builtin_directory_files_nonexistent_signals_file_missing() {
-    let result = builtin_directory_files(vec![Value::string("/nonexistent_dir_xyz_12345")]);
+    let result = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![Value::string("/nonexistent_dir_xyz_12345")]
+    );
     match result {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "file-missing"),
         other => panic!("expected file-missing signal, got {:?}", other),
@@ -1263,11 +1414,14 @@ fn test_builtin_directory_files_invalid_regexp_signals_invalid_regexp() {
     fs::create_dir_all(&dir).unwrap();
     let dir_str = dir.to_string_lossy().to_string();
 
-    let result = builtin_directory_files(vec![
-        Value::string(&dir_str),
-        Value::Nil,
-        Value::string("[invalid"),
-    ]);
+    let result = call_fileio_builtin!(
+        builtin_directory_files,
+        vec![
+            Value::string(&dir_str),
+            Value::Nil,
+            Value::string("[invalid"),
+        ]
+    );
     match result {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "invalid-regexp"),
         other => panic!("expected invalid-regexp signal, got {:?}", other),
@@ -1288,14 +1442,14 @@ fn test_builtin_file_ops_eval_respects_default_directory() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
 
-    builtin_copy_file_eval(
+    builtin_copy_file(
         &mut eval,
         vec![Value::string("alpha.txt"), Value::string("beta.txt")],
     )
     .unwrap();
     assert!(base.join("beta.txt").exists());
 
-    builtin_rename_file_eval(
+    builtin_rename_file(
         &mut eval,
         vec![Value::string("beta.txt"), Value::string("gamma.txt")],
     )
@@ -1303,10 +1457,10 @@ fn test_builtin_file_ops_eval_respects_default_directory() {
     assert!(!base.join("beta.txt").exists());
     assert!(base.join("gamma.txt").exists());
 
-    builtin_delete_file_eval(&mut eval, vec![Value::string("gamma.txt")]).unwrap();
+    builtin_delete_file(&mut eval, vec![Value::string("gamma.txt")]).unwrap();
     assert!(!base.join("gamma.txt").exists());
 
-    builtin_add_name_to_file_eval(
+    builtin_add_name_to_file(
         &mut eval,
         vec![Value::string("alpha.txt"), Value::string("delta.txt")],
     )
@@ -1316,7 +1470,7 @@ fn test_builtin_file_ops_eval_respects_default_directory() {
         &base.join("alpha.txt").to_string_lossy(),
         &base.join("delta.txt").to_string_lossy(),
     );
-    builtin_delete_file_eval(&mut eval, vec![Value::string("delta.txt")]).unwrap();
+    builtin_delete_file(&mut eval, vec![Value::string("delta.txt")]).unwrap();
 
     let _ = fs::remove_dir_all(&base);
 }
@@ -1334,7 +1488,7 @@ fn test_builtin_rename_file_eval_overwrite_semantics() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
 
-    let err = builtin_rename_file_eval(
+    let err = builtin_rename_file(
         &mut eval,
         vec![Value::string("src.txt"), Value::string("dst.txt")],
     )
@@ -1345,7 +1499,7 @@ fn test_builtin_rename_file_eval_overwrite_semantics() {
     }
 
     assert_eq!(
-        builtin_rename_file_eval(
+        builtin_rename_file(
             &mut eval,
             vec![
                 Value::string("src.txt"),
@@ -1375,7 +1529,7 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
 
-    let err = builtin_copy_file_eval(
+    let err = builtin_copy_file(
         &mut eval,
         vec![Value::string("src.txt"), Value::string("dst.txt")],
     )
@@ -1386,7 +1540,7 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
     }
 
     assert_eq!(
-        builtin_copy_file_eval(
+        builtin_copy_file(
             &mut eval,
             vec![
                 Value::string("src.txt"),
@@ -1644,21 +1798,31 @@ fn test_builtin_path_predicates_strict_types() {
 
 #[test]
 fn test_builtin_file_predicates_strict_types() {
-    assert!(builtin_file_exists_p(vec![Value::Nil]).is_err());
-    assert!(builtin_file_readable_p(vec![Value::Nil]).is_err());
-    assert!(builtin_file_writable_p(vec![Value::Nil]).is_err());
-    assert!(builtin_file_directory_p(vec![Value::Nil]).is_err());
-    assert!(builtin_file_regular_p(vec![Value::Nil]).is_err());
-    assert!(builtin_file_symlink_p(vec![Value::Nil]).is_err());
-    assert!(builtin_file_name_case_insensitive_p(vec![Value::Nil]).is_err());
-    assert!(builtin_file_newer_than_file_p(vec![Value::Nil, Value::string("/tmp")]).is_err());
-    assert!(builtin_file_newer_than_file_p(vec![Value::string("/tmp"), Value::Nil]).is_err());
+    assert!(call_fileio_builtin!(builtin_file_exists_p, vec![Value::Nil]).is_err());
+    assert!(call_fileio_builtin!(builtin_file_readable_p, vec![Value::Nil]).is_err());
+    assert!(call_fileio_builtin!(builtin_file_writable_p, vec![Value::Nil]).is_err());
+    assert!(call_fileio_builtin!(builtin_file_directory_p, vec![Value::Nil]).is_err());
+    assert!(call_fileio_builtin!(builtin_file_regular_p, vec![Value::Nil]).is_err());
+    assert!(call_fileio_builtin!(builtin_file_symlink_p, vec![Value::Nil]).is_err());
+    assert!(call_fileio_builtin!(builtin_file_name_case_insensitive_p, vec![Value::Nil]).is_err());
+    assert!(
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![Value::Nil, Value::string("/tmp")]
+        )
+        .is_err()
+    );
+    assert!(
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![Value::string("/tmp"), Value::Nil]
+        )
+        .is_err()
+    );
 }
 
 #[test]
 fn test_eval_file_predicates_respect_default_directory() {
-    use super::super::eval::Context;
-
     let dir = std::env::temp_dir().join("neovm_fileio_eval_default_dir");
     let subdir = dir.join("subdir");
     let _ = fs::remove_dir_all(&dir);
@@ -1668,11 +1832,11 @@ fn test_eval_file_predicates_respect_default_directory() {
     eval.obarray
         .set_symbol_value("default-directory", Value::string(dir.to_string_lossy()));
 
-    let is_dir = builtin_file_directory_p_eval(&mut eval, vec![Value::string("subdir")])
+    let is_dir = builtin_file_directory_p(&mut eval, vec![Value::string("subdir")])
         .expect("file-directory-p eval");
     assert!(is_dir.is_truthy());
 
-    let exists = builtin_file_exists_p_eval(&mut eval, vec![Value::string("subdir")])
+    let exists = builtin_file_exists_p(&mut eval, vec![Value::string("subdir")])
         .expect("file-exists-p eval");
     assert!(exists.is_truthy());
 
@@ -1681,17 +1845,17 @@ fn test_eval_file_predicates_respect_default_directory() {
 
 #[test]
 fn test_file_name_case_insensitive_eval_respects_default_directory() {
-    use super::super::eval::Context;
-
     let dir = std::env::temp_dir().join("neovm_fileio_case_insensitive_eval");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
     let file = dir.join("alpha.txt");
     fs::write(&file, b"x").expect("create test file");
 
-    let absolute =
-        builtin_file_name_case_insensitive_p(vec![Value::string(file.to_string_lossy())])
-            .expect("absolute case-insensitive query");
+    let absolute = call_fileio_builtin!(
+        builtin_file_name_case_insensitive_p,
+        vec![Value::string(file.to_string_lossy())]
+    )
+    .expect("absolute case-insensitive query");
 
     let mut eval = Context::new();
     eval.obarray.set_symbol_value(
@@ -1699,7 +1863,7 @@ fn test_file_name_case_insensitive_eval_respects_default_directory() {
         Value::string(format!("{}/", dir.to_string_lossy())),
     );
     let relative =
-        builtin_file_name_case_insensitive_p_eval(&mut eval, vec![Value::string("alpha.txt")])
+        builtin_file_name_case_insensitive_p(&mut eval, vec![Value::string("alpha.txt")])
             .expect("relative case-insensitive query");
     assert_eq!(relative, absolute);
 
@@ -1721,34 +1885,46 @@ fn test_builtin_file_newer_than_file_p_semantics() {
     fs::write(&new, b"new").expect("write new file");
 
     assert_eq!(
-        builtin_file_newer_than_file_p(vec![
-            Value::string(new.to_string_lossy()),
-            Value::string(old.to_string_lossy()),
-        ])
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![
+                Value::string(new.to_string_lossy()),
+                Value::string(old.to_string_lossy()),
+            ]
+        )
         .expect("newer"),
         Value::True
     );
     assert_eq!(
-        builtin_file_newer_than_file_p(vec![
-            Value::string(old.to_string_lossy()),
-            Value::string(new.to_string_lossy()),
-        ])
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![
+                Value::string(old.to_string_lossy()),
+                Value::string(new.to_string_lossy()),
+            ]
+        )
         .expect("older"),
         Value::Nil
     );
     assert_eq!(
-        builtin_file_newer_than_file_p(vec![
-            Value::string(missing.to_string_lossy()),
-            Value::string(old.to_string_lossy()),
-        ])
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![
+                Value::string(missing.to_string_lossy()),
+                Value::string(old.to_string_lossy()),
+            ]
+        )
         .expect("missing first"),
         Value::Nil
     );
     assert_eq!(
-        builtin_file_newer_than_file_p(vec![
-            Value::string(old.to_string_lossy()),
-            Value::string(missing.to_string_lossy()),
-        ])
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![
+                Value::string(old.to_string_lossy()),
+                Value::string(missing.to_string_lossy()),
+            ]
+        )
         .expect("missing second"),
         Value::True
     );
@@ -1758,8 +1934,6 @@ fn test_builtin_file_newer_than_file_p_semantics() {
 
 #[test]
 fn test_file_newer_than_file_p_eval_respects_default_directory() {
-    use super::super::eval::Context;
-
     let dir = std::env::temp_dir().join("neovm-file-newer-than-file-p-eval");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
@@ -1776,7 +1950,7 @@ fn test_file_newer_than_file_p_eval_respects_default_directory() {
         Value::string(format!("{}/", dir.to_string_lossy())),
     );
 
-    let result = builtin_file_newer_than_file_p_eval(
+    let result = builtin_file_newer_than_file_p(
         &mut eval,
         vec![Value::string("new.txt"), Value::string("old.txt")],
     )
@@ -1798,24 +1972,33 @@ fn test_builtin_set_file_times_semantics() {
     fs::write(&newer, b"newer").expect("write newer");
 
     assert_eq!(
-        builtin_set_file_times(vec![Value::string(older.to_string_lossy()), Value::Int(0),])
-            .expect("set-file-times"),
+        call_fileio_builtin!(
+            builtin_set_file_times,
+            vec![Value::string(older.to_string_lossy()), Value::Int(0),]
+        )
+        .expect("set-file-times"),
         Value::True
     );
     assert_eq!(
-        builtin_set_file_times(vec![
-            Value::string(newer.to_string_lossy()),
-            Value::Nil,
-            Value::True,
-        ])
+        call_fileio_builtin!(
+            builtin_set_file_times,
+            vec![
+                Value::string(newer.to_string_lossy()),
+                Value::Nil,
+                Value::True,
+            ]
+        )
         .expect("set-file-times with flag"),
         Value::True
     );
     assert_eq!(
-        builtin_file_newer_than_file_p(vec![
-            Value::string(newer.to_string_lossy()),
-            Value::string(older.to_string_lossy()),
-        ])
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![
+                Value::string(newer.to_string_lossy()),
+                Value::string(older.to_string_lossy()),
+            ]
+        )
         .expect("newer-than"),
         Value::True
     );
@@ -1825,8 +2008,6 @@ fn test_builtin_set_file_times_semantics() {
 
 #[test]
 fn test_set_file_times_eval_respects_default_directory() {
-    use super::super::eval::Context;
-
     let dir = std::env::temp_dir().join("neovm-set-file-times-eval");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
@@ -1840,7 +2021,7 @@ fn test_set_file_times_eval_respects_default_directory() {
     );
 
     assert_eq!(
-        builtin_set_file_times_eval(&mut eval, vec![Value::string("alpha.txt"), Value::Int(0)],)
+        builtin_set_file_times(&mut eval, vec![Value::string("alpha.txt"), Value::Int(0)],)
             .expect("eval set-file-times"),
         Value::True
     );
@@ -1929,11 +2110,11 @@ fn test_builtin_substitute_in_file_name_strict_type() {
 #[test]
 fn test_builtin_wrong_arg_count() {
     // expand-file-name needs at least 1 arg
-    let result = builtin_expand_file_name(vec![]);
+    let result = call_fileio_builtin!(builtin_expand_file_name, vec![]);
     assert!(result.is_err());
 
     // file-exists-p needs exactly 1 arg
-    let result = builtin_file_exists_p(vec![]);
+    let result = call_fileio_builtin!(builtin_file_exists_p, vec![]);
     assert!(result.is_err());
 }
 
