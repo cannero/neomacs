@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::eval::{
-    DisplayHost, FontResolveRequest, FontSpecResolveRequest, GuiFrameHostRequest,
+    Context, DisplayHost, FontResolveRequest, FontSpecResolveRequest, GuiFrameHostRequest,
     ResolvedFontMatch, ResolvedFontSpecMatch,
 };
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
@@ -11,8 +11,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 fn call_face_font(args: Vec<Value>) -> EvalResult {
-    let mut eval = crate::emacs_core::eval::Context::new();
+    let mut eval = Context::new();
     builtin_face_font(&mut eval, args)
+}
+
+macro_rules! call_font_builtin {
+    ($builtin:ident, $args:expr) => {{
+        let mut eval = Context::new();
+        $builtin(&mut eval, $args)
+    }};
 }
 
 // -----------------------------------------------------------------------
@@ -296,16 +303,17 @@ fn font_get_non_vector() {
 
 #[test]
 fn list_fonts_returns_list_or_nil() {
-    let result = builtin_list_fonts(vec![Value::vector(vec![Value::Keyword(intern(
-        FONT_SPEC_TAG,
-    ))])]);
+    let result = call_font_builtin!(
+        builtin_list_fonts,
+        vec![Value::vector(vec![Value::Keyword(intern(FONT_SPEC_TAG))])]
+    );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn list_fonts_rejects_non_font_spec() {
-    let result = builtin_list_fonts(vec![Value::Nil]);
+    let result = call_font_builtin!(builtin_list_fonts, vec![Value::Nil]);
     assert!(result.is_err());
 }
 
@@ -326,16 +334,17 @@ fn eval_list_fonts_accepts_live_frame_designator() {
 
 #[test]
 fn find_font_returns_nil_for_font_spec() {
-    let result = builtin_find_font(vec![Value::vector(vec![Value::Keyword(intern(
-        FONT_SPEC_TAG,
-    ))])]);
+    let result = call_font_builtin!(
+        builtin_find_font,
+        vec![Value::vector(vec![Value::Keyword(intern(FONT_SPEC_TAG))])]
+    );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn find_font_rejects_non_font_spec() {
-    let result = builtin_find_font(vec![Value::Nil]);
+    let result = call_font_builtin!(builtin_find_font, vec![Value::Nil]);
     assert!(result.is_err());
 }
 
@@ -367,12 +376,15 @@ fn clear_font_cache_rejects_arity() {
 #[test]
 fn clear_font_cache_resets_face_caches() {
     let face = Value::symbol("__neovm_clear_font_cache_unit_test");
-    let _ = builtin_internal_make_lisp_face(vec![face]).unwrap();
-    let _ = builtin_internal_set_lisp_face_attribute(vec![
-        face,
-        Value::Keyword(intern(":foreground")),
-        Value::string("white"),
-    ])
+    let _ = call_font_builtin!(builtin_internal_make_lisp_face, vec![face]).unwrap();
+    let _ = call_font_builtin!(
+        builtin_internal_set_lisp_face_attribute,
+        vec![
+            face,
+            Value::Keyword(intern(":foreground")),
+            Value::string("white"),
+        ]
+    )
     .unwrap();
 
     CREATED_LISP_FACES.with(|slot| {
@@ -400,13 +412,13 @@ fn clear_font_cache_resets_face_caches() {
 
 #[test]
 fn font_family_list_batch_returns_nil() {
-    let result = builtin_font_family_list(vec![]).unwrap();
+    let result = call_font_builtin!(builtin_font_family_list, vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn font_family_list_rejects_non_nil_frame_designator() {
-    let result = builtin_font_family_list(vec![Value::Int(1)]);
+    let result = call_font_builtin!(builtin_font_family_list, vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 
@@ -754,7 +766,7 @@ fn internal_lisp_face_p_with_frame_designator_returns_resolved_vector() {
 #[test]
 fn internal_make_lisp_face_creates_symbol_visible_to_internal_lisp_face_p() {
     let name = Value::symbol("__neovm_make_face_unit_test");
-    let made = builtin_internal_make_lisp_face(vec![name]).unwrap();
+    let made = call_font_builtin!(builtin_internal_make_lisp_face, vec![name]).unwrap();
     assert!(matches!(made, Value::Vector(_)));
     let exists = builtin_internal_lisp_face_p(vec![name]).unwrap();
     assert!(matches!(exists, Value::Vector(_)));
@@ -762,18 +774,29 @@ fn internal_make_lisp_face_creates_symbol_visible_to_internal_lisp_face_p() {
 
 #[test]
 fn internal_make_lisp_face_rejects_non_symbol_and_non_nil_frame() {
-    assert!(builtin_internal_make_lisp_face(vec![Value::string("foo")]).is_err());
-    assert!(builtin_internal_make_lisp_face(vec![Value::symbol("foo"), Value::Int(1)]).is_err());
+    assert!(
+        call_font_builtin!(builtin_internal_make_lisp_face, vec![Value::string("foo")]).is_err()
+    );
+    assert!(
+        call_font_builtin!(
+            builtin_internal_make_lisp_face,
+            vec![Value::symbol("foo"), Value::Int(1)]
+        )
+        .is_err()
+    );
 }
 
 #[test]
 fn internal_copy_lisp_face_returns_to_when_frame_t() {
-    let result = builtin_internal_copy_lisp_face(vec![
-        Value::symbol("bold"),
-        Value::symbol("my-face"),
-        Value::True,
-        Value::Nil,
-    ])
+    let result = call_font_builtin!(
+        builtin_internal_copy_lisp_face,
+        vec![
+            Value::symbol("bold"),
+            Value::symbol("my-face"),
+            Value::True,
+            Value::Nil,
+        ]
+    )
     .unwrap();
     assert_eq!(result.as_symbol_name(), Some("my-face"));
 }
@@ -810,117 +833,149 @@ fn internal_copy_lisp_face_eval_updates_face_table() {
 
 #[test]
 fn internal_copy_lisp_face_rejects_non_t_frame_designator() {
-    let result = builtin_internal_copy_lisp_face(vec![
-        Value::symbol("default"),
-        Value::symbol("my-face"),
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let result = call_font_builtin!(
+        builtin_internal_copy_lisp_face,
+        vec![
+            Value::symbol("default"),
+            Value::symbol("my-face"),
+            Value::Nil,
+            Value::Nil,
+        ]
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn internal_copy_lisp_face_validates_new_frame_when_frame_designator_used() {
     let frame = Value::Frame(FRAME_ID_BASE);
-    let err_t = builtin_internal_copy_lisp_face(vec![
-        Value::symbol("default"),
-        Value::symbol("my-face"),
-        frame,
-        Value::True,
-    ]);
+    let err_t = call_font_builtin!(
+        builtin_internal_copy_lisp_face,
+        vec![
+            Value::symbol("default"),
+            Value::symbol("my-face"),
+            frame,
+            Value::True,
+        ]
+    );
     assert!(err_t.is_err());
 
-    let err_small_int = builtin_internal_copy_lisp_face(vec![
-        Value::symbol("default"),
-        Value::symbol("my-face"),
-        frame,
-        Value::Int(1),
-    ]);
+    let err_small_int = call_font_builtin!(
+        builtin_internal_copy_lisp_face,
+        vec![
+            Value::symbol("default"),
+            Value::symbol("my-face"),
+            frame,
+            Value::Int(1),
+        ]
+    );
     assert!(err_small_int.is_err());
 
-    let ok = builtin_internal_copy_lisp_face(vec![
-        Value::symbol("default"),
-        Value::symbol("my-face"),
-        frame,
-        frame,
-    ])
+    let ok = call_font_builtin!(
+        builtin_internal_copy_lisp_face,
+        vec![
+            Value::symbol("default"),
+            Value::symbol("my-face"),
+            frame,
+            frame,
+        ]
+    )
     .unwrap();
     assert_eq!(ok.as_symbol_name(), Some("my-face"));
 }
 
 #[test]
 fn internal_copy_lisp_face_uses_symbol_checks_before_frame_checks() {
-    let result = builtin_internal_copy_lisp_face(vec![
-        Value::Int(1),
-        Value::symbol("my-face"),
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let result = call_font_builtin!(
+        builtin_internal_copy_lisp_face,
+        vec![
+            Value::Int(1),
+            Value::symbol("my-face"),
+            Value::Nil,
+            Value::Nil,
+        ]
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn internal_set_lisp_face_attribute_returns_value() {
     let face = Value::symbol("__neovm_set_attr_unit_test");
-    let result = builtin_internal_set_lisp_face_attribute(vec![
-        face,
-        Value::Keyword(intern("foreground")),
-        Value::string("white"),
-    ])
+    let result = call_font_builtin!(
+        builtin_internal_set_lisp_face_attribute,
+        vec![
+            face,
+            Value::Keyword(intern("foreground")),
+            Value::string("white"),
+        ]
+    )
     .unwrap();
     assert_eq!(result, face);
 }
 
 #[test]
 fn internal_get_lisp_face_attribute_default_foreground() {
-    let result = builtin_internal_get_lisp_face_attribute(vec![
-        Value::symbol("default"),
-        Value::Keyword(intern(":foreground")),
-    ])
+    let result = call_font_builtin!(
+        builtin_internal_get_lisp_face_attribute,
+        vec![
+            Value::symbol("default"),
+            Value::Keyword(intern(":foreground")),
+        ]
+    )
     .unwrap();
     assert_eq!(result.as_str(), Some("unspecified-fg"));
 }
 
 #[test]
 fn internal_get_lisp_face_attribute_mode_line_returns_unspecified() {
-    let result = builtin_internal_get_lisp_face_attribute(vec![
-        Value::symbol("mode-line"),
-        Value::Keyword(intern(":foreground")),
-    ])
+    let result = call_font_builtin!(
+        builtin_internal_get_lisp_face_attribute,
+        vec![
+            Value::symbol("mode-line"),
+            Value::Keyword(intern(":foreground")),
+        ]
+    )
     .unwrap();
     assert_eq!(result.as_symbol_name(), Some("unspecified"));
 }
 
 #[test]
 fn internal_get_lisp_face_attribute_defaults_frame_returns_unspecified() {
-    let result = builtin_internal_get_lisp_face_attribute(vec![
-        Value::symbol("default"),
-        Value::Keyword(intern(":foreground")),
-        Value::True,
-    ])
+    let result = call_font_builtin!(
+        builtin_internal_get_lisp_face_attribute,
+        vec![
+            Value::symbol("default"),
+            Value::Keyword(intern(":foreground")),
+            Value::True,
+        ]
+    )
     .unwrap();
     assert_eq!(result.as_symbol_name(), Some("unspecified"));
 }
 
 #[test]
 fn internal_get_lisp_face_attribute_invalid_face_errors() {
-    let result = builtin_internal_get_lisp_face_attribute(vec![
-        Value::symbol("unknown-face"),
-        Value::Keyword(intern(":foreground")),
-    ]);
+    let result = call_font_builtin!(
+        builtin_internal_get_lisp_face_attribute,
+        vec![
+            Value::symbol("unknown-face"),
+            Value::Keyword(intern(":foreground")),
+        ]
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn internal_get_lisp_face_attribute_invalid_attr_errors() {
-    let wrong_type =
-        builtin_internal_get_lisp_face_attribute(vec![Value::symbol("default"), Value::Int(1)]);
+    let wrong_type = call_font_builtin!(
+        builtin_internal_get_lisp_face_attribute,
+        vec![Value::symbol("default"), Value::Int(1)]
+    );
     assert!(wrong_type.is_err());
 
-    let invalid_name = builtin_internal_get_lisp_face_attribute(vec![
-        Value::symbol("default"),
-        Value::symbol("bogus"),
-    ]);
+    let invalid_name = call_font_builtin!(
+        builtin_internal_get_lisp_face_attribute,
+        vec![Value::symbol("default"), Value::symbol("bogus"),]
+    );
     assert!(invalid_name.is_err());
 }
 
@@ -940,36 +995,39 @@ fn internal_set_lisp_face_attribute_font_object_derives_font_related_attrs() {
         Value::Int(102),
     ]);
 
-    builtin_internal_set_lisp_face_attribute(vec![
-        Value::symbol("default"),
-        Value::Keyword(intern("font")),
-        font_object,
-    ])
+    call_font_builtin!(
+        builtin_internal_set_lisp_face_attribute,
+        vec![
+            Value::symbol("default"),
+            Value::Keyword(intern("font")),
+            font_object,
+        ]
+    )
     .unwrap();
 
     assert_eq!(
-        builtin_internal_get_lisp_face_attribute(vec![
-            Value::symbol("default"),
-            Value::Keyword(intern(":family")),
-        ])
+        call_font_builtin!(
+            builtin_internal_get_lisp_face_attribute,
+            vec![Value::symbol("default"), Value::Keyword(intern(":family")),]
+        )
         .unwrap()
         .as_str(),
         Some("Hack")
     );
     assert_eq!(
-        builtin_internal_get_lisp_face_attribute(vec![
-            Value::symbol("default"),
-            Value::Keyword(intern(":weight")),
-        ])
+        call_font_builtin!(
+            builtin_internal_get_lisp_face_attribute,
+            vec![Value::symbol("default"), Value::Keyword(intern(":weight")),]
+        )
         .unwrap()
         .as_symbol_name(),
         Some("regular")
     );
     assert_eq!(
-        builtin_internal_get_lisp_face_attribute(vec![
-            Value::symbol("default"),
-            Value::Keyword(intern(":height")),
-        ])
+        call_font_builtin!(
+            builtin_internal_get_lisp_face_attribute,
+            vec![Value::symbol("default"), Value::Keyword(intern(":height")),]
+        )
         .unwrap()
         .as_int(),
         Some(102)
@@ -1262,30 +1320,43 @@ fn internal_lisp_face_equal_p_accepts_string_face_names() {
 
 #[test]
 fn internal_merge_in_global_face_rejects_non_frame_designator() {
-    let result = builtin_internal_merge_in_global_face(vec![Value::symbol("default"), Value::Nil]);
+    let result = call_font_builtin!(
+        builtin_internal_merge_in_global_face,
+        vec![Value::symbol("default"), Value::Nil]
+    );
     assert!(result.is_err());
-    let frame_handle_result =
-        builtin_internal_merge_in_global_face(vec![Value::symbol("default"), Value::Frame(1)]);
+    let frame_handle_result = call_font_builtin!(
+        builtin_internal_merge_in_global_face,
+        vec![Value::symbol("default"), Value::Frame(1)]
+    );
     assert!(frame_handle_result.is_err());
 }
 
 #[test]
 fn internal_merge_in_global_face_copies_defaults_into_selected_face() {
     let face = Value::symbol("__neovm_merge_face_unit_test");
-    let _ = builtin_internal_make_lisp_face(vec![face]).unwrap();
-    let _ = builtin_internal_set_lisp_face_attribute(vec![
-        face,
-        Value::Keyword(intern("foreground")),
-        Value::string("white"),
-        Value::True,
-    ])
+    let _ = call_font_builtin!(builtin_internal_make_lisp_face, vec![face]).unwrap();
+    let _ = call_font_builtin!(
+        builtin_internal_set_lisp_face_attribute,
+        vec![
+            face,
+            Value::Keyword(intern("foreground")),
+            Value::string("white"),
+            Value::True,
+        ]
+    )
     .unwrap();
-    let merged =
-        builtin_internal_merge_in_global_face(vec![face, Value::Frame(FRAME_ID_BASE)]).unwrap();
+    let merged = call_font_builtin!(
+        builtin_internal_merge_in_global_face,
+        vec![face, Value::Frame(FRAME_ID_BASE)]
+    )
+    .unwrap();
     assert!(merged.is_nil());
-    let got =
-        builtin_internal_get_lisp_face_attribute(vec![face, Value::Keyword(intern(":foreground"))])
-            .unwrap();
+    let got = call_font_builtin!(
+        builtin_internal_get_lisp_face_attribute,
+        vec![face, Value::Keyword(intern(":foreground"))]
+    )
+    .unwrap();
     assert_eq!(got.as_str(), Some("white"));
 }
 
@@ -1297,28 +1368,36 @@ fn internal_lisp_face_helpers_accept_frame_handles() {
     assert!(descriptor.is_vector());
 
     let face = Value::symbol("__neovm_face_frame_handle_unit_test");
-    let made = builtin_internal_make_lisp_face(vec![face, frame]).unwrap();
+    let made = call_font_builtin!(builtin_internal_make_lisp_face, vec![face, frame]).unwrap();
     assert!(made.is_vector());
 
-    let copied =
-        builtin_internal_copy_lisp_face(vec![Value::symbol("default"), face, frame, Value::Nil])
-            .unwrap();
+    let copied = call_font_builtin!(
+        builtin_internal_copy_lisp_face,
+        vec![Value::symbol("default"), face, frame, Value::Nil]
+    )
+    .unwrap();
     assert_eq!(copied, face);
 
-    let set = builtin_internal_set_lisp_face_attribute(vec![
-        Value::symbol("default"),
-        Value::Keyword(intern("foreground")),
-        Value::string("red"),
-        frame,
-    ])
+    let set = call_font_builtin!(
+        builtin_internal_set_lisp_face_attribute,
+        vec![
+            Value::symbol("default"),
+            Value::Keyword(intern("foreground")),
+            Value::string("red"),
+            frame,
+        ]
+    )
     .unwrap();
     assert_eq!(set, Value::symbol("default"));
 
-    let got = builtin_internal_get_lisp_face_attribute(vec![
-        Value::symbol("default"),
-        Value::Keyword(intern(":foreground")),
-        frame,
-    ])
+    let got = call_font_builtin!(
+        builtin_internal_get_lisp_face_attribute,
+        vec![
+            Value::symbol("default"),
+            Value::Keyword(intern(":foreground")),
+            frame,
+        ]
+    )
     .unwrap();
     assert_eq!(got.as_str(), Some("red"));
 }
@@ -1409,8 +1488,11 @@ fn merge_face_attribute_height_relative_over_relative() {
 #[test]
 fn face_list_orders_default_last_and_includes_dynamic_faces() {
     clear_font_cache_state();
-    builtin_internal_make_lisp_face(vec![Value::symbol("__neovm_face_list_dynamic")])
-        .expect("create dynamic face");
+    call_font_builtin!(
+        builtin_internal_make_lisp_face,
+        vec![Value::symbol("__neovm_face_list_dynamic")]
+    )
+    .expect("create dynamic face");
 
     let result = builtin_face_list(vec![]).unwrap();
     let faces = list_to_vec(&result).unwrap();
@@ -1551,7 +1633,7 @@ fn face_id_accepts_optional_frame_argument() {
 #[test]
 fn face_id_assigns_dynamic_id_for_created_faces() {
     let face = Value::symbol("__neovm_face_id_dynamic_unit_test");
-    let _ = builtin_internal_make_lisp_face(vec![face]).unwrap();
+    let _ = call_font_builtin!(builtin_internal_make_lisp_face, vec![face]).unwrap();
     let first = builtin_face_id(vec![face]).unwrap();
     let second = builtin_face_id(vec![face]).unwrap();
     assert_eq!(first, second);
