@@ -367,7 +367,8 @@ fn eval_redraw_frame_accepts_live_frame_designator() {
 
 #[test]
 fn frame_edges_string_designator_uses_unquoted_live_frame_error_message() {
-    let result = builtin_frame_edges(vec![Value::string("x")]);
+    let mut eval = crate::emacs_core::Context::new();
+    let result = builtin_frame_edges(&mut eval, vec![Value::string("x")]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -637,7 +638,8 @@ fn resume_tty_signals_non_text_terminal_error() {
 
 #[test]
 fn x_open_connection_requires_string_display_arg() {
-    let bad = builtin_x_open_connection(vec![Value::Nil]);
+    let mut eval = crate::emacs_core::Context::new();
+    let bad = builtin_x_open_connection(&mut eval, vec![Value::Nil]);
     assert!(bad.is_err());
 }
 
@@ -679,13 +681,17 @@ fn x_window_system_resource_queries_return_nil() {
 
 #[test]
 fn x_open_connection_arity_errors() {
-    let x_open_none = builtin_x_open_connection(vec![]);
-    let x_open_four = builtin_x_open_connection(vec![
-        Value::string("foo"),
-        Value::string("xrm"),
-        Value::t(),
-        Value::Nil,
-    ]);
+    let mut eval = crate::emacs_core::Context::new();
+    let x_open_none = builtin_x_open_connection(&mut eval, vec![]);
+    let x_open_four = builtin_x_open_connection(
+        &mut eval,
+        vec![
+            Value::string("foo"),
+            Value::string("xrm"),
+            Value::t(),
+            Value::Nil,
+        ],
+    );
     assert!(x_open_none.is_err());
     assert!(x_open_four.is_err());
     match x_open_none {
@@ -704,12 +710,13 @@ fn x_open_connection_arity_errors() {
 
 #[test]
 fn x_close_connection_argument_shape_errors() {
-    let x_nil = builtin_x_close_connection(vec![Value::Nil]);
-    let x_int = builtin_x_close_connection(vec![Value::Int(1)]);
-    let x_str = builtin_x_close_connection(vec![Value::string("")]);
-    let x_term = builtin_x_close_connection(vec![terminal_handle_value()]);
-    let x_close_none = builtin_x_close_connection(vec![]);
-    let x_close_two = builtin_x_close_connection(vec![Value::string("foo"), Value::Nil]);
+    let mut eval = crate::emacs_core::Context::new();
+    let x_nil = builtin_x_close_connection(&mut eval, vec![Value::Nil]);
+    let x_int = builtin_x_close_connection(&mut eval, vec![Value::Int(1)]);
+    let x_str = builtin_x_close_connection(&mut eval, vec![Value::string("")]);
+    let x_term = builtin_x_close_connection(&mut eval, vec![terminal_handle_value()]);
+    let x_close_none = builtin_x_close_connection(&mut eval, vec![]);
+    let x_close_two = builtin_x_close_connection(&mut eval, vec![Value::string("foo"), Value::Nil]);
     assert!(x_nil.is_err());
     assert!(x_int.is_err());
     assert!(x_str.is_err());
@@ -759,14 +766,15 @@ fn eval_x_close_connection_live_frame_uses_window_system_error() {
 
 #[test]
 fn x_display_pixel_size_errors_match_batch_shapes() {
-    let width_none = builtin_x_display_pixel_width(vec![]);
-    let width_int = builtin_x_display_pixel_width(vec![Value::Int(1)]);
-    let width_str = builtin_x_display_pixel_width(vec![Value::string("")]);
-    let width_term = builtin_x_display_pixel_width(vec![terminal_handle_value()]);
-    let height_none = builtin_x_display_pixel_height(vec![]);
-    let height_int = builtin_x_display_pixel_height(vec![Value::Int(1)]);
-    let height_str = builtin_x_display_pixel_height(vec![Value::string("")]);
-    let height_term = builtin_x_display_pixel_height(vec![terminal_handle_value()]);
+    let mut eval = crate::emacs_core::Context::new();
+    let width_none = builtin_x_display_pixel_width(&mut eval, vec![]);
+    let width_int = builtin_x_display_pixel_width(&mut eval, vec![Value::Int(1)]);
+    let width_str = builtin_x_display_pixel_width(&mut eval, vec![Value::string("")]);
+    let width_term = builtin_x_display_pixel_width(&mut eval, vec![terminal_handle_value()]);
+    let height_none = builtin_x_display_pixel_height(&mut eval, vec![]);
+    let height_int = builtin_x_display_pixel_height(&mut eval, vec![Value::Int(1)]);
+    let height_str = builtin_x_display_pixel_height(&mut eval, vec![Value::string("")]);
+    let height_term = builtin_x_display_pixel_height(&mut eval, vec![terminal_handle_value()]);
     assert!(width_none.is_err());
     assert!(width_int.is_err());
     assert!(width_str.is_err());
@@ -801,34 +809,21 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
     let term = terminal_handle_value();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
-    type PureXQuery = fn(Vec<Value>) -> EvalResult;
     type EvalXQuery = fn(&mut crate::emacs_core::eval::Context, Vec<Value>) -> EvalResult;
-    for (pure, eval_query) in [
-        (
-            builtin_x_display_backing_store as PureXQuery,
-            builtin_x_display_backing_store as EvalXQuery,
-        ),
-        (builtin_x_display_color_cells, builtin_x_display_color_cells),
-        (builtin_x_display_mm_height, builtin_x_display_mm_height),
-        (builtin_x_display_mm_width, builtin_x_display_mm_width),
-        (
-            builtin_x_display_monitor_attributes_list,
-            builtin_x_display_monitor_attributes_list,
-        ),
-        (builtin_x_display_planes, builtin_x_display_planes),
-        (builtin_x_display_save_under, builtin_x_display_save_under),
-        (builtin_x_display_screens, builtin_x_display_screens),
-        (
-            builtin_x_display_visual_class,
-            builtin_x_display_visual_class,
-        ),
-        (
-            builtin_x_server_input_extension_version,
-            builtin_x_server_input_extension_version,
-        ),
-        (builtin_x_server_vendor, builtin_x_server_vendor),
+    for eval_query in [
+        builtin_x_display_backing_store as EvalXQuery,
+        builtin_x_display_color_cells,
+        builtin_x_display_mm_height,
+        builtin_x_display_mm_width,
+        builtin_x_display_monitor_attributes_list,
+        builtin_x_display_planes,
+        builtin_x_display_save_under,
+        builtin_x_display_screens,
+        builtin_x_display_visual_class,
+        builtin_x_server_input_extension_version,
+        builtin_x_server_vendor,
     ] {
-        match pure(vec![]) {
+        match eval_query(&mut eval, vec![]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
                 assert_eq!(
@@ -839,7 +834,7 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
             other => panic!("expected error signal, got {other:?}"),
         }
 
-        match pure(vec![term]) {
+        match eval_query(&mut eval, vec![term]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
                 // Terminal ID may vary; just check the message pattern.
@@ -852,7 +847,7 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
             other => panic!("expected error signal, got {other:?}"),
         }
 
-        match pure(vec![Value::string("x")]) {
+        match eval_query(&mut eval, vec![Value::string("x")]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
                 assert_eq!(
@@ -863,7 +858,7 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
             other => panic!("expected error signal, got {other:?}"),
         }
 
-        match pure(vec![Value::Int(1)]) {
+        match eval_query(&mut eval, vec![Value::Int(1)]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
@@ -988,7 +983,9 @@ fn display_queries_default_to_selected_frame_window_system_surface() {
 
 #[test]
 fn x_display_set_last_user_time_batch_semantics() {
-    match builtin_x_display_set_last_user_time(vec![Value::Nil]) {
+    let mut eval = crate::emacs_core::Context::new();
+
+    match builtin_x_display_set_last_user_time(&mut eval, vec![Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -999,7 +996,7 @@ fn x_display_set_last_user_time_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_x_display_set_last_user_time(vec![Value::Nil, Value::Nil]) {
+    match builtin_x_display_set_last_user_time(&mut eval, vec![Value::Nil, Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -1010,7 +1007,7 @@ fn x_display_set_last_user_time_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_x_display_set_last_user_time(vec![Value::string("x"), Value::Nil]) {
+    match builtin_x_display_set_last_user_time(&mut eval, vec![Value::string("x"), Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -1021,7 +1018,7 @@ fn x_display_set_last_user_time_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_x_display_set_last_user_time(vec![Value::Nil, Value::string("x")]) {
+    match builtin_x_display_set_last_user_time(&mut eval, vec![Value::Nil, Value::string("x")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(sig.data, vec![Value::string("Display x can’t be opened")]);
@@ -1029,7 +1026,8 @@ fn x_display_set_last_user_time_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_x_display_set_last_user_time(vec![Value::Nil, terminal_handle_value()]) {
+    match builtin_x_display_set_last_user_time(&mut eval, vec![Value::Nil, terminal_handle_value()])
+    {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -1040,7 +1038,7 @@ fn x_display_set_last_user_time_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_x_display_set_last_user_time(vec![Value::Nil, Value::Int(1)]) {
+    match builtin_x_display_set_last_user_time(&mut eval, vec![Value::Nil, Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
@@ -1048,12 +1046,15 @@ fn x_display_set_last_user_time_batch_semantics() {
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
 
-    match builtin_x_display_set_last_user_time(vec![]) {
+    match builtin_x_display_set_last_user_time(&mut eval, vec![]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
     }
 
-    match builtin_x_display_set_last_user_time(vec![Value::Nil, Value::Int(1), Value::Nil]) {
+    match builtin_x_display_set_last_user_time(
+        &mut eval,
+        vec![Value::Nil, Value::Int(1), Value::Nil],
+    ) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
     }
@@ -1193,7 +1194,9 @@ fn x_geometry_fonts_and_resource_batch_semantics() {
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
 
-    match builtin_x_list_fonts(vec![Value::Nil]) {
+    let mut eval = crate::emacs_core::Context::new();
+
+    match builtin_x_list_fonts(&mut eval, vec![Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -1206,7 +1209,7 @@ fn x_geometry_fonts_and_resource_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_x_get_resource(vec![Value::Nil, Value::Nil]) {
+    match builtin_x_get_resource(&mut eval, vec![Value::Nil, Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -1218,7 +1221,7 @@ fn x_geometry_fonts_and_resource_batch_semantics() {
         }
         other => panic!("expected error signal, got {other:?}"),
     }
-    match builtin_x_get_resource(vec![Value::Nil]) {
+    match builtin_x_get_resource(&mut eval, vec![Value::Nil]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
     }
@@ -2038,11 +2041,16 @@ fn x_selection_property_tip_batch_semantics() {
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
     };
 
+    let mut eval = crate::emacs_core::Context::new();
+
     assert_error(
-        builtin_x_apply_session_resources(vec![]),
+        builtin_x_apply_session_resources(&mut eval, vec![]),
         "Window system is not in use or not initialized",
     );
-    assert_wrong_number(builtin_x_apply_session_resources(vec![Value::Nil]));
+    assert_wrong_number(builtin_x_apply_session_resources(
+        &mut eval,
+        vec![Value::Nil],
+    ));
 
     assert_error(
         builtin_x_change_window_property(vec![Value::string("P"), Value::string("V")]),
@@ -2834,10 +2842,19 @@ fn get_device_terminal_formatter_keeps_integer_literals() {
 
 #[test]
 fn display_images_p_shapes_and_errors() {
-    assert!(builtin_display_images_p(vec![]).unwrap().is_nil());
-    assert!(builtin_display_images_p(vec![Value::Nil]).unwrap().is_nil());
+    let mut eval = crate::emacs_core::Context::new();
+    assert!(
+        builtin_display_images_p(&mut eval, vec![])
+            .unwrap()
+            .is_nil()
+    );
+    assert!(
+        builtin_display_images_p(&mut eval, vec![Value::Nil])
+            .unwrap()
+            .is_nil()
+    );
 
-    match builtin_display_images_p(vec![Value::Int(1)]) {
+    match builtin_display_images_p(&mut eval, vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -2848,7 +2865,7 @@ fn display_images_p_shapes_and_errors() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_display_images_p(vec![Value::Nil, Value::Nil]) {
+    match builtin_display_images_p(&mut eval, vec![Value::Nil, Value::Nil]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments, got {other:?}"),
     }
@@ -2856,22 +2873,28 @@ fn display_images_p_shapes_and_errors() {
 
 #[test]
 fn display_save_under_and_display_selections_p_shapes_and_errors() {
+    let mut eval = crate::emacs_core::Context::new();
+
     assert_eq!(
-        builtin_display_save_under(vec![]).unwrap(),
+        builtin_display_save_under(&mut eval, vec![]).unwrap(),
         Value::symbol("not-useful")
     );
     assert_eq!(
-        builtin_display_save_under(vec![Value::Nil]).unwrap(),
+        builtin_display_save_under(&mut eval, vec![Value::Nil]).unwrap(),
         Value::symbol("not-useful")
     );
-    assert!(builtin_display_selections_p(vec![]).unwrap().is_nil());
     assert!(
-        builtin_display_selections_p(vec![Value::Nil])
+        builtin_display_selections_p(&mut eval, vec![])
+            .unwrap()
+            .is_nil()
+    );
+    assert!(
+        builtin_display_selections_p(&mut eval, vec![Value::Nil])
             .unwrap()
             .is_nil()
     );
 
-    match builtin_display_save_under(vec![Value::Int(1)]) {
+    match builtin_display_save_under(&mut eval, vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -2882,7 +2905,7 @@ fn display_save_under_and_display_selections_p_shapes_and_errors() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_display_selections_p(vec![Value::Int(1)]) {
+    match builtin_display_selections_p(&mut eval, vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -2893,12 +2916,12 @@ fn display_save_under_and_display_selections_p_shapes_and_errors() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_display_save_under(vec![Value::Nil, Value::Nil]) {
+    match builtin_display_save_under(&mut eval, vec![Value::Nil, Value::Nil]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments, got {other:?}"),
     }
 
-    match builtin_display_selections_p(vec![Value::Nil, Value::Nil]) {
+    match builtin_display_selections_p(&mut eval, vec![Value::Nil, Value::Nil]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments, got {other:?}"),
     }
@@ -2906,22 +2929,29 @@ fn display_save_under_and_display_selections_p_shapes_and_errors() {
 
 #[test]
 fn display_optional_capability_queries_match_color_shapes() {
+    let mut eval = crate::emacs_core::Context::new();
+
     for query in [
-        builtin_display_grayscale_p as fn(Vec<Value>) -> EvalResult,
+        builtin_display_grayscale_p
+            as fn(&mut crate::emacs_core::eval::Context, Vec<Value>) -> EvalResult,
         builtin_display_mouse_p,
         builtin_display_popup_menus_p,
         builtin_display_symbol_keys_p,
     ] {
-        assert!(query(vec![]).unwrap().is_nil());
-        assert!(query(vec![Value::Nil]).unwrap().is_nil());
-        assert!(query(vec![terminal_handle_value()]).unwrap().is_nil());
+        assert!(query(&mut eval, vec![]).unwrap().is_nil());
+        assert!(query(&mut eval, vec![Value::Nil]).unwrap().is_nil());
+        assert!(
+            query(&mut eval, vec![terminal_handle_value()])
+                .unwrap()
+                .is_nil()
+        );
 
-        match query(vec![Value::Int(1)]) {
+        match query(&mut eval, vec![Value::Int(1)]) {
             Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "error"),
             other => panic!("expected error signal, got {other:?}"),
         }
 
-        match query(vec![Value::string("x")]) {
+        match query(&mut eval, vec![Value::string("x")]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
                 assert_eq!(sig.data, vec![Value::string("Display x does not exist")]);
@@ -2930,7 +2960,6 @@ fn display_optional_capability_queries_match_color_shapes() {
         }
     }
 
-    let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     assert!(
         builtin_display_grayscale_p(&mut eval, vec![Value::Int(frame_id)])
@@ -2956,28 +2985,30 @@ fn display_optional_capability_queries_match_color_shapes() {
 
 #[test]
 fn display_supports_face_attributes_p_arity_and_nil_result() {
+    let mut eval = crate::emacs_core::Context::new();
     let attrs = Value::list(vec![Value::symbol(":weight"), Value::symbol("bold")]);
     assert!(
-        builtin_display_supports_face_attributes_p(vec![attrs])
+        builtin_display_supports_face_attributes_p(&mut eval, vec![attrs])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_supports_face_attributes_p(vec![attrs, Value::Int(999_999)])
+        builtin_display_supports_face_attributes_p(&mut eval, vec![attrs, Value::Int(999_999)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_supports_face_attributes_p(vec![Value::Int(1)])
+        builtin_display_supports_face_attributes_p(&mut eval, vec![Value::Int(1)])
             .unwrap()
             .is_nil()
     );
 
-    match builtin_display_supports_face_attributes_p(vec![]) {
+    match builtin_display_supports_face_attributes_p(&mut eval, vec![]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments, got {other:?}"),
     }
-    match builtin_display_supports_face_attributes_p(vec![attrs, Value::Nil, Value::Nil]) {
+    match builtin_display_supports_face_attributes_p(&mut eval, vec![attrs, Value::Nil, Value::Nil])
+    {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments, got {other:?}"),
     }
