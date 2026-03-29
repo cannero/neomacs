@@ -4,6 +4,7 @@ use crate::emacs_core::editfns::{
 };
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::textprop::builtin_make_overlay;
 use crate::emacs_core::value::{LambdaData, LambdaParams};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
@@ -2074,10 +2075,14 @@ fn delete_all_overlays_clears_current_buffer() {
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("hello");
-        buf.overlays.make_overlay(0, 2);
-        buf.overlays.make_overlay(1, 4);
-        assert_eq!(buf.overlays.len(), 2);
     }
+    builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(3)])
+        .expect("first overlay should be created");
+    builtin_make_overlay(&mut eval, vec![Value::Int(2), Value::Int(5)])
+        .expect("second overlay should be created");
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.overlays.len(), 2);
 
     assert_eq!(
         builtin_delete_all_overlays(&mut eval, vec![]).unwrap(),
@@ -7808,9 +7813,6 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
 #[test]
 fn message_nil_returns_nil() {
     let mut eval = crate::emacs_core::eval::Context::new();
-
-    let raw = builtin_message_inner(vec![Value::Nil]).expect("message should accept nil");
-    assert!(raw.is_nil());
 
     let eval_result =
         builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should accept nil");
