@@ -1,8 +1,22 @@
 use super::*;
+use crate::emacs_core::builtins::search::{
+    builtin_match_data, builtin_set_match_data, builtin_string_match, builtin_string_match_p,
+};
+use crate::emacs_core::search::builtin_replace_regexp_in_string;
 
 fn call_string_match(args: Vec<Value>) -> EvalResult {
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_string_match(&mut eval, args)
+}
+
+fn call_string_match_p(args: Vec<Value>) -> EvalResult {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    builtin_string_match_p(&mut eval, args)
+}
+
+fn call_replace_regexp_in_string(args: Vec<Value>) -> EvalResult {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    builtin_replace_regexp_in_string(&mut eval, args)
 }
 
 fn assert_int(val: Value, expected: i64) {
@@ -60,14 +74,13 @@ fn string_match_defaults_to_case_fold() {
 
 #[test]
 fn string_match_p_basic() {
-    let result =
-        builtin_string_match_p_inner(vec![Value::string("[0-9]+"), Value::string("abc 123 def")]);
+    let result = call_string_match_p(vec![Value::string("[0-9]+"), Value::string("abc 123 def")]);
     assert_int(result.unwrap(), 4);
 }
 
 #[test]
 fn string_match_p_no_match() {
-    let result = builtin_string_match_p_inner(vec![
+    let result = call_string_match_p(vec![
         Value::string("[0-9]+"),
         Value::string("no digits here"),
     ]);
@@ -76,7 +89,7 @@ fn string_match_p_no_match() {
 
 #[test]
 fn string_match_p_defaults_to_case_fold() {
-    let result = builtin_string_match_p_inner(vec![Value::string("a"), Value::string("A")]);
+    let result = call_string_match_p(vec![Value::string("a"), Value::string("A")]);
     assert_int(result.unwrap(), 0);
 }
 
@@ -101,32 +114,42 @@ fn regexp_quote_all_specials() {
 
 #[test]
 fn match_data_nil_without_match_data() {
-    builtin_set_match_data_inner(vec![Value::Nil]).unwrap();
-    let result = builtin_match_data_inner(vec![]);
+    let mut eval = crate::emacs_core::eval::Context::new();
+    builtin_set_match_data(&mut eval, vec![Value::Nil]).unwrap();
+    let result = builtin_match_data(&mut eval, vec![]);
     assert_nil(result.unwrap());
 }
 
 #[test]
 fn set_match_data_nil_clears_state() {
-    builtin_set_match_data_inner(vec![Value::list(vec![Value::Int(1), Value::Int(2)])]).unwrap();
-    let result = builtin_set_match_data_inner(vec![Value::Nil]);
+    let mut eval = crate::emacs_core::eval::Context::new();
+    builtin_set_match_data(
+        &mut eval,
+        vec![Value::list(vec![Value::Int(1), Value::Int(2)])],
+    )
+    .unwrap();
+    let result = builtin_set_match_data(&mut eval, vec![Value::Nil]);
     assert_nil(result.unwrap());
-    let md = builtin_match_data_inner(vec![]).unwrap();
+    let md = builtin_match_data(&mut eval, vec![]).unwrap();
     assert_nil(md);
 }
 
 #[test]
 fn set_match_data_round_trip() {
-    builtin_set_match_data_inner(vec![Value::list(vec![
-        Value::Int(1),
-        Value::Int(2),
-        Value::Nil,
-        Value::Nil,
-        Value::Int(5),
-        Value::Int(7),
-    ])])
+    let mut eval = crate::emacs_core::eval::Context::new();
+    builtin_set_match_data(
+        &mut eval,
+        vec![Value::list(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Nil,
+            Value::Nil,
+            Value::Int(5),
+            Value::Int(7),
+        ])],
+    )
     .unwrap();
-    let md = builtin_match_data_inner(vec![]).unwrap();
+    let md = builtin_match_data(&mut eval, vec![]).unwrap();
     assert_eq!(
         md,
         Value::list(vec![
@@ -161,7 +184,7 @@ fn string_match_start_nil_and_negative() {
 
 #[test]
 fn replace_regexp_basic() {
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("[0-9]+"),
         Value::string("NUM"),
         Value::string("abc 123 def 456"),
@@ -171,7 +194,7 @@ fn replace_regexp_basic() {
 
 #[test]
 fn replace_regexp_literal() {
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("[0-9]+"),
         Value::string("$0"),
         Value::string("abc 123 def"),
@@ -184,7 +207,7 @@ fn replace_regexp_literal() {
 #[test]
 fn replace_regexp_with_backref() {
     // Use Emacs-style group: \(\w+\) and back-reference \1
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("\\(\\w+\\)"),
         Value::string("[\\1]"),
         Value::string("hello world"),
@@ -195,7 +218,7 @@ fn replace_regexp_with_backref() {
 #[test]
 fn replace_regexp_with_start() {
     // Emacs: START omits the first START chars from the result.
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("[0-9]+"),
         Value::string("X"),
         Value::string("111 222 333"),
@@ -211,7 +234,7 @@ fn replace_regexp_with_start() {
 fn replace_regexp_with_start_no_subexp() {
     // In Emacs, arg 6 is SUBEXP and arg 7 is START.
     // To pass START without SUBEXP, use nil for SUBEXP.
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("[0-9]+"),
         Value::string("X"),
         Value::string("111 222 333"),
@@ -225,7 +248,7 @@ fn replace_regexp_with_start_no_subexp() {
 
 #[test]
 fn replace_regexp_subexp() {
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("\\([a-z]+\\)-\\([0-9]+\\)"),
         Value::string("N"),
         Value::string("aaa-111 bbb-222"),
@@ -239,7 +262,7 @@ fn replace_regexp_subexp() {
 
 #[test]
 fn replace_regexp_subexp_unmatched_errors() {
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("\\(a\\)?b"),
         Value::string("N"),
         Value::string("b"),
@@ -253,7 +276,7 @@ fn replace_regexp_subexp_unmatched_errors() {
 
 #[test]
 fn replace_regexp_preserves_case_when_fixedcase_nil() {
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("a"),
         Value::string("x"),
         Value::string("A a"),
@@ -263,7 +286,7 @@ fn replace_regexp_preserves_case_when_fixedcase_nil() {
 
 #[test]
 fn replace_regexp_fixedcase_disables_case_preserve() {
-    let result = builtin_replace_regexp_in_string_inner(vec![
+    let result = call_replace_regexp_in_string(vec![
         Value::string("a"),
         Value::string("x"),
         Value::string("A a"),
