@@ -73,7 +73,6 @@ pub enum ProcessKind {
 }
 
 /// A tracked process record.
-#[derive(Debug)]
 pub struct Process {
     pub id: ProcessId,
     pub name: String,
@@ -116,13 +115,21 @@ pub struct Process {
     pub tty_stdout: bool,
     /// Whether stderr is tty-backed for this process.
     pub tty_stderr: bool,
-    /// The actual OS child process, if spawned.
+    /// The actual OS child process, if spawned (pipe mode).
     #[allow(dead_code)]
     pub child: Option<Child>,
-    /// OS-level stdout pipe for non-blocking reads.
+    /// OS-level stdout pipe for non-blocking reads (pipe mode).
     pub child_stdout: Option<std::process::ChildStdout>,
-    /// OS-level stderr pipe for non-blocking reads.
+    /// OS-level stderr pipe for non-blocking reads (pipe mode).
     pub child_stderr: Option<std::process::ChildStderr>,
+    /// PTY master handle for resize and I/O (PTY mode).
+    pub pty_master: Option<Box<dyn portable_pty::MasterPty + Send>>,
+    /// PTY child process handle (PTY mode).
+    pub pty_child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
+    /// PTY reader for non-blocking reads from the master side.
+    pub pty_reader: Option<Box<dyn IoRead + Send>>,
+    /// PTY writer for sending input to the master side.
+    pub pty_writer: Option<Box<dyn std::io::Write + Send>>,
     /// TCP socket for network processes (client or accepted connection).
     /// When TLS is active, this is `None` (the socket is owned by `tls_stream`).
     #[cfg(unix)]
@@ -136,6 +143,23 @@ pub struct Process {
     /// Marker position in the process buffer (byte offset), matching GNU's `p->mark`.
     /// `None` means "use end of buffer".
     pub mark_byte_pos: Option<usize>,
+}
+
+impl std::fmt::Debug for Process {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Process")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("command", &self.command)
+            .field("kind", &self.kind)
+            .field("status", &self.status)
+            .field("buffer_name", &self.buffer_name)
+            .field("pty_master", &self.pty_master.as_ref().map(|_| ".."))
+            .field("pty_child", &self.pty_child.is_some())
+            .field("pty_reader", &self.pty_reader.as_ref().map(|_| ".."))
+            .field("pty_writer", &self.pty_writer.as_ref().map(|_| ".."))
+            .finish_non_exhaustive()
+    }
 }
 
 /// Manages the set of live processes.
@@ -237,6 +261,10 @@ impl ProcessManager {
             child: None,
             child_stdout: None,
             child_stderr: None,
+            pty_master: None,
+            pty_child: None,
+            pty_reader: None,
+            pty_writer: None,
             #[cfg(unix)]
             socket: None,
             tls_stream: None,
@@ -248,14 +276,17 @@ impl ProcessManager {
     }
 
     /// Spawn an OS child process for a tracked process record.
-    /// Sets up piped stdin/stdout/stderr.
-    pub fn spawn_child(&mut self, id: ProcessId) -> Result<(), String> {
+    ///
+    /// When `use_pty` is true (and on Unix), the child is spawned on a
+    /// pseudo-terminal via `portable-pty`. Otherwise the traditional
+    /// pipe-based `std::process::Command` path is used.
+    pub fn spawn_child(&mut self, id: ProcessId, use_pty: bool) -> Result<(), String> {
         let proc = self
             .processes
             .get_mut(&id)
             .ok_or_else(|| "Process not found".to_string())?;
 
-        if proc.child.is_some() {
+        if proc.child.is_some() || proc.pty_child.is_some() {
             return Ok(()); // Already spawned
         }
 
@@ -269,14 +300,43 @@ impl ProcessManager {
             return Ok(()); // No program to run
         }
 
-        let mut cmd = Command::new(program);
+        // Collect env overrides into a temporary Vec so we don't borrow
+        // `self` across the mutable `proc` borrow below.
+        let env_overrides: Vec<(String, Option<String>)> = self
+            .env_overrides
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        // PTY path (Unix only).
+        #[cfg(unix)]
+        if use_pty {
+            return self.spawn_child_pty(id, &env_overrides);
+        }
+
+        // Pipe path (all platforms, or when use_pty is false).
+        self.spawn_child_pipe(id, &env_overrides)
+    }
+
+    /// Pipe-based child spawn (traditional stdin/stdout/stderr pipes).
+    fn spawn_child_pipe(
+        &mut self,
+        id: ProcessId,
+        env_overrides: &[(String, Option<String>)],
+    ) -> Result<(), String> {
+        let proc = self
+            .processes
+            .get_mut(&id)
+            .ok_or_else(|| "Process not found".to_string())?;
+
+        let mut cmd = Command::new(&proc.command);
         cmd.args(&proc.args);
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
         // Apply environment overrides
-        for (key, val) in &self.env_overrides {
+        for (key, val) in env_overrides {
             match val {
                 Some(v) => {
                     cmd.env(key, v);
@@ -317,6 +377,11 @@ impl ProcessManager {
                 proc.child_stderr = child.stderr.take();
                 proc.child = Some(child);
                 proc.status = ProcessStatus::Run;
+                // Pipe-mode processes don't have a real TTY.
+                proc.tty_name = None;
+                proc.tty_stdin = false;
+                proc.tty_stdout = false;
+                proc.tty_stderr = false;
                 Ok(())
             }
             Err(e) => {
@@ -326,6 +391,99 @@ impl ProcessManager {
         }
     }
 
+    /// PTY-based child spawn via `portable-pty`.
+    ///
+    /// The child is attached to a pseudo-terminal. The master side provides
+    /// a single combined I/O stream (PTY merges stdout and stderr).
+    #[cfg(unix)]
+    fn spawn_child_pty(
+        &mut self,
+        id: ProcessId,
+        env_overrides: &[(String, Option<String>)],
+    ) -> Result<(), String> {
+        let proc = self
+            .processes
+            .get_mut(&id)
+            .ok_or_else(|| "Process not found".to_string())?;
+
+        let rows = proc.window_rows.unwrap_or(24) as u16;
+        let cols = proc.window_cols.unwrap_or(80) as u16;
+
+        let pty_system = portable_pty::native_pty_system();
+        let pty_size = portable_pty::PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+        let pty_pair = pty_system
+            .openpty(pty_size)
+            .map_err(|e| format!("Failed to create PTY: {}", e))?;
+
+        let mut cmd = portable_pty::CommandBuilder::new(&proc.command);
+        cmd.args(&proc.args);
+        for (key, val) in env_overrides {
+            match val {
+                Some(v) => {
+                    cmd.env(key, v);
+                }
+                None => {
+                    cmd.env_remove(key);
+                }
+            }
+        }
+
+        let pty_child = pty_pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("Failed to spawn PTY child: {}", e))?;
+
+        // Obtain the TTY name from the master (which knows the slave path).
+        let tty_name = pty_pair
+            .master
+            .tty_name()
+            .map(|p| p.to_string_lossy().into_owned());
+
+        let pty_read = pty_pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
+        let pty_write = pty_pair
+            .master
+            .take_writer()
+            .map_err(|e| format!("Failed to take PTY writer: {}", e))?;
+
+        // Register the PTY master fd with the poller for non-blocking I/O.
+        if let Some(master_fd) = pty_pair.master.as_raw_fd() {
+            // Set non-blocking on the master fd.
+            unsafe {
+                let flags = libc::fcntl(master_fd, libc::F_GETFL);
+                libc::fcntl(master_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            }
+            if let Some(ref poller) = self.poller {
+                unsafe {
+                    let borrowed = std::os::unix::io::BorrowedFd::borrow_raw(master_fd);
+                    let _ = poller.add_with_mode(
+                        &borrowed,
+                        polling::Event::readable(id as usize),
+                        polling::PollMode::Level,
+                    );
+                }
+            }
+        }
+
+        proc.pty_master = Some(pty_pair.master);
+        proc.pty_child = Some(pty_child);
+        proc.pty_reader = Some(pty_read);
+        proc.pty_writer = Some(Box::new(pty_write));
+        proc.status = ProcessStatus::Run;
+        proc.tty_name = tty_name;
+        proc.tty_stdin = true;
+        proc.tty_stdout = true;
+        proc.tty_stderr = true;
+        Ok(())
+    }
+
     /// Check if a child process has exited and update its status.
     /// Returns true if the process exited (status changed).
     pub fn check_child_exit(&mut self, id: ProcessId) -> bool {
@@ -333,6 +491,24 @@ impl ProcessManager {
             Some(p) => p,
             None => return false,
         };
+
+        // PTY child path.
+        if let Some(ref mut pty_child) = proc.pty_child {
+            match pty_child.try_wait() {
+                Ok(Some(status)) => {
+                    let code = if status.success() { 0 } else { 1 };
+                    proc.status = ProcessStatus::Exit(code);
+                    return true;
+                }
+                Ok(None) => return false,
+                Err(_) => {
+                    proc.status = ProcessStatus::Exit(1);
+                    return true;
+                }
+            }
+        }
+
+        // Pipe child path.
         let child = match proc.child.as_mut() {
             Some(c) => c,
             None => return false,
@@ -381,6 +557,26 @@ impl ProcessManager {
         }
     }
 
+    /// Read available output from a PTY master reader.
+    /// Returns the data read (may be empty if nothing available).
+    /// PTY combines stdout and stderr into a single stream.
+    fn read_pty_output(&mut self, id: ProcessId) -> Option<String> {
+        let proc = self.processes.get_mut(&id)?;
+        let reader = proc.pty_reader.as_mut()?;
+
+        let mut buf = vec![0u8; 4096];
+        match reader.read(&mut buf) {
+            Ok(0) => None, // EOF — slave closed
+            Ok(n) => {
+                let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                proc.stdout.push_str(&s);
+                Some(s)
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Some(String::new()),
+            Err(_) => None,
+        }
+    }
+
     /// Wait for any child process to have output ready, with timeout.
     ///
     /// Uses `polling::Poller` (epoll/kqueue/wepoll) for efficient blocking
@@ -412,6 +608,9 @@ impl ProcessManager {
             if let Some(child) = proc.child.as_mut() {
                 let _ = child.kill();
             }
+            if let Some(pty_child) = proc.pty_child.as_mut() {
+                let _ = pty_child.kill();
+            }
             #[cfg(unix)]
             {
                 proc.tls_stream.take();
@@ -429,6 +628,9 @@ impl ProcessManager {
         if let Some(mut proc) = self.processes.remove(&id) {
             if let Some(child) = proc.child.as_mut() {
                 let _ = child.kill();
+            }
+            if let Some(pty_child) = proc.pty_child.as_mut() {
+                let _ = pty_child.kill();
             }
             #[cfg(unix)]
             {
@@ -487,7 +689,7 @@ impl ProcessManager {
         self.processes.keys().copied().collect()
     }
 
-    /// Return IDs of processes that have a live OS child or network socket.
+    /// Return IDs of processes that have a live OS child, PTY child, or network socket.
     pub fn live_process_ids(&self) -> Vec<ProcessId> {
         self.processes
             .iter()
@@ -495,7 +697,7 @@ impl ProcessManager {
                 if !matches!(p.status, ProcessStatus::Run) {
                     return false;
                 }
-                if p.child.is_some() {
+                if p.child.is_some() || p.pty_child.is_some() {
                     return true;
                 }
                 #[cfg(unix)]
@@ -533,8 +735,13 @@ impl ProcessManager {
     pub fn send_input(&mut self, id: ProcessId, input: &str) -> bool {
         if let Some(proc) = self.processes.get_mut(&id) {
             proc.stdin_queue.push_str(input);
-            // Write to actual child stdin if available.
-            if let Some(ref mut child) = proc.child {
+            // Write to PTY master if this is a PTY process.
+            if let Some(ref mut pty_writer) = proc.pty_writer {
+                use std::io::Write;
+                let _ = pty_writer.write_all(input.as_bytes());
+                let _ = pty_writer.flush();
+            } else if let Some(ref mut child) = proc.child {
+                // Write to actual child stdin if available (pipe mode).
                 if let Some(ref mut stdin) = child.stdin {
                     use std::io::Write;
                     let _ = stdin.write_all(input.as_bytes());
@@ -587,6 +794,16 @@ impl ProcessManager {
     pub fn read_process_output(&mut self, id: ProcessId) -> Option<String> {
         // Check what kind of I/O source this process has, without holding
         // a long-lived mutable borrow.
+        let has_pty_reader = self
+            .processes
+            .get(&id)
+            .map(|p| p.pty_reader.is_some())
+            .unwrap_or(false);
+
+        if has_pty_reader {
+            return self.read_pty_output(id);
+        }
+
         let has_child_stdout = self
             .processes
             .get(&id)
@@ -1574,9 +1791,21 @@ fn process_live_status_value(status: &ProcessStatus, kind: &ProcessKind) -> Valu
 }
 
 fn default_process_tty_name() -> String {
-    // NeoVM does not yet allocate real PTYs for subprocesses, but oracle behavior
-    // expects tty-backed streams for default `start-process` paths.
+    // Fallback TTY name when the actual PTY slave path is not available.
     "/dev/pts/0".to_string()
+}
+
+/// Check whether `process-connection-type` is truthy (non-nil).
+///
+/// GNU Emacs defaults this to `t`, meaning processes should use PTYs.
+/// When nil, pipe-based I/O is used instead.
+fn process_connection_type_is_pty(obarray: &super::symbol::Obarray) -> bool {
+    match obarray.symbol_value("process-connection-type") {
+        Some(Value::Nil) => false,
+        Some(_) => true,
+        // Default is t (PTY) when the variable has not been set.
+        None => true,
+    }
 }
 
 fn signal_wrong_type_bufferp(value: Value) -> Flow {
@@ -3711,12 +3940,13 @@ pub(crate) fn builtin_start_process(
         .map(expect_string_strict)
         .collect::<Result<Vec<_>, _>>()?;
 
+    let use_pty = process_connection_type_is_pty(&eval.obarray);
     let id = eval
         .processes
         .create_process(name, buffer, program, proc_args);
 
     // Actually spawn the OS process.
-    if let Err(e) = eval.processes.spawn_child(id) {
+    if let Err(e) = eval.processes.spawn_child(id, use_pty) {
         // Process creation failed — mark as exited but still return the id
         // (GNU Emacs signals file-error for missing programs)
         return Err(signal(
@@ -3741,6 +3971,7 @@ pub(crate) fn builtin_start_process_shell_command(
     let name = expect_process_name_string(&args[0])?;
     let buffer = parse_make_process_buffer(eval, &args[1])?;
     let command = expect_string_strict(&args[2])?;
+    let use_pty = process_connection_type_is_pty(&eval.obarray);
     let id = eval.processes.create_process(
         name,
         buffer,
@@ -3749,7 +3980,7 @@ pub(crate) fn builtin_start_process_shell_command(
     );
 
     // Actually spawn the OS process.
-    if let Err(e) = eval.processes.spawn_child(id) {
+    if let Err(e) = eval.processes.spawn_child(id, use_pty) {
         return Err(signal(
             "file-error",
             vec![Value::string("Searching for program"), Value::string(e)],
@@ -3773,9 +4004,23 @@ pub(crate) fn builtin_start_file_process(
         expect_string_strict(&args[2])?
     };
     let proc_args = parse_string_args_strict(&args[3..])?;
+    let use_pty = process_connection_type_is_pty(&eval.obarray);
     let id = eval
         .processes
         .create_process(name, buffer, program, proc_args);
+
+    // NeoVM has no Tramp/remote support, so behave like start-process.
+    if let Err(e) = eval.processes.spawn_child(id, use_pty) {
+        return Err(signal(
+            "file-error",
+            vec![
+                Value::string("Searching for program"),
+                Value::string(e),
+                args[2],
+            ],
+        ));
+    }
+
     Ok(Value::Int(id as i64))
 }
 
@@ -3788,13 +4033,47 @@ pub(crate) fn builtin_start_file_process_shell_command(
     let name = expect_process_name_string(&args[0])?;
     let buffer = parse_make_process_buffer(eval, &args[1])?;
     let command = expect_string_strict(&args[2])?;
+    let use_pty = process_connection_type_is_pty(&eval.obarray);
     let id = eval.processes.create_process(
         name,
         buffer,
         "sh".to_string(),
         vec!["-c".to_string(), command],
     );
+
+    // NeoVM has no Tramp/remote support, so behave like start-process-shell-command.
+    if let Err(e) = eval.processes.spawn_child(id, use_pty) {
+        return Err(signal(
+            "file-error",
+            vec![Value::string("Searching for program"), Value::string(e)],
+        ));
+    }
+
     Ok(Value::Int(id as i64))
+}
+
+/// (open-network-stream NAME BUFFER HOST SERVICE &optional TYPE)
+///
+/// Thin wrapper around `make-network-process`.  TYPE is currently ignored.
+pub(crate) fn builtin_open_network_stream(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("open-network-stream", &args, 4)?;
+    let mnp_args = vec![
+        Value::keyword(":name"),
+        args[0],
+        Value::keyword(":buffer"),
+        args[1],
+        Value::keyword(":host"),
+        args[2],
+        Value::keyword(":service"),
+        args[3],
+    ];
+    // If TYPE (5th arg) is provided and non-nil, ignore it for now; GNU Emacs
+    // uses it for TLS negotiation which NeoVM stubs out.
+    let _ = args.get(4);
+    builtin_make_network_process(eval, mnp_args)
 }
 
 /// (call-process PROGRAM &optional INFILE DESTINATION DISPLAY &rest ARGS)
@@ -4511,13 +4790,15 @@ pub(crate) fn builtin_make_process(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_make_process_impl(&mut eval.processes, &mut eval.buffers, args)
+    let use_pty = process_connection_type_is_pty(&eval.obarray);
+    builtin_make_process_impl(&mut eval.processes, &mut eval.buffers, args, use_pty)
 }
 
 pub(crate) fn builtin_make_process_impl(
     processes: &mut ProcessManager,
     buffers: &mut BufferManager,
     args: Vec<Value>,
+    default_use_pty: bool,
 ) -> EvalResult {
     if args.is_empty() {
         return Ok(Value::Nil);
@@ -4528,6 +4809,7 @@ pub(crate) fn builtin_make_process_impl(
     let mut command: Option<Vec<String>> = None;
     let mut filter = Value::Nil;
     let mut sentinel = Value::Nil;
+    let mut connection_type: Option<Value> = None;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -4554,7 +4836,8 @@ pub(crate) fn builtin_make_process_impl(
             Some(":command") => command = Some(parse_make_process_command(&value)?),
             Some(":filter") => filter = value,
             Some(":sentinel") => sentinel = value,
-            _ => {} // :connection-type, :coding, :noquery, :stop, :stderr — ignored for now
+            Some(":connection-type") => connection_type = Some(value),
+            _ => {} // :coding, :noquery, :stop, :stderr — ignored for now
         }
         i += 2;
     }
@@ -4564,6 +4847,16 @@ pub(crate) fn builtin_make_process_impl(
             "error",
             vec![Value::string("Missing :name keyword parameter")],
         ));
+    };
+
+    // Determine PTY vs pipe: :connection-type overrides process-connection-type.
+    // :connection-type 'pty or 't -> PTY, :connection-type 'pipe or nil -> pipe.
+    let use_pty = match connection_type {
+        Some(Value::Nil) => false,
+        Some(Value::Symbol(sym)) if resolve_sym(sym) == "pipe" => false,
+        Some(Value::Symbol(sym)) if resolve_sym(sym) == "pty" => true,
+        Some(_) => true, // truthy -> PTY
+        None => default_use_pty,
     };
 
     let command = command.unwrap_or_default();
@@ -4587,7 +4880,7 @@ pub(crate) fn builtin_make_process_impl(
     }
 
     // Spawn the actual OS child process.
-    if let Err(e) = processes.spawn_child(id) {
+    if let Err(e) = processes.spawn_child(id, use_pty) {
         return Err(signal(
             "file-error",
             vec![Value::string("Searching for program"), Value::string(e)],
@@ -5222,6 +5515,16 @@ pub(crate) fn builtin_set_process_window_size_impl(
     })?;
     proc.window_cols = Some(cols);
     proc.window_rows = Some(rows);
+    // If the process has a PTY master, resize it.
+    if let Some(ref pty_master) = proc.pty_master {
+        let pty_size = portable_pty::PtySize {
+            rows: rows as u16,
+            cols: cols as u16,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+        let _ = pty_master.resize(pty_size);
+    }
     Ok(if is_live { Value::True } else { Value::Nil })
 }
 

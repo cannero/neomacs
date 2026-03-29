@@ -2077,6 +2077,7 @@ dependencies = [
  "neovm-host-abi",
  "network-interface",
  "polling",
+ "portable-pty",
  "proptest",
  "regex",
  "rustls",

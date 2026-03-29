@@ -4351,7 +4351,7 @@ fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
                 vec!["out".into()],
             );
             assert_eq!(pid, 1);
-            eval.processes.spawn_child(pid).expect("spawn child");
+            eval.processes.spawn_child(pid, false).expect("spawn child");
         },
     );
     assert_eq!(

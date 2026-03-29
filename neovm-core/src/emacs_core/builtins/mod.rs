@@ -1240,6 +1240,36 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
+    ctx.defsubr(
+        "start-process",
+        super::process::builtin_start_process,
+        3,
+        None,
+    );
+    ctx.defsubr(
+        "start-file-process",
+        super::process::builtin_start_file_process,
+        3,
+        None,
+    );
+    ctx.defsubr(
+        "start-process-shell-command",
+        super::process::builtin_start_process_shell_command,
+        3,
+        Some(3),
+    );
+    ctx.defsubr(
+        "start-file-process-shell-command",
+        super::process::builtin_start_file_process_shell_command,
+        3,
+        Some(3),
+    );
+    ctx.defsubr(
+        "open-network-stream",
+        super::process::builtin_open_network_stream,
+        4,
+        Some(5),
+    );
     ctx.defsubr("processp", super::process::builtin_processp, 1, Some(1));
     ctx.defsubr("process-id", super::process::builtin_process_id, 1, Some(1));
     ctx.defsubr(
