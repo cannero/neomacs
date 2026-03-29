@@ -74,6 +74,8 @@ frontend implementation differs.
 
 ## Required work
 
+- Use the focused execution plan in `phase-08-keymap-key-input-refactor-plan.md`
+  for the GNU-shaped keymap/key-input refactor order.
 - Keep reducing semantic input logic outside `neovm-core`.
 - Move toward a boundary where frontend/runtime sends raw platform events and
   `neovm-core` constructs GNU-style input events.

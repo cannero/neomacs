@@ -12,6 +12,7 @@ This directory now has one audit file per major compatibility module.
 - [Phase 6: Window / Frame / Font / Terminal](phase-06-window-frame-font-terminal.md)
 - [Phase 7: Display Engine](phase-07-display-engine.md)
 - [Phase 8: Command System](phase-08-command-system.md)
+- [Phase 8 Keymap/Key Input Plan](phase-08-keymap-key-input-refactor-plan.md)
 - [Phase 9: Process / Thread / Timer](phase-09-process-thread-timer.md)
 - [Phase 10: Startup & Integration](phase-10-startup-integration.md)
 
