@@ -1255,8 +1255,6 @@ pub(crate) fn builtin_split_window_internal(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let frames = &mut eval.frames;
-    let buffers = &mut eval.buffers;
     expect_range_args("split-window-internal", &args, 4, 5)?;
     if !args[1].is_nil() {
         let _ = expect_fixnum(&args[1])?;
@@ -1273,9 +1271,16 @@ pub(crate) fn builtin_split_window_internal(
     if let Some(refer) = args.get(4) {
         let _ = refer;
     }
-    super::window_cmds::split_window_internal_impl_in_state(
-        frames, buffers, args[0], args[1], args[2],
-    )
+    let result = super::window_cmds::split_window_internal_impl_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        args[0],
+        args[1],
+        args[2],
+    )?;
+    // Run window-configuration-change-hook after successful split.
+    let _ = super::hooks::builtin_run_window_configuration_change_hook(eval, vec![]);
+    Ok(result)
 }
 
 pub(crate) fn builtin_buffer_text_pixel_size(

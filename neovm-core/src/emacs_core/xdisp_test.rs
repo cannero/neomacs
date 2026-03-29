@@ -1605,17 +1605,13 @@ fn test_bidi_find_overridden_directionality() {
 
 #[test]
 fn test_move_to_window_line() {
+    // Without a selected frame, move-to-window-line should signal an error.
+    let mut ev = crate::emacs_core::Context::new();
     for arg in [Value::Int(1), Value::Int(0), Value::symbol("left")] {
-        let err = builtin_move_to_window_line(vec![arg]).unwrap_err();
+        let err = builtin_move_to_window_line(&mut ev, vec![arg]).unwrap_err();
         match err {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "error");
-                assert_eq!(
-                    sig.data,
-                    vec![Value::string(
-                        "move-to-window-line called from unrelated buffer"
-                    )]
-                );
             }
             other => panic!("expected error signal, got {:?}", other),
         }
@@ -1728,7 +1724,10 @@ fn test_wrong_arity() {
     assert!(builtin_invisible_p(vec![]).is_err());
     assert!(builtin_move_point_visually(vec![]).is_err());
     assert!(builtin_lookup_image_map(vec![Value::Int(1), Value::Int(2)]).is_err());
-    assert!(builtin_move_to_window_line(vec![]).is_err());
+    {
+        let mut ev = crate::emacs_core::Context::new();
+        assert!(builtin_move_to_window_line(&mut ev, vec![]).is_err());
+    }
 }
 
 // Test optional args

@@ -319,6 +319,8 @@ pub(crate) fn builtin_set_window_configuration(
     }
 
     eval.redisplay();
+    // Run window-configuration-change-hook after restoring configuration.
+    let _ = builtin_run_window_configuration_change_hook(eval, vec![]);
     Ok(Value::True)
 }
 

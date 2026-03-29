@@ -3238,23 +3238,26 @@ pub(crate) fn builtin_delete_window(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("delete-window", &args, 1)?;
-    let (fid, wid) = resolve_window_id_or_error_in_state(frames, buffers, args.first())?;
-    if !frames.delete_window(fid, wid) {
+    let (fid, wid) =
+        resolve_window_id_or_error_in_state(&mut eval.frames, &mut eval.buffers, args.first())?;
+    if !eval.frames.delete_window(fid, wid) {
         return Err(signal(
             "error",
             vec![Value::string("Cannot delete sole window")],
         ));
     }
-    let selected_buffer = frames
+    let selected_buffer = eval
+        .frames
         .get(fid)
         .and_then(|frame| frame.find_window(frame.selected_window))
         .and_then(|w| w.buffer_id());
     if let Some(buffer_id) = selected_buffer {
-        buffers.switch_current(buffer_id);
+        eval.buffers.switch_current(buffer_id);
     }
-    note_selected_window_buffer_in_state(frames, buffers, fid);
+    note_selected_window_buffer_in_state(&mut eval.frames, &mut eval.buffers, fid);
+    // Run window-configuration-change-hook after successful deletion.
+    let _ = builtin_run_window_configuration_change_hook(eval, vec![]);
     Ok(Value::Nil)
 }
 /// `(delete-other-windows &optional WINDOW)` -> nil.
@@ -3264,10 +3267,11 @@ pub(crate) fn builtin_delete_other_windows(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("delete-other-windows", &args, 2)?;
-    let (fid, keep_wid) = resolve_window_id_or_error_in_state(frames, buffers, args.first())?;
-    let frame = frames
+    let (fid, keep_wid) =
+        resolve_window_id_or_error_in_state(&mut eval.frames, &mut eval.buffers, args.first())?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 
@@ -3275,19 +3279,21 @@ pub(crate) fn builtin_delete_other_windows(
     let to_delete: Vec<WindowId> = all_ids.into_iter().filter(|&w| w != keep_wid).collect();
 
     for wid in to_delete {
-        let _ = frames.delete_window(fid, wid);
+        let _ = eval.frames.delete_window(fid, wid);
     }
     // Select the kept window.
-    let selected_buffer = if let Some(f) = frames.get_mut(fid) {
+    let selected_buffer = if let Some(f) = eval.frames.get_mut(fid) {
         f.select_window(keep_wid);
         f.find_window(keep_wid).and_then(|w| w.buffer_id())
     } else {
         None
     };
     if let Some(buffer_id) = selected_buffer {
-        buffers.switch_current(buffer_id);
+        eval.buffers.switch_current(buffer_id);
     }
-    note_selected_window_buffer_in_state(frames, buffers, fid);
+    note_selected_window_buffer_in_state(&mut eval.frames, &mut eval.buffers, fid);
+    // Run window-configuration-change-hook after successful deletion.
+    let _ = builtin_run_window_configuration_change_hook(eval, vec![]);
     Ok(Value::Nil)
 }
 /// `(delete-window-internal WINDOW)` -> nil.
@@ -6292,6 +6298,82 @@ pub(crate) fn builtin_window_tree(eval: &mut super::eval::Context, args: Vec<Val
         .map(|wid| Value::Window(wid.0))
         .unwrap_or(Value::Nil);
     Ok(Value::cons(tree, mini))
+}
+
+// ===========================================================================
+// fit-window-to-buffer
+// ===========================================================================
+
+/// `(fit-window-to-buffer &optional WINDOW MAX-HEIGHT MIN-HEIGHT MAX-WIDTH MIN-WIDTH PRESERVE-SIZE)` -> nil.
+///
+/// Adjust WINDOW height to fit its buffer contents, clamped to the
+/// optional MAX-HEIGHT and MIN-HEIGHT limits (in lines).  In batch /
+/// non-GUI mode this is mostly a no-op — we still validate arguments
+/// so callers see the correct error behaviour.
+pub(crate) fn builtin_fit_window_to_buffer(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("fit-window-to-buffer", &args, 6)?;
+
+    // Resolve WINDOW — nil means selected window.
+    let (fid, wid) = resolve_window_id_or_error(eval, args.first())?;
+
+    let (buf_id, bounds) = {
+        let w = get_leaf(&eval.frames, fid, wid)?;
+        match w {
+            Window::Leaf {
+                buffer_id, bounds, ..
+            } => (*buffer_id, bounds.clone()),
+            _ => return Ok(Value::Nil),
+        }
+    };
+
+    let buf = match eval.buffers.get(buf_id) {
+        Some(b) => b,
+        None => return Ok(Value::Nil),
+    };
+
+    // Count lines in the buffer.
+    let text = buf.text.to_string();
+    let buf_lines = text.chars().filter(|&c| c == '\n').count() + 1;
+
+    // Parse optional height limits.
+    let parse_opt_int = |idx: usize| -> Option<usize> {
+        args.get(idx).and_then(|v| match v {
+            Value::Int(n) if *n > 0 => Some(*n as usize),
+            _ => None,
+        })
+    };
+    let max_height = parse_opt_int(1);
+    let min_height = parse_opt_int(2);
+
+    // Clamp desired height.
+    let mut desired = buf_lines;
+    if let Some(max_h) = max_height {
+        desired = desired.min(max_h);
+    }
+    if let Some(min_h) = min_height {
+        desired = desired.max(min_h);
+    }
+
+    // In batch / TUI mode, attempt to resize the window via the frame manager.
+    let ch = eval
+        .frames
+        .get(fid)
+        .map(|f| f.char_height.max(1.0))
+        .unwrap_or(16.0);
+    let new_pixel_height = (desired as f32 * ch) + ch; // +1 row for mode line
+    let current_height = bounds.height;
+    if (new_pixel_height - current_height).abs() > 0.5 {
+        if let Some(frame) = eval.frames.get_mut(fid) {
+            if let Some(Window::Leaf { bounds, .. }) = frame.find_window_mut(wid) {
+                bounds.height = new_pixel_height;
+            }
+        }
+    }
+
+    Ok(Value::Nil)
 }
 
 // ===========================================================================

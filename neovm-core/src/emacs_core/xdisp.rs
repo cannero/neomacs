@@ -2244,16 +2244,118 @@ pub(crate) fn builtin_bidi_find_overridden_directionality(args: Vec<Value>) -> E
 
 /// (move-to-window-line ARG) -> integer or nil
 ///
-/// Batch semantics: in non-window contexts this command errors with the
-/// standard unrelated-buffer message.
-pub(crate) fn builtin_move_to_window_line(args: Vec<Value>) -> EvalResult {
+/// Move point to the beginning of the ARG-th screen line from the top of
+/// the selected window.  If ARG is nil, move to the middle line.  If ARG
+/// is negative, count from the bottom.  Returns the window line number
+/// (0-indexed from the top).
+pub(crate) fn builtin_move_to_window_line(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("move-to-window-line", &args, 1)?;
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "move-to-window-line called from unrelated buffer",
-        )],
-    ))
+
+    // Find selected window's window-start, buffer, and bounds.
+    let frame = eval
+        .frames
+        .selected_frame()
+        .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+    let wid = frame.selected_window;
+    let is_mini = frame.minibuffer_window == Some(wid);
+    let ch = frame.char_height.max(1.0);
+    let (ws, buf_id, bounds_height) = match frame.find_window(wid) {
+        Some(Window::Leaf {
+            window_start,
+            buffer_id,
+            bounds,
+            ..
+        }) => (*window_start, *buffer_id, bounds.height),
+        _ => {
+            return Err(signal(
+                "error",
+                vec![Value::string("Selected window is not a leaf window")],
+            ));
+        }
+    };
+
+    let buf = eval
+        .buffers
+        .get(buf_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No buffer in selected window")]))?;
+
+    // Determine visible body lines for this window.
+    let total_body_lines = {
+        let total_lines = (bounds_height / ch) as usize;
+        if is_mini {
+            total_lines
+        } else {
+            total_lines.saturating_sub(1) // subtract mode line
+        }
+    };
+    let total_body_lines = total_body_lines.max(1);
+
+    // Determine target line number (0-indexed from window top).
+    let target_line: usize = if args[0].is_nil() {
+        total_body_lines / 2
+    } else {
+        let n = match args[0] {
+            Value::Int(v) => v,
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("integerp"), args[0]],
+                ));
+            }
+        };
+        if n >= 0 {
+            (n as usize).min(total_body_lines.saturating_sub(1))
+        } else {
+            let from_bottom = (-n) as usize;
+            total_body_lines.saturating_sub(from_bottom)
+        }
+    };
+
+    // Walk from window-start forward, counting newlines, to find the
+    // character position at the start of `target_line`.
+    let text = buf.text.to_string();
+    let char_count = buf.text.char_count();
+    let start_char = ws.saturating_sub(1); // window_start is 1-based
+    let mut lines_seen: usize = 0;
+    let mut target_char_pos = start_char; // fallback: stay at window-start
+
+    if target_line == 0 {
+        target_char_pos = start_char;
+    } else {
+        let mut char_idx = 0usize;
+        for (_, c) in text.char_indices().skip(start_char) {
+            if c == '\n' {
+                lines_seen += 1;
+                if lines_seen == target_line {
+                    target_char_pos = start_char + char_idx + 1;
+                    break;
+                }
+            }
+            char_idx += 1;
+        }
+        // If we exhausted the text before reaching target_line, go to buffer end.
+        if lines_seen < target_line {
+            target_char_pos = char_count;
+        }
+    }
+
+    // Convert 0-based char pos to 1-based Lisp pos, then to byte pos.
+    let lisp_pos = (target_char_pos + 1) as i64;
+    let byte_pos = eval
+        .buffers
+        .get(buf_id)
+        .map(|b| b.lisp_pos_to_byte(lisp_pos))
+        .unwrap_or(0);
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let _ = eval.buffers.goto_buffer_byte(current_id, byte_pos);
+
+    Ok(Value::Int(target_line as i64))
 }
 
 /// (tool-bar-height &optional FRAME PIXELWISE) -> integer

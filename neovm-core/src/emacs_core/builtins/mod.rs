@@ -2241,6 +2241,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         None,
     );
     ctx.defsubr(
+        "fit-window-to-buffer",
+        super::window_cmds::builtin_fit_window_to_buffer,
+        0,
+        Some(6),
+    );
+    ctx.defsubr(
         "select-window",
         super::window_cmds::builtin_select_window,
         1,
@@ -8178,7 +8184,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "move-to-window-line",
-        |_ctx, args| super::xdisp::builtin_move_to_window_line(args),
+        super::xdisp::builtin_move_to_window_line,
         1,
         Some(1),
     );
