@@ -135,6 +135,30 @@ If GNU owns it in Lisp, Neomacs should not permanently re-own it in Rust.
 
 ## Refactor Plan
 
+## Progress
+
+Completed on 2026-03-29:
+
+- Slice 1 owner is now substantially better: `current-active-maps`,
+  `key-binding`, and command remapping share one active-map constructor, honor
+  overriding maps, and honor point-sensitive `local-map` / `keymap` text
+  properties.
+- Key description parsing/formatting no longer keeps an independent parser in
+  `src/keyboard.rs`; it now routes through the GNU-facing `kbd` / Emacs-event
+  path.
+- Command-loop unread-event and keyboard-macro playback state now store
+  Lisp-visible Emacs event values instead of frontend `KeyEvent` structs, which
+  is closer to GNU `keyboard.c` ownership and removes repeated re-normalization
+  in `read_char`.
+
+Still open:
+
+- `read_char` / `read_key_sequence` still live in evaluator-owned code instead
+  of a dedicated keyboard owner.
+- Frontend event transport still passes through a separate Rust `KeyEvent`
+  layer before entering the command loop.
+- Keymap autoload and parent-cycle semantics are still thinner than GNU.
+
 ### Slice 1: Active maps and `key-binding`
 
 Make one shared active-map constructor and use it for:

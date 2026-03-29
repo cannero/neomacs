@@ -200,6 +200,36 @@ fn read_char_applies_resize_event_before_returning_next_keypress() {
 }
 
 #[test]
+fn read_char_returns_unread_emacs_event_value_without_reencoding() {
+    let mut ev = Context::new();
+    let meta_x = crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta())
+        .to_emacs_event_value();
+
+    ev.command_loop.unread_events.push_back(meta_x);
+
+    let event = ev
+        .read_char()
+        .expect("read_char should return unread event");
+    assert_eq!(event, meta_x);
+}
+
+#[test]
+fn read_char_returns_macro_playback_event_value_without_reencoding() {
+    let mut ev = Context::new();
+    let return_event =
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value();
+
+    ev.command_loop.executing_kbd_macro = Some(vec![return_event]);
+    ev.command_loop.kbd_macro_index = 0;
+
+    let event = ev
+        .read_char()
+        .expect("read_char should return executing macro event");
+    assert_eq!(event, return_event);
+    assert_eq!(ev.command_loop.kbd_macro_index, 1);
+}
+
+#[test]
 fn read_char_triggers_redisplay_after_resize_event() {
     let mut ev = Context::new();
     let fid = ev

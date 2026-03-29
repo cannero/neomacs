@@ -253,6 +253,25 @@ fn keyboard_escape_encodes_to_emacs_escape_prefix_char() {
 }
 
 #[test]
+fn keyboard_escape_preserves_non_ctrl_modifiers_when_encoded() {
+    let event = KeyEvent::from(crate::keyboard::KeyEvent::named_with_mods(
+        crate::keyboard::NamedKey::Escape,
+        crate::keyboard::Modifiers {
+            shift: true,
+            hyper: true,
+            ..crate::keyboard::Modifiers::none()
+        },
+    ));
+    assert_eq!(
+        key_event_to_emacs_event(&event),
+        Value::Int(
+            27 | crate::emacs_core::keyboard::pure::KEY_CHAR_SHIFT
+                | crate::emacs_core::keyboard::pure::KEY_CHAR_HYPER
+        )
+    );
+}
+
+#[test]
 fn keyboard_return_encodes_to_emacs_carriage_return() {
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
         crate::keyboard::NamedKey::Return,

@@ -179,10 +179,16 @@ impl KeyEvent {
         }
     }
 
+    /// Convert this host key event into the Lisp-visible Emacs event
+    /// representation used by the command loop and keymap lookup.
+    pub fn to_emacs_event_value(&self) -> Value {
+        let event = crate::emacs_core::keymap::KeyEvent::from(self.clone());
+        crate::emacs_core::keymap::key_event_to_emacs_event(&event)
+    }
+
     /// Format as Emacs key description (e.g., "C-x", "M-f", "RET").
     pub fn to_description(&self) -> String {
-        let event = crate::emacs_core::keymap::KeyEvent::from(self.clone());
-        let emacs_event = crate::emacs_core::keymap::key_event_to_emacs_event(&event);
+        let emacs_event = self.to_emacs_event_value();
         crate::emacs_core::keyboard::pure::describe_single_key_value(&emacs_event, false)
             .unwrap_or_else(|_| format!("{:?}", emacs_event))
     }
@@ -546,8 +552,8 @@ impl PrefixArg {
 pub struct CommandLoop {
     /// Input event queue.
     pub event_queue: VecDeque<InputEvent>,
-    /// Unread command events (pushed back by C-g, keyboard-quit, etc.).
-    pub unread_events: VecDeque<KeyEvent>,
+    /// Unread command events in the Lisp-visible Emacs event form.
+    pub unread_events: VecDeque<Value>,
     /// Current key sequence being accumulated.
     pub current_key_sequence: KeySequence,
     /// Current prefix argument.
@@ -566,10 +572,10 @@ pub struct CommandLoop {
     pub inhibit_quit: bool,
     /// Defining keyboard macro (if any).
     pub defining_kbd_macro: bool,
-    /// Keyboard macro being defined.
-    pub kbd_macro_events: Vec<KeyEvent>,
-    /// Keyboard macro being executed.
-    pub executing_kbd_macro: Option<Vec<KeyEvent>>,
+    /// Keyboard macro being defined, as Lisp-visible Emacs events.
+    pub kbd_macro_events: Vec<Value>,
+    /// Keyboard macro being executed, as Lisp-visible Emacs events.
+    pub executing_kbd_macro: Option<Vec<Value>>,
     /// Index into executing keyboard macro.
     pub kbd_macro_index: usize,
 }
@@ -599,14 +605,19 @@ impl CommandLoop {
         self.event_queue.push_back(event);
     }
 
-    /// Push an unread key event (to be processed before the queue).
-    pub fn unread_key(&mut self, event: KeyEvent) {
+    /// Push an unread command event (to be processed before the queue).
+    pub fn unread_event(&mut self, event: Value) {
         self.unread_events.push_back(event);
     }
 
-    /// Read the next key event.
+    /// Push an unread key event (to be processed before the queue).
+    pub fn unread_key(&mut self, event: KeyEvent) {
+        self.unread_event(event.to_emacs_event_value());
+    }
+
+    /// Read the next key event as a Lisp-visible Emacs event.
     /// Returns from unread events first, then the event queue.
-    pub fn read_key_event(&mut self) -> Option<KeyEvent> {
+    pub fn read_key_event(&mut self) -> Option<Value> {
         // Unread events first.
         if let Some(event) = self.unread_events.pop_front() {
             return Some(event);
@@ -625,11 +636,12 @@ impl CommandLoop {
         // Event queue.
         while let Some(event) = self.event_queue.pop_front() {
             if let InputEvent::KeyPress(key) = event {
+                let emacs_event = key.to_emacs_event_value();
                 // Record for keyboard macro.
                 if self.defining_kbd_macro {
-                    self.kbd_macro_events.push(key.clone());
+                    self.kbd_macro_events.push(emacs_event);
                 }
-                return Some(key);
+                return Some(key.to_emacs_event_value());
             }
             // Skip non-key events for now (mouse, resize, etc.)
         }
@@ -837,9 +849,9 @@ mod tests {
         cl.enqueue_event(InputEvent::KeyPress(KeyEvent::char('b')));
 
         let e = cl.read_key_event().unwrap();
-        assert_eq!(e.key, Key::Char('a'));
+        assert_eq!(e, Value::Int('a' as i64));
         let e = cl.read_key_event().unwrap();
-        assert_eq!(e.key, Key::Char('b'));
+        assert_eq!(e, Value::Int('b' as i64));
         assert!(cl.read_key_event().is_none());
     }
 
@@ -850,9 +862,9 @@ mod tests {
         cl.unread_key(KeyEvent::char('z'));
 
         let e = cl.read_key_event().unwrap();
-        assert_eq!(e.key, Key::Char('z')); // unread first
+        assert_eq!(e, Value::Int('z' as i64)); // unread first
         let e = cl.read_key_event().unwrap();
-        assert_eq!(e.key, Key::Char('a')); // then queue
+        assert_eq!(e, Value::Int('a' as i64)); // then queue
     }
 
     #[test]
@@ -872,9 +884,9 @@ mod tests {
         // Replay.
         cl.call_last_kbd_macro();
         let e1 = cl.read_key_event().unwrap();
-        assert_eq!(e1.key, Key::Char('h'));
+        assert_eq!(e1, Value::Int('h' as i64));
         let e2 = cl.read_key_event().unwrap();
-        assert_eq!(e2.key, Key::Char('i'));
+        assert_eq!(e2, Value::Int('i' as i64));
     }
 
     #[test]

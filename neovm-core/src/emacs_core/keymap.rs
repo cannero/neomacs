@@ -69,9 +69,9 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                         code: '\u{1b}',
                         ctrl: ke.modifiers.ctrl,
                         meta: ke.modifiers.meta,
-                        shift: false,
+                        shift: ke.modifiers.shift,
                         super_: ke.modifiers.super_,
-                        hyper: false,
+                        hyper: ke.modifiers.hyper,
                         alt: false,
                     };
                 }

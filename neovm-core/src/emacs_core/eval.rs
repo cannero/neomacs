@@ -4021,22 +4021,19 @@ impl Context {
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
     pub(crate) fn read_char(&mut self) -> Result<Value, Flow> {
-        use super::keymap::key_event_to_emacs_event;
         use crate::keyboard::InputEvent;
 
         // 1. Check unread command events
-        if let Some(key) = self.command_loop.unread_events.pop_front() {
-            let keymap_key: super::keymap::KeyEvent = key.into();
-            return Ok(key_event_to_emacs_event(&keymap_key));
+        if let Some(event) = self.command_loop.unread_events.pop_front() {
+            return Ok(event);
         }
 
         // 2. Check keyboard macro playback
         if let Some(ref macro_events) = self.command_loop.executing_kbd_macro {
             if self.command_loop.kbd_macro_index < macro_events.len() {
-                let key = macro_events[self.command_loop.kbd_macro_index].clone();
+                let event = macro_events[self.command_loop.kbd_macro_index].clone();
                 self.command_loop.kbd_macro_index += 1;
-                let keymap_key: super::keymap::KeyEvent = key.into();
-                return Ok(key_event_to_emacs_event(&keymap_key));
+                return Ok(event);
             }
         }
 
@@ -4154,12 +4151,12 @@ impl Context {
                 InputEvent::KeyPress(ref key) => {
                     tracing::debug!("read_char: received KeyPress {:?}", key);
                     self.clear_current_message();
+                    let emacs_event = key.to_emacs_event_value();
                     // Record for keyboard macro
                     if self.command_loop.defining_kbd_macro {
-                        self.command_loop.kbd_macro_events.push(key.clone());
+                        self.command_loop.kbd_macro_events.push(emacs_event);
                     }
-                    let keymap_key: super::keymap::KeyEvent = key.clone().into();
-                    return Ok(key_event_to_emacs_event(&keymap_key));
+                    return Ok(key.to_emacs_event_value());
                 }
                 InputEvent::MousePress {
                     button,
