@@ -360,6 +360,44 @@ impl Default for KeySequence {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ReadKeySequenceState {
+    raw_events: Vec<Value>,
+    translated_events: Vec<Value>,
+}
+
+impl ReadKeySequenceState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn reset(&mut self) {
+        self.raw_events.clear();
+        self.translated_events.clear();
+    }
+
+    pub fn push_input_event(&mut self, event: Value) {
+        self.raw_events.push(event);
+        self.translated_events.push(event);
+    }
+
+    pub fn replace_translated_events(&mut self, events: Vec<Value>) {
+        self.translated_events = events;
+    }
+
+    pub fn raw_events(&self) -> &[Value] {
+        &self.raw_events
+    }
+
+    pub fn translated_events(&self) -> &[Value] {
+        &self.translated_events
+    }
+
+    pub fn snapshot(&self) -> (Vec<Value>, Vec<Value>) {
+        (self.translated_events.clone(), self.raw_events.clone())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Keysym conversion (X11/winit keysyms → neovm-core KeyEvent)
 // ---------------------------------------------------------------------------
@@ -585,8 +623,8 @@ pub struct KeyboardRuntime {
     pub pending_input_events: VecDeque<InputEvent>,
     /// Unread command events in the Lisp-visible Emacs event form.
     pub unread_events: VecDeque<Value>,
-    /// Current key sequence being accumulated.
-    pub current_key_sequence: KeySequence,
+    /// Current raw/translated key sequence being accumulated by `read_key_sequence`.
+    pub current_key_sequence: ReadKeySequenceState,
     /// Last translated key sequence read by the command loop or `read-key*`.
     pub command_keys: Vec<Value>,
     /// Raw key sequence before translation maps, for GNU
@@ -614,7 +652,7 @@ impl KeyboardRuntime {
             event_queue: VecDeque::new(),
             pending_input_events: VecDeque::new(),
             unread_events: VecDeque::new(),
-            current_key_sequence: KeySequence::new(),
+            current_key_sequence: ReadKeySequenceState::new(),
             command_keys: Vec::new(),
             raw_command_keys: Vec::new(),
             recent_input_events: Vec::new(),
@@ -691,7 +729,19 @@ impl KeyboardRuntime {
     }
 
     pub fn reset_key_sequence(&mut self) {
-        self.current_key_sequence = KeySequence::new();
+        self.current_key_sequence.reset();
+    }
+
+    pub fn push_key_sequence_input_event(&mut self, event: Value) {
+        self.current_key_sequence.push_input_event(event);
+    }
+
+    pub fn rewrite_key_sequence_translation(&mut self, events: Vec<Value>) {
+        self.current_key_sequence.replace_translated_events(events);
+    }
+
+    pub fn key_sequence_snapshot(&self) -> (Vec<Value>, Vec<Value>) {
+        self.current_key_sequence.snapshot()
     }
 
     pub fn set_command_key_sequences(&mut self, translated: Vec<Value>, raw: Vec<Value>) {
@@ -762,6 +812,13 @@ impl Default for KeyboardRuntime {
 impl crate::gc::GcTrace for KeyboardRuntime {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         roots.extend(self.unread_events.iter().copied());
+        roots.extend(self.current_key_sequence.raw_events().iter().copied());
+        roots.extend(
+            self.current_key_sequence
+                .translated_events()
+                .iter()
+                .copied(),
+        );
         roots.extend(self.command_keys.iter().copied());
         roots.extend(self.raw_command_keys.iter().copied());
         roots.extend(self.recent_input_events.iter().copied());
@@ -1158,6 +1215,39 @@ fn pending_gnu_idle_timer_in_keyboard_runtime(
 }
 
 impl crate::emacs_core::eval::Context {
+    fn current_key_sequence_translation_maps(&self) -> [Value; 3] {
+        [
+            self.command_loop.keyboard.input_decode_map(),
+            self.command_loop.keyboard.local_function_key_map(),
+            self.eval_symbol("key-translation-map")
+                .unwrap_or(Value::Nil),
+        ]
+    }
+
+    fn apply_translation_maps_to_current_key_sequence(&mut self) {
+        use crate::emacs_core::keymap::{is_list_keymap, list_keymap_lookup_seq};
+
+        for map in self.current_key_sequence_translation_maps() {
+            if map.is_nil() || !is_list_keymap(&map) {
+                continue;
+            }
+
+            let lookup = list_keymap_lookup_seq(
+                &map,
+                self.command_loop
+                    .keyboard
+                    .current_key_sequence
+                    .translated_events(),
+            );
+            let Some(translated) = key_sequence_translation_events(lookup) else {
+                continue;
+            };
+            self.command_loop
+                .keyboard
+                .rewrite_key_sequence_translation(translated);
+        }
+    }
+
     pub(crate) fn apply_resize_input_event(
         &mut self,
         width: u32,
@@ -1257,17 +1347,16 @@ impl crate::emacs_core::eval::Context {
         &mut self,
     ) -> Result<(Vec<Value>, Value), crate::emacs_core::error::Flow> {
         use crate::emacs_core::keymap::{
-            is_list_keymap, list_keymap_lookup_seq, resolve_active_key_binding,
-            resolve_prefix_keymap_binding_in_obarray,
+            resolve_active_key_binding, resolve_prefix_keymap_binding_in_obarray,
         };
 
-        let mut events: Vec<Value> = Vec::new();
-        let mut raw_events: Vec<Value> = Vec::new();
+        self.command_loop.reset_key_sequence();
 
         loop {
             let emacs_event = self.read_char()?;
-            raw_events.push(emacs_event);
-            events.push(emacs_event);
+            self.command_loop
+                .keyboard
+                .push_key_sequence_input_event(emacs_event);
 
             self.record_input_event(emacs_event);
 
@@ -1276,49 +1365,23 @@ impl crate::emacs_core::eval::Context {
                 crate::emacs_core::print::print_value(&emacs_event)
             );
 
-            for map in [
-                self.command_loop.keyboard.input_decode_map(),
-                self.command_loop.keyboard.local_function_key_map(),
-                self.eval_symbol("key-translation-map")
-                    .unwrap_or(Value::Nil),
-            ] {
-                if map.is_nil() || !is_list_keymap(&map) {
-                    continue;
-                }
-                let translation = list_keymap_lookup_seq(&map, &events);
-                if translation.is_nil() || is_list_keymap(&translation) {
-                    continue;
-                }
-                if matches!(translation, Value::Int(_)) {
-                    continue;
-                }
-                if let Value::Vector(id) = translation {
-                    let new_events: Vec<Value> = crate::emacs_core::value::with_heap(|h| {
-                        let len = h.vector_len(id);
-                        (0..len).map(|i| h.vector_ref(id, i)).collect()
-                    });
-                    events = new_events;
-                } else if translation.is_string() {
-                    if let Some(s) = translation.as_str() {
-                        events.clear();
-                        for ch in s.chars() {
-                            events.push(Value::Int(ch as i64));
-                        }
-                    }
-                } else {
-                    events.clear();
-                    events.push(translation);
-                }
-            }
+            self.apply_translation_maps_to_current_key_sequence();
+            let translated_events = self
+                .command_loop
+                .keyboard
+                .current_key_sequence
+                .translated_events()
+                .to_vec();
 
             tracing::debug!(
                 "read_key_sequence: looking up binding for {:?}",
-                events
+                translated_events
                     .iter()
                     .map(crate::emacs_core::print::print_value)
                     .collect::<Vec<_>>()
             );
-            let resolved = resolve_active_key_binding(self, &events, false, false, None)?;
+            let resolved =
+                resolve_active_key_binding(self, &translated_events, false, false, None)?;
             let binding = resolved.binding;
             tracing::debug!(
                 "read_key_sequence: binding={}",
@@ -1326,16 +1389,17 @@ impl crate::emacs_core::eval::Context {
             );
 
             if binding.is_nil() {
+                let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
                 self.command_loop
-                    .set_command_key_sequences(events.clone(), raw_events.clone());
-                return Ok((events, Value::Nil));
+                    .set_command_key_sequences(translated.clone(), raw);
+                return Ok((translated, Value::Nil));
             }
 
             let is_prefix =
                 resolve_prefix_keymap_binding_in_obarray(&self.obarray, &resolved.lookup).is_some();
 
             if is_prefix {
-                let key_vec = Value::vector(events.clone());
+                let key_vec = Value::vector(translated_events.clone());
                 if let Ok(desc) =
                     crate::emacs_core::builtins::keymaps::builtin_key_description(vec![key_vec])
                 {
@@ -1351,9 +1415,10 @@ impl crate::emacs_core::eval::Context {
                 continue;
             }
 
+            let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
             self.command_loop
-                .set_command_key_sequences(events.clone(), raw_events.clone());
-            return Ok((events, binding));
+                .set_command_key_sequences(translated.clone(), raw);
+            return Ok((translated, binding));
         }
     }
 
@@ -2055,6 +2120,28 @@ pub fn parse_interactive_spec(spec: &str) -> Vec<InteractiveCode> {
     codes
 }
 
+fn key_sequence_translation_events(translation: Value) -> Option<Vec<Value>> {
+    if translation.is_nil() || matches!(translation, Value::Int(_)) {
+        return None;
+    }
+    if crate::emacs_core::keymap::is_list_keymap(&translation) {
+        return None;
+    }
+
+    if let Value::Vector(id) = translation {
+        return Some(crate::emacs_core::value::with_heap(|h| {
+            let len = h.vector_len(id);
+            (0..len).map(|i| h.vector_ref(id, i)).collect()
+        }));
+    }
+
+    if let Some(s) = translation.as_str() {
+        return Some(s.chars().map(|ch| Value::Int(ch as i64)).collect());
+    }
+
+    Some(vec![translation])
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -2355,6 +2442,36 @@ mod tests {
         let seq = KeySequence::new();
         assert!(seq.is_empty());
         assert_eq!(seq.to_description(), "");
+    }
+
+    #[test]
+    fn read_key_sequence_state_tracks_raw_and_translated_events() {
+        let mut state = ReadKeySequenceState::new();
+        state.push_input_event(Value::Int('A' as i64));
+        state.push_input_event(Value::Int('B' as i64));
+        state.replace_translated_events(vec![Value::Int('a' as i64)]);
+
+        let (translated, raw) = state.snapshot();
+        assert_eq!(translated, vec![Value::Int('a' as i64)]);
+        assert_eq!(raw, vec![Value::Int('A' as i64), Value::Int('B' as i64)]);
+    }
+
+    #[test]
+    fn key_sequence_translation_events_normalizes_vector_string_and_scalar() {
+        let vector = Value::vector(vec![Value::Int('x' as i64), Value::Int('y' as i64)]);
+        assert_eq!(
+            key_sequence_translation_events(vector),
+            Some(vec![Value::Int('x' as i64), Value::Int('y' as i64)])
+        );
+        assert_eq!(
+            key_sequence_translation_events(Value::string("ab")),
+            Some(vec![Value::Int('a' as i64), Value::Int('b' as i64)])
+        );
+        assert_eq!(
+            key_sequence_translation_events(Value::symbol("f1")),
+            Some(vec![Value::symbol("f1")])
+        );
+        assert_eq!(key_sequence_translation_events(Value::Nil), None);
     }
 
     #[test]

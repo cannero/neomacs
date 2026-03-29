@@ -475,6 +475,10 @@ Completed on 2026-03-29:
   translated/raw command-key buffers, `set--this-command-keys`, and GNU-style
   event-array rendering for `this-command-keys` now go through the keyboard
   subsystem instead of ad hoc interactive-layer formatting.
+- `read_key_sequence` now keeps its in-flight raw and translated event streams
+  on keyboard-owned state instead of stack-local vectors, which gives Slice D a
+  real owner boundary for later GNU replay/rescan, `dont-downcase-last`, and
+  `this-command-keys-shift-translated` work.
 
 Still open:
 
@@ -485,6 +489,10 @@ Still open:
   `Context` helper/state surfaces that are evaluator-shaped; the next cleanup is
   the remaining display-host reach-through and the keyboard-macro ownership
   split.
+- The keyboard owner still applies translation maps with a thin one-pass loop;
+  GNU's replay/rescan state machine, function-valued translation bindings, and
+  delayed frame-switch handling still need to move over as one coherent Slice D
+  rewrite.
 - Keymap autoload and parent-cycle semantics are still thinner than GNU.
 
 ### Slice 1: Active maps and `key-binding`
