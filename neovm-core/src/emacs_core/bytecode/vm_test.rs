@@ -2997,6 +2997,29 @@ fn vm_hook_builtins_use_shared_runtime_state_and_vm_callbacks() {
 }
 
 #[test]
+fn vm_run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
+    with_vm_eval_full_context_state(
+        r#"(let ((seen nil))
+             (fset 'vm-hook-wrap-a (lambda () 'a))
+             (fset 'vm-hook-wrap-b (lambda () 'b))
+             (fset 'vm-hook-wrap-wrapper
+                   (lambda (fn)
+                     (setq seen (cons fn seen))
+                     (if (eq fn 'vm-hook-wrap-a) 'stop nil)))
+             (setq vm-hook-wrap-probe '(vm-hook-wrap-a vm-hook-wrap-b))
+             (list (run-hook-wrapped 'vm-hook-wrap-probe 'vm-hook-wrap-wrapper)
+                   seen))"#,
+        false,
+        |result, _| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (stop (vm-hook-wrap-a))"
+            );
+        },
+    );
+}
+
+#[test]
 fn vm_feature_and_symbol_table_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

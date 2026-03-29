@@ -58,6 +58,7 @@ pub mod fontset;
 pub mod format;
 pub mod frame_vars;
 pub mod hashtab;
+pub(crate) mod hook_runtime;
 pub mod image;
 pub mod indent;
 pub mod interactive;

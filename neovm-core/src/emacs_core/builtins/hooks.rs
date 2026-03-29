@@ -1,119 +1,12 @@
 use super::*;
-use crate::emacs_core::intern::SymId;
-use crate::emacs_core::symbol::Obarray;
+use crate::emacs_core::hook_runtime;
 
 // ===========================================================================
 // Hook system
 // ===========================================================================
 
-fn symbol_dynamic_buffer_or_global_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
-    symbol_dynamic_buffer_or_global_value_in_state(eval, name)
-}
-
-pub(crate) fn symbol_dynamic_buffer_or_global_value_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    name: &str,
-) -> Option<Value> {
-    if let Some(buf) = ctx.buffers.current_buffer()
-        && let Some(value) = buf.get_buffer_local(name)
-    {
-        return Some(*value);
-    }
-    ctx.obarray.symbol_value(name).cloned()
-}
-
-fn collect_hook_functions_impl(
-    obarray: &Obarray,
-    hook_name: &str,
-    hook_value: Value,
-    inherit_global: bool,
-    out: &mut Vec<Value>,
-) {
-    match hook_value {
-        Value::Nil => {}
-        Value::Cons(_) => {
-            // Oracle-compatible traversal: iterate cons cells, ignore improper
-            // list tails, and treat `t` as "also run the global value".
-            let mut cursor = hook_value;
-            let mut saw_global_marker = false;
-            while let Value::Cons(cell) = cursor {
-                let pair = read_cons(cell);
-                if pair.car.as_symbol_name() == Some("t") {
-                    saw_global_marker = true;
-                } else {
-                    out.push(pair.car);
-                }
-                cursor = pair.cdr;
-            }
-
-            if saw_global_marker && inherit_global {
-                let global_value = obarray
-                    .symbol_value(hook_name)
-                    .cloned()
-                    .unwrap_or(Value::Nil);
-                collect_hook_functions_impl(obarray, hook_name, global_value, false, out);
-            }
-        }
-        value => out.push(value),
-    }
-}
-
-pub(crate) fn collect_hook_functions_in_state(
-    ctx: &crate::emacs_core::eval::Context,
-    hook_name: &str,
-    hook_value: Value,
-    inherit_global: bool,
-) -> Vec<Value> {
-    let mut functions = Vec::new();
-    collect_hook_functions_impl(
-        &ctx.obarray,
-        hook_name,
-        hook_value,
-        inherit_global,
-        &mut functions,
-    );
-    functions
-}
-
-fn run_hook_value(
-    eval: &mut super::eval::Context,
-    hook_name: &str,
-    hook_value: Value,
-    hook_args: &[Value],
-    inherit_global: bool,
-) -> Result<(), Flow> {
-    let funcs = collect_hook_functions_in_state(eval, hook_name, hook_value, inherit_global);
-    // Root all hook functions AND args so GC during apply can't collect them.
-    let saved = eval.save_temp_roots();
-    for f in &funcs {
-        eval.push_temp_root(*f);
-    }
-    for a in hook_args {
-        eval.push_temp_root(*a);
-    }
-    let result = (|| -> Result<(), Flow> {
-        for func in &funcs {
-            eval.apply(*func, hook_args.to_vec())?;
-        }
-        Ok(())
-    })();
-    eval.restore_temp_roots(saved);
-    result
-}
-
 pub(crate) fn builtin_run_hooks(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    for hook_sym in &args {
-        let hook_name = hook_sym.as_symbol_name().ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *hook_sym],
-            )
-        })?;
-        let hook_value =
-            symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-        run_hook_value(eval, hook_name, hook_value, &[], true)?;
-    }
-    Ok(Value::Nil)
+    hook_runtime::run_named_hooks(eval, &args)
 }
 
 pub(crate) fn builtin_run_hook_with_args(
@@ -121,16 +14,7 @@ pub(crate) fn builtin_run_hook_with_args(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-hook-with-args", &args, 1)?;
-    let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        )
-    })?;
-    let hook_args: Vec<Value> = args[1..].to_vec();
-    let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    run_hook_value(eval, hook_name, hook_value, &hook_args, true)?;
-    Ok(Value::Nil)
+    hook_runtime::run_named_hook_with_args(eval, &args)
 }
 
 pub(crate) fn builtin_run_hook_with_args_until_success(
@@ -138,34 +22,7 @@ pub(crate) fn builtin_run_hook_with_args_until_success(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-hook-with-args-until-success", &args, 1)?;
-    let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        )
-    })?;
-    let hook_args: Vec<Value> = args[1..].to_vec();
-    let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    let funcs = collect_hook_functions_in_state(eval, hook_name, hook_value, true);
-    // Root hook functions and args for GC safety during apply.
-    let saved = eval.save_temp_roots();
-    for f in &funcs {
-        eval.push_temp_root(*f);
-    }
-    for a in &hook_args {
-        eval.push_temp_root(*a);
-    }
-    let result = (|| -> EvalResult {
-        for func in &funcs {
-            let value = eval.apply(*func, hook_args.clone())?;
-            if value.is_truthy() {
-                return Ok(value);
-            }
-        }
-        Ok(Value::Nil)
-    })();
-    eval.restore_temp_roots(saved);
-    result
+    hook_runtime::run_named_hook_with_args_until_success(eval, &args)
 }
 
 pub(crate) fn builtin_run_hook_with_args_until_failure(
@@ -173,34 +30,7 @@ pub(crate) fn builtin_run_hook_with_args_until_failure(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-hook-with-args-until-failure", &args, 1)?;
-    let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        )
-    })?;
-    let hook_args: Vec<Value> = args[1..].to_vec();
-    let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    let funcs = collect_hook_functions_in_state(eval, hook_name, hook_value, true);
-    // Root hook functions and args for GC safety during apply.
-    let saved = eval.save_temp_roots();
-    for f in &funcs {
-        eval.push_temp_root(*f);
-    }
-    for a in &hook_args {
-        eval.push_temp_root(*a);
-    }
-    let result = (|| -> EvalResult {
-        for func in &funcs {
-            let value = eval.apply(*func, hook_args.clone())?;
-            if value.is_nil() {
-                return Ok(Value::Nil);
-            }
-        }
-        Ok(Value::True)
-    })();
-    eval.restore_temp_roots(saved);
-    result
+    hook_runtime::run_named_hook_with_args_until_failure(eval, &args)
 }
 
 pub(crate) fn builtin_run_hook_wrapped(
@@ -208,22 +38,7 @@ pub(crate) fn builtin_run_hook_wrapped(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-hook-wrapped", &args, 2)?;
-    let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        )
-    })?;
-    let wrapper = args[1];
-    let wrapped_args: Vec<Value> = args[2..].to_vec();
-    let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    for func in collect_hook_functions_in_state(eval, hook_name, hook_value, true) {
-        let mut call_args = Vec::with_capacity(wrapped_args.len() + 1);
-        call_args.push(func);
-        call_args.extend(wrapped_args.clone());
-        eval.apply(wrapper, call_args)?;
-    }
-    Ok(Value::Nil)
+    hook_runtime::run_named_hook_wrapped(eval, &args)
 }
 
 pub(crate) fn builtin_run_hook_query_error_with_timeout(
@@ -231,21 +46,9 @@ pub(crate) fn builtin_run_hook_query_error_with_timeout(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("run-hook-query-error-with-timeout", &args, 1)?;
-    let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        )
-    })?;
-    let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    match run_hook_value(eval, hook_name, hook_value, &[], true) {
-        Ok(()) => Ok(Value::Nil),
-        Err(Flow::Signal(_)) => Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        )),
-        Err(flow) => Err(flow),
-    }
+    let hook_sym = hook_runtime::resolve_hook_symbol(eval, args[0])?;
+    let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
+    hook_runtime::run_hook_query_error_with_timeout(eval, hook_sym, hook_value)
 }
 
 fn expect_optional_live_frame_designator(
@@ -594,9 +397,9 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
         expect_optional_live_frame_designator(frame, eval)?;
     }
     let hook_name = "window-configuration-change-hook";
-    let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    run_hook_value(eval, hook_name, hook_value, &[], true)?;
-    Ok(Value::Nil)
+    let hook_sym = hook_runtime::hook_symbol_by_name(eval, hook_name);
+    let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
+    hook_runtime::run_hook_value(eval, hook_sym, hook_value, &[], true)
 }
 
 pub(crate) fn builtin_run_window_scroll_functions(
@@ -616,15 +419,15 @@ pub(crate) fn builtin_run_window_scroll_functions(
     };
 
     let hook_name = "window-scroll-functions";
-    let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    run_hook_value(
+    let hook_sym = hook_runtime::hook_symbol_by_name(eval, hook_name);
+    let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
+    hook_runtime::run_hook_value(
         eval,
-        hook_name,
+        hook_sym,
         hook_value,
         &[window_arg, window_start],
         true,
-    )?;
-    Ok(Value::Nil)
+    )
 }
 
 pub(crate) fn builtin_featurep(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {

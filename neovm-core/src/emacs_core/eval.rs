@@ -8396,6 +8396,45 @@ impl Context {
         Value::Nil
     }
 
+    pub(crate) fn visible_runtime_variable_value_by_id(
+        &self,
+        sym_id: SymId,
+    ) -> Result<Option<Value>, Flow> {
+        let resolved = builtins::resolve_variable_alias_id_in_obarray(&self.obarray, sym_id)?;
+        Ok(self.visible_runtime_variable_value_by_id_resolved(resolved))
+    }
+
+    pub(crate) fn visible_runtime_variable_value_by_id_resolved(
+        &self,
+        resolved: SymId,
+    ) -> Option<Value> {
+        let resolved_name = resolve_sym(resolved);
+        let resolved_is_canonical = builtins::is_canonical_symbol_id(resolved);
+
+        if resolved_is_canonical
+            && let Some(buf) = self.buffers.current_buffer()
+            && let Some(binding) = buf.get_buffer_local_binding(resolved_name)
+        {
+            return binding.as_value();
+        }
+
+        if let Some(value) = self.obarray.symbol_value_id(resolved).copied() {
+            return Some(value);
+        }
+
+        if resolved_is_canonical && resolved_name == "nil" {
+            return Some(Value::Nil);
+        }
+        if resolved_is_canonical && resolved_name == "t" {
+            return Some(Value::True);
+        }
+        if resolved_is_canonical && resolved_name.starts_with(':') {
+            return Some(Value::Keyword(resolved));
+        }
+
+        None
+    }
+
     fn run_unlet_watchers(&mut self, bindings: &[(String, Value, Value)]) -> Result<(), Flow> {
         for (name, _, restored_value) in bindings.iter().rev() {
             self.run_variable_watchers(name, restored_value, &Value::Nil, "unlet")?;

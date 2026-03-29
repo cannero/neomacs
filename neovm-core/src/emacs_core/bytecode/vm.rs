@@ -58,6 +58,16 @@ pub struct Vm<'a> {
     ctx: &'a mut crate::emacs_core::eval::Context,
 }
 
+impl<'a> crate::emacs_core::hook_runtime::HookRuntime for Vm<'a> {
+    fn hook_context(&self) -> &crate::emacs_core::eval::Context {
+        &self.ctx
+    }
+
+    fn call_hook_callable(&mut self, function: Value, args: &[Value]) -> EvalResult {
+        self.call_function_with_roots(function, args)
+    }
+}
+
 impl<'a> Vm<'a> {
     pub(crate) fn from_context(ctx: &'a mut crate::emacs_core::eval::Context) -> Self {
         Self { ctx }
@@ -2167,154 +2177,38 @@ impl<'a> Vm<'a> {
         self.with_extra_roots(&roots, |vm| vm.call_function(function, args.to_vec()))
     }
 
-    fn run_hook_functions(&mut self, functions: &[Value], args: &[Value]) -> Result<(), Flow> {
-        for function in functions {
-            let _ = self.call_function_with_roots(*function, args)?;
-        }
-        Ok(())
-    }
-
     fn builtin_run_hooks_shared(&mut self, args: &[Value]) -> EvalResult {
-        for hook_sym in args {
-            let hook_name = hook_sym.as_symbol_name().ok_or_else(|| {
-                signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("symbolp"), *hook_sym],
-                )
-            })?;
-            let hook_value =
-                crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-                    &*self.ctx, hook_name,
-                )
-                .unwrap_or(Value::Nil);
-            let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
-                &*self.ctx, hook_name, hook_value, true,
-            );
-            self.run_hook_functions(&functions, &[])?;
-        }
-        Ok(Value::Nil)
+        crate::emacs_core::hook_runtime::run_named_hooks(self, args)
     }
 
     fn builtin_run_hook_with_args_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_min_args("run-hook-with-args", args, 1)?;
-        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), args[0]],
-            )
-        })?;
-        let hook_value =
-            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-                &*self.ctx, hook_name,
-            )
-            .unwrap_or(Value::Nil);
-        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
-            &*self.ctx, hook_name, hook_value, true,
-        );
-        self.run_hook_functions(&functions, &args[1..])?;
-        Ok(Value::Nil)
+        crate::emacs_core::hook_runtime::run_named_hook_with_args(self, args)
     }
 
     fn builtin_run_hook_with_args_until_success_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_min_args("run-hook-with-args-until-success", args, 1)?;
-        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), args[0]],
-            )
-        })?;
-        let hook_value =
-            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-                &*self.ctx, hook_name,
-            )
-            .unwrap_or(Value::Nil);
-        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
-            &*self.ctx, hook_name, hook_value, true,
-        );
-        for function in functions {
-            let value = self.call_function_with_roots(function, &args[1..])?;
-            if value.is_truthy() {
-                return Ok(value);
-            }
-        }
-        Ok(Value::Nil)
+        crate::emacs_core::hook_runtime::run_named_hook_with_args_until_success(self, args)
     }
 
     fn builtin_run_hook_with_args_until_failure_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_min_args("run-hook-with-args-until-failure", args, 1)?;
-        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), args[0]],
-            )
-        })?;
-        let hook_value =
-            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-                &*self.ctx, hook_name,
-            )
-            .unwrap_or(Value::Nil);
-        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
-            &*self.ctx, hook_name, hook_value, true,
-        );
-        for function in functions {
-            let value = self.call_function_with_roots(function, &args[1..])?;
-            if value.is_nil() {
-                return Ok(Value::Nil);
-            }
-        }
-        Ok(Value::True)
+        crate::emacs_core::hook_runtime::run_named_hook_with_args_until_failure(self, args)
     }
 
     fn builtin_run_hook_wrapped_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_min_args("run-hook-wrapped", args, 2)?;
-        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), args[0]],
-            )
-        })?;
-        let wrapper = args[1];
-        let hook_value =
-            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-                &*self.ctx, hook_name,
-            )
-            .unwrap_or(Value::Nil);
-        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
-            &*self.ctx, hook_name, hook_value, true,
-        );
-        for function in functions {
-            let mut call_args = Vec::with_capacity(args.len() - 1);
-            call_args.push(function);
-            call_args.extend(args[2..].iter().copied());
-            let _ = self.call_function_with_roots(wrapper, &call_args)?;
-        }
-        Ok(Value::Nil)
+        crate::emacs_core::hook_runtime::run_named_hook_wrapped(self, args)
     }
 
     fn builtin_run_hook_query_error_with_timeout_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("run-hook-query-error-with-timeout", args, 1)?;
-        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), args[0]],
-            )
-        })?;
-        let hook_value =
-            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-                &*self.ctx, hook_name,
-            )
+        let hook_sym = crate::emacs_core::hook_runtime::resolve_hook_symbol(&self.ctx, args[0])?;
+        let hook_value = crate::emacs_core::hook_runtime::hook_value_by_id(&self.ctx, hook_sym)
             .unwrap_or(Value::Nil);
-        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
-            &*self.ctx, hook_name, hook_value, true,
-        );
-        match self.run_hook_functions(&functions, &[]) {
-            Ok(()) => Ok(Value::Nil),
-            Err(Flow::Signal(_)) => Err(signal(
-                "end-of-file",
-                vec![Value::string("Error reading from stdin")],
-            )),
-            Err(flow) => Err(flow),
-        }
+        crate::emacs_core::hook_runtime::run_hook_query_error_with_timeout(
+            self, hook_sym, hook_value,
+        )
     }
 
     fn builtin_set_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -2925,19 +2819,11 @@ impl<'a> Vm<'a> {
         )?;
         if plan.run_clone_hook {
             self.ctx.switch_current_buffer(plan.id)?;
-            let hook_value =
-                crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-                    &*self.ctx,
-                    "clone-indirect-buffer-hook",
-                )
-                .unwrap_or(Value::Nil);
-            let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
-                &*self.ctx,
+            let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+                &self.ctx,
                 "clone-indirect-buffer-hook",
-                hook_value,
-                true,
             );
-            let clone_result = self.run_hook_functions(&functions, &[]);
+            let clone_result = crate::emacs_core::hook_runtime::run_named_hook(self, hook_sym, &[]);
             if let Some(saved_id) = plan.saved_current
                 && self.ctx.buffers.get(saved_id).is_some()
             {
@@ -2946,19 +2832,11 @@ impl<'a> Vm<'a> {
             clone_result?;
         }
         if plan.run_buffer_list_update_hook {
-            let hook_value =
-                crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-                    &*self.ctx,
-                    "buffer-list-update-hook",
-                )
-                .unwrap_or(Value::Nil);
-            let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
-                &*self.ctx,
+            let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+                &self.ctx,
                 "buffer-list-update-hook",
-                hook_value,
-                true,
             );
-            self.run_hook_functions(&functions, &[])?;
+            let _ = crate::emacs_core::hook_runtime::run_named_hook(self, hook_sym, &[])?;
         }
         Ok(Value::Buffer(plan.id))
     }

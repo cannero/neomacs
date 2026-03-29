@@ -551,26 +551,10 @@ pub(crate) fn builtin_symbol_value(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let obarray = eval.obarray();
     expect_args("symbol-value", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
-    let resolved_name = resolve_sym(resolved);
-    let resolved_is_canonical = is_canonical_symbol_id(resolved);
-    // specbind writes directly to obarray, so no dynamic stack lookup needed.
-    // Buffer-local bindings are keyed by canonical symbol names only.
-    if resolved_is_canonical && let Some(buf) = eval.buffers.current_buffer() {
-        if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
-            return binding
-                .as_value()
-                .ok_or_else(|| signal("void-variable", vec![args[0]]));
-        }
-    }
-    match obarray.symbol_value_id(resolved).cloned() {
+    match eval.visible_runtime_variable_value_by_id(symbol)? {
         Some(value) => Ok(value),
-        None if resolved_is_canonical && resolved_name.starts_with(':') => {
-            Ok(Value::Keyword(resolved))
-        }
         None => Err(signal("void-variable", vec![args[0]])),
     }
 }

@@ -4797,6 +4797,23 @@ fn run_hook_with_args_runtime_value_shapes() {
 }
 
 #[test]
+fn run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
+    let result = eval_one(
+        "(let ((seen nil))
+           (defalias 'hook-wrap-a #'(lambda () 'a))
+           (defalias 'hook-wrap-b #'(lambda () 'b))
+           (defalias 'hook-wrap-wrapper
+             #'(lambda (fn)
+                 (setq seen (cons fn seen))
+                 (if (eq fn 'hook-wrap-a) 'stop nil)))
+           (setq hook-wrap-probe '(hook-wrap-a hook-wrap-b))
+           (list (run-hook-wrapped 'hook-wrap-probe 'hook-wrap-wrapper)
+                 seen))",
+    );
+    assert_eq!(result, "OK (stop (hook-wrap-a))");
+}
+
+#[test]
 fn symbol_operations() {
     let results = eval_all(
         "(defvar x 42)

@@ -169,33 +169,14 @@ pub(crate) fn signal_before_change(
     let hook_args = vec![Value::Int(lisp_beg), Value::Int(lisp_end)];
 
     // --- Run before-change-functions ---
-    let hook_value = crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-        ctx,
-        "before-change-functions",
-    )
-    .unwrap_or(Value::Nil);
+    let hook_name = "before-change-functions";
+    let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(ctx, hook_name);
+    let hook_value =
+        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, hook_sym).unwrap_or(Value::Nil);
     if !hook_value.is_nil() {
-        let funcs = crate::emacs_core::builtins::collect_hook_functions_in_state(
-            ctx,
-            "before-change-functions",
-            hook_value,
-            true,
-        );
-        let saved = ctx.save_temp_roots();
-        for f in &funcs {
-            ctx.push_temp_root(*f);
-        }
-        for a in &hook_args {
-            ctx.push_temp_root(*a);
-        }
-        let result = (|| -> Result<(), Flow> {
-            for func in &funcs {
-                ctx.apply(*func, hook_args.clone())?;
-            }
-            Ok(())
-        })();
-        ctx.restore_temp_roots(saved);
-        result?;
+        let _ = crate::emacs_core::hook_runtime::run_hook_value(
+            ctx, hook_sym, hook_value, &hook_args, true,
+        )?;
     }
 
     // --- Run overlay modification-hooks for overlays covering [beg, end) ---
@@ -270,33 +251,14 @@ pub(crate) fn signal_after_change(
     ];
 
     // --- Run after-change-functions ---
-    let hook_value = crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
-        ctx,
-        "after-change-functions",
-    )
-    .unwrap_or(Value::Nil);
+    let hook_name = "after-change-functions";
+    let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(ctx, hook_name);
+    let hook_value =
+        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, hook_sym).unwrap_or(Value::Nil);
     if !hook_value.is_nil() {
-        let funcs = crate::emacs_core::builtins::collect_hook_functions_in_state(
-            ctx,
-            "after-change-functions",
-            hook_value,
-            true,
-        );
-        let saved = ctx.save_temp_roots();
-        for f in &funcs {
-            ctx.push_temp_root(*f);
-        }
-        for a in &hook_args {
-            ctx.push_temp_root(*a);
-        }
-        let result = (|| -> Result<(), Flow> {
-            for func in &funcs {
-                ctx.apply(*func, hook_args.clone())?;
-            }
-            Ok(())
-        })();
-        ctx.restore_temp_roots(saved);
-        result?;
+        let _ = crate::emacs_core::hook_runtime::run_hook_value(
+            ctx, hook_sym, hook_value, &hook_args, true,
+        )?;
     }
 
     // --- Run overlay hooks ---
