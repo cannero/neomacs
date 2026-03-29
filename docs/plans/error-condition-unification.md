@@ -56,7 +56,6 @@ Pieces that are useful and should stay:
 
 Pieces that should stop being authoritative:
 
-- `Context.catch_tags`
 - interpreter-only `sf_condition_case` matching loop
 - wrapper-style `builtin_handler_bind_1`
 - VM-local `Handler` stack as the source of truth
@@ -227,8 +226,8 @@ Phase 2 progress:
 
 - interpreter `throw` and `validate_throw` now consult `Context.condition_stack`
 - VM outer-catch fallback now consults the shared stack after local VM unwind
-- VM no longer mirrors local catch frames into `catch_tags`
-- `catch_tags` remains only as temporary interpreter/top-level mirror bookkeeping
+- VM no longer mirrors local catch frames into a separate catch-tag list
+- the old `catch_tags` mirror has now been removed entirely
 
 ### Phase 3: Unify `condition-case`
 
@@ -281,8 +280,11 @@ Phase 5 progress:
   VM clause dispatch now agree on debugger suppression vs entry
 - `condition-case-unless-debug` and `with-demoted-errors` regressions now pass
   with the shared runtime
-- Phase 6 still needs to delete detached debugger-policy state from `DebugState`
-  and remove any remaining redundant policy wrappers
+- detached debugger-policy state has been deleted from `DebugState`
+- active catches now live only in the shared condition stack; the old
+  `catch_tags` mirror is gone
+- Phase 6 still needs to trim VM-local resume helpers that only bridge the
+  shared runtime onto bytecode stack unwinding
 
 ### Phase 6: Delete redundant logic
 

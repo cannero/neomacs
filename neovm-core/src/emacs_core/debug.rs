@@ -3,7 +3,7 @@
 //! Implements:
 //! - Backtrace frames and stack introspection
 //! - describe-function, describe-variable
-//! - Debug-on-entry, debug-on-error
+//! - Debug-on-entry and breakpoint state
 //! - Breakpoints and stepping
 //! - Apropos searching
 //! - Doc string storage and retrieval
@@ -186,14 +186,8 @@ pub struct Breakpoint {
 pub struct DebugState {
     /// Whether the debugger is currently active (stopped at a breakpoint/error).
     pub active: bool,
-    /// If true, enter debugger on any unhandled error signal.
-    pub debug_on_error: bool,
-    /// If true, enter debugger on quit (C-g).
-    pub debug_on_quit: bool,
     /// Set of function names that should trigger the debugger on entry.
     pub debug_on_entry: HashSet<String>,
-    /// Set of signal symbols that should trigger the debugger.
-    pub debug_on_signal: HashSet<String>,
     /// Whether we are in single-step mode.
     pub stepping: bool,
     /// The current backtrace (populated during evaluation).
@@ -211,14 +205,14 @@ impl Default for DebugState {
 }
 
 impl DebugState {
-    /// Create a new debug state with everything disabled.
+    /// Create a new debugger session state with entry/breakpoint tracking.
+    ///
+    /// Error/quit signal policy lives in the shared condition dispatcher in
+    /// `eval.rs`, mirroring GNU Emacs's `eval.c` split.
     pub fn new() -> Self {
         Self {
             active: false,
-            debug_on_error: false,
-            debug_on_quit: false,
             debug_on_entry: HashSet::new(),
-            debug_on_signal: HashSet::new(),
             stepping: false,
             current_backtrace: Backtrace::new(),
             breakpoints: Vec::new(),
@@ -235,14 +229,6 @@ impl DebugState {
         self.breakpoints
             .iter()
             .any(|bp| bp.enabled && bp.function == function)
-    }
-
-    /// Check whether the debugger should be entered for a given error signal.
-    pub fn should_debug_on_error(&self, signal_name: &str) -> bool {
-        if self.debug_on_error {
-            return true;
-        }
-        self.debug_on_signal.contains(signal_name)
     }
 
     /// Mark a function for debug-on-entry.

@@ -106,7 +106,6 @@ fn vm_catch_leaves_shared_condition_stack_balanced() {
             crate::emacs_core::error::format_eval_result(&result),
             "OK 42"
         );
-        assert!(eval.catch_tags.is_empty());
         assert_eq!(eval.condition_stack_depth_for_test(), 0);
     });
 }
@@ -981,9 +980,12 @@ fn vm_unbind_restores_saved_restriction() {
 }
 
 #[test]
-fn vm_eval_shared_runtime_path_preserves_active_catch_tags() {
-    let mut eval = Context::new_vm_harness();
-    eval.catch_tags.push(Value::symbol("vm-bridge-catch"));
+fn vm_eval_shared_runtime_path_preserves_active_shared_catches() {
+    let mut eval = Context::new();
+    eval.push_condition_frame(ConditionFrame::Catch {
+        tag: Value::symbol("vm-bridge-catch"),
+        resume: ResumeTarget::InterpreterCatch,
+    });
     let mut vm = new_vm(&mut eval);
 
     let throw_form = Value::list(vec![
@@ -994,13 +996,16 @@ fn vm_eval_shared_runtime_path_preserves_active_catch_tags() {
         ]),
         Value::Int(7),
     ]);
-    let result = vm.dispatch_vm_builtin("eval", vec![throw_form, Value::Nil]);
+    let result = vm.call_function(Value::symbol("eval"), vec![throw_form, Value::Nil]);
 
     assert!(matches!(
         result,
         Err(Flow::Throw { tag, value })
             if tag == Value::symbol("vm-bridge-catch") && value == Value::Int(7)
     ));
+    drop(vm);
+    eval.pop_condition_frame();
+    assert_eq!(eval.condition_stack_depth_for_test(), 0);
 }
 
 #[test]
@@ -1325,8 +1330,6 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
         resume: ResumeTarget::InterpreterCatch,
     });
 
-    assert!(eval.catch_tags.is_empty());
-
     let forms = parse_forms("(throw 'vm-shared-outer 42)").expect("parse");
     let mut compiler = Compiler::new(false);
     let func = compiler.compile_toplevel(&forms[0]);
@@ -1344,7 +1347,6 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
     assert_eq!(eval.condition_stack_depth_for_test(), 1);
 
     eval.pop_condition_frame();
-    assert!(eval.catch_tags.is_empty());
     assert_eq!(eval.condition_stack_depth_for_test(), 0);
 }
 

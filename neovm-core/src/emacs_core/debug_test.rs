@@ -135,21 +135,6 @@ fn debug_on_entry_add_remove() {
 }
 
 #[test]
-fn debug_on_error_check() {
-    let mut ds = DebugState::new();
-    assert!(!ds.should_debug_on_error("void-function"));
-
-    ds.debug_on_error = true;
-    assert!(ds.should_debug_on_error("void-function"));
-    assert!(ds.should_debug_on_error("wrong-type-argument"));
-
-    ds.debug_on_error = false;
-    ds.debug_on_signal.insert("void-function".to_string());
-    assert!(ds.should_debug_on_error("void-function"));
-    assert!(!ds.should_debug_on_error("wrong-type-argument"));
-}
-
-#[test]
 fn debug_on_entry_via_breakpoint() {
     let mut ds = DebugState::new();
     let bp_id = ds.add_breakpoint("my-fn");
@@ -489,7 +474,6 @@ fn debug_state_full_workflow() {
 
     // Initially nothing triggers
     assert!(!ds.should_debug_on_entry("my-fn"));
-    assert!(!ds.should_debug_on_error("error"));
     assert!(!ds.active);
     assert!(!ds.stepping);
 
@@ -500,11 +484,6 @@ fn debug_state_full_workflow() {
     // Set up a breakpoint
     let bp_id = ds.add_breakpoint("other-fn");
     assert!(ds.should_debug_on_entry("other-fn"));
-
-    // Enable debug-on-error
-    ds.debug_on_error = true;
-    assert!(ds.should_debug_on_error("void-function"));
-    assert!(ds.should_debug_on_error("wrong-type-argument"));
 
     // Use the backtrace
     ds.current_backtrace.push(BacktraceFrame {

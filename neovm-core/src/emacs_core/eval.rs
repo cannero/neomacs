@@ -801,12 +801,6 @@ pub struct Context {
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
     pub(crate) vm_gc_roots: Vec<Value>,
-    /// Compatibility mirror of active catch tags.
-    ///
-    /// The shared `condition_stack` is the authoritative handler runtime; this
-    /// vector remains only as a temporary mirror while the rest of condition
-    /// dispatch is migrated off the old split paths.
-    pub(crate) catch_tags: Vec<Value>,
     /// Shared condition runtime mirror for active catch/condition handlers.
     pub(crate) condition_stack: Vec<ConditionFrame>,
     /// Saved lexical environments stack — when apply_lambda replaces
@@ -1430,7 +1424,6 @@ impl Context {
         ev.gc_count = 0;
         ev.gc_stress = false;
         ev.temp_roots.clear();
-        ev.catch_tags.clear();
         ev.condition_stack.clear();
         ev.saved_lexenvs.clear();
         ev.named_call_cache.clear();
@@ -3257,7 +3250,6 @@ impl Context {
             gc_stress: false,
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
-            catch_tags: Vec::new(),
             condition_stack: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
@@ -3384,7 +3376,6 @@ impl Context {
             gc_stress: false,
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
-            catch_tags: Vec::new(),
             condition_stack: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
@@ -3434,7 +3425,6 @@ impl Context {
         // Direct Context fields
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
-        roots.extend(self.catch_tags.iter().cloned());
         for frame in &self.condition_stack {
             match frame {
                 ConditionFrame::Catch { tag, .. } => roots.push(*tag),
@@ -3653,7 +3643,6 @@ impl Context {
 
         // Register catch tag for 'exit (mirrors keyboard.c catch handler).
         let exit_tag = Value::symbol("exit");
-        self.catch_tags.push(exit_tag);
         self.push_condition_frame(ConditionFrame::Catch {
             tag: exit_tag,
             resume: ResumeTarget::CommandLoopExit,
@@ -3662,7 +3651,6 @@ impl Context {
         let result = self.command_loop_inner();
 
         self.pop_condition_frame();
-        self.catch_tags.pop();
         if increment_depth {
             self.command_loop.recursive_depth -= 1;
         }
@@ -3693,7 +3681,6 @@ impl Context {
         loop {
             // Catch 'top-level throws (from (top-level) function).
             let top_level_tag = Value::symbol("top-level");
-            self.catch_tags.push(top_level_tag);
             self.push_condition_frame(ConditionFrame::Catch {
                 tag: top_level_tag,
                 resume: ResumeTarget::CommandLoopTopLevel,
@@ -3710,7 +3697,6 @@ impl Context {
             };
 
             self.pop_condition_frame();
-            self.catch_tags.pop();
 
             match result {
                 // top-level throw → restart the loop
@@ -4317,7 +4303,6 @@ impl Context {
         }
         self.lexenv = Value::Nil;
         self.temp_roots.clear();
-        self.catch_tags.clear();
         self.condition_stack.clear();
         self.depth = 0;
     }
@@ -4328,7 +4313,6 @@ impl Context {
             && self.lexenv.is_nil()
             && self.saved_lexenvs.is_empty()
             && self.temp_roots.is_empty()
-            && self.catch_tags.is_empty()
             && self.condition_stack.is_empty()
             && self.depth == 0
     }
@@ -5904,9 +5888,6 @@ impl Context {
         let tag = self.eval(&tail[0])?;
         // Root tag so GC during body can't collect it.
         self.temp_roots.push(tag);
-        // Maintain the compatibility mirror while the shared condition stack
-        // becomes the authoritative catch runtime.
-        self.catch_tags.push(tag);
         self.push_condition_frame(ConditionFrame::Catch {
             tag,
             resume: ResumeTarget::InterpreterCatch,
@@ -5920,7 +5901,6 @@ impl Context {
             Err(flow) => Err(flow),
         };
         self.pop_condition_frame();
-        self.catch_tags.pop();
         self.temp_roots.pop();
         result
     }

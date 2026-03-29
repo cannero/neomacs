@@ -2279,8 +2279,6 @@ fn funcall_throw_uses_shared_condition_stack_without_catch_tag_mirror() {
         resume: ResumeTarget::InterpreterCatch,
     });
 
-    assert!(ev.catch_tags.is_empty());
-
     let result = ev.funcall_general(Value::symbol("throw"), vec![tag, Value::Int(42)]);
     assert!(matches!(
         result,
