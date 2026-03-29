@@ -10,29 +10,14 @@ use neomacs_display_runtime::FrameGlyphBuffer;
 use neomacs_display_runtime::backend::tty::TtyBackend;
 use neomacs_display_runtime::core::Scene;
 use neomacs_display_runtime::thread_comm::{InputEvent, RenderCommand, RenderComms};
+use neovm_core::keyboard::{
+    RENDER_CTRL_MASK, RENDER_META_MASK, RENDER_SHIFT_MASK, XK_BACKSPACE, XK_DELETE, XK_DOWN,
+    XK_END, XK_ESCAPE, XK_F1, XK_HOME, XK_INSERT, XK_LEFT, XK_PAGE_DOWN, XK_PAGE_UP, XK_RETURN,
+    XK_RIGHT, XK_TAB, XK_UP,
+};
 
 const ESC_SEQUENCE_TIMEOUT_MS: i32 = 25;
 const INPUT_POLL_INTERVAL_MS: i32 = 100;
-
-const RENDER_SHIFT_MASK: u32 = 1 << 0;
-const RENDER_CTRL_MASK: u32 = 1 << 1;
-const RENDER_META_MASK: u32 = 1 << 2;
-
-const XK_RETURN: u32 = 0xFF0D;
-const XK_TAB: u32 = 0xFF09;
-const XK_BACKSPACE: u32 = 0xFF08;
-const XK_DELETE: u32 = 0xFFFF;
-const XK_ESCAPE: u32 = 0xFF1B;
-const XK_LEFT: u32 = 0xFF51;
-const XK_UP: u32 = 0xFF52;
-const XK_RIGHT: u32 = 0xFF53;
-const XK_DOWN: u32 = 0xFF54;
-const XK_HOME: u32 = 0xFF50;
-const XK_END: u32 = 0xFF57;
-const XK_PAGE_UP: u32 = 0xFF55;
-const XK_PAGE_DOWN: u32 = 0xFF56;
-const XK_INSERT: u32 = 0xFF63;
-const XK_F1: u32 = 0xFFBE;
 
 pub struct TtyFrontend {
     handle: Option<JoinHandle<()>>,

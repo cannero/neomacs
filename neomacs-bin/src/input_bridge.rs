@@ -6,24 +6,7 @@
 //! evaluator's command loop.
 
 use neomacs_display_runtime::thread_comm::InputEvent as DisplayEvent;
-use neovm_core::keyboard::{self, InputEvent as KbInputEvent, Modifiers, MouseButton};
-
-// Render thread modifier bitmask constants (must match thread_comm.rs).
-const RENDER_SHIFT_MASK: u32 = 1 << 0;
-const RENDER_CTRL_MASK: u32 = 1 << 1;
-const RENDER_META_MASK: u32 = 1 << 2;
-const RENDER_SUPER_MASK: u32 = 1 << 3;
-
-/// Convert a render-thread modifier bitmask to neovm-core `Modifiers`.
-fn render_mods_to_modifiers(bits: u32) -> Modifiers {
-    Modifiers {
-        ctrl: bits & RENDER_CTRL_MASK != 0,
-        meta: bits & RENDER_META_MASK != 0,
-        shift: bits & RENDER_SHIFT_MASK != 0,
-        super_: bits & RENDER_SUPER_MASK != 0,
-        hyper: false,
-    }
-}
+use neovm_core::keyboard::{self, InputEvent as KbInputEvent, MouseButton};
 
 /// Convert a display runtime input event to a neovm-core keyboard input event.
 ///
@@ -36,18 +19,15 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             modifiers,
             pressed,
         } => {
-            if !pressed {
-                return None; // Ignore key releases
-            }
             tracing::debug!(
                 "input_bridge: key keysym=0x{:04x} mods=0x{:x} pressed={}",
                 keysym,
                 modifiers,
                 pressed
             );
-            let key_event = keyboard::keysym_to_key_event(keysym, modifiers)?;
-            tracing::debug!("input_bridge: converted to {:?}", key_event);
-            Some(KbInputEvent::KeyPress(key_event))
+            let event = keyboard::render_key_transport_to_input_event(keysym, modifiers, pressed)?;
+            tracing::debug!("input_bridge: converted to {:?}", event);
+            Some(event)
         }
         DisplayEvent::MouseButton {
             button,
@@ -70,7 +50,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
                     button: mb,
                     x,
                     y,
-                    modifiers: render_mods_to_modifiers(modifiers),
+                    modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
                 })
             } else {
                 Some(KbInputEvent::MouseRelease { button: mb, x, y })
@@ -81,7 +61,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
         } => Some(KbInputEvent::MouseMove {
             x,
             y,
-            modifiers: render_mods_to_modifiers(modifiers),
+            modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
         }),
         DisplayEvent::MouseScroll {
             delta_x,
@@ -95,7 +75,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             delta_y,
             x,
             y,
-            modifiers: render_mods_to_modifiers(modifiers),
+            modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
         }),
         DisplayEvent::WindowResize {
             width,
@@ -118,5 +98,39 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
         DisplayEvent::WindowFocus { focused, .. } => Some(KbInputEvent::Focus(focused)),
         // Ignore other events (WebKit title changes, etc.)
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_release_is_dropped_by_core_transport_owner() {
+        let event = convert_display_event(DisplayEvent::Key {
+            keysym: keyboard::XK_RETURN,
+            modifiers: 0,
+            pressed: false,
+        });
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn mouse_modifiers_use_core_transport_mapping() {
+        let event = convert_display_event(DisplayEvent::MouseMove {
+            x: 1.0,
+            y: 2.0,
+            modifiers: keyboard::RENDER_SHIFT_MASK | keyboard::RENDER_CTRL_MASK,
+            target_frame_id: 0,
+        });
+
+        match event {
+            Some(KbInputEvent::MouseMove { modifiers, .. }) => {
+                assert!(modifiers.shift);
+                assert!(modifiers.ctrl);
+                assert!(!modifiers.meta);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 }

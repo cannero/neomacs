@@ -362,29 +362,57 @@ impl Default for KeySequence {
 // Keysym conversion (X11/winit keysyms → neovm-core KeyEvent)
 // ---------------------------------------------------------------------------
 
-// X11 keysym constants used by the render thread (winit).
-const XK_RETURN: u32 = 0xFF0D;
-const XK_TAB: u32 = 0xFF09;
-const XK_BACKSPACE: u32 = 0xFF08;
-const XK_DELETE: u32 = 0xFFFF;
-const XK_ESCAPE: u32 = 0xFF1B;
-const XK_LEFT: u32 = 0xFF51;
-const XK_UP: u32 = 0xFF52;
-const XK_RIGHT: u32 = 0xFF53;
-const XK_DOWN: u32 = 0xFF54;
-const XK_HOME: u32 = 0xFF50;
-const XK_END: u32 = 0xFF57;
-const XK_PAGE_UP: u32 = 0xFF55;
-const XK_PAGE_DOWN: u32 = 0xFF56;
-const XK_INSERT: u32 = 0xFF63;
-const XK_F1: u32 = 0xFFBE;
-const XK_F24: u32 = 0xFFD5;
+// X11 keysym constants used by the render thread (winit) and TTY frontend.
+pub const XK_RETURN: u32 = 0xFF0D;
+pub const XK_TAB: u32 = 0xFF09;
+pub const XK_BACKSPACE: u32 = 0xFF08;
+pub const XK_DELETE: u32 = 0xFFFF;
+pub const XK_ESCAPE: u32 = 0xFF1B;
+pub const XK_LEFT: u32 = 0xFF51;
+pub const XK_UP: u32 = 0xFF52;
+pub const XK_RIGHT: u32 = 0xFF53;
+pub const XK_DOWN: u32 = 0xFF54;
+pub const XK_HOME: u32 = 0xFF50;
+pub const XK_END: u32 = 0xFF57;
+pub const XK_PAGE_UP: u32 = 0xFF55;
+pub const XK_PAGE_DOWN: u32 = 0xFF56;
+pub const XK_INSERT: u32 = 0xFF63;
+pub const XK_F1: u32 = 0xFFBE;
+pub const XK_F24: u32 = 0xFFD5;
 
 // Render thread modifier bitmask constants.
-const RENDER_SHIFT_MASK: u32 = 1 << 0;
-const RENDER_CTRL_MASK: u32 = 1 << 1;
-const RENDER_META_MASK: u32 = 1 << 2;
-const RENDER_SUPER_MASK: u32 = 1 << 3;
+pub const RENDER_SHIFT_MASK: u32 = 1 << 0;
+pub const RENDER_CTRL_MASK: u32 = 1 << 1;
+pub const RENDER_META_MASK: u32 = 1 << 2;
+pub const RENDER_SUPER_MASK: u32 = 1 << 3;
+
+/// Convert frontend render/TTY modifier bits into the core modifier model.
+pub fn render_modifiers_to_modifiers(bits: u32) -> Modifiers {
+    Modifiers {
+        ctrl: bits & RENDER_CTRL_MASK != 0,
+        meta: bits & RENDER_META_MASK != 0,
+        shift: bits & RENDER_SHIFT_MASK != 0,
+        super_: bits & RENDER_SUPER_MASK != 0,
+        hyper: false,
+    }
+}
+
+/// Convert frontend key transport facts into the core input event model.
+///
+/// Key releases are ignored here so the command loop only sees the GNU-like
+/// cooked keypress stream.
+pub fn render_key_transport_to_input_event(
+    keysym: u32,
+    modifiers: u32,
+    pressed: bool,
+) -> Option<InputEvent> {
+    if !pressed {
+        return None;
+    }
+
+    let key_event = keysym_to_key_event(keysym, modifiers)?;
+    Some(InputEvent::KeyPress(key_event))
+}
 
 /// Convert a raw keysym and modifier bitmask (from the render thread) into
 /// a neovm-core `KeyEvent`.
@@ -392,13 +420,7 @@ const RENDER_SUPER_MASK: u32 = 1 << 3;
 /// Returns `None` for keysyms that should be ignored (modifier-only keys,
 /// unknown keysyms, etc.).
 pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
-    let mods = Modifiers {
-        ctrl: modifiers & RENDER_CTRL_MASK != 0,
-        meta: modifiers & RENDER_META_MASK != 0,
-        shift: modifiers & RENDER_SHIFT_MASK != 0,
-        super_: modifiers & RENDER_SUPER_MASK != 0,
-        hyper: false,
-    };
+    let mods = render_modifiers_to_modifiers(modifiers);
 
     let key = match keysym {
         // Control characters (Ctrl + letter): winit gives us the control
@@ -1185,5 +1207,21 @@ mod tests {
         assert_eq!(event.key, Key::Char('x'));
         assert!(event.modifiers.ctrl);
         assert!(!event.modifiers.shift);
+    }
+
+    #[test]
+    fn render_modifiers_helper_matches_transport_bit_layout() {
+        let mods =
+            render_modifiers_to_modifiers(RENDER_SHIFT_MASK | RENDER_CTRL_MASK | RENDER_META_MASK);
+        assert!(mods.shift);
+        assert!(mods.ctrl);
+        assert!(mods.meta);
+        assert!(!mods.super_);
+        assert!(!mods.hyper);
+    }
+
+    #[test]
+    fn render_key_transport_drops_key_releases() {
+        assert!(render_key_transport_to_input_event(XK_RETURN, 0, false).is_none());
     }
 }

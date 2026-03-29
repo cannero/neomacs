@@ -150,13 +150,18 @@ Completed on 2026-03-29:
   Lisp-visible Emacs event values instead of frontend `KeyEvent` structs, which
   is closer to GNU `keyboard.c` ownership and removes repeated re-normalization
   in `read_char`.
+- Frontend transport bitmasks and X keysym normalization now have a single
+  owner in `neovm-core/src/keyboard.rs`; `neomacs-bin` and the TTY frontend
+  forward transport facts instead of keeping their own duplicate key transport
+  vocabulary.
 
 Still open:
 
 - `read_char` / `read_key_sequence` still live in evaluator-owned code instead
   of a dedicated keyboard owner.
 - Frontend event transport still passes through a separate Rust `KeyEvent`
-  layer before entering the command loop.
+  layer before entering the command loop, even though raw keysym/modifier
+  normalization is now centralized.
 - Keymap autoload and parent-cycle semantics are still thinner than GNU.
 
 ### Slice 1: Active maps and `key-binding`
