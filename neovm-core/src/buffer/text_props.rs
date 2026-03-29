@@ -288,10 +288,19 @@ impl TextPropertyTable {
 
     /// Adjust all intervals after text is inserted at `pos` with `len` bytes.
     ///
-    /// Intervals starting at or after the insertion point are shifted right.
-    /// An interval spanning the insertion point is split around the inserted
-    /// gap, matching GNU Emacs `insert` semantics where plain insertion does
-    /// not inherit text properties by default.
+    /// Matches GNU Emacs `adjust_intervals_for_insertion` (intervals.c:802):
+    ///
+    /// - Intervals starting AFTER the insertion point are shifted right.
+    /// - An interval whose interior CONTAINS the insertion point is EXTENDED
+    ///   (its `end` grows by `len`).  This implements GNU's default rear-sticky
+    ///   behavior: inserted text inherits the properties of the interval it
+    ///   lands inside.
+    /// - An interval whose START equals `pos` is shifted right (the inserted
+    ///   text goes BEFORE this interval, not inside it).
+    ///
+    /// `insert-and-inherit` calls a separate stickiness-aware path
+    /// (`inherited_text_properties_for_inserted_range_in_state`) to handle
+    /// boundary merging; this function handles the structural adjustment only.
     pub fn adjust_for_insert(&mut self, pos: usize, len: usize) {
         if len == 0 {
             return;
@@ -299,20 +308,21 @@ impl TextPropertyTable {
         let mut shifted = BTreeMap::new();
         for interval in self.intervals_snapshot() {
             if interval.start >= pos {
+                // Interval starts AT or AFTER insertion: shift right.
                 let mut shifted_interval = interval;
                 shifted_interval.start += len;
                 shifted_interval.end += len;
                 shifted.insert(shifted_interval.start, shifted_interval);
             } else if interval.end > pos {
-                let mut left = interval.clone();
-                left.end = pos;
-                shifted.insert(left.start, left);
-
-                let mut right = interval;
-                right.start = pos + len;
-                right.end += len;
-                shifted.insert(right.start, right);
+                // Interval CONTAINS the insertion point in its interior
+                // (start < pos < end).  GNU Emacs extends the interval —
+                // properties are rear-sticky by default, so the inserted
+                // text inherits this interval's properties.
+                let mut extended = interval;
+                extended.end += len;
+                shifted.insert(extended.start, extended);
             } else {
+                // Interval ends at or before insertion: unchanged.
                 shifted.insert(interval.start, interval);
             }
         }
