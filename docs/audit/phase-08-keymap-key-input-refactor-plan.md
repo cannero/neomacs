@@ -320,10 +320,11 @@ Current status:
   both `interactive.rs::key-binding` and `keyboard.rs::read_key_sequence` call
   the shared keymap-owner resolver instead of routing through interactive
   builtin glue
-- remaining: `interactive.rs` still contains some thin wrapper surfaces around
-  keymap-owner helpers, and `where-is` / `minor-mode-key-binding` still need a
-  final owner cleanup pass so the module boundary reads like GNU `keymap.c`
-  instead of a compatibility shim
+- completed: `minor-mode-key-binding` lookup and `where-is-internal` keymap
+  selection now live under the keymap owner instead of `interactive.rs`
+- remaining: `interactive.rs` still keeps `where-is-internal` sequence
+  collection/formatting glue, and the bigger GNU gap is still Slice D's
+  `keyboard.c`-shaped replay/rescan state machine
 
 ### Slice D: replace the current thin `read_key_sequence`
 

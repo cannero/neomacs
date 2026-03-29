@@ -26,8 +26,8 @@ use super::keymap::{
     current_active_maps_for_position, current_active_maps_for_position_read_only,
     expand_meta_prefix_char_events_in_obarray, format_key_event, format_key_sequence,
     is_list_keymap, key_event_to_emacs_event, list_keymap_for_each_binding,
-    lookup_keymap_with_partial, make_sparse_list_keymap, minor_mode_map_entry,
-    resolve_active_key_binding,
+    lookup_keymap_with_partial, make_sparse_list_keymap, minor_mode_key_binding_in_context,
+    resolve_active_key_binding, where_is_keymaps_in_context,
 };
 use super::mode::{MajorMode, MinorMode};
 use super::symbol::Obarray;
@@ -2844,78 +2844,6 @@ pub(crate) fn builtin_local_key_binding_impl(
     ))
 }
 
-/// Get the global keymap Value from obarray (without creating one).
-fn get_global_keymap(eval: &Context) -> Value {
-    get_global_keymap_in_obarray(&eval.obarray)
-}
-
-fn get_global_keymap_in_obarray(obarray: &Obarray) -> Value {
-    obarray
-        .symbol_value("global-map")
-        .copied()
-        .unwrap_or(Value::Nil)
-}
-
-fn lookup_minor_mode_binding_in_alist_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    events: &[KeyEvent],
-    alist_value: &Value,
-) -> Result<Option<(String, Value)>, Flow> {
-    let Some(entries) = list_to_vec(alist_value) else {
-        return Ok(None);
-    };
-
-    for entry in entries {
-        let Some((mode_name, map_value)) = minor_mode_map_entry(&entry) else {
-            continue;
-        };
-        if !dynamic_or_global_symbol_value_in_state(obarray, dynamic, &mode_name)
-            .is_some_and(|v| v.is_truthy())
-        {
-            continue;
-        }
-
-        // Resolve the keymap value - could be a keymap directly or a symbol
-        let keymap = if is_list_keymap(&map_value) {
-            map_value
-        } else if map_value.as_symbol_name().is_some() {
-            // Note: symbol_value still uses name (value cells aren't affected
-            // by the interned/uninterned distinction the same way).
-            match map_value
-                .as_symbol_name()
-                .and_then(|n| obarray.symbol_value(n).copied())
-            {
-                Some(v) if is_list_keymap(&v) => v,
-                _ => match obarray.symbol_function_of_value(&map_value).copied() {
-                    Some(v) if is_list_keymap(&v) => v,
-                    _ => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("keymapp"), map_value],
-                        ));
-                    }
-                },
-            }
-        } else {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("keymapp"), map_value],
-            ));
-        };
-
-        let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
-        let binding = lookup_keymap_with_partial(&keymap, &emacs_events);
-        if binding.is_nil() {
-            continue;
-        }
-
-        return Ok(Some((mode_name, binding)));
-    }
-
-    Ok(None)
-}
-
 /// `(minor-mode-key-binding KEY &optional ACCEPT-DEFAULTS)`
 /// Look up KEY in active minor mode keymaps.
 pub(crate) fn builtin_minor_mode_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -2934,49 +2862,8 @@ pub(crate) fn builtin_minor_mode_key_binding_impl(
         Ok(events) => events,
         Err(_) => return Ok(Value::Nil),
     };
-
-    if let Some(emulation_raw) =
-        dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "emulation-mode-map-alists")
-    {
-        if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
-            for emulation_entry in emulation_entries {
-                let alist_value = match emulation_entry.as_symbol_name() {
-                    Some(name) => dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], name)
-                        .unwrap_or(Value::Nil),
-                    None => emulation_entry,
-                };
-                if let Some((mode_name, binding)) = lookup_minor_mode_binding_in_alist_in_state(
-                    &ctx.obarray,
-                    &[],
-                    &events,
-                    &alist_value,
-                )? {
-                    return Ok(Value::list(vec![Value::cons(
-                        Value::symbol(mode_name),
-                        binding,
-                    )]));
-                }
-            }
-        }
-    }
-
-    for alist_name in ["minor-mode-overriding-map-alist", "minor-mode-map-alist"] {
-        let Some(alist_value) =
-            dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], alist_name)
-        else {
-            continue;
-        };
-        if let Some((mode_name, binding)) =
-            lookup_minor_mode_binding_in_alist_in_state(&ctx.obarray, &[], &events, &alist_value)?
-        {
-            return Ok(Value::list(vec![Value::cons(
-                Value::symbol(mode_name),
-                binding,
-            )]));
-        }
-    }
-
-    Ok(Value::Nil)
+    let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
+    minor_mode_key_binding_in_context(ctx, &emacs_events)
 }
 
 /// `(where-is-internal DEFINITION &optional KEYMAP FIRSTONLY NOINDIRECT NO-REMAP)`
@@ -2988,19 +2875,10 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) ->
     let definition = &args[0];
     let first_only = args.get(2).is_some_and(|v| !v.is_nil());
 
-    let keymaps = if let Some(keymap_arg) = args.get(1) {
-        if keymap_arg.is_nil() {
-            where_is_internal_active_keymaps(eval)
-        } else {
-            where_is_internal_explicit_keymaps(eval, keymap_arg)?
-        }
-    } else {
-        let keymaps = where_is_internal_active_keymaps(eval);
-        if keymaps.is_empty() {
-            return Ok(Value::Nil);
-        }
-        keymaps
-    };
+    let keymaps = where_is_keymaps_in_context(eval, args.get(1))?;
+    if args.get(1).is_none() && keymaps.is_empty() {
+        return Ok(Value::Nil);
+    }
 
     let mut sequences = Vec::new();
     for keymap in &keymaps {
@@ -3164,72 +3042,6 @@ fn command_remapping_lookup_in_lisp_keymap(keymap: &Value, command_name: &str) -
 
 fn command_remapping_normalize_target(raw: Value) -> Value {
     keymap_command_remapping_normalize_target(raw)
-}
-
-fn expect_keymap_value(eval: &Context, value: &Value) -> Result<Value, Flow> {
-    if is_list_keymap(value) {
-        return Ok(*value);
-    }
-    // Check if it's a symbol whose function cell is a keymap
-    if let Some(name) = value.as_symbol_name() {
-        if let Some(func) = eval.obarray.symbol_function(name).copied() {
-            if is_list_keymap(&func) {
-                return Ok(func);
-            }
-        }
-    }
-    Err(signal(
-        "wrong-type-argument",
-        vec![Value::symbol("keymapp"), *value],
-    ))
-}
-
-fn where_is_internal_keymaps(eval: &Context, value: &Value) -> Result<Vec<Value>, Flow> {
-    if is_list_keymap(value) {
-        return Ok(vec![*value]);
-    }
-
-    if let Some(items) = list_to_vec(value) {
-        let mut keymaps = Vec::with_capacity(items.len());
-        for item in items {
-            keymaps.push(expect_keymap_value(eval, &item)?);
-        }
-        return Ok(keymaps);
-    }
-
-    Ok(vec![expect_keymap_value(eval, value)?])
-}
-
-fn where_is_internal_explicit_keymaps(eval: &Context, value: &Value) -> Result<Vec<Value>, Flow> {
-    if is_list_keymap(value) {
-        let keymap = expect_keymap_value(eval, value)?;
-        let mut keymaps = vec![keymap];
-        let global_map = get_global_keymap(eval);
-        if is_list_keymap(&global_map) && global_map != keymap {
-            keymaps.push(global_map);
-        }
-        return Ok(keymaps);
-    }
-
-    if let Some(items) = list_to_vec(value) {
-        let mut keymaps = Vec::with_capacity(items.len());
-        for item in items {
-            keymaps.push(expect_keymap_value(eval, &item)?);
-        }
-        return Ok(keymaps);
-    }
-
-    let keymap = expect_keymap_value(eval, value)?;
-    let mut keymaps = vec![keymap];
-    let global_map = get_global_keymap(eval);
-    if is_list_keymap(&global_map) && global_map != keymap {
-        keymaps.push(global_map);
-    }
-    Ok(keymaps)
-}
-
-fn where_is_internal_active_keymaps(eval: &mut Context) -> Vec<Value> {
-    current_active_maps_for_position(eval, true, None).unwrap_or_default()
 }
 
 fn binding_matches_definition(binding: &Value, definition: &Value) -> bool {

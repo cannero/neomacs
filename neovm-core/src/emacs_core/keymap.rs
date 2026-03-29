@@ -1543,6 +1543,162 @@ pub(crate) fn resolve_active_key_binding(
     Ok(ActiveKeyBindingResolution { lookup, binding })
 }
 
+fn lookup_minor_mode_binding_in_alist_in_obarray(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    events: &[Value],
+    alist_value: &Value,
+) -> Result<Option<(String, Value)>, Flow> {
+    let Some(entries) = list_to_vec(alist_value) else {
+        return Ok(None);
+    };
+
+    for entry in entries {
+        let Some((mode_name, map_value)) = minor_mode_map_entry(&entry) else {
+            continue;
+        };
+        if !dynamic_or_global_symbol_value_in_state(obarray, dynamic, &mode_name)
+            .is_some_and(|v| v.is_truthy())
+        {
+            continue;
+        }
+
+        let keymap = if is_list_keymap(&map_value) {
+            map_value
+        } else if map_value.as_symbol_name().is_some() {
+            match map_value
+                .as_symbol_name()
+                .and_then(|name| obarray.symbol_value(name).copied())
+            {
+                Some(value) if is_list_keymap(&value) => value,
+                _ => match obarray.symbol_function_of_value(&map_value).copied() {
+                    Some(value) if is_list_keymap(&value) => value,
+                    _ => {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("keymapp"), map_value],
+                        ));
+                    }
+                },
+            }
+        } else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("keymapp"), map_value],
+            ));
+        };
+
+        let binding = lookup_keymap_with_partial(&keymap, events);
+        if binding.is_nil() {
+            continue;
+        }
+
+        return Ok(Some((mode_name, binding)));
+    }
+
+    Ok(None)
+}
+
+pub(crate) fn minor_mode_key_binding_in_context(
+    ctx: &Context,
+    events: &[Value],
+) -> Result<Value, Flow> {
+    if let Some(emulation_raw) =
+        dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "emulation-mode-map-alists")
+        && let Some(emulation_entries) = list_to_vec(&emulation_raw)
+    {
+        for emulation_entry in emulation_entries {
+            let alist_value = match emulation_entry.as_symbol_name() {
+                Some(name) => dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], name)
+                    .unwrap_or(Value::Nil),
+                None => emulation_entry,
+            };
+            if let Some((mode_name, binding)) = lookup_minor_mode_binding_in_alist_in_obarray(
+                &ctx.obarray,
+                &[],
+                events,
+                &alist_value,
+            )? {
+                return Ok(Value::list(vec![Value::cons(
+                    Value::symbol(mode_name),
+                    binding,
+                )]));
+            }
+        }
+    }
+
+    for alist_name in ["minor-mode-overriding-map-alist", "minor-mode-map-alist"] {
+        let Some(alist_value) =
+            dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], alist_name)
+        else {
+            continue;
+        };
+        if let Some((mode_name, binding)) =
+            lookup_minor_mode_binding_in_alist_in_obarray(&ctx.obarray, &[], events, &alist_value)?
+        {
+            return Ok(Value::list(vec![Value::cons(
+                Value::symbol(mode_name),
+                binding,
+            )]));
+        }
+    }
+
+    Ok(Value::Nil)
+}
+
+fn where_is_expect_keymap_in_obarray(obarray: &Obarray, value: &Value) -> Result<Value, Flow> {
+    get_keymap_in_obarray(obarray, value, true)
+}
+
+fn where_is_explicit_keymaps_in_context(ctx: &Context, value: &Value) -> Result<Vec<Value>, Flow> {
+    if is_list_keymap(value) {
+        let keymap = where_is_expect_keymap_in_obarray(&ctx.obarray, value)?;
+        let mut keymaps = vec![keymap];
+        let global_map = ctx
+            .obarray
+            .symbol_value("global-map")
+            .copied()
+            .unwrap_or(Value::Nil);
+        if is_list_keymap(&global_map) && global_map != keymap {
+            keymaps.push(global_map);
+        }
+        return Ok(keymaps);
+    }
+
+    if let Some(items) = list_to_vec(value) {
+        let mut keymaps = Vec::with_capacity(items.len());
+        for item in items {
+            keymaps.push(where_is_expect_keymap_in_obarray(&ctx.obarray, &item)?);
+        }
+        return Ok(keymaps);
+    }
+
+    let keymap = where_is_expect_keymap_in_obarray(&ctx.obarray, value)?;
+    let mut keymaps = vec![keymap];
+    let global_map = ctx
+        .obarray
+        .symbol_value("global-map")
+        .copied()
+        .unwrap_or(Value::Nil);
+    if is_list_keymap(&global_map) && global_map != keymap {
+        keymaps.push(global_map);
+    }
+    Ok(keymaps)
+}
+
+pub(crate) fn where_is_keymaps_in_context(
+    ctx: &mut Context,
+    value: Option<&Value>,
+) -> Result<Vec<Value>, Flow> {
+    match value {
+        Some(keymap_arg) if keymap_arg.is_nil() => {
+            Ok(current_active_maps_for_position(ctx, true, None).unwrap_or_default())
+        }
+        Some(keymap_arg) => where_is_explicit_keymaps_in_context(ctx, keymap_arg),
+        None => Ok(current_active_maps_for_position(ctx, true, None).unwrap_or_default()),
+    }
+}
+
 fn command_remapping_list_tail(value: &Value, n: usize) -> Option<Value> {
     let mut cursor = *value;
     for _ in 0..n {
