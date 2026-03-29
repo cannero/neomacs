@@ -190,6 +190,60 @@ fn handler_bind_1_leaves_shared_condition_stack_balanced() {
 }
 
 #[test]
+fn handler_bind_1_runs_inside_signal_dynamic_extent() {
+    assert_eq!(
+        eval_one(
+            "(catch 'tag
+               (handler-bind-1
+                 (lambda ()
+                   (list 'inner-catch
+                         (catch 'tag
+                           (user-error \"hello\"))))
+                 '(error)
+                 (lambda (_err) (throw 'tag 'err))))"
+        ),
+        "OK (inner-catch err)"
+    );
+}
+
+#[test]
+fn handler_bind_1_mutes_lower_condition_handlers() {
+    assert_eq!(
+        eval_one(
+            "(condition-case nil
+               (handler-bind-1
+                 (lambda ()
+                   (list 'result
+                         (condition-case nil
+                             (user-error \"hello\")
+                           (wrong-type-argument 'inner-handler))))
+                 '(error)
+                 (lambda (_err) (signal 'wrong-type-argument nil)))
+             (wrong-type-argument 'wrong-type-argument))"
+        ),
+        "OK wrong-type-argument"
+    );
+}
+
+#[test]
+fn handler_bind_1_handlers_do_not_apply_within_handlers() {
+    assert_eq!(
+        eval_one(
+            "(condition-case nil
+               (handler-bind-1
+                 (lambda () (user-error \"hello\"))
+                 '(error)
+                 (lambda (_err) (signal 'wrong-type-argument nil))
+                 '(wrong-type-argument)
+                 (lambda (_err) (user-error \"wrong-type-argument\")))
+             (wrong-type-argument 'wrong-type-argument)
+             (error 'plain-error))"
+        ),
+        "OK wrong-type-argument"
+    );
+}
+
+#[test]
 fn evaluator_drop_clears_owned_thread_locals() {
     {
         let mut ev = Context::new_vm_harness();

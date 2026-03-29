@@ -3593,51 +3593,6 @@ pub(crate) fn builtin_find_operation_coding_system(args: Vec<Value>) -> EvalResu
     Ok(Value::Nil)
 }
 
-fn push_signal_temp_roots(eval: &mut super::eval::Context, sig: &super::error::SignalData) {
-    for value in &sig.data {
-        eval.push_temp_root(*value);
-    }
-    if let Some(raw) = &sig.raw_data {
-        eval.push_temp_root(*raw);
-    }
-}
-
-fn resume_handler_bind_signal(
-    eval: &mut super::eval::Context,
-    handlers: &[(Value, Value)],
-    start: usize,
-    sig: super::error::SignalData,
-) -> EvalResult {
-    let saved = eval.save_temp_roots();
-    push_signal_temp_roots(eval, &sig);
-
-    for (idx, (conditions, handler)) in handlers.iter().enumerate().skip(start) {
-        if !crate::emacs_core::errors::signal_matches_condition_value(
-            eval.obarray(),
-            sig.symbol_name(),
-            conditions,
-        ) {
-            continue;
-        }
-
-        let result = eval.apply(
-            *handler,
-            vec![super::error::make_signal_binding_value(&sig)],
-        );
-        eval.restore_temp_roots(saved);
-        return match result {
-            Ok(_) => resume_handler_bind_signal(eval, handlers, idx + 1, sig),
-            Err(Flow::Signal(next_sig)) => {
-                resume_handler_bind_signal(eval, handlers, idx + 1, next_sig)
-            }
-            Err(flow @ Flow::Throw { .. }) => Err(flow),
-        };
-    }
-
-    eval.restore_temp_roots(saved);
-    Err(Flow::Signal(sig))
-}
-
 pub(crate) fn builtin_handler_bind_1(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -3682,15 +3637,8 @@ pub(crate) fn builtin_handler_bind_1(
 
     let body_result = eval.apply(bodyfun, vec![]);
     eval.truncate_condition_stack(condition_stack_base);
-
-    let result = match body_result {
-        Ok(value) => Ok(value),
-        Err(Flow::Signal(sig)) => resume_handler_bind_signal(eval, &handlers, 0, sig),
-        Err(flow @ Flow::Throw { .. }) => Err(flow),
-    };
-
     eval.restore_temp_roots(saved);
-    result
+    body_result
 }
 
 pub(crate) fn builtin_iso_charset(args: Vec<Value>) -> EvalResult {

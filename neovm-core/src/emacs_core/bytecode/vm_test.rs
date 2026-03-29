@@ -145,6 +145,72 @@ fn vm_handler_bind_1_leaves_shared_condition_stack_balanced() {
     );
 }
 
+#[test]
+fn vm_handler_bind_1_runs_inside_signal_dynamic_extent() {
+    with_vm_eval_full_context_state(
+        "(catch 'tag
+           (handler-bind-1
+             (lambda ()
+               (list 'inner-catch
+                     (catch 'tag
+                       (user-error \"hello\"))))
+             '(error)
+             (lambda (_err) (throw 'tag 'err))))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (inner-catch err)"
+            );
+        },
+    );
+}
+
+#[test]
+fn vm_handler_bind_1_mutes_lower_condition_handlers() {
+    with_vm_eval_full_context_state(
+        "(condition-case nil
+           (handler-bind-1
+             (lambda ()
+               (list 'result
+                     (condition-case nil
+                         (user-error \"hello\")
+                       (wrong-type-argument 'inner-handler))))
+             '(error)
+             (lambda (_err) (signal 'wrong-type-argument nil)))
+         (wrong-type-argument 'wrong-type-argument))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK wrong-type-argument"
+            );
+        },
+    );
+}
+
+#[test]
+fn vm_handler_bind_1_handlers_do_not_apply_within_handlers() {
+    with_vm_eval_full_context_state(
+        "(condition-case nil
+           (handler-bind-1
+             (lambda () (user-error \"hello\"))
+             '(error)
+             (lambda (_err) (signal 'wrong-type-argument nil))
+             '(wrong-type-argument)
+             (lambda (_err) (user-error \"wrong-type-argument\")))
+         (wrong-type-argument 'wrong-type-argument)
+         (error 'plain-error))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK wrong-type-argument"
+            );
+        },
+    );
+}
+
 fn quoted_dispatch_names(source: &str, predicate: impl Fn(&str) -> bool) -> BTreeSet<String> {
     source
         .lines()

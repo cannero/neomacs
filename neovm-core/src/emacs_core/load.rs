@@ -520,6 +520,8 @@ pub(crate) fn builtin_load_in_vm_runtime(
                         symbol,
                         data,
                         raw_data,
+                        selected_resume: None,
+                        search_complete: false,
                     }),
                     EvalError::UncaughtThrow { tag, value } => {
                         crate::emacs_core::error::signal("no-catch", vec![tag, value])

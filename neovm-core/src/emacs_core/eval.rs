@@ -590,6 +590,7 @@ pub(crate) enum ResumeTarget {
     InterpreterCatch,
     InterpreterConditionCase {
         handler_index: usize,
+        condition_stack_base: usize,
     },
     VmCatch {
         target: u32,
@@ -1453,28 +1454,102 @@ impl Context {
         })
     }
 
-    pub(crate) fn find_matching_condition_case_resume_from(
-        &self,
-        signal: &SignalData,
-        stack_base: usize,
-    ) -> Option<ResumeTarget> {
-        self.condition_stack
-            .get(stack_base..)
-            .into_iter()
-            .flatten()
-            .rev()
-            .find_map(|frame| match frame {
-                ConditionFrame::ConditionCase { conditions, resume }
+    pub(crate) fn dispatch_signal_if_needed(
+        &mut self,
+        sig: SignalData,
+    ) -> Result<SignalData, Flow> {
+        if sig.search_complete {
+            return Ok(sig);
+        }
+        self.dispatch_signal(sig)
+    }
+
+    fn dispatch_signal(&mut self, mut sig: SignalData) -> Result<SignalData, Flow> {
+        let mut idx = self.condition_stack.len();
+        let mut seen_condition_entries = 0usize;
+
+        while let Some(next_idx) = idx.checked_sub(1) {
+            idx = next_idx;
+            match self.condition_stack[idx].clone() {
+                ConditionFrame::Catch { .. } => {}
+                ConditionFrame::SkipConditions { remaining } => {
+                    let mut to_skip = remaining;
+                    while idx > 0 && to_skip > 0 {
+                        idx -= 1;
+                        if matches!(
+                            self.condition_stack[idx],
+                            ConditionFrame::ConditionCase { .. }
+                                | ConditionFrame::HandlerBind { .. }
+                        ) {
+                            to_skip -= 1;
+                        }
+                    }
+                }
+                ConditionFrame::ConditionCase { conditions, resume } => {
+                    seen_condition_entries += 1;
                     if crate::emacs_core::errors::signal_matches_condition_value(
                         &self.obarray,
-                        signal.symbol_name(),
-                        conditions,
-                    ) =>
-                {
-                    Some(resume.clone())
+                        sig.symbol_name(),
+                        &conditions,
+                    ) {
+                        sig.selected_resume = Some(resume);
+                        sig.search_complete = true;
+                        return Ok(sig);
+                    }
                 }
-                _ => None,
-            })
+                ConditionFrame::HandlerBind {
+                    conditions,
+                    handler,
+                    mute_span,
+                } => {
+                    seen_condition_entries += 1;
+                    if !crate::emacs_core::errors::signal_matches_condition_value(
+                        &self.obarray,
+                        sig.symbol_name(),
+                        &conditions,
+                    ) {
+                        continue;
+                    }
+
+                    let saved_roots = self.save_temp_roots();
+                    for value in &sig.data {
+                        self.push_temp_root(*value);
+                    }
+                    if let Some(raw) = &sig.raw_data {
+                        self.push_temp_root(*raw);
+                    }
+
+                    self.push_condition_frame(ConditionFrame::SkipConditions {
+                        remaining: seen_condition_entries + mute_span,
+                    });
+
+                    let handler_result = self.apply(handler, vec![make_signal_binding_value(&sig)]);
+
+                    match handler_result {
+                        Ok(_) => {
+                            self.pop_condition_frame();
+                            self.restore_temp_roots(saved_roots);
+                            continue;
+                        }
+                        Err(Flow::Signal(next_sig)) => {
+                            let dispatched = self.dispatch_signal_if_needed(next_sig);
+                            self.pop_condition_frame();
+                            self.restore_temp_roots(saved_roots);
+                            return dispatched;
+                        }
+                        Err(flow @ Flow::Throw { .. }) => {
+                            self.pop_condition_frame();
+                            self.restore_temp_roots(saved_roots);
+                            return Err(flow);
+                        }
+                    }
+                }
+            }
+        }
+
+        sig.search_complete = true;
+        sig.selected_resume = None;
+        Ok(sig)
     }
 
     fn new_inner(reset_thread_locals: bool) -> Self {
@@ -4384,9 +4459,14 @@ impl Context {
         // remaining stack falls below the red-zone a new segment is allocated
         // on the heap. GNU bootstrap/source-load recursion can legitimately
         // exceed a 2 MB segment long before max-lisp-eval-depth is reached.
-        let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
+        let result = match stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
             self.eval_inner(expr)
-        });
+        }) {
+            Err(Flow::Signal(sig)) => self
+                .dispatch_signal_if_needed(sig)
+                .map_or_else(|flow| Err(flow), |dispatched| Err(Flow::Signal(dispatched))),
+            other => other,
+        };
         if is_form {
             self.depth -= 1;
         }
@@ -5797,7 +5877,10 @@ impl Context {
             let conditions = self.quote_to_runtime_value(&handler_items[0]);
             self.push_condition_frame(ConditionFrame::ConditionCase {
                 conditions,
-                resume: ResumeTarget::InterpreterConditionCase { handler_index: i },
+                resume: ResumeTarget::InterpreterConditionCase {
+                    handler_index: i,
+                    condition_stack_base,
+                },
             });
         }
 
@@ -5824,11 +5907,12 @@ impl Context {
                 Ok(value)
             }
             Err(Flow::Signal(sig)) => {
-                let selected_resume =
-                    self.find_matching_condition_case_resume_from(&sig, condition_stack_base);
                 self.truncate_condition_stack(condition_stack_base);
-                if let Some(ResumeTarget::InterpreterConditionCase { handler_index }) =
-                    selected_resume
+                if let Some(ResumeTarget::InterpreterConditionCase {
+                    handler_index,
+                    condition_stack_base: selected_stack_base,
+                }) = sig.selected_resume.clone()
+                    && selected_stack_base == condition_stack_base
                 {
                     let handler = &handlers[handler_index];
                     let Expr::List(handler_items) = handler else {

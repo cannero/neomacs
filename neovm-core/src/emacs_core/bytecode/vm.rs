@@ -3696,13 +3696,24 @@ impl<'a> Vm<'a> {
                 Err(signal("no-catch", vec![tag, value]))
             }
             Flow::Signal(sig) => {
-                let selected_resume = self
-                    .ctx
-                    .find_matching_condition_case_resume_from(&sig, condition_stack_base);
+                let sig = match self.ctx.dispatch_signal_if_needed(sig) {
+                    Ok(sig) => sig,
+                    Err(flow) => {
+                        return self.resume_nonlocal(
+                            _func,
+                            stack,
+                            pc,
+                            handlers,
+                            specpdl,
+                            condition_stack_base,
+                            flow,
+                        );
+                    }
+                };
                 if let Some(res) = resolve_signal_target(
                     handlers,
                     &mut self.ctx.condition_stack,
-                    selected_resume.as_ref(),
+                    sig.selected_resume.as_ref(),
                 ) {
                     let mut signal_roots = Vec::new();
                     Self::collect_flow_roots(&Flow::Signal(sig.clone()), &mut signal_roots);

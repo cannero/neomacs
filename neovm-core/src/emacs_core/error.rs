@@ -6,6 +6,7 @@ use std::fmt::{self, Display, Formatter};
 use super::intern::{SymId, intern, resolve_sym};
 use super::print::PrintOptions;
 use super::value::{Value, read_cons, with_heap};
+use crate::emacs_core::eval::ResumeTarget;
 use crate::window::WindowId;
 
 /// Public-facing evaluation error.
@@ -60,6 +61,8 @@ pub struct SignalData {
     pub data: Vec<Value>,
     /// Original cdr payload when a signal uses non-list data.
     pub raw_data: Option<Value>,
+    pub(crate) selected_resume: Option<ResumeTarget>,
+    pub(crate) search_complete: bool,
 }
 
 impl SignalData {
@@ -77,6 +80,8 @@ pub(crate) fn signal(symbol: &str, data: Vec<Value>) -> Flow {
         symbol: intern(symbol),
         data,
         raw_data: None,
+        selected_resume: None,
+        search_complete: false,
     })
 }
 
@@ -89,6 +94,8 @@ pub(crate) fn signal_with_data(symbol: &str, data: Value) -> Flow {
         symbol: intern(symbol),
         data: normalized,
         raw_data: Some(data),
+        selected_resume: None,
+        search_complete: false,
     })
 }
 

@@ -235,11 +235,31 @@ Phase 2 progress:
 - Move interpreter `condition-case` selection to shared dispatch
 - VM condition targets use the same selection logic
 
+Phase 3 progress:
+
+- interpreter `condition-case` frames now carry stable resume identity in the
+  shared stack
+- shared signal dispatch annotates the selected interpreter or VM resume target
+- nested interpreter and VM `condition-case` selection now follows the shared
+  stack instead of local ad hoc matching
+- the bootstrap regression
+  `bootstrap_condition_case_lexical_handler_binding_restores_outer_let`
+  passes with the unified selection path
+
 ### Phase 4: Rebuild `handler-bind`
 
 - Remove wrapper retry semantics
 - Invoke handlers during dispatch
 - Implement GNU-style lower-handler muting
+
+Phase 4 progress:
+
+- `handler-bind-1` no longer retries handlers after body unwind
+- shared signal dispatch invokes `handler-bind` handlers immediately
+- temporary `SkipConditions` frames now mute lower
+  `condition-case` / `handler-bind` frames during handler execution
+- GNU-style dynamic-extent and masking regressions now pass in both the
+  interpreter and the VM
 
 ### Phase 5: Move debugger policy into dispatch
 
