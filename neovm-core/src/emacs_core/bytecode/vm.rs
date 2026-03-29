@@ -21,20 +21,9 @@ use crate::window::{FrameId, FrameManager, Window};
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 enum Handler {
-    /// catch: tag value, jump target.
-    Catch {
-        tag: Value,
-        target: u32,
-        stack_len: usize,
-        spec_depth: usize,
-    },
-    /// condition-case: handler patterns, jump target.
-    ConditionCase {
-        conditions: Value,
-        target: u32,
-        stack_len: usize,
-        spec_depth: usize,
-    },
+    /// Local marker corresponding to a catch/condition-case frame already
+    /// stored in `Context.condition_stack`.
+    Condition,
     /// unwind-protect: cleanup target.
     UnwindProtect { target: u32 },
 }
@@ -128,8 +117,7 @@ impl<'a> Vm<'a> {
     fn collect_handler_roots(handlers: &[Handler], out: &mut Vec<Value>) {
         for handler in handlers {
             match handler {
-                Handler::Catch { tag, .. } => out.push(*tag),
-                Handler::ConditionCase { conditions, .. } => out.push(*conditions),
+                Handler::Condition => {}
                 Handler::UnwindProtect { .. } => {}
             }
         }
@@ -315,14 +303,7 @@ impl<'a> Vm<'a> {
                         self.ctx.lexenv = lexenv_prepend(self.ctx.lexenv, *sym_id, val);
                     }
                 }
-                let result = self.run_loop(
-                    func,
-                    &mut stack,
-                    &mut pc,
-                    &mut handlers,
-                    &mut specpdl,
-                    condition_stack_base,
-                );
+                let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
                 self.ctx.truncate_condition_stack(condition_stack_base);
                 self.ctx.lexenv = saved_lexenv;
                 let cleanup = self.unwind_specpdl_all(&mut specpdl);
@@ -340,14 +321,7 @@ impl<'a> Vm<'a> {
                     );
                 }
             }
-            let result = self.run_loop(
-                func,
-                &mut stack,
-                &mut pc,
-                &mut handlers,
-                &mut specpdl,
-                condition_stack_base,
-            );
+            let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
             self.ctx.truncate_condition_stack(condition_stack_base);
             crate::emacs_core::eval::unbind_to_in_state(
                 &mut self.ctx.obarray,
@@ -367,14 +341,7 @@ impl<'a> Vm<'a> {
             None
         };
 
-        let result = self.run_loop(
-            func,
-            &mut stack,
-            &mut pc,
-            &mut handlers,
-            &mut specpdl,
-            condition_stack_base,
-        );
+        let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
         self.ctx.truncate_condition_stack(condition_stack_base);
 
         if let Some(old) = saved_lexenv {
@@ -397,7 +364,6 @@ impl<'a> Vm<'a> {
         pc: &mut usize,
         handlers: &mut Vec<Handler>,
         specpdl: &mut Vec<VmUnwindEntry>,
-        condition_stack_base: usize,
     ) -> EvalResult {
         let ops = &func.ops;
         let constants = &func.constants;
@@ -407,15 +373,7 @@ impl<'a> Vm<'a> {
                 match $expr {
                     Ok(value) => value,
                     Err(flow) => {
-                        self.resume_nonlocal(
-                            func,
-                            stack,
-                            pc,
-                            handlers,
-                            specpdl,
-                            condition_stack_base,
-                            flow,
-                        )?;
+                        self.resume_nonlocal(func, stack, pc, handlers, specpdl, flow)?;
                         continue;
                     }
                 }
@@ -665,7 +623,6 @@ impl<'a> Vm<'a> {
                                 pc,
                                 handlers,
                                 specpdl,
-                                condition_stack_base,
                                 signal(
                                     "wrong-type-argument",
                                     vec![Value::symbol("hash-table-p"), other],
@@ -1709,16 +1666,13 @@ impl<'a> Vm<'a> {
                 Op::PushConditionCase(target) => {
                     let stack_len = stack.len();
                     let spec_depth = specpdl.len();
-                    handlers.push(Handler::ConditionCase {
-                        conditions: Value::symbol("error"),
-                        target: *target,
-                        stack_len,
-                        spec_depth,
-                    });
+                    let resume_id = self.ctx.allocate_resume_id();
+                    handlers.push(Handler::Condition);
                     self.ctx
                         .push_condition_frame(ConditionFrame::ConditionCase {
                             conditions: Value::symbol("error"),
                             resume: ResumeTarget::VmConditionCase {
+                                resume_id,
                                 target: *target,
                                 stack_len,
                                 spec_depth,
@@ -1730,16 +1684,13 @@ impl<'a> Vm<'a> {
                     let conditions = stack.pop().unwrap_or(Value::Nil);
                     let stack_len = stack.len();
                     let spec_depth = specpdl.len();
-                    handlers.push(Handler::ConditionCase {
-                        conditions,
-                        target: *target,
-                        stack_len,
-                        spec_depth,
-                    });
+                    let resume_id = self.ctx.allocate_resume_id();
+                    handlers.push(Handler::Condition);
                     self.ctx
                         .push_condition_frame(ConditionFrame::ConditionCase {
                             conditions,
                             resume: ResumeTarget::VmConditionCase {
+                                resume_id,
                                 target: *target,
                                 stack_len,
                                 spec_depth,
@@ -1750,15 +1701,12 @@ impl<'a> Vm<'a> {
                     let tag = stack.pop().unwrap_or(Value::Nil);
                     let stack_len = stack.len();
                     let spec_depth = specpdl.len();
-                    handlers.push(Handler::Catch {
-                        tag,
-                        target: *target,
-                        stack_len,
-                        spec_depth,
-                    });
+                    let resume_id = self.ctx.allocate_resume_id();
+                    handlers.push(Handler::Condition);
                     self.ctx.push_condition_frame(ConditionFrame::Catch {
                         tag,
                         resume: ResumeTarget::VmCatch {
+                            resume_id,
                             target: *target,
                             stack_len,
                             spec_depth,
@@ -1768,10 +1716,7 @@ impl<'a> Vm<'a> {
                 Op::PopHandler => {
                     if let Some(handler) = handlers.pop() {
                         match handler {
-                            Handler::Catch { .. } => {
-                                self.ctx.pop_condition_frame();
-                            }
-                            Handler::ConditionCase { .. } => {
+                            Handler::Condition => {
                                 self.ctx.pop_condition_frame();
                             }
                             _ => {}
@@ -1794,7 +1739,6 @@ impl<'a> Vm<'a> {
                         pc,
                         handlers,
                         specpdl,
-                        condition_stack_base,
                         Flow::Throw { tag, value: val },
                     )?;
                     continue;
@@ -3604,14 +3548,7 @@ impl<'a> Vm<'a> {
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
         let mut specpdl: Vec<VmUnwindEntry> = Vec::new();
-        let result = self.run_loop(
-            func,
-            &mut stack,
-            &mut pc,
-            &mut handlers,
-            &mut specpdl,
-            condition_stack_base,
-        );
+        let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
         self.ctx.truncate_condition_stack(condition_stack_base);
         let cleanup_roots = Self::result_roots(&result);
         let mut cleanup_extra_roots = cleanup_roots.clone();
@@ -3623,15 +3560,6 @@ impl<'a> Vm<'a> {
         merge_result_with_cleanup(result, cleanup)
     }
 
-    /// Run cleanup functions collected during non-local resolution.
-    fn run_unwind_cleanups(&mut self, cleanups: &[Value]) -> Result<(), Flow> {
-        for cleanup in cleanups {
-            let cleanup_root = [*cleanup];
-            self.with_extra_roots(&cleanup_root, |vm| vm.call_function(*cleanup, vec![]))?;
-        }
-        Ok(())
-    }
-
     fn resume_nonlocal(
         &mut self,
         _func: &ByteCodeFunction,
@@ -3639,35 +3567,27 @@ impl<'a> Vm<'a> {
         pc: &mut usize,
         handlers: &mut Vec<Handler>,
         specpdl: &mut Vec<VmUnwindEntry>,
-        condition_stack_base: usize,
         flow: Flow,
     ) -> Result<(), Flow> {
         match flow {
             Flow::Throw { tag, value } => {
-                if let Some(res) =
-                    resolve_throw_target(handlers, &mut self.ctx.condition_stack, &tag)
-                {
+                let selected_resume = self.ctx.matching_catch_resume(&tag);
+                if let Some(ResumeTarget::VmCatch {
+                    target,
+                    stack_len,
+                    spec_depth,
+                    ..
+                }) = unwind_handlers_to_selected_resume(
+                    handlers,
+                    &mut self.ctx.condition_stack,
+                    selected_resume.as_ref(),
+                ) {
                     let extra = [tag, value];
-                    if let Err(cleanup_flow) =
-                        self.with_frame_roots(_func, stack, handlers, specpdl, &extra, |vm| {
-                            vm.run_unwind_cleanups(&res.cleanups)
-                        })
-                    {
-                        return self.resume_nonlocal(
-                            _func,
-                            stack,
-                            pc,
-                            handlers,
-                            specpdl,
-                            condition_stack_base,
-                            cleanup_flow,
-                        );
-                    }
                     let mut unwind_roots = extra.to_vec();
                     Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
                     if let Err(cleanup_flow) =
                         self.with_frame_roots(_func, stack, handlers, &[], &unwind_roots, |vm| {
-                            vm.unwind_specpdl_to(res.spec_depth, specpdl)
+                            vm.unwind_specpdl_to(spec_depth, specpdl)
                         })
                     {
                         return self.resume_nonlocal(
@@ -3676,21 +3596,16 @@ impl<'a> Vm<'a> {
                             pc,
                             handlers,
                             specpdl,
-                            condition_stack_base,
                             cleanup_flow,
                         );
                     }
-                    stack.truncate(res.stack_len);
+                    stack.truncate(stack_len);
                     stack.push(value);
-                    *pc = res.target as usize;
+                    *pc = target as usize;
                     return Ok(());
                 }
 
-                // No matching catch in the VM-local handler stack. Check the
-                // remaining shared condition stack for outer interpreter catches.
-                // If found -> Flow::Throw (will be caught above us). If not ->
-                // signal no-catch immediately (GNU Emacs semantics).
-                if self.ctx.has_active_catch(&tag) {
+                if selected_resume.is_some() {
                     return Err(Flow::Throw { tag, value });
                 }
                 Err(signal("no-catch", vec![tag, value]))
@@ -3699,47 +3614,26 @@ impl<'a> Vm<'a> {
                 let sig = match self.ctx.dispatch_signal_if_needed(sig) {
                     Ok(sig) => sig,
                     Err(flow) => {
-                        return self.resume_nonlocal(
-                            _func,
-                            stack,
-                            pc,
-                            handlers,
-                            specpdl,
-                            condition_stack_base,
-                            flow,
-                        );
+                        return self.resume_nonlocal(_func, stack, pc, handlers, specpdl, flow);
                     }
                 };
-                if let Some(res) = resolve_signal_target(
+                if let Some(ResumeTarget::VmConditionCase {
+                    target,
+                    stack_len,
+                    spec_depth,
+                    ..
+                }) = unwind_handlers_to_selected_resume(
                     handlers,
                     &mut self.ctx.condition_stack,
                     sig.selected_resume.as_ref(),
                 ) {
                     let mut signal_roots = Vec::new();
                     Self::collect_flow_roots(&Flow::Signal(sig.clone()), &mut signal_roots);
-                    if let Err(cleanup_flow) = self.with_frame_roots(
-                        _func,
-                        stack,
-                        handlers,
-                        specpdl,
-                        &signal_roots,
-                        |vm| vm.run_unwind_cleanups(&res.cleanups),
-                    ) {
-                        return self.resume_nonlocal(
-                            _func,
-                            stack,
-                            pc,
-                            handlers,
-                            specpdl,
-                            condition_stack_base,
-                            cleanup_flow,
-                        );
-                    }
                     let mut unwind_roots = signal_roots.clone();
                     Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
                     if let Err(cleanup_flow) =
                         self.with_frame_roots(_func, stack, handlers, &[], &unwind_roots, |vm| {
-                            vm.unwind_specpdl_to(res.spec_depth, specpdl)
+                            vm.unwind_specpdl_to(spec_depth, specpdl)
                         })
                     {
                         return self.resume_nonlocal(
@@ -3748,13 +3642,12 @@ impl<'a> Vm<'a> {
                             pc,
                             handlers,
                             specpdl,
-                            condition_stack_base,
                             cleanup_flow,
                         );
                     }
-                    stack.truncate(res.stack_len);
+                    stack.truncate(stack_len);
                     stack.push(make_signal_binding_value(&sig));
-                    *pc = res.target as usize;
+                    *pc = target as usize;
                     return Ok(());
                 }
                 Err(Flow::Signal(sig))
@@ -4614,89 +4507,32 @@ impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
 
 // -- Arithmetic helpers --
 
-/// Result of resolving a throw target, including any cleanup functions
-/// from handler frames that were unwound through before reaching the target.
-struct ThrowResolution {
-    target: u32,
-    stack_len: usize,
-    spec_depth: usize,
-    cleanups: Vec<Value>,
-}
-
-struct SignalResolution {
-    target: u32,
-    stack_len: usize,
-    spec_depth: usize,
-    cleanups: Vec<Value>,
-}
-
-fn resolve_throw_target(
-    handlers: &mut Vec<Handler>,
-    condition_stack: &mut Vec<ConditionFrame>,
-    tag: &Value,
-) -> Option<ThrowResolution> {
-    let cleanups = Vec::new();
-    while let Some(handler) = handlers.pop() {
-        match handler {
-            Handler::Catch {
-                tag: catch_tag,
-                target,
-                stack_len,
-                spec_depth,
-            } => {
-                condition_stack.pop();
-                if !tag.is_nil() && eq_value(&catch_tag, tag) {
-                    return Some(ThrowResolution {
-                        target,
-                        stack_len,
-                        spec_depth,
-                        cleanups,
-                    });
-                }
-            }
-            Handler::ConditionCase { .. } => {
-                condition_stack.pop();
-            }
-            Handler::UnwindProtect { .. } => {}
+fn condition_frame_resume(frame: ConditionFrame) -> ResumeTarget {
+    match frame {
+        ConditionFrame::Catch { resume, .. } | ConditionFrame::ConditionCase { resume, .. } => {
+            resume
+        }
+        ConditionFrame::HandlerBind { .. } | ConditionFrame::SkipConditions { .. } => {
+            unreachable!("VM handler stack only mirrors catch/condition-case frames")
         }
     }
-    None
 }
 
-fn resolve_signal_target(
+fn unwind_handlers_to_selected_resume(
     handlers: &mut Vec<Handler>,
     condition_stack: &mut Vec<ConditionFrame>,
     selected_resume: Option<&ResumeTarget>,
-) -> Option<SignalResolution> {
-    let cleanups = Vec::new();
+) -> Option<ResumeTarget> {
     while let Some(handler) = handlers.pop() {
         match handler {
-            Handler::Catch { .. } => {
-                condition_stack.pop();
-            }
-            Handler::ConditionCase {
-                target,
-                stack_len,
-                spec_depth,
-                ..
-            } => {
-                condition_stack.pop();
-                if matches!(
-                    selected_resume,
-                    Some(ResumeTarget::VmConditionCase {
-                        target: selected_target,
-                        stack_len: selected_stack_len,
-                        spec_depth: selected_spec_depth,
-                    }) if *selected_target == target
-                        && *selected_stack_len == stack_len
-                        && *selected_spec_depth == spec_depth
-                ) {
-                    return Some(SignalResolution {
-                        target,
-                        stack_len,
-                        spec_depth,
-                        cleanups,
-                    });
+            Handler::Condition => {
+                let resume = condition_frame_resume(
+                    condition_stack
+                        .pop()
+                        .expect("handler stack and condition stack diverged"),
+                );
+                if selected_resume.is_some_and(|selected| &resume == selected) {
+                    return Some(resume);
                 }
             }
             Handler::UnwindProtect { .. } => {}

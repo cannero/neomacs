@@ -1351,6 +1351,117 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
 }
 
 #[test]
+fn vm_throw_selection_uses_resume_identity_not_numeric_tuple() {
+    let mut eval = Context::new_vm_harness();
+
+    let mut inner = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let inner_tag_idx = inner.add_constant(Value::symbol("vm-inner-catch"));
+    let outer_tag_idx = inner.add_constant(Value::symbol("vm-outer-catch"));
+    let thrown_value_idx = inner.add_constant(Value::Int(7));
+    let inner_result_idx = inner.add_constant(Value::symbol("vm-inner-handled"));
+    inner.ops = vec![
+        Op::Constant(inner_tag_idx),
+        Op::PushCatch(5),
+        Op::Constant(outer_tag_idx),
+        Op::Constant(thrown_value_idx),
+        Op::Throw,
+        Op::Constant(inner_result_idx),
+        Op::Return,
+    ];
+    inner.max_stack = 2;
+    let inner_value = Value::make_bytecode(inner);
+
+    let mut outer = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let outer_tag_idx = outer.add_constant(Value::symbol("vm-outer-catch"));
+    let inner_func_idx = outer.add_constant(inner_value);
+    let outer_result_idx = outer.add_constant(Value::symbol("vm-outer-handled"));
+    outer.ops = vec![
+        Op::Constant(outer_tag_idx),
+        Op::PushCatch(5),
+        Op::Constant(inner_func_idx),
+        Op::Call(0),
+        Op::Return,
+        Op::Constant(outer_result_idx),
+        Op::Return,
+    ];
+    outer.max_stack = 2;
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&outer, vec![])
+    };
+
+    assert!(matches!(
+        result,
+        Ok(value) if value == Value::symbol("vm-outer-handled")
+    ));
+}
+
+#[test]
+fn vm_signal_selection_uses_resume_identity_not_numeric_tuple() {
+    let mut eval = Context::new();
+
+    let mut inner = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let inner_conditions_idx = inner.add_constant(Value::symbol("arith-error"));
+    let error_sym_idx = inner.add_constant(Value::symbol("error"));
+    let signal_data_idx = inner.add_constant(Value::list(vec![Value::Int(1)]));
+    let signal_subr_idx = inner.add_symbol("signal");
+    let inner_result_idx = inner.add_constant(Value::symbol("vm-inner-signal-handled"));
+    inner.ops = vec![
+        Op::Constant(inner_conditions_idx),
+        Op::PushConditionCaseRaw(5),
+        Op::Constant(error_sym_idx),
+        Op::Constant(signal_data_idx),
+        Op::CallBuiltin(signal_subr_idx, 2),
+        Op::Constant(inner_result_idx),
+        Op::Return,
+    ];
+    inner.max_stack = 2;
+    let inner_value = Value::make_bytecode(inner);
+
+    let mut outer = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let outer_conditions_idx = outer.add_constant(Value::symbol("error"));
+    let inner_func_idx = outer.add_constant(inner_value);
+    let outer_result_idx = outer.add_constant(Value::symbol("vm-outer-signal-handled"));
+    outer.ops = vec![
+        Op::Constant(outer_conditions_idx),
+        Op::PushConditionCaseRaw(5),
+        Op::Constant(inner_func_idx),
+        Op::Call(0),
+        Op::Return,
+        Op::Constant(outer_result_idx),
+        Op::Return,
+    ];
+    outer.max_stack = 2;
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&outer, vec![])
+    };
+
+    assert!(matches!(
+        result,
+        Ok(value) if value == Value::symbol("vm-outer-signal-handled")
+    ));
+}
+
+#[test]
 fn vm_nested_condition_case_uses_current_shared_condition_slice() {
     with_vm_eval_full_context_state(
         "(condition-case outer

@@ -283,8 +283,12 @@ Phase 5 progress:
 - detached debugger-policy state has been deleted from `DebugState`
 - active catches now live only in the shared condition stack; the old
   `catch_tags` mirror is gone
-- Phase 6 still needs to trim VM-local resume helpers that only bridge the
-  shared runtime onto bytecode stack unwinding
+- VM no longer stores duplicate catch/condition-case target metadata in its
+  local handler stack
+- shared VM resume targets now carry stable identities, so nested frames with
+  identical numeric `(pc, stack_len, spec_depth)` tuples cannot be conflated
+- VM local state still owns low-level unwind structure, especially
+  `unwind-protect` cleanup sequencing
 
 ### Phase 6: Delete redundant logic
 

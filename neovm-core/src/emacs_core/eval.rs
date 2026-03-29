@@ -582,7 +582,7 @@ pub struct SubrObject {
     pub name: SymId,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum ResumeTarget {
     CommandLoopExit,
@@ -593,11 +593,13 @@ pub(crate) enum ResumeTarget {
         condition_stack_base: usize,
     },
     VmCatch {
+        resume_id: u64,
         target: u32,
         stack_len: usize,
         spec_depth: usize,
     },
     VmConditionCase {
+        resume_id: u64,
         target: u32,
         stack_len: usize,
         spec_depth: usize,
@@ -803,6 +805,9 @@ pub struct Context {
     pub(crate) vm_gc_roots: Vec<Value>,
     /// Shared condition runtime mirror for active catch/condition handlers.
     pub(crate) condition_stack: Vec<ConditionFrame>,
+    /// Stable identity source for VM resume targets stored in the shared
+    /// condition runtime.
+    next_resume_id: u64,
     /// Saved lexical environments stack — when apply_lambda replaces
     /// self.lexenv with a closure's captured env, the old lexenv is pushed
     /// here so GC can still scan it.  Popped when apply_lambda restores.
@@ -1425,6 +1430,7 @@ impl Context {
         ev.gc_stress = false;
         ev.temp_roots.clear();
         ev.condition_stack.clear();
+        ev.next_resume_id = 1;
         ev.saved_lexenvs.clear();
         ev.named_call_cache.clear();
         ev.source_literal_cache.clear();
@@ -1455,19 +1461,31 @@ impl Context {
         self.condition_stack.len()
     }
 
-    pub(crate) fn has_active_catch(&self, tag: &Value) -> bool {
+    pub(crate) fn allocate_resume_id(&mut self) -> u64 {
+        let resume_id = self.next_resume_id;
+        self.next_resume_id += 1;
+        resume_id
+    }
+
+    pub(crate) fn matching_catch_resume(&self, tag: &Value) -> Option<ResumeTarget> {
         if tag.is_nil() {
-            return false;
+            return None;
         }
 
-        self.condition_stack.iter().rev().any(|frame| {
-            matches!(
-                frame,
+        self.condition_stack
+            .iter()
+            .rev()
+            .find_map(|frame| match frame {
                 ConditionFrame::Catch {
-                    tag: catch_tag, ..
-                } if eq_value(catch_tag, tag)
-            )
-        })
+                    tag: catch_tag,
+                    resume,
+                } if eq_value(catch_tag, tag) => Some(resume.clone()),
+                _ => None,
+            })
+    }
+
+    pub(crate) fn has_active_catch(&self, tag: &Value) -> bool {
+        self.matching_catch_resume(tag).is_some()
     }
 
     pub(crate) fn dispatch_signal_if_needed(
@@ -3251,6 +3269,7 @@ impl Context {
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             condition_stack: Vec::new(),
+            next_resume_id: 1,
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             source_literal_cache: HashMap::new(),
@@ -3377,6 +3396,7 @@ impl Context {
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             condition_stack: Vec::new(),
+            next_resume_id: 1,
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             source_literal_cache: HashMap::new(),
