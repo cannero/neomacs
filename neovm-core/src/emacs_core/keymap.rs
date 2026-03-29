@@ -1263,10 +1263,11 @@ fn collect_maps_from_alist_in_state(
             continue;
         }
 
-        let mode_active =
-            dynamic_buffer_or_global_symbol_value_in_state(obarray, dynamic, buffers, buffer_id, mode_name)
-                .map(|value| value.is_truthy())
-                .unwrap_or(false);
+        let mode_active = dynamic_buffer_or_global_symbol_value_in_state(
+            obarray, dynamic, buffers, buffer_id, mode_name,
+        )
+        .map(|value| value.is_truthy())
+        .unwrap_or(false);
         if !mode_active {
             continue;
         }
@@ -1309,8 +1310,7 @@ pub(crate) fn collect_minor_mode_maps_in_state(
         buffers,
         buffer_id,
         "emulation-mode-map-alists",
-    )
-    {
+    ) {
         if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
             for entry in emulation_entries {
                 let alist_value = match entry.as_symbol_name() {
@@ -1358,8 +1358,7 @@ pub(crate) fn collect_minor_mode_maps_in_state(
         buffers,
         buffer_id,
         "minor-mode-map-alist",
-    )
-    {
+    ) {
         collect_maps_from_alist_in_state(
             obarray,
             dynamic,
@@ -1720,7 +1719,7 @@ fn lookup_minor_mode_binding_in_alist_in_obarray(
         if !dynamic_buffer_or_global_symbol_value_in_state(
             obarray, dynamic, buffers, buffer_id, &mode_name,
         )
-            .is_some_and(|v| v.is_truthy())
+        .is_some_and(|v| v.is_truthy())
         {
             continue;
         }
@@ -1772,8 +1771,7 @@ pub(crate) fn minor_mode_key_binding_in_context(
         &ctx.buffers,
         current_buffer_id,
         "emulation-mode-map-alists",
-    )
-        && let Some(emulation_entries) = list_to_vec(&emulation_raw)
+    ) && let Some(emulation_entries) = list_to_vec(&emulation_raw)
     {
         for emulation_entry in emulation_entries {
             let alist_value = match emulation_entry.as_symbol_name() {
@@ -1810,20 +1808,17 @@ pub(crate) fn minor_mode_key_binding_in_context(
             &ctx.buffers,
             current_buffer_id,
             alist_name,
-        )
-        else {
+        ) else {
             continue;
         };
-        if let Some((mode_name, binding)) =
-            lookup_minor_mode_binding_in_alist_in_obarray(
-                &ctx.obarray,
-                &[],
-                &ctx.buffers,
-                current_buffer_id,
-                events,
-                &alist_value,
-            )?
-        {
+        if let Some((mode_name, binding)) = lookup_minor_mode_binding_in_alist_in_obarray(
+            &ctx.obarray,
+            &[],
+            &ctx.buffers,
+            current_buffer_id,
+            events,
+            &alist_value,
+        )? {
             return Ok(Value::list(vec![Value::cons(
                 Value::symbol(mode_name),
                 binding,
