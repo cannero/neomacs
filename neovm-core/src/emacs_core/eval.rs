@@ -4711,6 +4711,70 @@ impl Context {
         }
     }
 
+    /// GNU-style quit processing used from evaluator boundaries.
+    ///
+    /// Mirrors `process_quit_flag` in GNU `eval.c`: clear `quit-flag`, then
+    /// honor `throw-on-input`, `kill-emacs`, or signal `quit`.
+    fn process_quit_flag(&mut self) -> Result<(), Flow> {
+        let flag = self
+            .obarray
+            .symbol_value("quit-flag")
+            .copied()
+            .unwrap_or(Value::Nil);
+        self.obarray.set_symbol_value("quit-flag", Value::Nil);
+
+        let throw_on_input = self
+            .obarray
+            .symbol_value("throw-on-input")
+            .copied()
+            .unwrap_or(Value::Nil);
+
+        if flag.is_symbol_named("kill-emacs") {
+            self.request_shutdown(0, false);
+            return Err(signal("quit", vec![]));
+        }
+
+        if !throw_on_input.is_nil() && equal_value(&flag, &throw_on_input, 0) {
+            return Err(Flow::Throw {
+                tag: throw_on_input,
+                value: Value::True,
+            });
+        }
+
+        Err(signal("quit", vec![]))
+    }
+
+    /// GNU `maybe_quit`: do nothing when `quit-flag` is nil or
+    /// `inhibit-quit` is non-nil; otherwise process the quit request.
+    fn maybe_quit(&mut self) -> Result<(), Flow> {
+        let quit_flag = self
+            .obarray
+            .symbol_value("quit-flag")
+            .copied()
+            .unwrap_or(Value::Nil);
+        if quit_flag.is_nil() {
+            return Ok(());
+        }
+
+        let inhibit_quit = self
+            .obarray
+            .symbol_value("inhibit-quit")
+            .copied()
+            .unwrap_or(Value::Nil);
+        if inhibit_quit.is_truthy() {
+            return Ok(());
+        }
+
+        self.process_quit_flag()
+    }
+
+    /// Match GNU `eval_sub` / `funcall_general`: quit check first, then GC.
+    fn maybe_gc_and_quit(&mut self) -> Result<(), Flow> {
+        self.maybe_quit()?;
+        self.gc_safe_point();
+        Ok(())
+    }
+
     /// Save the current length of temp_roots for later restoration.
     pub(crate) fn save_temp_roots(&self) -> usize {
         self.temp_roots.len()
@@ -5163,6 +5227,10 @@ impl Context {
     }
 
     fn eval_inner(&mut self, expr: &Expr) -> EvalResult {
+        if matches!(expr, Expr::List(_) | Expr::DottedList(_, _)) {
+            self.maybe_gc_and_quit()?;
+        }
+
         match expr {
             Expr::Int(v) => Ok(Value::Int(*v)),
             Expr::Float(v) => Ok(Value::Float(*v, next_float_id())),
@@ -6304,7 +6372,7 @@ impl Context {
                     &cond_str[..cond_str.len().min(300)]
                 );
             }
-            self.gc_safe_point();
+            self.maybe_quit()?;
         }
     }
 
@@ -7383,6 +7451,10 @@ impl Context {
         self.push_temp_root(function);
         for &arg in &args {
             self.push_temp_root(arg);
+        }
+        if let Err(flow) = self.maybe_gc_and_quit() {
+            self.restore_temp_roots(saved_roots);
+            return Err(flow);
         }
         // Deep interpreted expansion (notably loadup's eager macroexpansion of
         // macroexp.el itself) can recurse through many apply/apply_lambda

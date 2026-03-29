@@ -4116,6 +4116,25 @@ fn with_local_quit_catches_quit_and_sets_quit_flag() {
 }
 
 #[test]
+fn while_processes_quit_flag_without_loop_local_gc() {
+    let results = eval_all(
+        "(condition-case err
+             (while (progn (setq quit-flag t) t)
+               nil)
+           (quit 'quit))
+         quit-flag
+         (catch 'tag
+           (let ((throw-on-input 'tag))
+             (while (progn (setq quit-flag 'tag) t)
+               nil)
+             'missed))",
+    );
+    assert_eq!(results[0], "OK quit");
+    assert_eq!(results[1], "OK nil");
+    assert_eq!(results[2], "OK t");
+}
+
+#[test]
 fn with_temp_message_accepts_min_arity_and_runs_body() {
     let results = bootstrap_eval_all(
         "(with-temp-message nil 42)
