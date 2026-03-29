@@ -1156,9 +1156,21 @@ pub(crate) fn builtin_replace_buffer_contents(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .id;
 
+    let old_len = eval
+        .buffers
+        .get(current_id)
+        .map(|buf| buf.text.len())
+        .unwrap_or(0);
+    super::editfns::signal_before_change(eval, 0, old_len)?;
     let _ = eval
         .buffers
         .replace_buffer_contents(current_id, &source_text);
+    let new_len = eval
+        .buffers
+        .get(current_id)
+        .map(|buf| buf.text.len())
+        .unwrap_or(0);
+    super::editfns::signal_after_change(eval, 0, new_len, old_len)?;
 
     Ok(Value::True)
 }
@@ -1188,24 +1200,39 @@ pub(crate) fn builtin_replace_region_contents(
         return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
-    let buf = &mut eval
-        .buffers
-        .get(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let start_byte = super::editfns::lisp_pos_to_byte(buf, start);
-    let end_byte = super::editfns::lisp_pos_to_byte(buf, end);
-    let (lo, hi) = if start_byte <= end_byte {
-        (start_byte, end_byte)
-    } else {
-        (end_byte, start_byte)
+    let (lo, hi) = {
+        let buf = eval
+            .buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let start_byte = super::editfns::lisp_pos_to_byte(buf, start);
+        let end_byte = super::editfns::lisp_pos_to_byte(buf, end);
+        if start_byte <= end_byte {
+            (start_byte, end_byte)
+        } else {
+            (end_byte, start_byte)
+        }
     };
+    // Signal before the combined delete+insert operation.
+    super::editfns::signal_before_change(eval, lo, hi)?;
+    let old_len = hi - lo;
     let _ = eval.buffers.delete_buffer_region(current_id, lo, hi);
     let _ = eval.buffers.goto_buffer_byte(current_id, lo);
-    if args.get(5).is_some_and(|value| value.is_truthy()) {
-        builtin_insert_and_inherit(eval, vec![source_value])?;
-    } else {
-        builtin_insert(eval, vec![source_value])?;
-    }
+    // The insert builtins already call signal hooks internally, but the
+    // surrounding before/after pair covers the whole replace operation.
+    // To avoid double-firing, we use insert_pieces_in_state directly.
+    let source_pieces = collect_insert_pieces(&[source_value])?;
+    let new_len: usize = source_pieces.iter().map(|p| p.text.len()).sum();
+    let inherit = args.get(5).is_some_and(|value| value.is_truthy());
+    insert_pieces_in_state(
+        &eval.obarray,
+        &[],
+        &mut eval.buffers,
+        source_pieces,
+        false,
+        inherit,
+    )?;
+    super::editfns::signal_after_change(eval, lo, lo + new_len, old_len)?;
 
     Ok(Value::True)
 }
@@ -2155,7 +2182,7 @@ pub(crate) fn builtin_goto_char(eval: &mut super::eval::Context, args: Vec<Value
         .buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let byte_pos = buf.lisp_pos_to_byte(pos);
+    let byte_pos = buf.lisp_pos_to_accessible_byte(pos);
     let _ = eval.buffers.goto_buffer_byte(current_id, byte_pos);
     Ok(args[0])
 }
@@ -2245,42 +2272,48 @@ fn apply_inherited_text_properties(
 }
 
 pub(crate) fn builtin_insert(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    insert_pieces_in_state(
-        &eval.obarray,
-        &[],
-        &mut eval.buffers,
-        collect_insert_pieces(&args)?,
-        false,
-        false,
-    )
+    let pieces = collect_insert_pieces(&args)?;
+    let total_len: usize = pieces.iter().map(|p| p.text.len()).sum();
+    if total_len == 0 {
+        return Ok(Value::Nil);
+    }
+    let insert_pos = eval.buffers.current_buffer().map(|buf| buf.pt).unwrap_or(0);
+    super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
+    insert_pieces_in_state(&eval.obarray, &[], &mut eval.buffers, pieces, false, false)?;
+    super::editfns::signal_after_change(eval, insert_pos, insert_pos + total_len, 0)?;
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_insert_and_inherit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    insert_pieces_in_state(
-        &eval.obarray,
-        &[],
-        &mut eval.buffers,
-        collect_insert_pieces(&args)?,
-        false,
-        true,
-    )
+    let pieces = collect_insert_pieces(&args)?;
+    let total_len: usize = pieces.iter().map(|p| p.text.len()).sum();
+    if total_len == 0 {
+        return Ok(Value::Nil);
+    }
+    let insert_pos = eval.buffers.current_buffer().map(|buf| buf.pt).unwrap_or(0);
+    super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
+    insert_pieces_in_state(&eval.obarray, &[], &mut eval.buffers, pieces, false, true)?;
+    super::editfns::signal_after_change(eval, insert_pos, insert_pos + total_len, 0)?;
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_insert_before_markers_and_inherit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    insert_pieces_in_state(
-        &eval.obarray,
-        &[],
-        &mut eval.buffers,
-        collect_insert_pieces(&args)?,
-        true,
-        true,
-    )
+    let pieces = collect_insert_pieces(&args)?;
+    let total_len: usize = pieces.iter().map(|p| p.text.len()).sum();
+    if total_len == 0 {
+        return Ok(Value::Nil);
+    }
+    let insert_pos = eval.buffers.current_buffer().map(|buf| buf.pt).unwrap_or(0);
+    super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
+    insert_pieces_in_state(&eval.obarray, &[], &mut eval.buffers, pieces, true, true)?;
+    super::editfns::signal_after_change(eval, insert_pos, insert_pos + total_len, 0)?;
+    Ok(Value::Nil)
 }
 
 fn insert_pieces_in_state(
@@ -2380,6 +2413,8 @@ pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Val
     }
 
     let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let text_len = to_insert.len();
+    super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
     if args.get(2).is_some_and(|value| value.is_truthy()) {
         apply_inherited_text_properties(
@@ -2388,9 +2423,10 @@ pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Val
             &mut eval.buffers,
             current_id,
             insert_pos,
-            to_insert.len(),
+            text_len,
         );
     }
+    super::editfns::signal_after_change(eval, insert_pos, insert_pos + text_len, 0)?;
     Ok(Value::Nil)
 }
 
@@ -2435,6 +2471,8 @@ pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Val
     };
     let to_insert = unit.repeat(count as usize);
     let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let text_len = to_insert.len();
+    super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
     if args.get(2).is_some_and(|value| value.is_truthy()) {
         apply_inherited_text_properties(
@@ -2443,9 +2481,10 @@ pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Val
             &mut eval.buffers,
             current_id,
             insert_pos,
-            to_insert.len(),
+            text_len,
         );
     }
+    super::editfns::signal_after_change(eval, insert_pos, insert_pos + text_len, 0)?;
     Ok(Value::Nil)
 }
 
@@ -2524,9 +2563,14 @@ pub(crate) fn builtin_subst_char_in_region(
         return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
     }
 
+    // subst-char-in-region replaces characters of the same byte length,
+    // so the region size does not change.
+    let region_len = byte_end - byte_start;
+    super::editfns::signal_before_change(eval, byte_start, byte_end)?;
     let _ = &mut eval
         .buffers
         .subst_char_in_buffer_region(current_id, byte_start, byte_end, from_char, to_char, noundo);
+    super::editfns::signal_after_change(eval, byte_start, byte_end, region_len)?;
     Ok(Value::Nil)
 }
 

@@ -371,13 +371,18 @@ fn replace_buffer_region(
     end_byte: usize,
     replacement: &str,
 ) -> Result<(), Flow> {
+    let old_len = end_byte - start_byte;
+    let new_len = replacement.len();
+    super::editfns::signal_before_change(eval, start_byte, end_byte)?;
     replace_buffer_region_in_manager(
         &mut eval.buffers,
         buffer_id,
         start_byte,
         end_byte,
         replacement,
-    )
+    )?;
+    super::editfns::signal_after_change(eval, start_byte, start_byte + new_len, old_len)?;
+    Ok(())
 }
 
 /// (base64-encode-region START END &optional NO-LINE-BREAK)
@@ -391,7 +396,7 @@ pub(crate) fn builtin_base64_encode_region(
     let source = read_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
     let no_line_break = args.get(2).is_some_and(|v| v.is_truthy());
     let encoded = base64_encode(source.as_bytes(), B64_STD, true, !no_line_break);
-    replace_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte, &encoded)?;
+    replace_buffer_region(eval, buffer_id, start_byte, end_byte, &encoded)?;
     Ok(Value::Int(encoded.len() as i64))
 }
 
@@ -406,7 +411,7 @@ pub(crate) fn builtin_base64url_encode_region(
     let source = read_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
     let no_pad = args.get(2).is_some_and(|v| v.is_truthy());
     let encoded = base64_encode(source.as_bytes(), B64_URL, !no_pad, false);
-    replace_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte, &encoded)?;
+    replace_buffer_region(eval, buffer_id, start_byte, end_byte, &encoded)?;
     Ok(Value::Int(encoded.len() as i64))
 }
 
@@ -430,23 +435,11 @@ pub(crate) fn builtin_base64_decode_region(
     match base64_decode(&source, &table) {
         Ok(bytes) => {
             let decoded = String::from_utf8_lossy(&bytes).into_owned();
-            replace_buffer_region_in_manager(
-                &mut eval.buffers,
-                buffer_id,
-                start_byte,
-                end_byte,
-                &decoded,
-            )?;
+            replace_buffer_region(eval, buffer_id, start_byte, end_byte, &decoded)?;
             Ok(Value::Int(bytes.len() as i64))
         }
         Err(()) if noerror => {
-            replace_buffer_region_in_manager(
-                &mut eval.buffers,
-                buffer_id,
-                start_byte,
-                end_byte,
-                "",
-            )?;
+            replace_buffer_region(eval, buffer_id, start_byte, end_byte, "")?;
             Ok(Value::Int(0))
         }
         Err(()) => Err(signal("error", vec![Value::string("Invalid base64 data")])),

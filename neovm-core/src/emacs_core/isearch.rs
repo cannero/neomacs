@@ -1461,9 +1461,13 @@ fn replace_string_eval_impl(
             .buffers
             .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let old_len = end - start;
+        let new_len = out.len();
+        super::editfns::signal_before_change(eval, start, end)?;
         let _ = eval.buffers.delete_buffer_region(current_id, start, end);
         let _ = eval.buffers.goto_buffer_byte(current_id, start);
         let _ = eval.buffers.insert_into_buffer(current_id, &out);
+        super::editfns::signal_after_change(eval, start, start + new_len, old_len)?;
         if backward {
             if let Some(first) = source.chars().next() {
                 let _ = eval
@@ -1570,9 +1574,13 @@ fn replace_string_eval_impl(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let old_len = end - start;
+    let new_len = out.len();
+    super::editfns::signal_before_change(eval, start, end)?;
     let _ = eval.buffers.delete_buffer_region(current_id, start, end);
     let _ = eval.buffers.goto_buffer_byte(current_id, start);
     let _ = eval.buffers.insert_into_buffer(current_id, &out);
+    super::editfns::signal_after_change(eval, start, start + new_len, old_len)?;
     if backward {
         if let Some(pos) = backward_point {
             let _ = eval.buffers.goto_buffer_byte(current_id, start + pos);
@@ -1736,9 +1744,13 @@ fn replace_regexp_eval_impl(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let old_len = end - start;
+    let new_len = out.len();
+    super::editfns::signal_before_change(eval, start, end)?;
     let _ = eval.buffers.delete_buffer_region(current_id, start, end);
     let _ = eval.buffers.goto_buffer_byte(current_id, start);
     let _ = eval.buffers.insert_into_buffer(current_id, &out);
+    super::editfns::signal_after_change(eval, start, start + new_len, old_len)?;
     if backward {
         if let Some(pos) = backward_point {
             let _ = eval.buffers.goto_buffer_byte(current_id, start + pos);
@@ -1861,11 +1873,22 @@ pub(crate) fn builtin_keep_lines(eval: &mut super::eval::Context, args: Vec<Valu
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     if !delete_ranges.is_empty() {
+        // Signal once for the whole affected region.
+        let region_start = delete_ranges.last().map(|(s, _)| *s).unwrap_or(start);
+        let region_end = delete_ranges.first().map(|(_, e)| *e).unwrap_or(start);
+        let total_deleted: usize = delete_ranges.iter().map(|(s, e)| e - s).sum();
+        super::editfns::signal_before_change(eval, region_start, region_end)?;
         for (del_start, del_end) in delete_ranges.into_iter().rev() {
             let _ = eval
                 .buffers
                 .delete_buffer_region(current_id, del_start, del_end);
         }
+        super::editfns::signal_after_change(
+            eval,
+            region_start,
+            region_end - total_deleted,
+            region_end - region_start,
+        )?;
     }
     let _ = eval.buffers.goto_buffer_byte(current_id, start);
 
@@ -1928,11 +1951,21 @@ pub(crate) fn builtin_flush_lines(eval: &mut super::eval::Context, args: Vec<Val
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     if !delete_ranges.is_empty() {
+        let region_start = delete_ranges.first().map(|(s, _)| *s).unwrap_or(start);
+        let region_end = delete_ranges.last().map(|(_, e)| *e).unwrap_or(start);
+        let total_deleted: usize = delete_ranges.iter().map(|(s, e)| e - s).sum();
+        super::editfns::signal_before_change(eval, region_start, region_end)?;
         for (del_start, del_end) in delete_ranges.into_iter().rev() {
             let _ = eval
                 .buffers
                 .delete_buffer_region(current_id, del_start, del_end);
         }
+        super::editfns::signal_after_change(
+            eval,
+            region_start,
+            region_end - total_deleted,
+            region_end - region_start,
+        )?;
     }
     let _ = eval.buffers.goto_buffer_byte(current_id, start);
 

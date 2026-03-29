@@ -2702,6 +2702,19 @@ pub(crate) fn builtin_insert_file_contents(
         .visible_variable_value_or_nil("set-auto-coding-for-load")
         .is_truthy();
 
+    // Snapshot buffer state before the file read for modification hooks.
+    let replace_requested = args.get(4).is_some_and(|v| !v.is_nil());
+    let pre_state = eval.buffers.current_buffer().map(|buf| {
+        if replace_requested {
+            (buf.point_min_byte(), buf.point_max_byte())
+        } else {
+            (buf.pt, buf.pt)
+        }
+    });
+    if let Some((beg, end)) = pre_state {
+        super::editfns::signal_before_change(eval, beg, end)?;
+    }
+
     let (value, used_coding) = builtin_insert_file_contents_impl(
         &eval.obarray,
         &[],
@@ -2711,6 +2724,24 @@ pub(crate) fn builtin_insert_file_contents(
         args,
     )?;
     eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
+
+    // Fire after-change hooks.
+    if let Some((beg, old_end)) = pre_state {
+        let old_len = old_end - beg;
+        let new_end = eval
+            .buffers
+            .current_buffer()
+            .map(|buf| {
+                if replace_requested {
+                    buf.point_max_byte()
+                } else {
+                    buf.pt
+                }
+            })
+            .unwrap_or(beg);
+        super::editfns::signal_after_change(eval, beg, new_end, old_len)?;
+    }
+
     Ok(value)
 }
 
@@ -3041,7 +3072,10 @@ pub(crate) fn builtin_find_file_noselect(
         let saved_current = eval.buffers.current_buffer_id();
 
         eval.switch_current_buffer(buf_id)?;
+        let content_len = contents.len();
+        super::editfns::signal_before_change(eval, 0, 0)?;
         let _ = eval.buffers.insert_into_buffer(buf_id, &contents);
+        super::editfns::signal_after_change(eval, 0, content_len, 0)?;
         let _ = eval.buffers.goto_buffer_byte(buf_id, 0);
         let _ = eval
             .buffers

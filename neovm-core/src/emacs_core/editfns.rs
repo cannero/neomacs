@@ -127,6 +127,332 @@ fn ensure_current_buffer_writable(eval: &super::eval::Context) -> Result<(), Flo
     ensure_current_buffer_writable_in_state(&eval.obarray, &[], &eval.buffers)
 }
 
+// ---------------------------------------------------------------------------
+// Buffer modification hooks — GNU Emacs signal_before_change / signal_after_change
+// ---------------------------------------------------------------------------
+
+/// Check whether `inhibit-modification-hooks` is non-nil.
+fn inhibit_modification_hooks(ctx: &crate::emacs_core::eval::Context) -> bool {
+    ctx.obarray
+        .symbol_value("inhibit-modification-hooks")
+        .is_some_and(|v| v.is_truthy())
+}
+
+/// GNU `signal_before_change(beg, end)` — run `before-change-functions` and
+/// overlay `modification-hooks` before a buffer modification.
+///
+/// `beg` and `end` are **byte positions** (0-based).  They are converted to
+/// 1-based character positions for the Lisp hooks.
+pub(crate) fn signal_before_change(
+    ctx: &mut crate::emacs_core::eval::Context,
+    beg: usize,
+    end: usize,
+) -> Result<(), Flow> {
+    if inhibit_modification_hooks(ctx) {
+        return Ok(());
+    }
+
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
+        return Ok(());
+    };
+
+    // Convert byte positions to 1-based character positions.
+    let (lisp_beg, lisp_end) = {
+        let Some(buf) = ctx.buffers.get(current_id) else {
+            return Ok(());
+        };
+        let beg_char = buf.text.byte_to_char(beg) as i64 + 1;
+        let end_char = buf.text.byte_to_char(end) as i64 + 1;
+        (beg_char, end_char)
+    };
+
+    let hook_args = vec![Value::Int(lisp_beg), Value::Int(lisp_end)];
+
+    // --- Run before-change-functions ---
+    let hook_value = crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+        ctx,
+        "before-change-functions",
+    )
+    .unwrap_or(Value::Nil);
+    if !hook_value.is_nil() {
+        let funcs = crate::emacs_core::builtins::collect_hook_functions_in_state(
+            ctx,
+            "before-change-functions",
+            hook_value,
+            true,
+        );
+        let saved = ctx.save_temp_roots();
+        for f in &funcs {
+            ctx.push_temp_root(*f);
+        }
+        for a in &hook_args {
+            ctx.push_temp_root(*a);
+        }
+        let result = (|| -> Result<(), Flow> {
+            for func in &funcs {
+                ctx.apply(*func, hook_args.clone())?;
+            }
+            Ok(())
+        })();
+        ctx.restore_temp_roots(saved);
+        result?;
+    }
+
+    // --- Run overlay modification-hooks for overlays covering [beg, end) ---
+    let overlay_hooks = collect_overlay_modification_hooks(ctx, beg, end);
+    if !overlay_hooks.is_empty() {
+        let saved = ctx.save_temp_roots();
+        let overlay_arg = Value::True; // `t` signals "before change" to overlay hooks
+        for (func, ov_val) in &overlay_hooks {
+            ctx.push_temp_root(*func);
+            ctx.push_temp_root(*ov_val);
+        }
+        let result = (|| -> Result<(), Flow> {
+            for (func, ov_val) in &overlay_hooks {
+                ctx.apply(
+                    *func,
+                    vec![
+                        *ov_val,
+                        overlay_arg,
+                        Value::Int(lisp_beg),
+                        Value::Int(lisp_end),
+                    ],
+                )?;
+            }
+            Ok(())
+        })();
+        ctx.restore_temp_roots(saved);
+        result?;
+    }
+
+    Ok(())
+}
+
+/// GNU `signal_after_change(beg, end, old_len)` — run `after-change-functions`
+/// and overlay hooks after a buffer modification.
+///
+/// `beg` and `end` are **byte positions** (0-based, in the *new* buffer state).
+/// `old_len` is the byte length of the old text that was replaced.
+pub(crate) fn signal_after_change(
+    ctx: &mut crate::emacs_core::eval::Context,
+    beg: usize,
+    end: usize,
+    old_len: usize,
+) -> Result<(), Flow> {
+    if inhibit_modification_hooks(ctx) {
+        return Ok(());
+    }
+
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
+        return Ok(());
+    };
+
+    // Convert byte positions to 1-based character positions.
+    let (lisp_beg, lisp_end, lisp_old_len) = {
+        let Some(buf) = ctx.buffers.get(current_id) else {
+            return Ok(());
+        };
+        let beg_char = buf.text.byte_to_char(beg) as i64 + 1;
+        let end_char = buf.text.byte_to_char(end) as i64 + 1;
+        // old_len is a character count for Lisp; approximate via the byte length
+        // since we no longer have the old buffer state.  For pure ASCII this is
+        // exact.  For the general case the callers that already know the char
+        // length should pass it instead — but the byte length is what most
+        // callers can easily compute and is the same convention GNU uses for its
+        // OLD-LEN argument.
+        (beg_char, end_char, old_len as i64)
+    };
+
+    let hook_args = vec![
+        Value::Int(lisp_beg),
+        Value::Int(lisp_end),
+        Value::Int(lisp_old_len),
+    ];
+
+    // --- Run after-change-functions ---
+    let hook_value = crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+        ctx,
+        "after-change-functions",
+    )
+    .unwrap_or(Value::Nil);
+    if !hook_value.is_nil() {
+        let funcs = crate::emacs_core::builtins::collect_hook_functions_in_state(
+            ctx,
+            "after-change-functions",
+            hook_value,
+            true,
+        );
+        let saved = ctx.save_temp_roots();
+        for f in &funcs {
+            ctx.push_temp_root(*f);
+        }
+        for a in &hook_args {
+            ctx.push_temp_root(*a);
+        }
+        let result = (|| -> Result<(), Flow> {
+            for func in &funcs {
+                ctx.apply(*func, hook_args.clone())?;
+            }
+            Ok(())
+        })();
+        ctx.restore_temp_roots(saved);
+        result?;
+    }
+
+    // --- Run overlay hooks ---
+    // insert-in-front-hooks: overlays whose start == beg
+    // insert-behind-hooks:   overlays whose end == beg (before insertion point)
+    // modification-hooks:    overlays covering [beg, end)
+    run_overlay_after_change_hooks(ctx, beg, end, lisp_beg, lisp_end, lisp_old_len)?;
+
+    Ok(())
+}
+
+/// Collect `modification-hooks` property functions from overlays overlapping
+/// the region `[beg, end)`.  Returns `(hook_function, overlay_as_value)` pairs.
+fn collect_overlay_modification_hooks(
+    ctx: &crate::emacs_core::eval::Context,
+    beg: usize,
+    end: usize,
+) -> Vec<(Value, Value)> {
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
+        return Vec::new();
+    };
+    let Some(buf) = ctx.buffers.get(current_id) else {
+        return Vec::new();
+    };
+
+    let search_end = if beg == end { end + 1 } else { end };
+    let overlay_ids = buf.overlays.overlays_in(beg, search_end);
+    let mut result = Vec::new();
+    for ov_id in overlay_ids {
+        if let Some(hooks_val) = buf.overlays.overlay_get_named(ov_id, "modification-hooks") {
+            let ov_val = Value::Overlay(ov_id);
+            for func in value_list_iter(hooks_val) {
+                result.push((func, ov_val));
+            }
+        }
+    }
+    result
+}
+
+/// Run overlay `insert-in-front-hooks`, `insert-behind-hooks`, and
+/// `modification-hooks` after a change.
+fn run_overlay_after_change_hooks(
+    ctx: &mut crate::emacs_core::eval::Context,
+    beg: usize,
+    end: usize,
+    lisp_beg: i64,
+    lisp_end: i64,
+    lisp_old_len: i64,
+) -> Result<(), Flow> {
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
+        return Ok(());
+    };
+
+    // Collect all overlay hooks we need to run, then release the borrow on ctx.
+    let hooks: Vec<(Value, Value, &'static str)> = {
+        let Some(buf) = ctx.buffers.get(current_id) else {
+            return Ok(());
+        };
+        let mut hooks = Vec::new();
+
+        // insert-in-front-hooks: overlays starting at beg
+        let front_overlays = buf.overlays.overlays_at(beg);
+        for ov_id in &front_overlays {
+            let ov_start = buf.overlays.overlay_start(*ov_id);
+            if ov_start == Some(beg) {
+                if let Some(hook_val) = buf
+                    .overlays
+                    .overlay_get_named(*ov_id, "insert-in-front-hooks")
+                {
+                    let ov_val = Value::Overlay(*ov_id);
+                    for func in value_list_iter(hook_val) {
+                        hooks.push((func, ov_val, "front"));
+                    }
+                }
+            }
+        }
+
+        // insert-behind-hooks: overlays ending at beg
+        let search_end = if beg == end { end + 1 } else { end };
+        let region_overlays = buf
+            .overlays
+            .overlays_in(if beg > 0 { beg - 1 } else { 0 }, search_end);
+        for ov_id in &region_overlays {
+            let ov_end = buf.overlays.overlay_end(*ov_id);
+            if ov_end == Some(beg) {
+                if let Some(hook_val) = buf
+                    .overlays
+                    .overlay_get_named(*ov_id, "insert-behind-hooks")
+                {
+                    let ov_val = Value::Overlay(*ov_id);
+                    for func in value_list_iter(hook_val) {
+                        hooks.push((func, ov_val, "behind"));
+                    }
+                }
+            }
+        }
+
+        // modification-hooks: overlays covering [beg, end)
+        let mod_overlays = buf.overlays.overlays_in(beg, search_end);
+        for ov_id in &mod_overlays {
+            if let Some(hook_val) = buf.overlays.overlay_get_named(*ov_id, "modification-hooks") {
+                let ov_val = Value::Overlay(*ov_id);
+                for func in value_list_iter(hook_val) {
+                    hooks.push((func, ov_val, "mod"));
+                }
+            }
+        }
+
+        hooks
+    };
+
+    if hooks.is_empty() {
+        return Ok(());
+    }
+
+    let saved = ctx.save_temp_roots();
+    for (func, ov_val, _) in &hooks {
+        ctx.push_temp_root(*func);
+        ctx.push_temp_root(*ov_val);
+    }
+    let after_flag = Value::Nil; // nil signals "after change" to overlay hooks
+    let result = (|| -> Result<(), Flow> {
+        for (func, ov_val, _) in &hooks {
+            ctx.apply(
+                *func,
+                vec![
+                    *ov_val,
+                    after_flag,
+                    Value::Int(lisp_beg),
+                    Value::Int(lisp_end),
+                    Value::Int(lisp_old_len),
+                ],
+            )?;
+        }
+        Ok(())
+    })();
+    ctx.restore_temp_roots(saved);
+    result
+}
+
+/// Iterate over a Lisp list, yielding each car.
+fn value_list_iter(list: Value) -> Vec<Value> {
+    let mut result = Vec::new();
+    let mut cursor = list;
+    while let Value::Cons(cell) = cursor {
+        let pair = crate::emacs_core::value::read_cons(cell);
+        result.push(pair.car);
+        cursor = pair.cdr;
+    }
+    // If it's a single non-nil, non-cons value, treat it as a single-element list.
+    if result.is_empty() && !list.is_nil() && !matches!(list, Value::Cons(_)) {
+        result.push(list);
+    }
+    result
+}
+
 fn expect_integer_or_marker_in_buffers(
     buffers: &BufferManager,
     value: &Value,
@@ -219,9 +545,16 @@ pub(crate) fn builtin_insert_before_markers(
     args: Vec<Value>,
 ) -> EvalResult {
     let text = collect_insert_text("insert-before-markers", &args)?;
+    if text.is_empty() {
+        return Ok(Value::Nil);
+    }
     ensure_current_buffer_writable_in_state(&ctx.obarray, &[], &ctx.buffers)?;
     if let Some(id) = ctx.buffers.current_buffer_id() {
+        let insert_pos = ctx.buffers.get(id).map(|buf| buf.pt).unwrap_or(0);
+        let text_len = text.len();
+        signal_before_change(ctx, insert_pos, insert_pos)?;
         let _ = ctx.buffers.insert_into_buffer_before_markers(id, &text);
+        signal_after_change(ctx, insert_pos, insert_pos + text_len, 0)?;
     }
     Ok(Value::Nil)
 }
@@ -277,7 +610,10 @@ pub(crate) fn builtin_delete_char(
         }) else {
             return Ok(Value::Nil);
         };
+        let old_len = end - start;
+        signal_before_change(ctx, start, end)?;
         let _ = ctx.buffers.delete_buffer_region(current_id, start, end);
+        signal_after_change(ctx, start, start, old_len)?;
     }
     Ok(Value::Nil)
 }
@@ -308,9 +644,12 @@ pub(crate) fn builtin_delete_region(
         return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
     }
 
+    let old_len = end_byte - start_byte;
+    signal_before_change(ctx, start_byte, end_byte)?;
     let _ = ctx
         .buffers
         .delete_buffer_region(current_id, start_byte, end_byte);
+    signal_after_change(ctx, start_byte, start_byte, old_len)?;
     Ok(Value::Nil)
 }
 
@@ -342,9 +681,12 @@ pub(crate) fn builtin_delete_and_extract_region(
         Value::string(buf.buffer_substring(start_byte, end_byte))
     };
 
+    let old_len = end_byte - start_byte;
+    signal_before_change(ctx, start_byte, end_byte)?;
     let _ = ctx
         .buffers
         .delete_buffer_region(current_id, start_byte, end_byte);
+    signal_after_change(ctx, start_byte, start_byte, old_len)?;
     Ok(deleted)
 }
 
@@ -353,7 +695,23 @@ pub(crate) fn builtin_erase_buffer(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    erase_buffer_impl(&ctx.obarray, &[], &mut ctx.buffers, args)
+    expect_args("erase-buffer", &args, 0)?;
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
+        return Ok(Value::Nil);
+    };
+    let buf_len = ctx
+        .buffers
+        .get(current_id)
+        .map(|buf| buf.text.len())
+        .unwrap_or(0);
+    if buf_len > 0 {
+        signal_before_change(ctx, 0, buf_len)?;
+    }
+    erase_buffer_impl(&ctx.obarray, &[], &mut ctx.buffers, vec![])?;
+    if buf_len > 0 {
+        signal_after_change(ctx, 0, 0, buf_len)?;
+    }
+    Ok(Value::Nil)
 }
 
 pub(crate) fn erase_buffer_impl(

@@ -1347,5 +1347,44 @@ pub(crate) fn builtin_replace_match(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    // Determine whether this is a buffer replacement (4th arg nil/absent) so we
+    // can fire modification hooks.  String replacements don't touch the buffer.
+    let is_buffer_replace = args.len() < 4 || args[3].is_nil();
+
+    if is_buffer_replace {
+        // Try to compute the match region for before-change signalling.
+        let subexp = if args.len() >= 5 && !args[4].is_nil() {
+            expect_int(&args[4]).unwrap_or(0) as usize
+        } else {
+            0usize
+        };
+        if let Some(ref md) = eval.match_data {
+            if md.searched_string.is_none() {
+                if let Some(Some((oldstart, oldend))) = md.groups.get(subexp) {
+                    let (oldstart, oldend) = (*oldstart, *oldend);
+                    super::editfns::signal_before_change(eval, oldstart, oldend)?;
+                    let result = builtin_replace_match_with_state(
+                        &mut eval.buffers,
+                        &mut eval.match_data,
+                        &args,
+                    )?;
+                    // After the replacement the new end = oldstart + replacement_len.
+                    // Compute new buffer size at that region from match_data update.
+                    let new_end = eval
+                        .match_data
+                        .as_ref()
+                        .and_then(|md| md.groups.first())
+                        .and_then(|g| g.as_ref())
+                        .map(|(_, e)| *e)
+                        .unwrap_or(oldstart);
+                    let old_len = oldend - oldstart;
+                    super::editfns::signal_after_change(eval, oldstart, new_end, old_len)?;
+                    return Ok(result);
+                }
+            }
+        }
+    }
+
+    // Fallback: string replacement or no match data — no buffer hooks needed.
     builtin_replace_match_with_state(&mut eval.buffers, &mut eval.match_data, &args)
 }

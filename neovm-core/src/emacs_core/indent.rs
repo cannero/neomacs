@@ -230,7 +230,10 @@ fn delete_horizontal_space_at_point(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let old_len = right - left;
+    super::editfns::signal_before_change(eval, left, right)?;
     let _ = eval.buffers.delete_buffer_region(current_id, left, right);
+    super::editfns::signal_after_change(eval, left, left, old_len)?;
     Ok(())
 }
 
@@ -356,7 +359,11 @@ pub(crate) fn builtin_move_to_column(
         }
         let _ = ctx.buffers.goto_buffer_byte(current_id, tab_byte);
         let pad = padding_to_column(col_before_tab, target, tabw);
+        let insert_pos = tab_byte;
+        let pad_len = pad.len();
+        super::editfns::signal_before_change(ctx, insert_pos, insert_pos)?;
         let _ = ctx.buffers.insert_into_buffer(current_id, &pad);
+        super::editfns::signal_after_change(ctx, insert_pos, insert_pos + pad_len, 0)?;
         return Ok(Value::Int(target as i64));
     }
 
@@ -367,7 +374,11 @@ pub(crate) fn builtin_move_to_column(
             return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
         }
         let pad = padding_to_column(reached, target, tabw);
+        let insert_pos = ctx.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
+        let pad_len = pad.len();
+        super::editfns::signal_before_change(ctx, insert_pos, insert_pos)?;
         let _ = ctx.buffers.insert_into_buffer(current_id, &pad);
+        super::editfns::signal_after_change(ctx, insert_pos, insert_pos + pad_len, 0)?;
         reached = target;
     }
 
@@ -446,7 +457,13 @@ pub(crate) fn builtin_indent_to(
         col += 1;
     }
 
-    let _ = ctx.buffers.insert_into_buffer(current_id, &indent);
+    let insert_pos = ctx.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
+    let indent_len = indent.len();
+    if indent_len > 0 {
+        super::editfns::signal_before_change(ctx, insert_pos, insert_pos)?;
+        let _ = ctx.buffers.insert_into_buffer(current_id, &indent);
+        super::editfns::signal_after_change(ctx, insert_pos, insert_pos + indent_len, 0)?;
+    }
 
     Ok(Value::Int(mincol as i64))
 }

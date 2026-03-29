@@ -198,6 +198,136 @@ fn line_end_byte_narrowed(text: &str, byte_pos: usize, zv: usize) -> usize {
 }
 
 // ===========================================================================
+// Point motion hooks and intangible support
+// ===========================================================================
+
+pub(crate) fn check_point_motion_hooks(
+    eval: &mut super::eval::Context,
+    old_byte: usize,
+    new_byte: usize,
+) -> Result<(), Flow> {
+    if old_byte == new_byte {
+        return Ok(());
+    }
+    let inhibit = eval
+        .obarray
+        .symbol_value("inhibit-point-motion-hooks")
+        .cloned()
+        .unwrap_or(Value::Nil);
+    if inhibit.is_truthy() {
+        return Ok(());
+    }
+    let current_id = match eval.buffers.current_buffer_id() {
+        Some(id) => id,
+        None => return Ok(()),
+    };
+    let (old_lisp, new_lisp, point_left, point_entered) = {
+        let buf = match eval.buffers.get(current_id) {
+            Some(b) => b,
+            None => return Ok(()),
+        };
+        let ol = buf.text.byte_to_char(old_byte) as i64 + 1;
+        let nl = buf.text.byte_to_char(new_byte) as i64 + 1;
+        let pl =
+            lookup_buffer_text_property(&eval.obarray, &eval.buffers, buf, old_byte, "point-left");
+        let pe = lookup_buffer_text_property(
+            &eval.obarray,
+            &eval.buffers,
+            buf,
+            new_byte,
+            "point-entered",
+        );
+        (ol, nl, pl, pe)
+    };
+    if point_left.is_truthy() {
+        eval.apply(point_left, vec![Value::Int(old_lisp), Value::Int(new_lisp)])?;
+    }
+    if point_entered.is_truthy() {
+        eval.apply(
+            point_entered,
+            vec![Value::Int(old_lisp), Value::Int(new_lisp)],
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn adjust_for_intangible(
+    eval: &super::eval::Context,
+    pos: usize,
+    direction: i32,
+) -> usize {
+    let inhibit = eval
+        .obarray
+        .symbol_value("inhibit-point-motion-hooks")
+        .cloned()
+        .unwrap_or(Value::Nil);
+    if inhibit.is_truthy() {
+        return pos;
+    }
+    let current_id = match eval.buffers.current_buffer_id() {
+        Some(id) => id,
+        None => return pos,
+    };
+    let buf = match eval.buffers.get(current_id) {
+        Some(b) => b,
+        None => return pos,
+    };
+    let intangible =
+        lookup_buffer_text_property(&eval.obarray, &eval.buffers, buf, pos, "intangible");
+    if !intangible.is_truthy() {
+        return pos;
+    }
+    let mut cursor = pos;
+    if direction >= 0 {
+        loop {
+            match buf.text.text_props_next_change(cursor) {
+                Some(next) => {
+                    let prop = lookup_buffer_text_property(
+                        &eval.obarray,
+                        &eval.buffers,
+                        buf,
+                        next,
+                        "intangible",
+                    );
+                    cursor = next;
+                    if !prop.is_truthy() {
+                        break;
+                    }
+                }
+                None => {
+                    cursor = buf.zv;
+                    break;
+                }
+            }
+        }
+    } else {
+        loop {
+            match buf.text.text_props_previous_change(cursor) {
+                Some(prev) => {
+                    let check = prev.saturating_sub(1);
+                    let prop = lookup_buffer_text_property(
+                        &eval.obarray,
+                        &eval.buffers,
+                        buf,
+                        check,
+                        "intangible",
+                    );
+                    cursor = prev;
+                    if !prop.is_truthy() {
+                        break;
+                    }
+                }
+                None => {
+                    cursor = buf.begv;
+                    break;
+                }
+            }
+        }
+    }
+    cursor
+}
+
+// ===========================================================================
 // Position predicates
 // ===========================================================================
 
