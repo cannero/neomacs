@@ -1727,9 +1727,6 @@ impl<'a> Vm<'a> {
                         stack_len,
                         spec_depth,
                     });
-                    // Register in evaluator so sf_throw / nested VM throws can
-                    // see this catch tag when deciding throw vs no-catch.
-                    self.ctx.catch_tags.push(tag);
                     self.ctx.push_condition_frame(ConditionFrame::Catch {
                         tag,
                         resume: ResumeTarget::VmCatch {
@@ -1743,8 +1740,6 @@ impl<'a> Vm<'a> {
                     if let Some(handler) = handlers.pop() {
                         match handler {
                             Handler::Catch { .. } => {
-                                // Remove from evaluator's catch_tags registry.
-                                self.ctx.catch_tags.pop();
                                 self.ctx.pop_condition_frame();
                             }
                             Handler::ConditionCase { .. } => {
@@ -3611,12 +3606,9 @@ impl<'a> Vm<'a> {
     ) -> Result<(), Flow> {
         match flow {
             Flow::Throw { tag, value } => {
-                if let Some(res) = resolve_throw_target(
-                    handlers,
-                    &mut self.ctx.catch_tags,
-                    &mut self.ctx.condition_stack,
-                    &tag,
-                ) {
+                if let Some(res) =
+                    resolve_throw_target(handlers, &mut self.ctx.condition_stack, &tag)
+                {
                     let extra = [tag, value];
                     if let Err(cleanup_flow) =
                         self.with_frame_roots(_func, stack, handlers, specpdl, &extra, |vm| {
@@ -3666,7 +3658,6 @@ impl<'a> Vm<'a> {
             Flow::Signal(sig) => {
                 if let Some(res) = resolve_signal_target(
                     handlers,
-                    &mut self.ctx.catch_tags,
                     &mut self.ctx.condition_stack,
                     &self.ctx.obarray,
                     &sig,
@@ -4571,7 +4562,6 @@ struct SignalResolution {
 
 fn resolve_throw_target(
     handlers: &mut Vec<Handler>,
-    catch_tags: &mut Vec<Value>,
     condition_stack: &mut Vec<ConditionFrame>,
     tag: &Value,
 ) -> Option<ThrowResolution> {
@@ -4584,8 +4574,6 @@ fn resolve_throw_target(
                 stack_len,
                 spec_depth,
             } => {
-                // Remove from evaluator catch_tags registry (this catch is being unwound).
-                catch_tags.pop();
                 condition_stack.pop();
                 if !tag.is_nil() && eq_value(&catch_tag, tag) {
                     return Some(ThrowResolution {
@@ -4607,7 +4595,6 @@ fn resolve_throw_target(
 
 fn resolve_signal_target(
     handlers: &mut Vec<Handler>,
-    catch_tags: &mut Vec<Value>,
     condition_stack: &mut Vec<ConditionFrame>,
     obarray: &Obarray,
     sig: &SignalData,
@@ -4616,7 +4603,6 @@ fn resolve_signal_target(
     while let Some(handler) = handlers.pop() {
         match handler {
             Handler::Catch { .. } => {
-                catch_tags.pop();
                 condition_stack.pop();
             }
             Handler::ConditionCase {

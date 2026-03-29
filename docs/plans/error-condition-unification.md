@@ -227,7 +227,8 @@ Phase 2 progress:
 
 - interpreter `throw` and `validate_throw` now consult `Context.condition_stack`
 - VM outer-catch fallback now consults the shared stack after local VM unwind
-- `catch_tags` remains only as mirror bookkeeping for still-local VM/signal paths
+- VM no longer mirrors local catch frames into `catch_tags`
+- `catch_tags` remains only as temporary interpreter/top-level mirror bookkeeping
 
 ### Phase 3: Unify `condition-case`
 

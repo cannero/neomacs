@@ -106,6 +106,7 @@ fn vm_catch_leaves_shared_condition_stack_balanced() {
             crate::emacs_core::error::format_eval_result(&result),
             "OK 42"
         );
+        assert!(eval.catch_tags.is_empty());
         assert_eq!(eval.condition_stack_depth_for_test(), 0);
     });
 }
