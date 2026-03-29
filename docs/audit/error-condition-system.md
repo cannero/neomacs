@@ -43,6 +43,164 @@ Focused regression tests were added for:
 - `condition-case` binding shape for `(signal 'error 1)`
 - formatter output for raw payload signals
 
+## GNU design and implementation
+
+### Lisp macros only define syntax
+
+GNU keeps the Lisp-facing surface of this subsystem in `lisp/subr.el`, but the
+runtime semantics are owned by C:
+
+- `handler-bind` is only a macro wrapper around `handler-bind-1`
+- `condition-case-unless-debug` is only a macro rewrite around
+  `condition-case`
+
+That means the actual behavior is not "implemented in Lisp" even though the
+user-level entry points are Lisp macros.
+
+Important GNU ownership:
+
+- `lisp/subr.el`
+  - `handler-bind`
+  - `condition-case-unless-debug`
+- `src/eval.c`
+  - `Fhandler_bind_1`
+  - `internal_lisp_condition_case`
+  - `signal_or_quit`
+  - `find_handler_clause`
+  - `maybe_call_debugger`
+  - `push_handler`
+- `src/lisp.h`
+  - `enum handlertype`
+  - `struct handler`
+
+### One unified handler stack owns signals, catches, and debugger entry
+
+GNU does not treat `catch`, `condition-case`, `handler-bind`, and debugger
+entry as separate subsystems.
+
+`src/lisp.h` defines a single `struct handler` chain with:
+
+- `CATCHER`
+- `CONDITION_CASE`
+- `CATCHER_ALL`
+- `HANDLER_BIND`
+- `SKIP_CONDITIONS`
+
+This is the key design choice.  Non-local control is not first caught by
+special forms and then post-processed.  Instead, `signal_or_quit` walks one
+active handler chain and decides what happens next.
+
+### `handler-bind` is part of signal dispatch, not a wrapper retry
+
+GNU `Fhandler_bind_1` pushes `HANDLER_BIND` entries before calling the body
+function.  The handler is therefore active at the instant the signal is
+searched.
+
+When `signal_or_quit` reaches a matching `HANDLER_BIND`, it:
+
+1. pushes `SKIP_CONDITIONS`
+2. calls the handler immediately with the full error object
+3. pops the temporary mask
+4. continues searching
+
+The `SKIP_CONDITIONS` entry is important.  GNU uses it to mute the relevant
+`CONDITION_CASE` / `HANDLER_BIND` frames underneath the running handler without
+hiding `catch` frames.  This is how GNU gets all of these behaviors at once:
+
+- handler runs inside the signal's dynamic extent
+- lower condition handlers are temporarily muted
+- handlers do not recursively apply to code run inside themselves
+- non-error nonlocal exits like `throw` are still visible
+
+This behavior is directly documented by GNU's own comments in `src/lisp.h` and
+tested in `test/src/eval-tests.el`.
+
+### `condition-case` is also installed into the same chain
+
+GNU `internal_lisp_condition_case` validates handlers, reverses the clause
+table, and pushes `CONDITION_CASE` frames using `setjmp`/`longjmp` machinery.
+When a signal is selected for one of those frames, unwinding lands in the
+chosen clause body and binds the error object there.
+
+Two details matter for compatibility:
+
+- `:success` is handled by the same C implementation, not by a separate macro
+  layer
+- the bound error value is the original error object, i.e.
+  `(ERROR-SYMBOL . DATA)`
+
+### Debugger entry is decided after handler search, not before
+
+GNU `signal_or_quit` first searches active handlers, then decides whether the
+debugger should still run.
+
+That debugger decision depends on:
+
+- whether any clause matched
+- whether the chosen clause contains `debug`
+- `debug-on-error` / `debug-on-quit`
+- `inhibit-debugger`
+- `debugger-ignored-errors`
+
+This is why `condition-case-unless-debug` works.  The macro in `lisp/subr.el`
+rewrites each condition into a handler head like `(debug error ...)`.  The
+special behavior comes from `signal_or_quit`, not from the macro itself.
+
+So GNU's `debug` symbol in a condition list is not an ordinary error condition.
+It is a control marker interpreted by the signal runtime.
+
+### Interpreter and bytecode share one runtime path
+
+GNU's handler chain is also the bridge between the interpreter and bytecode
+execution.  `struct handler` stores bytecode state (`bytecode_top`,
+`bytecode_dest`) so the same signal search logic can resume the right target.
+
+That means GNU does not duplicate condition dispatch logic across:
+
+- special forms
+- bytecode interpreter
+- debugger
+- `handler-bind`
+
+The language-visible semantics come from one condition runtime.
+
+## Neomacs current ownership
+
+Neomacs currently splits this subsystem across several independent paths:
+
+- interpreter `condition-case`
+  - `neovm-core/src/emacs_core/eval.rs`
+- wrapper-style `handler-bind-1`
+  - `neovm-core/src/emacs_core/builtins/symbols.rs`
+- bytecode `condition-case` resumption
+  - `neovm-core/src/emacs_core/bytecode/vm.rs`
+- standalone debugger state
+  - `neovm-core/src/emacs_core/debug.rs`
+
+This is the architectural mismatch.
+
+The current neomacs design does not have a single active condition-handler
+stack shared by interpreter, VM, and debugger decisions.  Instead:
+
+- `sf_condition_case` catches `Flow::Signal` after body evaluation returns
+- `handler-bind-1` runs handlers only after the body already failed
+- VM condition handling is implemented separately in `resume_nonlocal`
+- debugger state exists, but it is not part of the actual signal search path
+
+## Consequences for compatibility
+
+Because GNU owns all of this in one runtime path, the following GNU behaviors
+are linked and should not be fixed independently:
+
+- `handler-bind` dynamic extent
+- `condition-case` binding shape
+- muting lower handlers while a handler runs
+- debugger suppression vs `(debug ...)` clauses
+- bytecode/interpreter parity for condition dispatch
+
+Neomacs can keep patching local symptoms, but 100% GNU compatibility here
+probably requires a unified internal condition-dispatch stack.
+
 ## Remaining incompatibilities
 
 ### `handler-bind` runs too late in neomacs
@@ -92,6 +250,8 @@ Observed GNU result:
 
 ## Recommended next steps
 
-1. Rework `handler-bind` so handler frames live in the evaluator's active handler stack during body execution.
-2. Add debugger-aware signal dispatch for the `debug` condition and validate `condition-case-unless-debug`.
-3. Split large oracle/property suites for error handling into smaller nextest-friendly groups so compatibility regressions stop hiding behind timeouts.
+1. Introduce a unified condition-handler stack owned by the evaluator runtime, not by individual special forms or wrapper builtins.
+2. Rework `handler-bind` so handler frames live in that active stack during body execution, with GNU-style masking of lower condition handlers.
+3. Move debugger entry decisions into the same signal-dispatch path, including GNU's special handling of `debug` and `debugger-ignored-errors`.
+4. Reconcile interpreter and VM condition dispatch so both consume the same handler model instead of separate implementations.
+5. Split large oracle/property suites for error handling into smaller nextest-friendly groups so compatibility regressions stop hiding behind timeouts.

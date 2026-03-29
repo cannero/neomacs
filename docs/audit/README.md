@@ -21,6 +21,7 @@ Existing overview files remain important:
 - [Compatibility Audit Sequence](neomacs-gnu-compatibility-audit-sequence.md)
 - [Bootstrap Pipeline](bootstrap-pipeline-gnu-vs-neomacs.md)
 - [GNU Backend Coupling Map](gnu-emacs-backend-module-dependencies.md)
+- [Error / Condition System Audit](error-condition-system.md)
 
 These audits are not a claim that Neomacs already matches GNU Emacs. They are
 the current audit result and the required direction to make Neomacs 100%
