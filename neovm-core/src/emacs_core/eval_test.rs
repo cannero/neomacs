@@ -592,6 +592,56 @@ fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
 }
 
 #[test]
+fn read_char_requeues_keypress_and_throws_on_input() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+    ev.obarray
+        .set_symbol_value("throw-on-input", Value::symbol("tag"));
+
+    let flow = ev
+        .read_char()
+        .expect_err("throw-on-input should interrupt read_char");
+    assert!(matches!(
+        flow,
+        Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::True
+    ));
+
+    ev.obarray.set_symbol_value("throw-on-input", Value::Nil);
+    let event = ev.read_char().expect("keypress should remain queued");
+    assert_eq!(event, Value::Int('a' as i64));
+}
+
+#[test]
+fn read_char_close_requested_honors_throw_on_input_before_quit() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::CloseRequested)
+        .expect("queue close request");
+    ev.input_rx = Some(rx);
+    ev.obarray
+        .set_symbol_value("throw-on-input", Value::symbol("tag"));
+
+    let flow = ev
+        .read_char()
+        .expect_err("throw-on-input should interrupt read_char");
+    assert!(matches!(
+        flow,
+        Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::True
+    ));
+
+    ev.obarray.set_symbol_value("throw-on-input", Value::Nil);
+    let flow = ev
+        .read_char()
+        .expect_err("close request should still quit afterwards");
+    assert!(matches!(flow, Flow::Signal(ref sig) if sig.symbol_name() == "quit"));
+}
+
+#[test]
 fn frame_native_width_syncs_pending_resize_without_read_char() {
     let mut ev = Context::new();
     let fid = ev

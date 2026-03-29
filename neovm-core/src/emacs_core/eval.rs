@@ -4239,6 +4239,40 @@ impl Context {
         self.process_quit_flag()
     }
 
+    /// Interrupt on input for GNU-style `throw-on-input` users such as
+    /// `while-no-input`, while preserving the input event for later reads.
+    pub(crate) fn interrupt_for_input_event_if_requested(
+        &mut self,
+        event: crate::keyboard::InputEvent,
+    ) -> Result<bool, Flow> {
+        let throw_on_input = self
+            .obarray
+            .symbol_value_id(self.throw_on_input_symbol)
+            .copied()
+            .unwrap_or(Value::Nil);
+        if throw_on_input.is_nil() {
+            return Ok(false);
+        }
+
+        let inhibit_quit = self
+            .obarray
+            .symbol_value_id(self.inhibit_quit_symbol)
+            .copied()
+            .unwrap_or(Value::Nil);
+        if inhibit_quit.is_truthy() {
+            return Ok(false);
+        }
+
+        self.command_loop
+            .keyboard
+            .pending_input_events
+            .push_front(event);
+        self.obarray
+            .set_symbol_value_id(self.quit_flag_symbol, throw_on_input);
+        self.maybe_quit()?;
+        Ok(true)
+    }
+
     /// Match GNU `eval_sub` / `funcall_general`: quit check first, then GC.
     fn maybe_gc_and_quit(&mut self) -> Result<(), Flow> {
         self.maybe_quit()?;

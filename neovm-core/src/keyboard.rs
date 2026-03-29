@@ -1279,6 +1279,13 @@ fn sync_pending_resize_events_in_keyboard_runtime(
     applied_resize
 }
 
+fn input_event_triggers_throw_on_input(event: &InputEvent) -> bool {
+    !matches!(
+        event,
+        InputEvent::Resize { .. } | InputEvent::Focus { .. } | InputEvent::MouseMove { .. }
+    )
+}
+
 fn sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
     frames: &mut crate::window::FrameManager,
     display_host: Option<&dyn crate::emacs_core::eval::DisplayHost>,
@@ -2113,6 +2120,12 @@ impl crate::emacs_core::eval::Context {
 
             self.fire_pending_timers();
             self.poll_process_output();
+
+            if input_event_triggers_throw_on_input(&event)
+                && self.interrupt_for_input_event_if_requested(event.clone())?
+            {
+                continue;
+            }
 
             match event {
                 InputEvent::CloseRequested => {
