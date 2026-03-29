@@ -1,9 +1,17 @@
 use super::*;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::{print, string_escape};
 
 /// Test helper: create a minimal eval context for widget-apply tests.
 fn test_eval_ctx() -> crate::emacs_core::eval::Context {
     crate::emacs_core::eval::Context::new()
+}
+
+macro_rules! call_fns_builtin {
+    ($builtin:ident, $args:expr) => {{
+        let mut eval = Context::new();
+        $builtin(&mut eval, $args)
+    }};
 }
 
 // ---- Base64 standard ----
@@ -256,35 +264,39 @@ fn base64_region_eval_error_shapes() {
 
 #[test]
 fn md5_empty() {
-    let r = builtin_md5_inner(vec![Value::string("")]).unwrap();
+    let r = call_fns_builtin!(builtin_md5, vec![Value::string("")]).unwrap();
     assert_eq!(r.as_str(), Some("d41d8cd98f00b204e9800998ecf8427e"));
 }
 
 #[test]
 fn md5_hello() {
     // md5("Hello") = 8b1a9953c4611296a827abf8c47804d7
-    let r = builtin_md5_inner(vec![Value::string("Hello")]).unwrap();
+    let r = call_fns_builtin!(builtin_md5, vec![Value::string("Hello")]).unwrap();
     assert_eq!(r.as_str(), Some("8b1a9953c4611296a827abf8c47804d7"));
 }
 
 #[test]
 fn md5_abc() {
-    let r = builtin_md5_inner(vec![Value::string("abc")]).unwrap();
+    let r = call_fns_builtin!(builtin_md5, vec![Value::string("abc")]).unwrap();
     assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
 fn md5_fox() {
-    let r = builtin_md5_inner(vec![Value::string(
-        "The quick brown fox jumps over the lazy dog",
-    )])
+    let r = call_fns_builtin!(
+        builtin_md5,
+        vec![Value::string("The quick brown fox jumps over the lazy dog")]
+    )
     .unwrap();
     assert_eq!(r.as_str(), Some("9e107d9d372bb6826bd81d3542a419d6"));
 }
 
 #[test]
 fn md5_string_range_errors() {
-    match builtin_md5_inner(vec![Value::string("abc"), Value::Int(2), Value::Int(1)]) {
+    match call_fns_builtin!(
+        builtin_md5,
+        vec![Value::string("abc"), Value::Int(2), Value::Int(1)]
+    ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(
@@ -298,7 +310,10 @@ fn md5_string_range_errors() {
 
 #[test]
 fn md5_string_index_type_error() {
-    match builtin_md5_inner(vec![Value::string("abc"), Value::True, Value::Int(1)]) {
+    match call_fns_builtin!(
+        builtin_md5,
+        vec![Value::string("abc"), Value::True, Value::Int(1)]
+    ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("integerp")));
@@ -309,7 +324,7 @@ fn md5_string_index_type_error() {
 
 #[test]
 fn md5_invalid_object_errors() {
-    match builtin_md5_inner(vec![Value::Nil]) {
+    match call_fns_builtin!(builtin_md5, vec![Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -324,12 +339,15 @@ fn md5_invalid_object_errors() {
 
 #[test]
 fn md5_unknown_coding_system_errors() {
-    match builtin_md5_inner(vec![
-        Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
-        Value::symbol("no-such"),
-    ]) {
+    match call_fns_builtin!(
+        builtin_md5,
+        vec![
+            Value::string("abc"),
+            Value::Nil,
+            Value::Nil,
+            Value::symbol("no-such"),
+        ]
+    ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "coding-system-error");
             assert_eq!(sig.data, vec![Value::symbol("no-such")]);
@@ -340,49 +358,56 @@ fn md5_unknown_coding_system_errors() {
 
 #[test]
 fn md5_unknown_coding_system_ignored_with_noerror() {
-    let r = builtin_md5_inner(vec![
-        Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
-        Value::symbol("no-such"),
-        Value::True,
-    ])
+    let r = call_fns_builtin!(
+        builtin_md5,
+        vec![
+            Value::string("abc"),
+            Value::Nil,
+            Value::Nil,
+            Value::symbol("no-such"),
+            Value::True,
+        ]
+    )
     .unwrap();
     assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
 fn md5_accepts_iso_8859_15_alias() {
-    let r = builtin_md5_inner(vec![
-        Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
-        Value::symbol("iso-8859-15"),
-    ])
+    let r = call_fns_builtin!(
+        builtin_md5,
+        vec![
+            Value::string("abc"),
+            Value::Nil,
+            Value::Nil,
+            Value::symbol("iso-8859-15"),
+        ]
+    )
     .unwrap();
     assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
 fn md5_accepts_iso_8859_9_alias() {
-    let r = builtin_md5_inner(vec![
-        Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
-        Value::symbol("iso-8859-9"),
-    ])
+    let r = call_fns_builtin!(
+        builtin_md5,
+        vec![
+            Value::string("abc"),
+            Value::Nil,
+            Value::Nil,
+            Value::symbol("iso-8859-9"),
+        ]
+    )
     .unwrap();
     assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
 fn md5_non_symbol_coding_system_errors() {
-    match builtin_md5_inner(vec![
-        Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
-        Value::Int(1),
-    ]) {
+    match call_fns_builtin!(
+        builtin_md5,
+        vec![Value::string("abc"), Value::Nil, Value::Nil, Value::Int(1),]
+    ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "coding-system-error");
             assert_eq!(sig.data, vec![Value::Int(1)]);
@@ -473,7 +498,11 @@ fn md5_eval_deleted_buffer_errors() {
 
 #[test]
 fn secure_hash_sha256_known() {
-    let r = builtin_secure_hash_inner(vec![Value::symbol("sha256"), Value::string("abc")]).unwrap();
+    let r = call_fns_builtin!(
+        builtin_secure_hash,
+        vec![Value::symbol("sha256"), Value::string("abc")]
+    )
+    .unwrap();
     assert_eq!(
         r.as_str(),
         Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
@@ -482,25 +511,36 @@ fn secure_hash_sha256_known() {
 
 #[test]
 fn secure_hash_sha1_known() {
-    let r = builtin_secure_hash_inner(vec![Value::symbol("sha1"), Value::string("abc")]).unwrap();
+    let r = call_fns_builtin!(
+        builtin_secure_hash,
+        vec![Value::symbol("sha1"), Value::string("abc")]
+    )
+    .unwrap();
     assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
 #[test]
 fn secure_hash_md5_known() {
-    let r = builtin_secure_hash_inner(vec![Value::symbol("md5"), Value::string("abc")]).unwrap();
+    let r = call_fns_builtin!(
+        builtin_secure_hash,
+        vec![Value::symbol("md5"), Value::string("abc")]
+    )
+    .unwrap();
     assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
 fn secure_hash_binary_string_uses_unibyte_storage() {
-    let r = builtin_secure_hash_inner(vec![
-        Value::symbol("sha1"),
-        Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
-        Value::True,
-    ])
+    let r = call_fns_builtin!(
+        builtin_secure_hash,
+        vec![
+            Value::symbol("sha1"),
+            Value::string("abc"),
+            Value::Nil,
+            Value::Nil,
+            Value::True,
+        ]
+    )
     .unwrap();
 
     let s = r
@@ -519,12 +559,15 @@ fn secure_hash_binary_string_uses_unibyte_storage() {
 
 #[test]
 fn secure_hash_subrange_semantics() {
-    let r = builtin_secure_hash_inner(vec![
-        Value::symbol("sha256"),
-        Value::string("abcdef"),
-        Value::Int(1),
-        Value::Int(4),
-    ])
+    let r = call_fns_builtin!(
+        builtin_secure_hash,
+        vec![
+            Value::symbol("sha256"),
+            Value::string("abcdef"),
+            Value::Int(1),
+            Value::Int(4),
+        ]
+    )
     .unwrap();
     assert_eq!(
         r.as_str(),
@@ -534,7 +577,10 @@ fn secure_hash_subrange_semantics() {
 
 #[test]
 fn secure_hash_invalid_algorithm_errors() {
-    match builtin_secure_hash_inner(vec![Value::symbol("no-such"), Value::string("abc")]) {
+    match call_fns_builtin!(
+        builtin_secure_hash,
+        vec![Value::symbol("no-such"), Value::string("abc")]
+    ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -548,7 +594,10 @@ fn secure_hash_invalid_algorithm_errors() {
 
 #[test]
 fn secure_hash_invalid_algorithm_type_errors() {
-    match builtin_secure_hash_inner(vec![Value::Int(1), Value::string("abc")]) {
+    match call_fns_builtin!(
+        builtin_secure_hash,
+        vec![Value::Int(1), Value::string("abc")]
+    ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("symbolp")));
@@ -559,7 +608,10 @@ fn secure_hash_invalid_algorithm_type_errors() {
 
 #[test]
 fn secure_hash_invalid_object_errors() {
-    match builtin_secure_hash_inner(vec![Value::symbol("sha256"), Value::Int(123)]) {
+    match call_fns_builtin!(
+        builtin_secure_hash,
+        vec![Value::symbol("sha256"), Value::Int(123)]
+    ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
