@@ -139,7 +139,9 @@ Today the same semantic responsibilities are split across too many places:
   owns some true keymap semantics, but not yet the whole GNU `keymap.c`
   surface
 - `src/emacs_core/eval.rs`
-  still seeds terminal-local translation maps as ordinary globals
+  still exposes terminal-local translation maps through Lisp variable cells,
+  even though the keyboard owner now mirrors them as keyboard-local runtime
+  state
 
 That split is the main reason the system still behaves "compatible enough"
 instead of being same by construction.
@@ -282,6 +284,17 @@ Create the `KBoard`-equivalent runtime structure and move terminal-local
 translation maps plus command-loop keyboard state onto it.
 
 This slice should move ownership, not just field locations.
+
+Current status:
+
+- completed: unread/pending input queues, command-key history, recent input
+  history, and command-loop keyboard-macro playback state now live under the
+  keyboard owner
+- completed: `input-decode-map` and `local-function-key-map` now have explicit
+  keyboard-local runtime slots, and evaluator assignment keeps those slots in
+  sync with the Lisp-visible variables
+- remaining: terminal-local variable access still flows through ordinary symbol
+  cells instead of a real GNU-style `DEFVAR_KBOARD` / `kboard` access path
 
 ### Slice C: move active maps and remap walkers into the keymap owner
 

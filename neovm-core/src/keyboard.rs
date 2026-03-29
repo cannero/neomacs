@@ -572,9 +572,14 @@ impl PrefixArg {
 // Command loop state
 // ---------------------------------------------------------------------------
 
-/// State of the command loop.
-pub struct CommandLoop {
-    /// Input event queue.
+/// Keyboard-local runtime state.
+///
+/// GNU Emacs keeps these queues, key-sequence buffers, and terminal-local
+/// translation maps on `kboard` / `keyboard.c` state rather than scattering
+/// them across the evaluator. NeoVM still has a single active keyboard, but it
+/// now gives that keyboard state one owner.
+pub struct KeyboardRuntime {
+    /// Input event queue used by unit tests and non-blocking command-loop paths.
     pub event_queue: VecDeque<InputEvent>,
     /// Input already received from the host but not yet returned by `read_char`.
     pub pending_input_events: VecDeque<InputEvent>,
@@ -589,20 +594,10 @@ pub struct CommandLoop {
     pub raw_command_keys: Vec<Value>,
     /// Recent input history published through `recent-keys`.
     pub recent_input_events: Vec<Value>,
-    /// Current prefix argument.
-    pub prefix_arg: PrefixArg,
-    /// The last command executed (symbol name).
-    pub last_command: Option<String>,
-    /// The current command being executed.
-    pub this_command: Option<String>,
-    /// Whether we are in a recursive edit.
-    pub recursive_depth: usize,
-    /// Whether the command loop is running.
-    pub running: bool,
-    /// Whether C-g was pressed (quit flag).
-    pub quit_flag: bool,
-    /// Inhibit quit (during critical sections).
-    pub inhibit_quit: bool,
+    /// Terminal-local `input-decode-map`.
+    input_decode_map: Value,
+    /// Terminal-local `local-function-key-map`.
+    local_function_key_map: Value,
     /// Defining keyboard macro (if any).
     pub defining_kbd_macro: bool,
     /// Keyboard macro being defined, as Lisp-visible Emacs events.
@@ -611,13 +606,9 @@ pub struct CommandLoop {
     pub executing_kbd_macro: Option<Vec<Value>>,
     /// Index into executing keyboard macro.
     pub kbd_macro_index: usize,
-    /// GNU-style idle timer epoch: when Emacs most recently became idle.
-    idle_start_time: Option<std::time::Instant>,
-    /// Last idle epoch preserved across non-user internal events.
-    last_idle_start_time: Option<std::time::Instant>,
 }
 
-impl CommandLoop {
+impl KeyboardRuntime {
     pub fn new() -> Self {
         Self {
             event_queue: VecDeque::new(),
@@ -627,72 +618,78 @@ impl CommandLoop {
             command_keys: Vec::new(),
             raw_command_keys: Vec::new(),
             recent_input_events: Vec::new(),
-            prefix_arg: PrefixArg::None,
-            last_command: None,
-            this_command: None,
-            recursive_depth: 0,
-            running: false,
-            quit_flag: false,
-            inhibit_quit: false,
+            input_decode_map: Value::Nil,
+            local_function_key_map: Value::Nil,
             defining_kbd_macro: false,
             kbd_macro_events: Vec::new(),
             executing_kbd_macro: None,
             kbd_macro_index: 0,
-            idle_start_time: None,
-            last_idle_start_time: None,
         }
     }
 
-    /// Push an input event.
+    pub fn set_terminal_translation_maps(
+        &mut self,
+        input_decode_map: Value,
+        local_function_key_map: Value,
+    ) {
+        self.input_decode_map = input_decode_map;
+        self.local_function_key_map = local_function_key_map;
+    }
+
+    pub fn set_input_decode_map(&mut self, map: Value) {
+        self.input_decode_map = map;
+    }
+
+    pub fn input_decode_map(&self) -> Value {
+        self.input_decode_map
+    }
+
+    pub fn set_local_function_key_map(&mut self, map: Value) {
+        self.local_function_key_map = map;
+    }
+
+    pub fn local_function_key_map(&self) -> Value {
+        self.local_function_key_map
+    }
+
     pub fn enqueue_event(&mut self, event: InputEvent) {
         self.event_queue.push_back(event);
     }
 
-    /// Push an unread command event (to be processed before the queue).
     pub fn unread_event(&mut self, event: Value) {
         self.unread_events.push_back(event);
     }
 
-    /// Push an unread key event (to be processed before the queue).
     pub fn unread_key(&mut self, event: KeyEvent) {
         self.unread_event(event.to_emacs_event_value());
     }
 
-    /// Read the next key event as a Lisp-visible Emacs event.
-    /// Returns from unread events first, then the event queue.
     pub fn read_key_event(&mut self) -> Option<Value> {
-        // Unread events first.
         if let Some(event) = self.unread_events.pop_front() {
             return Some(event);
         }
 
-        // Keyboard macro playback.
         if let Some(ref macro_events) = self.executing_kbd_macro {
             if self.kbd_macro_index < macro_events.len() {
-                let event = macro_events[self.kbd_macro_index].clone();
+                let event = macro_events[self.kbd_macro_index];
                 self.kbd_macro_index += 1;
                 return Some(event);
             }
-            // Macro finished.
         }
 
-        // Event queue.
         while let Some(event) = self.event_queue.pop_front() {
             if let InputEvent::KeyPress(key) = event {
                 let emacs_event = key.to_emacs_event_value();
-                // Record for keyboard macro.
                 if self.defining_kbd_macro {
                     self.kbd_macro_events.push(emacs_event);
                 }
-                return Some(key.to_emacs_event_value());
+                return Some(emacs_event);
             }
-            // Skip non-key events for now (mouse, resize, etc.)
         }
 
         None
     }
 
-    /// Reset the key sequence accumulator.
     pub fn reset_key_sequence(&mut self) {
         self.current_key_sequence = KeySequence::new();
     }
@@ -739,23 +736,159 @@ impl CommandLoop {
         self.recent_input_events.clear();
     }
 
-    /// Start recording a keyboard macro.
     pub fn start_kbd_macro(&mut self) {
         self.defining_kbd_macro = true;
         self.kbd_macro_events.clear();
     }
 
-    /// Stop recording a keyboard macro.
     pub fn end_kbd_macro(&mut self) {
         self.defining_kbd_macro = false;
     }
 
-    /// Execute the last keyboard macro.
     pub fn call_last_kbd_macro(&mut self) {
         if !self.kbd_macro_events.is_empty() {
             self.executing_kbd_macro = Some(self.kbd_macro_events.clone());
             self.kbd_macro_index = 0;
         }
+    }
+}
+
+impl Default for KeyboardRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::gc::GcTrace for KeyboardRuntime {
+    fn trace_roots(&self, roots: &mut Vec<Value>) {
+        roots.extend(self.unread_events.iter().copied());
+        roots.extend(self.command_keys.iter().copied());
+        roots.extend(self.raw_command_keys.iter().copied());
+        roots.extend(self.recent_input_events.iter().copied());
+        roots.push(self.input_decode_map);
+        roots.push(self.local_function_key_map);
+        roots.extend(self.kbd_macro_events.iter().copied());
+        if let Some(events) = &self.executing_kbd_macro {
+            roots.extend(events.iter().copied());
+        }
+    }
+}
+
+/// State of the command loop.
+pub struct CommandLoop {
+    /// Keyboard-local runtime state.
+    pub keyboard: KeyboardRuntime,
+    /// Current prefix argument.
+    pub prefix_arg: PrefixArg,
+    /// The last command executed (symbol name).
+    pub last_command: Option<String>,
+    /// The current command being executed.
+    pub this_command: Option<String>,
+    /// Whether we are in a recursive edit.
+    pub recursive_depth: usize,
+    /// Whether the command loop is running.
+    pub running: bool,
+    /// Whether C-g was pressed (quit flag).
+    pub quit_flag: bool,
+    /// Inhibit quit (during critical sections).
+    pub inhibit_quit: bool,
+    /// GNU-style idle timer epoch: when Emacs most recently became idle.
+    idle_start_time: Option<std::time::Instant>,
+    /// Last idle epoch preserved across non-user internal events.
+    last_idle_start_time: Option<std::time::Instant>,
+}
+
+impl CommandLoop {
+    pub fn new() -> Self {
+        Self {
+            keyboard: KeyboardRuntime::new(),
+            prefix_arg: PrefixArg::None,
+            last_command: None,
+            this_command: None,
+            recursive_depth: 0,
+            running: false,
+            quit_flag: false,
+            inhibit_quit: false,
+            idle_start_time: None,
+            last_idle_start_time: None,
+        }
+    }
+
+    /// Push an input event.
+    pub fn enqueue_event(&mut self, event: InputEvent) {
+        self.keyboard.enqueue_event(event);
+    }
+
+    /// Push an unread command event (to be processed before the queue).
+    pub fn unread_event(&mut self, event: Value) {
+        self.keyboard.unread_event(event);
+    }
+
+    /// Push an unread key event (to be processed before the queue).
+    pub fn unread_key(&mut self, event: KeyEvent) {
+        self.keyboard.unread_key(event);
+    }
+
+    /// Read the next key event as a Lisp-visible Emacs event.
+    /// Returns from unread events first, then the event queue.
+    pub fn read_key_event(&mut self) -> Option<Value> {
+        self.keyboard.read_key_event()
+    }
+
+    /// Reset the key sequence accumulator.
+    pub fn reset_key_sequence(&mut self) {
+        self.keyboard.reset_key_sequence();
+    }
+
+    pub fn set_command_key_sequences(&mut self, translated: Vec<Value>, raw: Vec<Value>) {
+        self.keyboard.set_command_key_sequences(translated, raw);
+    }
+
+    pub fn set_translated_command_keys(&mut self, keys: Vec<Value>) {
+        self.keyboard.set_translated_command_keys(keys);
+    }
+
+    pub fn set_read_command_keys(&mut self, keys: Vec<Value>) {
+        self.keyboard.set_read_command_keys(keys);
+    }
+
+    pub fn clear_read_command_keys(&mut self) {
+        self.keyboard.clear_read_command_keys();
+    }
+
+    pub fn read_command_keys(&self) -> &[Value] {
+        self.keyboard.read_command_keys()
+    }
+
+    pub fn read_raw_command_keys(&self) -> &[Value] {
+        self.keyboard.read_raw_command_keys()
+    }
+
+    pub fn record_input_event(&mut self, event: Value) {
+        self.keyboard.record_input_event(event);
+    }
+
+    pub fn recent_input_events(&self) -> &[Value] {
+        self.keyboard.recent_input_events()
+    }
+
+    pub fn clear_recent_input_events(&mut self) {
+        self.keyboard.clear_recent_input_events();
+    }
+
+    /// Start recording a keyboard macro.
+    pub fn start_kbd_macro(&mut self) {
+        self.keyboard.start_kbd_macro();
+    }
+
+    /// Stop recording a keyboard macro.
+    pub fn end_kbd_macro(&mut self) {
+        self.keyboard.end_kbd_macro();
+    }
+
+    /// Execute the last keyboard macro.
+    pub fn call_last_kbd_macro(&mut self) {
+        self.keyboard.call_last_kbd_macro();
     }
 
     /// Signal a quit (C-g).
@@ -781,14 +914,7 @@ impl Default for CommandLoop {
 
 impl crate::gc::GcTrace for CommandLoop {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
-        roots.extend(self.unread_events.iter().copied());
-        roots.extend(self.command_keys.iter().copied());
-        roots.extend(self.raw_command_keys.iter().copied());
-        roots.extend(self.recent_input_events.iter().copied());
-        roots.extend(self.kbd_macro_events.iter().copied());
-        if let Some(events) = &self.executing_kbd_macro {
-            roots.extend(events.iter().copied());
-        }
+        self.keyboard.trace_roots(roots);
     }
 }
 
@@ -814,11 +940,11 @@ fn apply_resize_input_event_in_keyboard_runtime(
 fn sync_pending_resize_events_in_keyboard_runtime(
     frames: &mut crate::window::FrameManager,
     input_rx: &mut Option<crossbeam_channel::Receiver<InputEvent>>,
-    command_loop: &mut CommandLoop,
+    keyboard: &mut KeyboardRuntime,
 ) -> bool {
     let mut applied_resize = false;
     let mut deferred = VecDeque::new();
-    let pending_input_events = &mut command_loop.pending_input_events;
+    let pending_input_events = &mut keyboard.pending_input_events;
 
     loop {
         match pending_input_events.front() {
@@ -874,7 +1000,6 @@ fn sync_pending_resize_events_in_keyboard_runtime(
             }
             Err(crossbeam_channel::TryRecvError::Empty) => break,
             Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                command_loop.running = false;
                 break;
             }
         }
@@ -1105,7 +1230,7 @@ impl crate::emacs_core::eval::Context {
         let applied_resize = sync_pending_resize_events_in_keyboard_runtime(
             &mut self.frames,
             &mut self.input_rx,
-            &mut self.command_loop,
+            &mut self.command_loop.keyboard,
         );
         sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
             &mut self.frames,
@@ -1148,12 +1273,12 @@ impl crate::emacs_core::eval::Context {
                 crate::emacs_core::print::print_value(&emacs_event)
             );
 
-            for map_name in &[
-                "input-decode-map",
-                "local-function-key-map",
-                "key-translation-map",
+            for map in [
+                self.command_loop.keyboard.input_decode_map(),
+                self.command_loop.keyboard.local_function_key_map(),
+                self.eval_symbol("key-translation-map")
+                    .unwrap_or(Value::Nil),
             ] {
-                let map = self.eval_symbol(map_name).unwrap_or(Value::Nil);
                 if map.is_nil() || !is_list_keymap(&map) {
                     continue;
                 }
@@ -1243,14 +1368,14 @@ impl crate::emacs_core::eval::Context {
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
-        if let Some(event) = self.command_loop.unread_events.pop_front() {
+        if let Some(event) = self.command_loop.keyboard.unread_events.pop_front() {
             return Ok(event);
         }
 
-        if let Some(ref macro_events) = self.command_loop.executing_kbd_macro {
-            if self.command_loop.kbd_macro_index < macro_events.len() {
-                let event = macro_events[self.command_loop.kbd_macro_index].clone();
-                self.command_loop.kbd_macro_index += 1;
+        if let Some(ref macro_events) = self.command_loop.keyboard.executing_kbd_macro {
+            if self.command_loop.keyboard.kbd_macro_index < macro_events.len() {
+                let event = macro_events[self.command_loop.keyboard.kbd_macro_index];
+                self.command_loop.keyboard.kbd_macro_index += 1;
                 return Ok(event);
             }
         }
@@ -1269,64 +1394,65 @@ impl crate::emacs_core::eval::Context {
                 self.redisplay();
             }
 
-            let event = if let Some(event) = self.command_loop.pending_input_events.pop_front() {
-                self.timer_stop_idle();
-                event
-            } else {
-                let rx = match self.input_rx {
-                    Some(ref rx) => rx.clone(),
-                    None => {
-                        tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
-                        return Ok(Value::Nil);
-                    }
-                };
-
-                self.timer_start_idle();
-                let timeout = self.next_input_wait_timeout();
-                if cfg!(test) {
-                    eprintln!(
-                        "read_char wait timeout={:?} idle={:?}",
-                        timeout,
-                        self.current_idle_duration()
-                    );
-                }
-
-                self.waiting_for_user_input = true;
-                let wait_result = if let Some(timeout) = timeout {
-                    rx.recv_timeout(timeout)
+            let event =
+                if let Some(event) = self.command_loop.keyboard.pending_input_events.pop_front() {
+                    self.timer_stop_idle();
+                    event
                 } else {
-                    rx.recv()
-                        .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
-                };
-                self.waiting_for_user_input = false;
+                    let rx = match self.input_rx {
+                        Some(ref rx) => rx.clone(),
+                        None => {
+                            tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
+                            return Ok(Value::Nil);
+                        }
+                    };
 
-                match wait_result {
-                    Ok(event) => {
-                        if cfg!(test) {
-                            eprintln!("read_char recv event={:?}", event);
+                    self.timer_start_idle();
+                    let timeout = self.next_input_wait_timeout();
+                    if cfg!(test) {
+                        eprintln!(
+                            "read_char wait timeout={:?} idle={:?}",
+                            timeout,
+                            self.current_idle_duration()
+                        );
+                    }
+
+                    self.waiting_for_user_input = true;
+                    let wait_result = if let Some(timeout) = timeout {
+                        rx.recv_timeout(timeout)
+                    } else {
+                        rx.recv()
+                            .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
+                    };
+                    self.waiting_for_user_input = false;
+
+                    match wait_result {
+                        Ok(event) => {
+                            if cfg!(test) {
+                                eprintln!("read_char recv event={:?}", event);
+                            }
+                            self.timer_stop_idle();
+                            event
                         }
-                        self.timer_stop_idle();
-                        event
-                    }
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                        if cfg!(test) {
-                            eprintln!(
-                                "read_char timeout idle={:?} ordinary={:?} idle-timer={:?}",
-                                self.current_idle_duration(),
-                                self.next_ordinary_gnu_timer_timeout(),
-                                self.next_idle_gnu_timer_timeout()
-                            );
+                        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                            if cfg!(test) {
+                                eprintln!(
+                                    "read_char timeout idle={:?} ordinary={:?} idle-timer={:?}",
+                                    self.current_idle_duration(),
+                                    self.next_ordinary_gnu_timer_timeout(),
+                                    self.next_idle_gnu_timer_timeout()
+                                );
+                            }
+                            self.fire_pending_timers();
+                            self.poll_process_output();
+                            continue;
                         }
-                        self.fire_pending_timers();
-                        self.poll_process_output();
-                        continue;
+                        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                            self.command_loop.running = false;
+                            return Err(crate::emacs_core::error::signal("quit", vec![]));
+                        }
                     }
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                        self.command_loop.running = false;
-                        return Err(crate::emacs_core::error::signal("quit", vec![]));
-                    }
-                }
-            };
+                };
 
             self.fire_pending_timers();
             self.poll_process_output();
@@ -1353,8 +1479,11 @@ impl crate::emacs_core::eval::Context {
                     tracing::debug!("read_char: received KeyPress {:?}", key);
                     self.clear_current_message();
                     let emacs_event = key.to_emacs_event_value();
-                    if self.command_loop.defining_kbd_macro {
-                        self.command_loop.kbd_macro_events.push(emacs_event);
+                    if self.command_loop.keyboard.defining_kbd_macro {
+                        self.command_loop
+                            .keyboard
+                            .kbd_macro_events
+                            .push(emacs_event);
                     }
                     return Ok(key.to_emacs_event_value());
                 }
@@ -2028,7 +2157,7 @@ mod tests {
         cl.read_key_event(); // 'i' — recorded
 
         cl.end_kbd_macro();
-        assert_eq!(cl.kbd_macro_events.len(), 2);
+        assert_eq!(cl.keyboard.kbd_macro_events.len(), 2);
 
         // Replay.
         cl.call_last_kbd_macro();

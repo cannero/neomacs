@@ -242,7 +242,7 @@ fn read_char_returns_unread_emacs_event_value_without_reencoding() {
     let meta_x = crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta())
         .to_emacs_event_value();
 
-    ev.command_loop.unread_events.push_back(meta_x);
+    ev.command_loop.keyboard.unread_events.push_back(meta_x);
 
     let event = ev
         .read_char()
@@ -256,14 +256,14 @@ fn read_char_returns_macro_playback_event_value_without_reencoding() {
     let return_event =
         crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value();
 
-    ev.command_loop.executing_kbd_macro = Some(vec![return_event]);
-    ev.command_loop.kbd_macro_index = 0;
+    ev.command_loop.keyboard.executing_kbd_macro = Some(vec![return_event]);
+    ev.command_loop.keyboard.kbd_macro_index = 0;
 
     let event = ev
         .read_char()
         .expect("read_char should return executing macro event");
     assert_eq!(event, return_event);
-    assert_eq!(ev.command_loop.kbd_macro_index, 1);
+    assert_eq!(ev.command_loop.keyboard.kbd_macro_index, 1);
 }
 
 #[test]
@@ -528,9 +528,11 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
     }));
 
     ev.command_loop
+        .keyboard
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::Focus(true));
     ev.command_loop
+        .keyboard
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::Resize {
             width: 700,
@@ -542,10 +544,10 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
 
     assert_eq!(*redisplay_calls.borrow(), vec![(700, 800)]);
     assert!(matches!(
-        ev.command_loop.pending_input_events.front(),
+        ev.command_loop.keyboard.pending_input_events.front(),
         Some(crate::keyboard::InputEvent::Focus(true))
     ));
-    assert_eq!(ev.command_loop.pending_input_events.len(), 1);
+    assert_eq!(ev.command_loop.keyboard.pending_input_events.len(), 1);
 }
 
 #[test]
@@ -557,9 +559,11 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
     assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
 
     ev.command_loop
+        .keyboard
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::Focus(true));
     ev.command_loop
+        .keyboard
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::Resize {
             width: 700,
@@ -567,6 +571,7 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
             emacs_frame_id: 0,
         });
     ev.command_loop
+        .keyboard
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::KeyPress(
             crate::keyboard::KeyEvent::char('a'),
@@ -578,6 +583,41 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
     let frame = ev.frames.get(fid).expect("frame should still be live");
     assert_eq!(frame.width, 700);
     assert_eq!(frame.height, 800);
+}
+
+#[test]
+fn keyboard_runtime_starts_with_terminal_translation_maps_from_context_bootstrap() {
+    let ev = Context::new();
+
+    assert_eq!(
+        ev.command_loop.keyboard.input_decode_map(),
+        ev.eval_symbol("input-decode-map")
+            .expect("input-decode-map should be bound")
+    );
+    assert_eq!(
+        ev.command_loop.keyboard.local_function_key_map(),
+        ev.eval_symbol("local-function-key-map")
+            .expect("local-function-key-map should be bound")
+    );
+}
+
+#[test]
+fn assigning_terminal_translation_maps_updates_keyboard_runtime_owner() {
+    let mut ev = Context::new();
+    let input_decode_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    let local_function_key_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+
+    ev.assign("input-decode-map", input_decode_map);
+    ev.assign("local-function-key-map", local_function_key_map);
+
+    assert_eq!(
+        ev.command_loop.keyboard.input_decode_map(),
+        input_decode_map
+    );
+    assert_eq!(
+        ev.command_loop.keyboard.local_function_key_map(),
+        local_function_key_map
+    );
 }
 
 #[test]

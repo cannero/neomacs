@@ -1385,7 +1385,6 @@ impl Context {
         ev.custom = CustomManager::new();
         ev.rectangle = RectangleState::new();
         ev.interactive = InteractiveRegistry::new();
-        ev.command_loop.pending_input_events.clear();
         ev.input_mode_interrupt = false;
         ev.frames = FrameManager::new();
         ev.modes = ModeRegistry::new();
@@ -2489,7 +2488,9 @@ impl Context {
         obarray.set_symbol_value("key-translation-map", key_translation_map);
         obarray.set_symbol_value("function-key-map", function_key_map);
         obarray.set_symbol_value("input-decode-map", input_decode_map);
+        obarray.make_special("input-decode-map");
         obarray.set_symbol_value("local-function-key-map", local_function_key_map);
+        obarray.make_special("local-function-key-map");
         obarray.set_symbol_value("keyboard-translate-table", Value::Nil);
 
         // Core eval variables (stay in eval.rs)
@@ -2925,6 +2926,11 @@ impl Context {
             defvar_per_buffer!("text-conversion-style", Value::Nil);
         }
 
+        let mut command_loop = crate::keyboard::CommandLoop::new();
+        command_loop
+            .keyboard
+            .set_terminal_translation_maps(input_decode_map, local_function_key_map);
+
         let mut ev = Self {
             subr_registry: Vec::new(),
             interner,
@@ -2966,7 +2972,7 @@ impl Context {
             modes: ModeRegistry::new(),
             threads: ThreadManager::new(),
             kmacro: KmacroManager::new(),
-            command_loop: crate::keyboard::CommandLoop::new(),
+            command_loop,
             input_rx: None,
             #[cfg(unix)]
             wakeup_fd: None,
@@ -3141,6 +3147,8 @@ impl Context {
                 None => ev.obarray.clear_function_silent_id(*sym_id),
             }
         }
+
+        ev.sync_keyboard_runtime_from_obarray();
 
         ev
     }
@@ -3933,6 +3941,30 @@ impl Context {
 
     pub(crate) fn set_input_mode_interrupt(&mut self, interrupt: bool) {
         self.input_mode_interrupt = interrupt;
+    }
+
+    fn sync_keyboard_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
+        if sym_id == intern("input-decode-map") {
+            self.command_loop.keyboard.set_input_decode_map(value);
+        } else if sym_id == intern("local-function-key-map") {
+            self.command_loop.keyboard.set_local_function_key_map(value);
+        }
+    }
+
+    pub(crate) fn sync_keyboard_runtime_from_obarray(&mut self) {
+        let input_decode_map = self
+            .obarray
+            .symbol_value("input-decode-map")
+            .copied()
+            .unwrap_or(Value::Nil);
+        let local_function_key_map = self
+            .obarray
+            .symbol_value("local-function-key-map")
+            .copied()
+            .unwrap_or(Value::Nil);
+        self.command_loop
+            .keyboard
+            .set_terminal_translation_maps(input_decode_map, local_function_key_map);
     }
 
     pub(crate) fn waiting_for_user_input(&self) -> bool {
@@ -7788,14 +7820,16 @@ impl Context {
             }
         }
 
-        set_runtime_binding(
+        let locus = set_runtime_binding(
             &mut self.obarray,
             &mut self.buffers,
             &self.custom,
             &self.specpdl,
             sym_id,
             value,
-        )
+        );
+        self.sync_keyboard_runtime_binding_by_id(sym_id, value);
+        locus
     }
 
     pub(crate) fn assign(&mut self, name: &str, value: Value) {
@@ -7807,14 +7841,16 @@ impl Context {
         sym_id: SymId,
         value: Value,
     ) -> Option<crate::buffer::BufferId> {
-        set_runtime_binding(
+        let locus = set_runtime_binding(
             &mut self.obarray,
             &mut self.buffers,
             &self.custom,
             &self.specpdl,
             sym_id,
             value,
-        )
+        );
+        self.sync_keyboard_runtime_binding_by_id(sym_id, value);
+        locus
     }
 
     pub(crate) fn makunbound_runtime_binding_by_id(&mut self, sym_id: SymId) {
@@ -7825,6 +7861,7 @@ impl Context {
             &[],
             sym_id,
         );
+        self.sync_keyboard_runtime_binding_by_id(sym_id, Value::Nil);
     }
 
     fn has_local_binding_by_id(&self, sym_id: SymId) -> bool {
