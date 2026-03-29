@@ -4873,7 +4873,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         None,
     );
     ctx.defsubr(
+        "color-defined-p",
+        |ctx, args| super::font::builtin_xw_color_defined_p_ctx(ctx, args),
+        0,
+        None,
+    );
+    ctx.defsubr(
         "xw-color-values",
+        |ctx, args| super::font::builtin_xw_color_values_ctx(ctx, args),
+        0,
+        None,
+    );
+    ctx.defsubr(
+        "color-values",
         |ctx, args| super::font::builtin_xw_color_values_ctx(ctx, args),
         0,
         None,
