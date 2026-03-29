@@ -97,18 +97,6 @@ impl PropertyInterval {
     }
 }
 
-/// Check if an interval has `front-sticky` set to a non-nil value.
-///
-/// GNU Emacs (intervals.c:869): when `front-sticky` is `t`, ALL properties
-/// are front-sticky.  When it's a list, only the named properties are sticky.
-/// We return true if `front-sticky` is non-nil (any property is sticky).
-fn has_front_sticky_property(interval: &PropertyInterval) -> bool {
-    interval
-        .properties
-        .get("front-sticky")
-        .is_some_and(|v| !v.is_nil())
-}
-
 // ---------------------------------------------------------------------------
 // Helper: compare two property maps for structural equality
 // ---------------------------------------------------------------------------
@@ -303,16 +291,13 @@ impl TextPropertyTable {
     /// Matches GNU Emacs `adjust_intervals_for_insertion` (intervals.c:802):
     ///
     /// - Intervals starting AFTER the insertion point are shifted right.
-    /// - An interval whose interior CONTAINS the insertion point is EXTENDED
-    ///   (its `end` grows by `len`).  This implements GNU's default rear-sticky
-    ///   behavior: inserted text inherits the properties of the interval it
-    ///   lands inside.
+    /// - An interval whose interior CONTAINS the insertion point is SPLIT
+    ///   around the inserted range, leaving the newly inserted text without
+    ///   inherited properties.
     /// - An interval whose START equals `pos` is shifted right (the inserted
     ///   text goes BEFORE this interval, not inside it).
-    ///
-    /// `insert-and-inherit` calls a separate stickiness-aware path
-    /// (`inherited_text_properties_for_inserted_range_in_state`) to handle
-    /// boundary merging; this function handles the structural adjustment only.
+    /// - `insert-and-inherit` and related commands compute stickiness-aware
+    ///   inherited properties separately after the structural split.
     pub fn adjust_for_insert(&mut self, pos: usize, len: usize) {
         if len == 0 {
             return;
@@ -320,38 +305,29 @@ impl TextPropertyTable {
         let mut shifted = BTreeMap::new();
         for interval in self.intervals_snapshot() {
             if interval.start == pos {
-                // Interval starts EXACTLY at insertion point.
-                // GNU Emacs (intervals.c:900-969): check front-sticky.
-                // If the interval has front-sticky properties, EXTEND the
-                // interval leftward to cover the inserted text (the interval
-                // "sticks" to the front).  Otherwise, shift right.
-                if has_front_sticky_property(&interval) {
-                    let mut extended = interval;
-                    extended.end += len;
-                    // start stays the same — interval grows to cover insertion
-                    shifted.insert(extended.start, extended);
-                } else {
-                    let mut shifted_interval = interval;
-                    shifted_interval.start += len;
-                    shifted_interval.end += len;
-                    shifted.insert(shifted_interval.start, shifted_interval);
-                }
+                let mut shifted_interval = interval;
+                shifted_interval.start += len;
+                shifted_interval.end += len;
+                shifted.insert(shifted_interval.start, shifted_interval);
             } else if interval.start > pos {
-                // Interval starts AFTER insertion: shift right.
                 let mut shifted_interval = interval;
                 shifted_interval.start += len;
                 shifted_interval.end += len;
                 shifted.insert(shifted_interval.start, shifted_interval);
             } else if interval.end > pos {
-                // Interval CONTAINS the insertion point in its interior
-                // (start < pos < end).  GNU Emacs extends the interval —
-                // properties are rear-sticky by default, so the inserted
-                // text inherits this interval's properties.
-                let mut extended = interval;
-                extended.end += len;
-                shifted.insert(extended.start, extended);
+                let mut left = interval.clone();
+                left.end = pos;
+                if left.start < left.end {
+                    shifted.insert(left.start, left);
+                }
+
+                let mut right = interval;
+                right.start = pos + len;
+                right.end += len;
+                if right.start < right.end {
+                    shifted.insert(right.start, right);
+                }
             } else {
-                // Interval ends at or before insertion: unchanged.
                 shifted.insert(interval.start, interval);
             }
         }
