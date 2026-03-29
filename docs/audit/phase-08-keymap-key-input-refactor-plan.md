@@ -373,8 +373,14 @@ Current status:
   always falling back to the selected buffer, clicked-window buffer-local maps
   now participate in active-map lookup, and non-text mouse areas such as the
   mode line now prefix key lookup through the keyboard-owned sequence path
+- completed: mouse sequences that begin in another window now switch the
+  keyboard owner's current-buffer context to the clicked window's buffer for
+  the duration of the sequence, so clicked-window buffer-local minor-mode maps
+  are resolved the GNU way instead of leaking the previously selected buffer's
+  minor-mode state into mouse lookup
 - remaining: full GNU replay/rescan for the remaining non-text mouse-event
-  edge cases
+  edge cases, especially fake-prefix provenance/backtracking and the broader
+  unbound-mouse fallback ladder
 
 ### Slice E: unify modifier canonicalization
 
@@ -544,6 +550,10 @@ Completed on 2026-03-29:
 - Active-map lookup now uses the clicked window's buffer/local-map context for
   mouse events, and the keyboard owner prefixes non-text mouse areas such as
   `mode-line` before calling the keymap owner.
+- Mouse sequences that begin in another window now also switch current-buffer
+  context to the clicked window's buffer for the duration of the sequence, so
+  buffer-local minor-mode maps match GNU's `keyboard.c` replay behavior
+  instead of using the previously selected buffer's minor-mode state.
 
 Still open:
 
@@ -558,6 +568,9 @@ Still open:
   GNU's remaining replay/rescan behavior, especially the harder mouse-event
   edge cases beyond current area-prefix handling, still needs to move over as
   the rest of Slice D.
+- The keyboard owner still lacks GNU's richer fake-prefixed mouse provenance
+  tracking and the unbound-mouse fallback ladder for drag/double/triple/up/down
+  variants, so some non-text mouse replay paths are still thinner than GNU.
 - `input-decode-map` and `local-function-key-map` are still mirrored through
   evaluator globals for Lisp visibility; the next step is to make the keyboard
   owner the clearer source of truth for terminal-local translation state.

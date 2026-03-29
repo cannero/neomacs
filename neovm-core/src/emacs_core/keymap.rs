@@ -1177,6 +1177,22 @@ fn dynamic_or_global_symbol_value_in_state(
     obarray.symbol_value(name).cloned()
 }
 
+fn dynamic_buffer_or_global_symbol_value_in_state(
+    obarray: &Obarray,
+    _dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: Option<crate::buffer::BufferId>,
+    name: &str,
+) -> Option<Value> {
+    if let Some(buffer_id) = buffer_id
+        && let Some(buf) = buffers.get(buffer_id)
+        && let Some(value) = buf.get_buffer_local(name)
+    {
+        return Some(*value);
+    }
+    obarray.symbol_value(name).cloned()
+}
+
 pub(crate) fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
     let Value::Cons(cell) = entry else {
         return None;
@@ -1220,6 +1236,8 @@ pub(crate) fn key_binding_lookup_in_keymap_in_obarray(
 fn collect_maps_from_alist_in_state(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: Option<crate::buffer::BufferId>,
     alist: &Value,
     skip_if_in: Option<&Value>,
     maps: &mut Vec<Value>,
@@ -1245,9 +1263,10 @@ fn collect_maps_from_alist_in_state(
             continue;
         }
 
-        let mode_active = dynamic_or_global_symbol_value_in_state(obarray, dynamic, mode_name)
-            .map(|value| value.is_truthy())
-            .unwrap_or(false);
+        let mode_active =
+            dynamic_buffer_or_global_symbol_value_in_state(obarray, dynamic, buffers, buffer_id, mode_name)
+                .map(|value| value.is_truthy())
+                .unwrap_or(false);
         if !mode_active {
             continue;
         }
@@ -1279,39 +1298,73 @@ fn assq_in_alist(alist: &Value, key: &Value) -> bool {
 pub(crate) fn collect_minor_mode_maps_in_state(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: Option<crate::buffer::BufferId>,
 ) -> Vec<Value> {
     let mut maps = Vec::new();
 
-    if let Some(emulation_raw) =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "emulation-mode-map-alists")
+    if let Some(emulation_raw) = dynamic_buffer_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        buffer_id,
+        "emulation-mode-map-alists",
+    )
     {
         if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
             for entry in emulation_entries {
                 let alist_value = match entry.as_symbol_name() {
-                    Some(name) => dynamic_or_global_symbol_value_in_state(obarray, dynamic, name)
-                        .unwrap_or(Value::Nil),
+                    Some(name) => dynamic_buffer_or_global_symbol_value_in_state(
+                        obarray, dynamic, buffers, buffer_id, name,
+                    )
+                    .unwrap_or(Value::Nil),
                     None => entry,
                 };
-                collect_maps_from_alist_in_state(obarray, dynamic, &alist_value, None, &mut maps);
+                collect_maps_from_alist_in_state(
+                    obarray,
+                    dynamic,
+                    buffers,
+                    buffer_id,
+                    &alist_value,
+                    None,
+                    &mut maps,
+                );
             }
         }
     }
 
-    let overriding = dynamic_or_global_symbol_value_in_state(
+    let overriding = dynamic_buffer_or_global_symbol_value_in_state(
         obarray,
         dynamic,
+        buffers,
+        buffer_id,
         "minor-mode-overriding-map-alist",
     );
     if let Some(ref overriding_maps) = overriding {
-        collect_maps_from_alist_in_state(obarray, dynamic, overriding_maps, None, &mut maps);
+        collect_maps_from_alist_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            buffer_id,
+            overriding_maps,
+            None,
+            &mut maps,
+        );
     }
 
-    if let Some(regular) =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "minor-mode-map-alist")
+    if let Some(regular) = dynamic_buffer_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        buffer_id,
+        "minor-mode-map-alist",
+    )
     {
         collect_maps_from_alist_in_state(
             obarray,
             dynamic,
+            buffers,
+            buffer_id,
             &regular,
             overriding.as_ref(),
             &mut maps,
@@ -1323,6 +1376,7 @@ pub(crate) fn collect_minor_mode_maps_in_state(
 
 #[derive(Clone, Copy, Debug)]
 struct ActiveMapPosition {
+    buffer_id: crate::buffer::BufferId,
     buffer_object: Value,
     buffer_local_map: Value,
     char_pos: Option<i64>,
@@ -1338,6 +1392,7 @@ fn active_map_position(
     };
 
     let default_position = ActiveMapPosition {
+        buffer_id: buffer.id,
         buffer_object: Value::Buffer(buffer.id),
         buffer_local_map: buffer.local_map(),
         char_pos: Some(buffer.point_char() as i64 + 1),
@@ -1361,6 +1416,7 @@ fn active_map_position(
         }
 
         return Ok(Some(ActiveMapPosition {
+            buffer_id: buffer.id,
             buffer_object: Value::Buffer(buffer.id),
             buffer_local_map: buffer.local_map(),
             char_pos: Some(char_pos),
@@ -1405,6 +1461,7 @@ fn active_map_position(
         }
 
         return Ok(Some(ActiveMapPosition {
+            buffer_id,
             buffer_object: Value::Buffer(buffer_id),
             buffer_local_map: target_buffer.local_map(),
             char_pos,
@@ -1502,6 +1559,9 @@ fn current_active_maps_from_parts(
     obey_overriding_local_maps: bool,
     position: Option<&Value>,
 ) -> Result<Vec<Value>, Flow> {
+    let active_position = active_map_position(frames, buffers, position)?;
+    let current_buffer_id = active_position.map(|pos| pos.buffer_id);
+
     if obey_overriding_local_maps
         && overriding_terminal_local_map.is_none()
         && let Some(overriding_local_map) = overriding_local_map
@@ -1522,7 +1582,16 @@ fn current_active_maps_from_parts(
         maps.push(property_keymap);
     }
 
-    maps.extend(minor_maps);
+    if minor_maps.is_empty() {
+        maps.extend(collect_minor_mode_maps_in_state(
+            obarray,
+            &[],
+            buffers,
+            current_buffer_id,
+        ));
+    } else {
+        maps.extend(minor_maps);
+    }
 
     let local_map =
         current_local_map_for_position(obarray, frames, buffers, current_local_map, position)?;
@@ -1540,7 +1609,6 @@ pub(crate) fn current_active_maps_for_position(
     position: Option<&Value>,
 ) -> Result<Vec<Value>, Flow> {
     let global_map = ensure_global_keymap_in_obarray(&mut ctx.obarray);
-    let minor_maps = collect_minor_mode_maps_in_state(&ctx.obarray, &[]);
     let overriding_local_map =
         dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "overriding-local-map")
             .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
@@ -1554,7 +1622,7 @@ pub(crate) fn current_active_maps_for_position(
         &ctx.buffers,
         ctx.buffers.current_local_map(),
         global_map,
-        minor_maps,
+        Vec::new(),
         overriding_local_map,
         overriding_terminal_local_map,
         obey_overriding_local_maps,
@@ -1573,7 +1641,6 @@ pub(crate) fn current_active_maps_for_position_read_only(
         .copied()
         .filter(is_list_keymap)
         .unwrap_or_else(make_list_keymap);
-    let minor_maps = collect_minor_mode_maps_in_state(&ctx.obarray, &[]);
     let overriding_local_map =
         dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "overriding-local-map")
             .and_then(|value| maybe_keymap_in_obarray(&ctx.obarray, &value));
@@ -1587,7 +1654,7 @@ pub(crate) fn current_active_maps_for_position_read_only(
         &ctx.buffers,
         ctx.buffers.current_local_map(),
         global_map,
-        minor_maps,
+        Vec::new(),
         overriding_local_map,
         overriding_terminal_local_map,
         obey_overriding_local_maps,
@@ -1637,6 +1704,8 @@ pub(crate) fn resolve_active_key_binding(
 fn lookup_minor_mode_binding_in_alist_in_obarray(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: Option<crate::buffer::BufferId>,
     events: &[Value],
     alist_value: &Value,
 ) -> Result<Option<(String, Value)>, Flow> {
@@ -1648,7 +1717,9 @@ fn lookup_minor_mode_binding_in_alist_in_obarray(
         let Some((mode_name, map_value)) = minor_mode_map_entry(&entry) else {
             continue;
         };
-        if !dynamic_or_global_symbol_value_in_state(obarray, dynamic, &mode_name)
+        if !dynamic_buffer_or_global_symbol_value_in_state(
+            obarray, dynamic, buffers, buffer_id, &mode_name,
+        )
             .is_some_and(|v| v.is_truthy())
         {
             continue;
@@ -1694,19 +1765,33 @@ pub(crate) fn minor_mode_key_binding_in_context(
     ctx: &Context,
     events: &[Value],
 ) -> Result<Value, Flow> {
-    if let Some(emulation_raw) =
-        dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], "emulation-mode-map-alists")
+    let current_buffer_id = ctx.buffers.current_buffer_id();
+    if let Some(emulation_raw) = dynamic_buffer_or_global_symbol_value_in_state(
+        &ctx.obarray,
+        &[],
+        &ctx.buffers,
+        current_buffer_id,
+        "emulation-mode-map-alists",
+    )
         && let Some(emulation_entries) = list_to_vec(&emulation_raw)
     {
         for emulation_entry in emulation_entries {
             let alist_value = match emulation_entry.as_symbol_name() {
-                Some(name) => dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], name)
-                    .unwrap_or(Value::Nil),
+                Some(name) => dynamic_buffer_or_global_symbol_value_in_state(
+                    &ctx.obarray,
+                    &[],
+                    &ctx.buffers,
+                    current_buffer_id,
+                    name,
+                )
+                .unwrap_or(Value::Nil),
                 None => emulation_entry,
             };
             if let Some((mode_name, binding)) = lookup_minor_mode_binding_in_alist_in_obarray(
                 &ctx.obarray,
                 &[],
+                &ctx.buffers,
+                current_buffer_id,
                 events,
                 &alist_value,
             )? {
@@ -1719,13 +1804,25 @@ pub(crate) fn minor_mode_key_binding_in_context(
     }
 
     for alist_name in ["minor-mode-overriding-map-alist", "minor-mode-map-alist"] {
-        let Some(alist_value) =
-            dynamic_or_global_symbol_value_in_state(&ctx.obarray, &[], alist_name)
+        let Some(alist_value) = dynamic_buffer_or_global_symbol_value_in_state(
+            &ctx.obarray,
+            &[],
+            &ctx.buffers,
+            current_buffer_id,
+            alist_name,
+        )
         else {
             continue;
         };
         if let Some((mode_name, binding)) =
-            lookup_minor_mode_binding_in_alist_in_obarray(&ctx.obarray, &[], events, &alist_value)?
+            lookup_minor_mode_binding_in_alist_in_obarray(
+                &ctx.obarray,
+                &[],
+                &ctx.buffers,
+                current_buffer_id,
+                events,
+                &alist_value,
+            )?
         {
             return Ok(Value::list(vec![Value::cons(
                 Value::symbol(mode_name),

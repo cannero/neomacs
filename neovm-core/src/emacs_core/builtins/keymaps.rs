@@ -482,7 +482,12 @@ pub(crate) fn builtin_current_minor_mode_maps_impl(
     args: &[Value],
 ) -> EvalResult {
     expect_args("current-minor-mode-maps", &args, 0)?;
-    let maps = collect_minor_mode_maps_in_state(&ctx.obarray, &[]);
+    let maps = collect_minor_mode_maps_in_state(
+        &ctx.obarray,
+        &[],
+        &ctx.buffers,
+        ctx.buffers.current_buffer_id(),
+    );
     if maps.is_empty() {
         Ok(Value::Nil)
     } else {

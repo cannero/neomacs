@@ -1459,6 +1459,15 @@ impl crate::emacs_core::eval::Context {
         }
     }
 
+    fn restore_key_sequence_current_buffer(
+        &mut self,
+        saved_current_buffer: &mut Option<crate::buffer::BufferId>,
+    ) {
+        if let Some(buffer_id) = saved_current_buffer.take() {
+            self.restore_current_buffer_if_live(buffer_id);
+        }
+    }
+
     fn has_switch_frame_event_kind(event: &Value) -> bool {
         match event {
             Value::Cons(cell) => {
@@ -1857,6 +1866,7 @@ impl crate::emacs_core::eval::Context {
         self.assign("this-command-keys-shift-translated", Value::Nil);
         let mut shift_translation: Option<KeySequenceShiftTranslation> = None;
         let mut delayed_selection_event: Option<Value> = None;
+        let mut saved_current_buffer: Option<crate::buffer::BufferId> = None;
         let mut replay_current_sequence = false;
 
         loop {
@@ -1868,6 +1878,7 @@ impl crate::emacs_core::eval::Context {
                     Ok(event) => event,
                     Err(err) => {
                         self.restore_delayed_selection_event(&mut delayed_selection_event);
+                        self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
                         return Err(err);
                     }
                 };
@@ -1921,6 +1932,26 @@ impl crate::emacs_core::eval::Context {
                     .rewrite_key_sequence_translation(prefixed.clone());
                 translated_events = prefixed;
             }
+            if self
+                .command_loop
+                .keyboard
+                .kboard
+                .current_key_sequence
+                .raw_events()
+                .len()
+                == 1
+                && saved_current_buffer.is_none()
+                && let Some(target_buffer_id) =
+                    Self::key_sequence_target_buffer_id(&translated_events, &self.frames)
+                && self.buffers.current_buffer_id() != Some(target_buffer_id)
+            {
+                saved_current_buffer = self.buffers.current_buffer_id();
+                if let Err(err) = self.switch_current_buffer(target_buffer_id) {
+                    self.restore_delayed_selection_event(&mut delayed_selection_event);
+                    self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
+                    return Err(err);
+                }
+            }
             let lookup_position = Self::key_sequence_lookup_position(&translated_events);
 
             tracing::debug!(
@@ -1940,6 +1971,7 @@ impl crate::emacs_core::eval::Context {
                 Ok(resolved) => resolved,
                 Err(err) => {
                     self.restore_delayed_selection_event(&mut delayed_selection_event);
+                    self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
                     return Err(err);
                 }
             };
@@ -1977,6 +2009,7 @@ impl crate::emacs_core::eval::Context {
                     shift_translation.take(),
                 );
                 self.restore_delayed_selection_event(&mut delayed_selection_event);
+                self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
                 let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
                 self.command_loop
                     .set_command_key_sequences(translated.clone(), raw);
@@ -2009,6 +2042,7 @@ impl crate::emacs_core::eval::Context {
                 shift_translation.take(),
             );
             self.restore_delayed_selection_event(&mut delayed_selection_event);
+            self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
             let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
             self.command_loop
                 .set_command_key_sequences(translated.clone(), raw);
@@ -2274,6 +2308,32 @@ impl crate::emacs_core::eval::Context {
 
     fn key_sequence_lookup_position(events: &[Value]) -> Option<Value> {
         events.iter().find_map(Self::event_position)
+    }
+
+    fn key_sequence_target_buffer_id(
+        events: &[Value],
+        frames: &crate::window::FrameManager,
+    ) -> Option<crate::buffer::BufferId> {
+        let position = Self::key_sequence_lookup_position(events)?;
+        let slots = crate::emacs_core::value::list_to_vec(&position)?;
+        let window_id = match *slots.first()? {
+            Value::Window(id) => crate::window::WindowId(id),
+            _ => return None,
+        };
+
+        for frame_id in frames.frame_list() {
+            let Some(frame) = frames.get(frame_id) else {
+                continue;
+            };
+            let Some(window) = frame.find_window(window_id) else {
+                continue;
+            };
+            if let Some(buffer_id) = window.buffer_id() {
+                return Some(buffer_id);
+            }
+        }
+
+        None
     }
 
     fn event_position_area(position: &Value) -> Option<Value> {
