@@ -2178,12 +2178,19 @@ pub(crate) fn builtin_goto_char(eval: &mut super::eval::Context, args: Vec<Value
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
-        .get(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let byte_pos = buf.lisp_pos_to_accessible_byte(pos);
-    let _ = eval.buffers.goto_buffer_byte(current_id, byte_pos);
+    let (old_byte, byte_pos) = {
+        let buf = eval
+            .buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        (buf.pt, buf.lisp_pos_to_accessible_byte(pos))
+    };
+    // Adjust for intangible text property
+    let direction = if byte_pos >= old_byte { 1 } else { -1 };
+    let adjusted = super::navigation::adjust_for_intangible(eval, byte_pos, direction);
+    let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
+    // Run point motion hooks
+    super::navigation::check_point_motion_hooks(eval, old_byte, adjusted)?;
     Ok(args[0])
 }
 

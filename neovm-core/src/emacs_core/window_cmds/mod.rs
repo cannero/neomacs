@@ -1625,34 +1625,19 @@ pub(crate) fn builtin_set_window_start(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("set-window-start", &args, 2)?;
     expect_max_args("set-window-start", &args, 3)?;
-    let (fid, wid) =
-        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    let pos = parse_integer_or_marker_arg(&args[1])?;
-    let is_minibuffer = frames
-        .get(fid)
-        .is_some_and(|frame| frame.minibuffer_window == Some(wid));
-    match pos {
-        IntegerOrMarkerArg::Int(pos) => {
-            if !is_minibuffer {
-                if let Some(clamped) =
-                    clamped_window_position_in_state(frames, buffers, fid, wid, pos)
-                {
-                    if let Some(Window::Leaf { window_start, .. }) = frames
-                        .get_mut(fid)
-                        .and_then(|frame| frame.find_window_mut(wid))
-                    {
-                        *window_start = clamped;
-                    }
-                }
-            }
-            Ok(Value::Int(pos))
-        }
-        IntegerOrMarkerArg::Marker { raw, position } => {
-            if !is_minibuffer {
-                if let Some(pos) = position {
+    let result = {
+        let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+        let (fid, wid) =
+            resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+        let pos = parse_integer_or_marker_arg(&args[1])?;
+        let is_minibuffer = frames
+            .get(fid)
+            .is_some_and(|frame| frame.minibuffer_window == Some(wid));
+        match pos {
+            IntegerOrMarkerArg::Int(pos) => {
+                if !is_minibuffer {
                     if let Some(clamped) =
                         clamped_window_position_in_state(frames, buffers, fid, wid, pos)
                     {
@@ -1664,10 +1649,30 @@ pub(crate) fn builtin_set_window_start(
                         }
                     }
                 }
+                Value::Int(pos)
             }
-            Ok(raw)
+            IntegerOrMarkerArg::Marker { raw, position } => {
+                if !is_minibuffer {
+                    if let Some(pos) = position {
+                        if let Some(clamped) =
+                            clamped_window_position_in_state(frames, buffers, fid, wid, pos)
+                        {
+                            if let Some(Window::Leaf { window_start, .. }) = frames
+                                .get_mut(fid)
+                                .and_then(|frame| frame.find_window_mut(wid))
+                            {
+                                *window_start = clamped;
+                            }
+                        }
+                    }
+                }
+                raw
+            }
         }
-    }
+    };
+    // Run window-scroll-functions hook after setting window start
+    let _ = builtin_run_window_scroll_functions(eval, vec![]);
+    Ok(result)
 }
 /// `(set-window-group-start WINDOW POS &optional NOFORCE)` -> POS.
 pub(crate) fn builtin_set_window_group_start(
@@ -4336,22 +4341,38 @@ fn scroll_lines_in_state(
 /// Mirror GNU Emacs Fscroll_up (window.c): move point forward by ARG lines
 /// (or a windowful if nil).  Signals end-of-buffer if already at end.
 pub(crate) fn builtin_scroll_up(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let (obarray, frames, buffers) = (&eval.obarray, &mut eval.frames, &mut eval.buffers);
     expect_max_args("scroll-up", &args, 1)?;
     let arg = args.first().cloned();
-    let lines = scroll_lines_in_state(obarray, frames, buffers, arg.as_ref(), 1);
-    scroll_by_lines_in_state(frames, buffers, lines)
+    let lines = scroll_lines_in_state(
+        &eval.obarray,
+        &mut eval.frames,
+        &mut eval.buffers,
+        arg.as_ref(),
+        1,
+    );
+    let result = scroll_by_lines_in_state(&mut eval.frames, &mut eval.buffers, lines);
+    // Run window-scroll-functions hook after scroll completes
+    let _ = builtin_run_window_scroll_functions(eval, vec![]);
+    result
 }
 /// `(scroll-down &optional ARG)` — scroll text downward (backward in buffer).
 ///
 /// Mirror GNU Emacs Fscroll_down (window.c): move point backward by ARG lines
 /// (or a windowful if nil).  Signals beginning-of-buffer if already at start.
 pub(crate) fn builtin_scroll_down(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let (obarray, frames, buffers) = (&eval.obarray, &mut eval.frames, &mut eval.buffers);
     expect_max_args("scroll-down", &args, 1)?;
     let arg = args.first().cloned();
-    let lines = scroll_lines_in_state(obarray, frames, buffers, arg.as_ref(), -1);
-    scroll_by_lines_in_state(frames, buffers, lines)
+    let lines = scroll_lines_in_state(
+        &eval.obarray,
+        &mut eval.frames,
+        &mut eval.buffers,
+        arg.as_ref(),
+        -1,
+    );
+    let result = scroll_by_lines_in_state(&mut eval.frames, &mut eval.buffers, lines);
+    // Run window-scroll-functions hook after scroll completes
+    let _ = builtin_run_window_scroll_functions(eval, vec![]);
+    result
 }
 
 /// Move point by `lines` newlines (positive=forward, negative=backward).
@@ -4446,75 +4467,80 @@ pub(crate) fn builtin_recenter_top_bottom(
 /// point appears at the center of the window, or at line ARG from the
 /// top (or bottom if ARG is negative).
 pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("recenter", &args, 2)?;
+    {
+        let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
 
-    let wh = window_body_height_impl(frames, buffers, vec![])
-        .ok()
-        .and_then(|v| match v {
-            Value::Int(n) => Some(n),
-            _ => None,
-        })
-        .unwrap_or(24);
+        let wh = window_body_height_impl(frames, buffers, vec![])
+            .ok()
+            .and_then(|v| match v {
+                Value::Int(n) => Some(n),
+                _ => None,
+            })
+            .unwrap_or(24);
 
-    // Determine target line from top of window where point should appear.
-    let target_line = match args.first() {
-        Some(Value::Int(n)) => {
-            if *n >= 0 {
-                *n
-            } else {
-                // Negative: count from bottom.
-                (wh + *n).max(0)
+        // Determine target line from top of window where point should appear.
+        let target_line = match args.first() {
+            Some(Value::Int(n)) => {
+                if *n >= 0 {
+                    *n
+                } else {
+                    // Negative: count from bottom.
+                    (wh + *n).max(0)
+                }
             }
-        }
-        Some(v) if !v.is_nil() => wh / 2, // non-integer truthy = center
-        _ => wh / 2,                      // nil or absent = center
-    };
+            Some(v) if !v.is_nil() => wh / 2, // non-integer truthy = center
+            _ => wh / 2,                      // nil or absent = center
+        };
 
-    // Compute new window-start by moving backward target_line lines from point.
-    let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (fid, wid) = resolve_window_id_in_state(frames, buffers, None)?;
-    let (buffer_id, window_point) = match get_leaf(frames, fid, wid)? {
-        Window::Leaf {
-            buffer_id, point, ..
-        } => (*buffer_id, *point as i64),
-        _ => return Ok(Value::Nil),
-    };
-    let Some(buf) = buffers.get(buffer_id) else {
-        return Ok(Value::Nil);
-    };
-    let text = buf.text.to_string();
-    let pt = buf.lisp_pos_to_byte(window_point).clamp(buf.begv, buf.zv);
-    let bytes = text.as_bytes();
-    let begv = buf.begv;
+        // Compute new window-start by moving backward target_line lines from point.
+        let _ = ensure_selected_frame_id_in_state(frames, buffers);
+        let (fid, wid) = resolve_window_id_in_state(frames, buffers, None)?;
+        let (buffer_id, window_point) = match get_leaf(frames, fid, wid)? {
+            Window::Leaf {
+                buffer_id, point, ..
+            } => (*buffer_id, *point as i64),
+            _ => return Ok(Value::Nil),
+        };
+        let Some(buf) = buffers.get(buffer_id) else {
+            return Ok(Value::Nil);
+        };
+        let text = buf.text.to_string();
+        let pt = buf.lisp_pos_to_byte(window_point).clamp(buf.begv, buf.zv);
+        let bytes = text.as_bytes();
+        let begv = buf.begv;
 
-    // Go to beginning of current line.
-    let mut pos = pt;
-    while pos > begv && bytes[pos - 1] != b'\n' {
-        pos -= 1;
-    }
-    // Move backward target_line lines.
-    for _ in 0..target_line {
-        if pos <= begv {
-            break;
-        }
-        pos -= 1;
+        // Go to beginning of current line.
+        let mut pos = pt;
         while pos > begv && bytes[pos - 1] != b'\n' {
             pos -= 1;
         }
-    }
-
-    // Set window-start.
-    let pos_lisp = buf.text.byte_to_char(pos) as i64 + 1;
-    if let Some(clamped) = clamped_window_position_in_state(frames, buffers, fid, wid, pos_lisp) {
-        if let Some(Window::Leaf { window_start, .. }) = frames
-            .get_mut(fid)
-            .and_then(|frame| frame.find_window_mut(wid))
-        {
-            *window_start = clamped;
+        // Move backward target_line lines.
+        for _ in 0..target_line {
+            if pos <= begv {
+                break;
+            }
+            pos -= 1;
+            while pos > begv && bytes[pos - 1] != b'\n' {
+                pos -= 1;
+            }
         }
-    }
 
+        // Set window-start.
+        let pos_lisp = buf.text.byte_to_char(pos) as i64 + 1;
+        if let Some(clamped) = clamped_window_position_in_state(frames, buffers, fid, wid, pos_lisp)
+        {
+            if let Some(Window::Leaf { window_start, .. }) = frames
+                .get_mut(fid)
+                .and_then(|frame| frame.find_window_mut(wid))
+            {
+                *window_start = clamped;
+            }
+        }
+    } // end borrow scope
+
+    // Run window-scroll-functions hook after recenter
+    let _ = builtin_run_window_scroll_functions(eval, vec![]);
     Ok(Value::Nil)
 }
 /// `(iconify-frame &optional FRAME)` -> nil.

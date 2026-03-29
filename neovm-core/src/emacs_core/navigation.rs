@@ -5,6 +5,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
+use super::textprop::lookup_buffer_text_property;
 use super::value::{Value, lexenv_lookup, read_cons, with_heap};
 use crate::buffer::BufferManager;
 
@@ -483,24 +484,17 @@ pub(crate) fn builtin_forward_line(
     } else {
         expect_int(&args[0])?
     };
-    let buffers = &mut eval.buffers;
-    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
-        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
         (buffer_text(buf), buf.begv, buf.zv, buf.pt)
     };
+    let old_byte = pt;
     let (new_pos, moved) = move_by_lines_narrowed(&text, pt, n, begv, zv);
-    let _ = buffers.goto_buffer_byte(current_id, new_pos);
+    let direction = if n >= 0 { 1 } else { -1 };
+    let adjusted = adjust_for_intangible(eval, new_pos, direction);
+    let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
 
-    // Match GNU Emacs's return-value logic from cmds.c Fforward_line:
-    //   shortage = count - (count <= 0) - counted;
-    //   if (shortage != 0)
-    //     shortage -= (count <= 0 ? -1
-    //                   : (BEGV < ZV && PT != opoint
-    //                      && FETCH_BYTE (PT_BYTE - 1) != '\n'));
-    //
-    // For positive n: a non-empty final line (no trailing newline) at end of
-    // buffer counts as one line successfully moved.
     let mut shortage = n - moved;
     if shortage != 0
         && n > 0
@@ -511,6 +505,7 @@ pub(crate) fn builtin_forward_line(
     {
         shortage -= 1;
     }
+    check_point_motion_hooks(eval, old_byte, adjusted)?;
     Ok(Value::Int(shortage))
 }
 
@@ -524,12 +519,12 @@ pub(crate) fn builtin_beginning_of_line(
     } else {
         expect_int(&args[0])?
     };
-    let buffers = &mut eval.buffers;
-    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
-        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
         (buffer_text(buf), buf.begv, buf.zv, buf.pt)
     };
+    let old_byte = pt;
     let mut pos = pt;
     if n != 1 {
         let delta = n - 1;
@@ -537,7 +532,9 @@ pub(crate) fn builtin_beginning_of_line(
         pos = new_pos;
     }
     let bol = line_beginning_byte_narrowed(&text, pos, begv);
-    let _ = buffers.goto_buffer_byte(current_id, bol);
+    let adjusted = adjust_for_intangible(eval, bol, -1);
+    let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
+    check_point_motion_hooks(eval, old_byte, adjusted)?;
     Ok(Value::Nil)
 }
 
@@ -548,12 +545,12 @@ pub(crate) fn builtin_end_of_line(eval: &mut super::eval::Context, args: Vec<Val
     } else {
         expect_int(&args[0])?
     };
-    let buffers = &mut eval.buffers;
-    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
-        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
         (buffer_text(buf), buf.begv, buf.zv, buf.pt)
     };
+    let old_byte = pt;
     let mut pos = pt;
     let mut moved = 0;
     if n != 1 {
@@ -563,11 +560,15 @@ pub(crate) fn builtin_end_of_line(eval: &mut super::eval::Context, args: Vec<Val
         moved = actual_moved;
     }
     if n != 1 && moved != n - 1 && pos == begv {
-        let _ = buffers.goto_buffer_byte(current_id, begv);
+        let adjusted = adjust_for_intangible(eval, begv, -1);
+        let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
+        check_point_motion_hooks(eval, old_byte, adjusted)?;
         return Ok(Value::Nil);
     }
     let eol = line_end_byte_narrowed(&text, pos, zv);
-    let _ = buffers.goto_buffer_byte(current_id, eol);
+    let adjusted = adjust_for_intangible(eval, eol, 1);
+    let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
+    check_point_motion_hooks(eval, old_byte, adjusted)?;
     Ok(Value::Nil)
 }
 
@@ -585,10 +586,10 @@ pub(crate) fn builtin_forward_char(
     } else {
         expect_int(&args[0])?
     };
-    let buffers = &mut eval.buffers;
-    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
-    let (cur_char, total_chars, new_byte) = {
-        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let (old_byte, cur_char, total_chars, new_byte) = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let old_byte = buf.pt;
         let cur_char = buf.point_char();
         let total_chars = buf.text.char_count();
         let new_char = if n >= 0 {
@@ -598,9 +599,16 @@ pub(crate) fn builtin_forward_char(
             let abs_n = (-n) as usize;
             cur_char.saturating_sub(abs_n)
         };
-        (cur_char, total_chars, buf.text.char_to_byte(new_char))
+        (
+            old_byte,
+            cur_char,
+            total_chars,
+            buf.text.char_to_byte(new_char),
+        )
     };
-    let _ = buffers.goto_buffer_byte(current_id, new_byte);
+    let direction = if n >= 0 { 1 } else { -1 };
+    let adjusted = adjust_for_intangible(eval, new_byte, direction);
+    let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
     // Signal if we couldn't move the full distance
     let desired = cur_char as i64 + n;
     if desired < 0 {
@@ -609,6 +617,7 @@ pub(crate) fn builtin_forward_char(
     if desired > total_chars as i64 {
         return Err(signal("end-of-buffer", vec![]));
     }
+    check_point_motion_hooks(eval, old_byte, adjusted)?;
     Ok(Value::Nil)
 }
 
