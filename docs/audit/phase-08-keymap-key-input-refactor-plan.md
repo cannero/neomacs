@@ -83,6 +83,277 @@ This is not GNU-shaped enough yet.
   ownership.
 - Keymap autoload and parent-cycle behavior are not yet GNU-like.
 
+### Refreshed audit on latest upstream
+
+Latest upstream re-check on 2026-03-29 at `origin/main` `cddff4b23` did not
+change the keymap/input owner boundary.  The new upstream commits were
+condition-runtime and syntax-table work, not keyboard/keymap refactors.
+
+So the keymap/input audit remains:
+
+- the biggest remaining mismatch is still GNU `keyboard.c` ownership
+- terminal-local translation maps are still modeled as ordinary globals instead
+  of keyboard/terminal-local state
+- keymap lookup/remap/active-map logic is still split across `keymap.rs`,
+  `builtins/keymaps.rs`, and `interactive.rs`
+- modifier canonicalization is still duplicated and not GNU-canonical
+- echo-keystrokes timing/help behavior is still not GNU-shaped
+
+## Deep Refactor Architecture
+
+The rest of Phase 8 should not be "fix one behavior at a time".  It should
+move Neomacs to the same ownership model GNU Emacs uses.
+
+### Design rule
+
+Neomacs may keep different frontend/platform plumbing.
+
+But from the first Lisp-visible event upward, the code should converge on this
+GNU split:
+
+- frontend/runtime crates:
+  deliver raw platform facts only
+- `keyboard` owner:
+  owns command-loop keyboard state and `read_char` / `read_key_sequence`
+- `keymap` owner:
+  owns keymap normalization, active maps, lookup, remapping, and where-is
+- GNU Lisp:
+  keeps help and convenience layers
+
+### Current owner mismatch
+
+Today the same semantic responsibilities are split across too many places:
+
+- `src/keyboard.rs`
+  owns command-loop input blocking, but still delegates binding decisions back
+  into higher layers
+- `src/emacs_core/reader.rs`
+  still carries thin `read-key-sequence` runtime behavior that belongs with the
+  keyboard owner
+- `src/emacs_core/interactive.rs`
+  still owns `key-binding`, `minor-mode-key-binding`, remap walkers, and
+  `where-is` helpers that should live with the keymap owner
+- `src/emacs_core/builtins/keymaps.rs`
+  mixes Lisp builtin wrappers with real keymap semantics
+- `src/emacs_core/keymap.rs`
+  owns some true keymap semantics, but not yet the whole GNU `keymap.c`
+  surface
+- `src/emacs_core/eval.rs`
+  still seeds terminal-local translation maps as ordinary globals
+
+That split is the main reason the system still behaves "compatible enough"
+instead of being same by construction.
+
+### Target runtime structures
+
+#### 1. `KBoard`-equivalent keyboard state
+
+Neomacs needs one explicit keyboard/terminal-local runtime owner, even if the
+type name is not literally `KBoard`.
+
+That owner should contain:
+
+- `input-decode-map`
+- `local-function-key-map`
+- unread/replayed cooked event queue
+- unread raw event queue
+- recent-key / lossage history
+- `this-command-keys` and raw-command-key buffers
+- keyboard macro playback/recording state
+- delayed `switch-frame` / delayed window-selection events
+- echo-keystrokes timing state
+- shift-translation bookkeeping:
+  `this-command-keys-shift-translated`
+- replay state for translation rescans
+
+These are GNU `keyboard.c` responsibilities and should stop living as loose
+pieces on `Context`, the obarray, or helper modules.
+
+#### 2. Global keyboard translation state
+
+These should remain global, matching GNU:
+
+- `function-key-map`
+- `key-translation-map`
+
+But `input-decode-map` and `local-function-key-map` should stop being modeled
+as ordinary obarray globals.  They should be terminal-local keyboard state with
+the same semantics GNU documents.
+
+#### 3. One authoritative keymap runtime
+
+The keymap owner should absorb all of the following:
+
+- `get_keymap`
+- keymap autoload policy
+- parent-cycle checks
+- `access_keymap`
+- prefix-keymap composition across inheritance
+- `current_minor_maps`
+- `current-active-maps`
+- `lookup-key`
+- `key-binding`
+- `minor-mode-key-binding`
+- command remapping on active maps
+- `where-is-internal`
+
+This should be a real ownership move, not just helper extraction.
+
+### Target call graph
+
+The target runtime path should look like this:
+
+1. frontend transport emits raw input facts
+2. keyboard owner normalizes them into Lisp-visible Emacs event values
+3. `read_char` consumes keyboard/terminal-local queues, timers, redisplay, and
+   macro playback
+4. `read_key_sequence` performs GNU-style replay/translation scanning
+5. `read_key_sequence` asks the keymap owner for active maps and key lookup
+6. keymap owner returns prefix/binding/remap answers
+7. keyboard owner updates cooked/raw command-key history and echo state
+8. interactive/callint layer only consumes the finished sequence/binding
+
+That is much closer to GNU:
+
+- `keyboard.c` drives the read loop
+- `keymap.c` answers keymap questions
+- `callint.c` consumes the results
+
+### What must move out of `interactive.rs`
+
+`interactive.rs` should shrink to interactive-command concerns only:
+
+- `call-interactively`
+- interactive spec parsing
+- commandp / called-interactively-p
+- command invocation argument resolution
+- lightweight wrappers over keymap/keyboard-owned primitives
+
+It should stop owning:
+
+- active-map construction
+- remap search across active maps
+- minor-mode keymap walkers
+- `where-is` search helpers
+- structural keymap resolution
+
+### What must move out of `reader.rs`
+
+`reader.rs` should stop carrying keyboard semantics.
+
+It can stay as the Lisp builtin wrapper surface for:
+
+- `read-char`
+- `read-key`
+- `read-key-sequence`
+- `read-key-sequence-vector`
+
+But those builtins should just validate args and delegate into the keyboard
+owner.  The real semantics should not be duplicated there.
+
+### What must unify
+
+There should be exactly one authoritative implementation for each of these:
+
+- modifier canonicalization
+- event symbol parsing/canonical symbol construction
+- key description rendering
+- host-event to Emacs-event normalization
+- keymap resolution from symbols/autoloads/handles
+
+If the same logic appears in both `keyboard.rs` and `keymap.rs`, or in both
+`keymap.rs` and `interactive.rs`, the owner split is still wrong.
+
+## Migration Order
+
+The refactor should land in coherent owner-boundary slices, in this order.
+
+### Slice A: finish `get_keymap` ownership
+
+Commit the existing local WIP that centralizes keymap resolution, autoload
+policy, and parent-cycle semantics under the keymap owner.
+
+This is the right first step because every later slice depends on one
+authoritative keymap-normalization path.
+
+### Slice B: introduce keyboard-local state owner
+
+Create the `KBoard`-equivalent runtime structure and move terminal-local
+translation maps plus command-loop keyboard state onto it.
+
+This slice should move ownership, not just field locations.
+
+### Slice C: move active maps and remap walkers into the keymap owner
+
+After Slice B, move all remaining active-map and remap logic out of
+`interactive.rs` and `builtins/keymaps.rs` into `keymap.rs`.
+
+At the end of this slice:
+
+- `keyboard.rs` asks the keymap owner for active maps and lookups
+- `interactive.rs` no longer performs its own map walking
+
+### Slice D: replace the current thin `read_key_sequence`
+
+Rebuild `read_key_sequence` in the keyboard owner around GNU shape:
+
+- replay/rescan state
+- suffix translation scanning
+- translation functions
+- delayed frame-switch handling
+- raw vs cooked command-key history
+- `dont-downcase-last`
+- `this-command-keys-shift-translated`
+- fake/prefixed mouse events
+
+This is the biggest semantic slice in Phase 8.
+
+### Slice E: unify modifier canonicalization
+
+After `read_key_sequence` is GNU-shaped, unify:
+
+- event-symbol modifier ordering
+- key-description rendering
+- transport-to-event modifier naming
+
+Everything should route through one GNU-canonical modifier order.
+
+### Slice F: final cleanup
+
+Delete remaining duplicate helper paths and make the module boundaries reflect
+ownership clearly:
+
+- `keyboard.rs`: command-loop keyboard runtime
+- `keymap.rs`: keymap runtime
+- `reader.rs`: Lisp builtin wrappers only
+- `interactive.rs`: command invocation only
+
+## Refactor Constraints
+
+These constraints matter if the goal is same design and implementation:
+
+- Do not add more ad hoc `symbol_function_of_value` keymap resolution outside
+  the keymap owner.
+- Do not keep terminal-local maps in the obarray as if they were plain globals.
+- Do not let `keyboard.rs` call back up into `interactive.rs` for key binding
+  semantics long term.
+- Do not implement more help-layer behavior in Rust if GNU keeps it in Lisp.
+- Do not add more duplicate modifier-prefix formatters.
+
+## Testing Expansion Required
+
+The next GNU differential coverage must include:
+
+- function-valued bindings in `input-decode-map`
+- function-valued bindings in `local-function-key-map`
+- suffix-only translation replacement
+- `dont-downcase-last`
+- `this-command-keys-shift-translated`
+- echo-keystrokes / echo-keystrokes-help behavior
+- keymap autoload during `lookup-key`, `define-key`, and active-map use
+
+Without those tests, Phase 8 can still drift while appearing compatible.
+
 ## Ideal Long-Term Design
 
 ### Semantic boundary
