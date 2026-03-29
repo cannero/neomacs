@@ -289,6 +289,9 @@ Phase 5 progress:
   identical numeric `(pc, stack_len, spec_depth)` tuples cannot be conflated
 - VM local state still owns low-level unwind structure, especially
   `unwind-protect` cleanup sequencing
+- neomacs-compiled `unwind-protect` now lowers through GNU-style cleanup
+  closures plus `UnwindProtectPop`; the legacy jump-target opcode remains
+  compatibility-only and is no longer emitted by the compiler
 
 ### Phase 6: Delete redundant logic
 

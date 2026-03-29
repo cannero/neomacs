@@ -173,8 +173,12 @@ fn compile_catch() {
 #[test]
 fn compile_unwind_protect() {
     let func = compile("(unwind-protect 1 2)");
-    let has_unwind = func.ops.iter().any(|op| matches!(op, Op::UnwindProtect(_)));
-    assert!(has_unwind);
+    let has_cleanup = func.ops.iter().any(|op| matches!(op, Op::UnwindProtectPop));
+    assert!(has_cleanup);
+    let has_legacy_jump = func.ops.iter().any(|op| matches!(op, Op::UnwindProtect(_)));
+    assert!(!has_legacy_jump);
+    let has_unbind = func.ops.iter().any(|op| matches!(op, Op::Unbind(1)));
+    assert!(has_unbind);
 }
 
 #[test]

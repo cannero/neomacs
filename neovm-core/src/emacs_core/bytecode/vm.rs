@@ -24,7 +24,9 @@ enum Handler {
     /// Local marker corresponding to a catch/condition-case frame already
     /// stored in `Context.condition_stack`.
     Condition,
-    /// unwind-protect: cleanup target.
+    /// Legacy neomacs-only unwind-protect cleanup target.
+    /// New compiler output uses `VmUnwindEntry::Cleanup` via
+    /// `Op::UnwindProtectPop`, which is closer to GNU bytecode.
     UnwindProtect { target: u32 },
 }
 

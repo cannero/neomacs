@@ -211,6 +211,52 @@ fn vm_handler_bind_1_handlers_do_not_apply_within_handlers() {
 }
 
 #[test]
+fn vm_compiled_unwind_protect_runs_cleanup_on_throw() {
+    assert_eq!(
+        vm_eval_str(
+            "(let (log)
+               (list
+                (catch 'done
+                  (unwind-protect
+                      (throw 'done 'ok)
+                    (setq log 'ran)))
+                log))"
+        ),
+        "OK (ok ran)"
+    );
+}
+
+#[test]
+fn vm_compiled_unwind_protect_runs_cleanup_on_signal() {
+    assert_eq!(
+        vm_eval_str(
+            "(let (log)
+               (condition-case nil
+                   (unwind-protect
+                       (signal 'error 1)
+                     (setq log 'ran))
+                 (error log)))"
+        ),
+        "OK ran"
+    );
+}
+
+#[test]
+fn vm_compiled_unwind_protect_cleanup_closure_captures_lexical_scope() {
+    assert_eq!(
+        vm_eval_lexical_str(
+            "(let ((x 7)
+                   y)
+               (unwind-protect
+                   'ok
+                 (setq y x))
+               y)"
+        ),
+        "OK 7"
+    );
+}
+
+#[test]
 fn vm_condition_case_suppresses_debugger_without_debug_marker() {
     with_vm_eval_full_context_state(
         "(let ((debug-on-error t)

@@ -1415,6 +1415,13 @@ impl Compiler {
         }
     }
 
+    fn compile_cleanup_lambda(&mut self, func: &mut ByteCodeFunction, cleanup_forms: &[Expr]) {
+        let mut lambda_tail = Vec::with_capacity(cleanup_forms.len() + 1);
+        lambda_tail.push(Expr::List(Vec::new()));
+        lambda_tail.extend(cleanup_forms.iter().cloned());
+        self.compile_raw_lambda(func, &lambda_tail);
+    }
+
     fn compile_catch(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.is_empty() {
             if for_value {
@@ -1460,34 +1467,19 @@ impl Compiler {
             }
             return;
         }
+        if tail.len() == 1 {
+            self.compile_expr(func, &tail[0], for_value);
+            return;
+        }
 
-        let cleanup_jump = func.current_offset();
-        self.emit_tracked(func, Op::UnwindProtect(0)); // placeholder
-
-        // Protected form
+        // Match GNU bytecode: push a cleanup function, register it on the
+        // unwind stack, then run the protected body. Normal completion uses
+        // `unbind` to execute the cleanup exactly once; nonlocal exits run it
+        // while unwinding spec state.
+        self.compile_cleanup_lambda(func, &tail[1..]);
+        self.emit_tracked(func, Op::UnwindProtectPop);
         self.compile_expr(func, &tail[0], for_value);
-
-        // Pop the unwind-protect handler
-        self.emit_tracked(func, Op::PopHandler);
-
-        // Run cleanup forms (result discarded)
-        for form in &tail[1..] {
-            self.compile_expr(func, form, false);
-        }
-
-        let skip_cleanup = func.current_offset();
-        self.emit_tracked(func, Op::Goto(0)); // skip cleanup re-execution on normal path
-
-        // Cleanup target (entered on non-local exit)
-        let cleanup_target = func.current_offset();
-        func.patch_jump(cleanup_jump, cleanup_target);
-        for form in &tail[1..] {
-            self.compile_expr(func, form, false);
-        }
-        // Re-throw or continue
-
-        let end = func.current_offset();
-        func.patch_jump(skip_cleanup, end);
+        self.emit_tracked(func, Op::Unbind(1));
     }
 
     fn compile_simple_unwind_form(
