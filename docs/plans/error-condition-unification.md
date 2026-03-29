@@ -268,6 +268,22 @@ Phase 4 progress:
   `inhibit-debugger`
 - make `condition-case-unless-debug` and `with-demoted-errors` true GNU-style
 
+Phase 5 progress:
+
+- shared signal dispatch now decides debugger entry from the selected clause,
+  matching GNU's "search first, debugger second" design
+- dispatch consults `debug-on-error`, `debug-on-quit`, `debug-on-signal`,
+  `debug-ignored-errors`, `inhibit-debugger`, `debugger`, and
+  `debugger-may-continue`
+- `(debug ...)` handler markers now permit debugger entry without bypassing the
+  handler
+- interpreter, lexical-binding interpreter, loaded `subr.el` macro paths, and
+  VM clause dispatch now agree on debugger suppression vs entry
+- `condition-case-unless-debug` and `with-demoted-errors` regressions now pass
+  with the shared runtime
+- Phase 6 still needs to delete detached debugger-policy state from `DebugState`
+  and remove any remaining redundant policy wrappers
+
 ### Phase 6: Delete redundant logic
 
 - remove VM-local resolution logic

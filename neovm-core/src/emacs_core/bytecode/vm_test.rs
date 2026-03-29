@@ -211,6 +211,92 @@ fn vm_handler_bind_1_handlers_do_not_apply_within_handlers() {
     );
 }
 
+#[test]
+fn vm_condition_case_suppresses_debugger_without_debug_marker() {
+    with_vm_eval_full_context_state(
+        "(let ((debug-on-error t)
+               (called nil)
+               (debugger (lambda (&rest _args)
+                           (setq called 'debugger))))
+           (list (condition-case nil
+                     (signal 'error 1)
+                   (error 'handled))
+                 called))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (handled nil)"
+            );
+        },
+    );
+}
+
+#[test]
+fn vm_condition_case_debug_marker_calls_debugger_before_handler() {
+    with_vm_eval_full_context_state(
+        "(let ((debug-on-error t)
+               (called nil)
+               (debugger (lambda (&rest args)
+                           (setq called args))))
+           (list (condition-case nil
+                     (signal 'error 1)
+                   ((debug error) 'handled))
+                 called))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (handled (error (error . 1)))"
+            );
+        },
+    );
+}
+
+#[test]
+fn vm_debug_on_signal_overrides_condition_case_debugger_suppression() {
+    with_vm_eval_full_context_state(
+        "(let ((debug-on-error t)
+               (debug-on-signal t)
+               (called nil)
+               (debugger (lambda (&rest _args)
+                           (setq called 'debugger))))
+           (list (condition-case nil
+                     (signal 'error 1)
+                   (error 'handled))
+                 called))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (handled debugger)"
+            );
+        },
+    );
+}
+
+#[test]
+fn vm_debug_ignored_errors_blocks_debugger_even_with_debug_marker() {
+    with_vm_eval_full_context_state(
+        "(let ((debug-on-error t)
+               (debug-ignored-errors '(arith-error))
+               (called nil)
+               (debugger (lambda (&rest _args)
+                           (setq called 'debugger))))
+           (list (condition-case nil
+                     (/ 1 0)
+                   ((debug error) 'handled))
+                 called))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (handled nil)"
+            );
+        },
+    );
+}
+
 fn quoted_dispatch_names(source: &str, predicate: impl Fn(&str) -> bool) -> BTreeSet<String> {
     source
         .lines()

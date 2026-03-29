@@ -625,6 +625,29 @@ pub(crate) enum ConditionFrame {
     },
 }
 
+fn condition_value_contains_debug(value: &Value) -> bool {
+    match value {
+        Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id) == "debug",
+        Value::Cons(_) => {
+            list_to_vec(value).is_some_and(|items| items.iter().any(condition_value_contains_debug))
+        }
+        _ => false,
+    }
+}
+
+fn wants_debugger(setting: &Value, conditions: &Value) -> bool {
+    if setting.is_nil() {
+        return false;
+    }
+    let Some(entries) = list_to_vec(setting) else {
+        return true;
+    };
+    let signal_conditions = list_to_vec(conditions).unwrap_or_else(|| vec![*conditions]);
+    entries
+        .iter()
+        .any(|entry| signal_conditions.iter().any(|condition| condition == entry))
+}
+
 pub struct Context {
     /// Builtin function registry — directly indexed by `SymId`.
     ///
@@ -1492,6 +1515,7 @@ impl Context {
                         sig.symbol_name(),
                         &conditions,
                     ) {
+                        self.maybe_call_debugger_for_signal(&sig, Some(&conditions))?;
                         sig.selected_resume = Some(resume);
                         sig.search_complete = true;
                         return Ok(sig);
@@ -1547,9 +1571,134 @@ impl Context {
             }
         }
 
+        self.maybe_call_debugger_for_signal(&sig, None)?;
         sig.search_complete = true;
         sig.selected_resume = None;
         Ok(sig)
+    }
+
+    fn maybe_call_debugger_for_signal(
+        &mut self,
+        sig: &SignalData,
+        matched_clause: Option<&Value>,
+    ) -> Result<(), Flow> {
+        if self
+            .obarray
+            .symbol_value("inhibit-debugger")
+            .is_some_and(|value| !value.is_nil())
+        {
+            return Ok(());
+        }
+
+        let debug_on_signal = self
+            .obarray
+            .symbol_value("debug-on-signal")
+            .is_some_and(|value| !value.is_nil());
+        let should_consider_debugger = debug_on_signal
+            || matched_clause.is_none()
+            || matched_clause.is_some_and(condition_value_contains_debug);
+        if !should_consider_debugger {
+            return Ok(());
+        }
+
+        let conditions = self.signal_conditions_value(sig);
+        let debug_setting = if crate::emacs_core::errors::signal_matches_hierarchical(
+            &self.obarray,
+            sig.symbol_name(),
+            "quit",
+        ) {
+            self.obarray
+                .symbol_value("debug-on-quit")
+                .copied()
+                .unwrap_or(Value::Nil)
+        } else {
+            self.obarray
+                .symbol_value("debug-on-error")
+                .copied()
+                .unwrap_or(Value::Nil)
+        };
+        if !wants_debugger(&debug_setting, &conditions) {
+            return Ok(());
+        }
+        if self.skip_debugger(sig, &conditions)? {
+            return Ok(());
+        }
+
+        self.call_debugger_for_signal(sig)
+    }
+
+    fn signal_conditions_value(&self, sig: &SignalData) -> Value {
+        self.obarray
+            .get_property(sig.symbol_name(), "error-conditions")
+            .copied()
+            .unwrap_or_else(|| Value::list(vec![Value::Symbol(sig.symbol)]))
+    }
+
+    fn skip_debugger(&mut self, sig: &SignalData, conditions: &Value) -> Result<bool, Flow> {
+        let ignored = self
+            .obarray
+            .symbol_value("debug-ignored-errors")
+            .copied()
+            .unwrap_or(Value::Nil);
+        let Some(entries) = list_to_vec(&ignored) else {
+            return Ok(false);
+        };
+        if entries.is_empty() {
+            return Ok(false);
+        }
+
+        let mut error_message = None;
+        let error_data = make_signal_binding_value(sig);
+        let signal_conditions = list_to_vec(conditions).unwrap_or_else(|| vec![*conditions]);
+
+        for entry in entries {
+            if entry.as_str().is_some() {
+                let message = if let Some(message) = error_message {
+                    message
+                } else {
+                    let rendered = crate::emacs_core::errors::builtin_error_message_string(
+                        self,
+                        vec![error_data],
+                    )?;
+                    error_message = Some(rendered);
+                    rendered
+                };
+
+                if matches!(
+                    builtins::search::builtin_string_match_p_with_case_fold(
+                        false,
+                        &[entry, message],
+                    )?,
+                    Value::Int(_)
+                ) {
+                    return Ok(true);
+                }
+                continue;
+            }
+
+            if signal_conditions.iter().any(|item| *item == entry) {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn call_debugger_for_signal(&mut self, sig: &SignalData) -> Result<(), Flow> {
+        let debugger = self
+            .obarray
+            .symbol_value("debugger")
+            .copied()
+            .unwrap_or(Value::Nil);
+        let specpdl_count = self.specpdl.len();
+        self.specbind(intern("debugger-may-continue"), Value::True);
+        self.specbind(intern("inhibit-debugger"), Value::True);
+        let result = self.apply(
+            debugger,
+            vec![Value::symbol("error"), make_signal_binding_value(sig)],
+        );
+        self.unbind_to(specpdl_count);
+        result.map(|_| ())
     }
 
     fn new_inner(reset_thread_locals: bool) -> Self {
@@ -2076,10 +2225,16 @@ impl Context {
         obarray.make_special("inhibit-debugger");
         obarray.set_symbol_value("debug-on-error", Value::Nil);
         obarray.make_special("debug-on-error");
+        obarray.set_symbol_value("debug-on-quit", Value::Nil);
+        obarray.make_special("debug-on-quit");
         obarray.set_symbol_value("debug-on-signal", Value::Nil);
         obarray.make_special("debug-on-signal");
         obarray.set_symbol_value("debug-ignored-errors", Value::Nil);
         obarray.make_special("debug-ignored-errors");
+        obarray.set_symbol_value("debugger-may-continue", Value::Nil);
+        obarray.make_special("debugger-may-continue");
+        obarray.set_symbol_value("internal-when-entered-debugger", Value::Int(-1));
+        obarray.make_special("internal-when-entered-debugger");
         obarray.set_symbol_value("signal-hook-function", Value::Nil);
         obarray.make_special("signal-hook-function");
         // GNU `eval.c` defines `internal-interpreter-environment` and then

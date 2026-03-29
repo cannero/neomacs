@@ -223,14 +223,15 @@ These can behave differently under neomacs even when the same handler eventually
 
 This is not a small local fix. To match GNU, handler-bind needs to participate directly in the evaluator's nonlocal-exit search, not as an after-the-fact retry layer.
 
-### `condition-case` does not implement GNU's special `debug` condition semantics
+### Historical `debug`-condition gap
 
 GNU Lisp uses a special `debug` condition to let handlers coexist with debugger entry. `condition-case-unless-debug` in `lisp/subr.el` rewrites handlers to include `debug`, relying on runtime debugger-aware signal handling.
 
-Current neomacs `sf_condition_case` only performs structural/hierarchical matching against the signaled condition:
-- `neovm-core/src/emacs_core/eval.rs`
-
-It does not implement the debugger-aware `debug` path, and it does not consult `debug-on-error` / `debugger` while choosing handlers. That means macros depending on GNU's `debug` condition semantics are not yet truly compatible.
+This was a real incompatibility in the original audit. It is now fixed by the
+shared-dispatch refactor: debugger policy lives in signal dispatch, `(debug ...)`
+markers are honored, and `condition-case-unless-debug` / `with-demoted-errors`
+run through the same GNU-style search-then-debugger path as interpreter and VM
+condition handling.
 
 ## Verification notes
 

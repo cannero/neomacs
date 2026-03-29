@@ -2591,6 +2591,76 @@ fn nested_condition_case_uses_current_shared_condition_slice() {
 }
 
 #[test]
+fn condition_case_suppresses_debugger_without_debug_marker() {
+    assert_eq!(
+        eval_one(
+            "(let ((debug-on-error t)
+                   (called nil)
+                   (debugger (lambda (&rest _args)
+                               (setq called 'debugger))))
+               (list (condition-case nil
+                         (signal 'error 1)
+                       (error 'handled))
+                     called))"
+        ),
+        "OK (handled nil)"
+    );
+}
+
+#[test]
+fn condition_case_debug_marker_calls_debugger_before_handler() {
+    assert_eq!(
+        eval_one(
+            "(let ((debug-on-error t)
+                   (called nil)
+                   (debugger (lambda (&rest args)
+                               (setq called args))))
+               (list (condition-case nil
+                         (signal 'error 1)
+                       ((debug error) 'handled))
+                     called))"
+        ),
+        "OK (handled (error (error . 1)))"
+    );
+}
+
+#[test]
+fn debug_on_signal_overrides_condition_case_debugger_suppression() {
+    assert_eq!(
+        eval_one(
+            "(let ((debug-on-error t)
+                   (debug-on-signal t)
+                   (called nil)
+                   (debugger (lambda (&rest _args)
+                               (setq called 'debugger))))
+               (list (condition-case nil
+                         (signal 'error 1)
+                       (error 'handled))
+                     called))"
+        ),
+        "OK (handled debugger)"
+    );
+}
+
+#[test]
+fn debug_ignored_errors_blocks_debugger_even_with_debug_marker() {
+    assert_eq!(
+        eval_one(
+            "(let ((debug-on-error t)
+                   (debug-ignored-errors '(arith-error))
+                   (called nil)
+                   (debugger (lambda (&rest _args)
+                               (setq called 'debugger))))
+               (list (condition-case nil
+                         (/ 1 0)
+                       ((debug error) 'handled))
+                     called))"
+        ),
+        "OK (handled nil)"
+    );
+}
+
+#[test]
 fn backward_compat_core_forms() {
     // Same tests as original elisp.rs
     let source = r#"
@@ -4397,6 +4467,40 @@ fn with_demoted_errors_runtime_semantics() {
 }
 
 #[test]
+fn bootstrap_condition_case_unless_debug_calls_debugger_before_handler() {
+    assert_eq!(
+        bootstrap_eval_one(
+            "(progn
+               (setq neovm-debugger-called nil)
+               (let ((debug-on-error t)
+                   (debugger (lambda (&rest args)
+                               (setq neovm-debugger-called args))))
+                 (list (condition-case-unless-debug nil
+                           (signal 'error 1)
+                         (error 'handled))
+                       neovm-debugger-called)))"
+        ),
+        "OK (handled (error (error . 1)))"
+    );
+}
+
+#[test]
+fn bootstrap_with_demoted_errors_calls_debugger_when_debug_on_error_is_enabled() {
+    assert_eq!(
+        bootstrap_eval_one(
+            "(progn
+               (setq neovm-debugger-called nil)
+               (let ((debug-on-error t)
+                   (debugger (lambda (&rest _args)
+                               (setq neovm-debugger-called 'debugger))))
+                 (list (with-demoted-errors \"DM %S\" (/ 1 0))
+                       neovm-debugger-called)))"
+        ),
+        "OK (nil debugger)"
+    );
+}
+
+#[test]
 fn buffer_char_after_before() {
     let results = eval_all(
         "(get-buffer-create \"cb\")
@@ -5206,6 +5310,90 @@ fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
     assert_eq!(
         result,
         "OK ((neovm-bqc-test-x 1) (neovm-bqc-test-y 2) (neovm-bqc-test-z 3))"
+    );
+}
+
+#[test]
+fn real_backquote_macroexpand_preserves_debug_head_before_splice() {
+    assert_eq!(
+        eval_all_with_subr(
+            "(progn
+               (fset 'neovm--debug-head
+                     (cons 'macro
+                           (lambda (condition)
+                             `((debug ,@(if (listp condition)
+                                            condition
+                                          (list condition)))))))
+               (macroexpand '(neovm--debug-head error)))"
+        )[0],
+        "OK ((debug error))"
+    );
+}
+
+#[test]
+fn loaded_subr_condition_case_unless_debug_calls_debugger_before_handler() {
+    let mut eval = Context::new();
+    load_minimal_backquote_runtime(&mut eval);
+
+    let forms = parse_forms(
+        "(progn
+           (setq neovm-debugger-called nil)
+           (let ((debug-on-error t)
+               (debugger (lambda (&rest args)
+                           (setq neovm-debugger-called args))))
+             (list (condition-case-unless-debug nil
+                       (signal 'error 1)
+                     (error 'handled))
+                   neovm-debugger-called)))",
+    )
+    .expect("parse");
+
+    assert_eq!(
+        format_eval_result(&eval.eval_expr(&forms[0])),
+        "OK (handled (error (error . 1)))"
+    );
+}
+
+#[test]
+fn loaded_subr_condition_case_unless_debug_macroexpand_includes_debug_marker() {
+    let mut eval = Context::new();
+    load_minimal_backquote_runtime(&mut eval);
+
+    let forms = parse_forms(
+        "(equal
+            (macroexpand '(condition-case-unless-debug nil
+                            (signal 'error 1)
+                            (error 42)))
+            '(condition-case nil
+               (signal 'error 1)
+               ((debug error) 42)))",
+    )
+    .expect("parse");
+
+    assert_eq!(format_eval_result(&eval.eval_expr(&forms[0])), "OK t");
+}
+
+#[test]
+fn lexical_condition_case_debug_marker_calls_debugger_before_handler() {
+    let mut eval = Context::new();
+    eval.set_lexical_binding(true);
+
+    let forms = parse_forms(
+        "(progn
+           (setq neovm-debugger-called nil)
+           (let ((debug-on-error t)
+               (debugger (lambda (&rest args)
+                           (setq neovm-debugger-called args))))
+             (list (condition-case nil
+                       (signal 'error 1)
+                     ((debug error) 'handled))
+                   neovm-debugger-called)))",
+    )
+    .expect("parse");
+
+    assert_eq!(
+        format_eval_result(&eval.eval_expr(&forms[0])),
+        "OK (handled (error (error . 1)))"
     );
 }
 
