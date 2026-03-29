@@ -71,15 +71,15 @@ pub(crate) enum SpecBinding {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct GnuTimerTimestamp {
-    high_seconds: i64,
-    low_seconds: i64,
-    usecs: i64,
-    psecs: i64,
+pub(crate) struct GnuTimerTimestamp {
+    pub(crate) high_seconds: i64,
+    pub(crate) low_seconds: i64,
+    pub(crate) usecs: i64,
+    pub(crate) psecs: i64,
 }
 
 impl GnuTimerTimestamp {
-    fn now() -> Self {
+    pub(crate) fn now() -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let (secs, usecs) = match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -102,7 +102,7 @@ impl GnuTimerTimestamp {
         (self.high_seconds << 16) + self.low_seconds
     }
 
-    fn duration_until(self, now: Self) -> std::time::Duration {
+    pub(crate) fn duration_until(self, now: Self) -> std::time::Duration {
         use std::time::Duration;
 
         if self <= now {
@@ -135,7 +135,7 @@ impl GnuTimerTimestamp {
         Duration::new(secs, nanos)
     }
 
-    fn from_duration(duration: std::time::Duration) -> Self {
+    pub(crate) fn from_duration(duration: std::time::Duration) -> Self {
         let secs = duration.as_secs() as i64;
         let usecs = duration.subsec_micros() as i64;
         Self {
@@ -148,9 +148,9 @@ impl GnuTimerTimestamp {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct PendingGnuTimer {
-    timer: Value,
-    when: GnuTimerTimestamp,
+pub(crate) struct PendingGnuTimer {
+    pub(crate) timer: Value,
+    pub(crate) when: GnuTimerTimestamp,
 }
 
 /// Compute a content fingerprint of a macro call's args slice.
@@ -3671,294 +3671,6 @@ impl Context {
                 psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
             },
         })
-    }
-
-    fn due_gnu_timers_snapshot(&self) -> Vec<Value> {
-        let timers = self
-            .obarray
-            .symbol_value("timer-list")
-            .and_then(list_to_vec)
-            .unwrap_or_default();
-        let now = GnuTimerTimestamp::now();
-
-        timers
-            .into_iter()
-            .filter_map(Self::pending_gnu_timer)
-            .filter(|timer| timer.when <= now)
-            .map(|timer| timer.timer)
-            .collect()
-    }
-
-    fn due_gnu_idle_timers_snapshot(&self) -> Vec<Value> {
-        let Some(idle_duration) = self.current_idle_duration() else {
-            return Vec::new();
-        };
-        let idle_timers = self
-            .obarray
-            .symbol_value("timer-idle-list")
-            .and_then(list_to_vec)
-            .unwrap_or_default();
-        let now = GnuTimerTimestamp::from_duration(idle_duration);
-
-        idle_timers
-            .into_iter()
-            .filter_map(Self::pending_gnu_idle_timer)
-            .filter(|timer| timer.when <= now)
-            .map(|timer| timer.timer)
-            .collect()
-    }
-
-    pub(crate) fn next_ordinary_gnu_timer_timeout(&self) -> Option<std::time::Duration> {
-        let timers = self
-            .obarray
-            .symbol_value("timer-list")
-            .and_then(list_to_vec)
-            .unwrap_or_default();
-        let now = GnuTimerTimestamp::now();
-
-        timers
-            .into_iter()
-            .filter_map(Self::pending_gnu_timer)
-            .map(|timer| timer.when.duration_until(now))
-            .min()
-    }
-
-    pub(crate) fn next_idle_gnu_timer_timeout(&self) -> Option<std::time::Duration> {
-        let Some(idle_duration) = self.current_idle_duration() else {
-            return None;
-        };
-        let idle_timers = self
-            .obarray
-            .symbol_value("timer-idle-list")
-            .and_then(list_to_vec)
-            .unwrap_or_default();
-        let now = GnuTimerTimestamp::from_duration(idle_duration);
-
-        idle_timers
-            .into_iter()
-            .filter_map(Self::pending_gnu_idle_timer)
-            .map(|timer| timer.when.duration_until(now))
-            .min()
-    }
-
-    pub(crate) fn next_input_wait_timeout(&self) -> Option<std::time::Duration> {
-        let mut timeout = self.timers.next_fire_time();
-
-        if let Some(gnu_timeout) = self.next_ordinary_gnu_timer_timeout() {
-            timeout = Some(timeout.map_or(gnu_timeout, |current| current.min(gnu_timeout)));
-        }
-
-        if let Some(idle_timeout) = self.next_idle_gnu_timer_timeout() {
-            timeout = Some(timeout.map_or(idle_timeout, |current| current.min(idle_timeout)));
-        }
-
-        if !self.processes.live_process_ids().is_empty() {
-            let process_poll = std::time::Duration::from_millis(100);
-            timeout = Some(timeout.map_or(process_poll, |current| current.min(process_poll)));
-        }
-
-        timeout
-    }
-
-    /// Run a named hook if it is bound and non-nil.
-    /// Fire all pending timers and execute their callbacks.
-    ///
-    /// Mirrors GNU Emacs `timer_check()` (keyboard.c:4644).
-    /// Collects expired timers and invokes each callback via the evaluator.
-    pub(crate) fn fire_pending_timers(&mut self) {
-        let mut fired_any = false;
-
-        for timer in self.due_gnu_timers_snapshot() {
-            fired_any = true;
-            if let Value::Vector(timer_id) = timer {
-                with_heap_mut(|heap| heap.get_vector_mut(timer_id)[0] = Value::True);
-            }
-            if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
-                tracing::warn!("GNU Lisp timer callback error: {:?}", e);
-            }
-        }
-
-        for timer in self.due_gnu_idle_timers_snapshot() {
-            fired_any = true;
-            if let Value::Vector(timer_id) = timer {
-                with_heap_mut(|heap| heap.get_vector_mut(timer_id)[0] = Value::True);
-            }
-            if cfg!(test) {
-                eprintln!("fire_pending_timers idle timer={:?}", timer);
-            }
-            if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
-                tracing::warn!("GNU Lisp idle timer callback error: {:?}", e);
-            } else if cfg!(test) {
-                eprintln!("fire_pending_timers idle callback returned");
-            }
-        }
-
-        let now = std::time::Instant::now();
-        let fired = self.timers.fire_pending_timers(now);
-        for (callback, args) in fired {
-            fired_any = true;
-            let mut call_args = vec![callback];
-            call_args.extend(args);
-            if let Err(e) = super::builtins::dispatch_builtin(self, "funcall", call_args)
-                .unwrap_or(Ok(Value::Nil))
-            {
-                tracing::warn!("Rust timer callback error: {:?}", e);
-            }
-        }
-
-        // GNU Emacs refreshes display state after timer callbacks mutate
-        // buffers, windows, or the echo area while the command loop is idle.
-        // Without this, visual timer effects do not paint until unrelated
-        // input arrives, which breaks GUI timer semantics like startup probes
-        // and face-report helpers.
-        if fired_any {
-            self.redisplay();
-        }
-    }
-
-    /// Poll all live child processes for output and call their filters/sentinels.
-    ///
-    /// This mirrors GNU Emacs's process output polling that happens during
-    /// `read_char()` while waiting for input. Process filters are invoked
-    /// when stdout data is available; sentinels are invoked when a process exits.
-    pub(crate) fn poll_process_output(&mut self) {
-        let proc_ids = self.processes.live_process_ids();
-        if proc_ids.is_empty() {
-            return;
-        }
-
-        for pid in proc_ids {
-            // Check if child exited.
-            let exited = self.processes.check_child_exit(pid);
-
-            // Read available output (child stdout or network socket).
-            let read_result = self.processes.read_process_output(pid);
-            let is_network = self
-                .processes
-                .get(pid)
-                .map(|p| p.kind == super::process::ProcessKind::Network)
-                .unwrap_or(false);
-
-            match read_result {
-                Some(ref data) if !data.is_empty() => {
-                    let filter = self
-                        .processes
-                        .get(pid)
-                        .map(|p| p.filter)
-                        .unwrap_or(Value::Nil);
-
-                    // Save match-data and current-buffer before calling filter
-                    // (GNU Emacs does this in read_process_output).
-                    let saved_match_data = self.match_data.clone();
-                    let saved_current_buffer = self.buffers.current_buffer_id();
-
-                    if filter.is_nil() || filter.is_symbol_named("internal-default-process-filter")
-                    {
-                        // Default filter: insert output into the process buffer.
-                        let proc_val = Value::Int(pid as i64);
-                        let output_val = Value::string(data);
-                        if let Err(e) = super::process::builtin_internal_default_process_filter(
-                            self,
-                            vec![proc_val, output_val],
-                        ) {
-                            tracing::warn!("Default process filter error for pid {}: {:?}", pid, e);
-                        }
-                    } else if filter.is_truthy() {
-                        // Custom filter: call user function.
-                        let proc_val = Value::Int(pid as i64);
-                        let output_val = Value::string(data);
-                        if let Err(e) = self.apply(filter, vec![proc_val, output_val]) {
-                            tracing::warn!("Process filter error for pid {}: {:?}", pid, e);
-                        }
-                    }
-
-                    // Restore match-data and current-buffer.
-                    self.match_data = saved_match_data;
-                    if let Some(buf_id) = saved_current_buffer {
-                        self.restore_current_buffer_if_live(buf_id);
-                    }
-                }
-                None if is_network => {
-                    // Network connection closed (EOF). Mark as exited and
-                    // call sentinel with the standard "connection broken" message.
-                    if let Some(proc) = self.processes.get_mut(pid) {
-                        proc.status = super::process::ProcessStatus::Exit(0);
-                    }
-                    let sentinel = self
-                        .processes
-                        .get(pid)
-                        .map(|p| p.sentinel)
-                        .unwrap_or(Value::Nil);
-                    if !sentinel.is_nil()
-                        && !sentinel.is_symbol_named("internal-default-process-sentinel")
-                        && sentinel.is_truthy()
-                    {
-                        let saved_match_data = self.match_data.clone();
-                        let saved_current_buffer = self.buffers.current_buffer_id();
-
-                        let proc_val = Value::Int(pid as i64);
-                        let msg_val = Value::string("connection broken by remote peer\n");
-                        if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
-                            tracing::warn!("Network sentinel error for pid {}: {:?}", pid, e);
-                        }
-
-                        self.match_data = saved_match_data;
-                        if let Some(buf_id) = saved_current_buffer {
-                            self.restore_current_buffer_if_live(buf_id);
-                        }
-                    }
-                    // Skip the normal exited check below — we already handled it.
-                    continue;
-                }
-                _ => {}
-            }
-
-            // If process exited, call sentinel.
-            if exited {
-                let sentinel = self
-                    .processes
-                    .get(pid)
-                    .map(|p| p.sentinel)
-                    .unwrap_or(Value::Nil);
-                let exit_msg = self
-                    .processes
-                    .get(pid)
-                    .map(|p| match &p.status {
-                        super::process::ProcessStatus::Exit(code) => {
-                            if *code == 0 {
-                                "finished\n".to_string()
-                            } else {
-                                format!("exited abnormally with code {}\n", code)
-                            }
-                        }
-                        super::process::ProcessStatus::Signal(sig) => {
-                            format!("killed by signal {}\n", sig)
-                        }
-                        _ => "finished\n".to_string(),
-                    })
-                    .unwrap_or_else(|| "finished\n".to_string());
-                if !sentinel.is_nil()
-                    && !sentinel.is_symbol_named("internal-default-process-sentinel")
-                    && sentinel.is_truthy()
-                {
-                    // Save match-data and current-buffer before calling sentinel.
-                    let saved_match_data = self.match_data.clone();
-                    let saved_current_buffer = self.buffers.current_buffer_id();
-
-                    let proc_val = Value::Int(pid as i64);
-                    let msg_val = Value::string(&exit_msg);
-                    if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
-                        tracing::warn!("Process sentinel error for pid {}: {:?}", pid, e);
-                    }
-
-                    // Restore match-data and current-buffer.
-                    self.match_data = saved_match_data;
-                    if let Some(buf_id) = saved_current_buffer {
-                        self.restore_current_buffer_if_live(buf_id);
-                    }
-                }
-            }
-        }
     }
 
     /// Run a named hook if it is bound and non-nil.

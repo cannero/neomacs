@@ -903,6 +903,68 @@ fn sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
     frame.resize_pixelwise(size.width, size.height);
 }
 
+fn pending_gnu_timer_in_keyboard_runtime(
+    timer: Value,
+) -> Option<crate::emacs_core::eval::PendingGnuTimer> {
+    let Value::Vector(timer_id) = timer else {
+        return None;
+    };
+
+    let slots = crate::emacs_core::value::with_heap(|heap| heap.get_vector(timer_id).clone());
+    if !(9..=10).contains(&slots.len()) {
+        return None;
+    }
+
+    if !slots[0].is_nil() {
+        return None;
+    }
+
+    if !slots[7].is_nil() {
+        return None;
+    }
+
+    Some(crate::emacs_core::eval::PendingGnuTimer {
+        timer,
+        when: crate::emacs_core::eval::GnuTimerTimestamp {
+            high_seconds: slots[1].as_int()?,
+            low_seconds: slots[2].as_int()?,
+            usecs: slots[3].as_int()?,
+            psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
+        },
+    })
+}
+
+fn pending_gnu_idle_timer_in_keyboard_runtime(
+    timer: Value,
+) -> Option<crate::emacs_core::eval::PendingGnuTimer> {
+    let Value::Vector(timer_id) = timer else {
+        return None;
+    };
+
+    let slots = crate::emacs_core::value::with_heap(|heap| heap.get_vector(timer_id).clone());
+    if !(9..=10).contains(&slots.len()) {
+        return None;
+    }
+
+    if !slots[0].is_nil() {
+        return None;
+    }
+
+    if slots[7].is_nil() {
+        return None;
+    }
+
+    Some(crate::emacs_core::eval::PendingGnuTimer {
+        timer,
+        when: crate::emacs_core::eval::GnuTimerTimestamp {
+            high_seconds: slots[1].as_int()?,
+            low_seconds: slots[2].as_int()?,
+            usecs: slots[3].as_int()?,
+            psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
+        },
+    })
+}
+
 impl crate::emacs_core::eval::Context {
     pub(crate) fn apply_resize_input_event(
         &mut self,
@@ -1372,6 +1434,273 @@ impl crate::emacs_core::eval::Context {
     pub(crate) fn timer_resume_idle(&mut self) {
         if self.command_loop.idle_start_time.is_none() {
             self.command_loop.idle_start_time = self.command_loop.last_idle_start_time;
+        }
+    }
+
+    fn due_gnu_timers_snapshot(&self) -> Vec<Value> {
+        let timers = self
+            .obarray
+            .symbol_value("timer-list")
+            .and_then(crate::emacs_core::value::list_to_vec)
+            .unwrap_or_default();
+        let now = crate::emacs_core::eval::GnuTimerTimestamp::now();
+
+        timers
+            .into_iter()
+            .filter_map(pending_gnu_timer_in_keyboard_runtime)
+            .filter(|timer| timer.when <= now)
+            .map(|timer| timer.timer)
+            .collect()
+    }
+
+    fn due_gnu_idle_timers_snapshot(&self) -> Vec<Value> {
+        let Some(idle_duration) = self.current_idle_duration() else {
+            return Vec::new();
+        };
+        let idle_timers = self
+            .obarray
+            .symbol_value("timer-idle-list")
+            .and_then(crate::emacs_core::value::list_to_vec)
+            .unwrap_or_default();
+        let now = crate::emacs_core::eval::GnuTimerTimestamp::from_duration(idle_duration);
+
+        idle_timers
+            .into_iter()
+            .filter_map(pending_gnu_idle_timer_in_keyboard_runtime)
+            .filter(|timer| timer.when <= now)
+            .map(|timer| timer.timer)
+            .collect()
+    }
+
+    pub(crate) fn next_ordinary_gnu_timer_timeout(&self) -> Option<std::time::Duration> {
+        let timers = self
+            .obarray
+            .symbol_value("timer-list")
+            .and_then(crate::emacs_core::value::list_to_vec)
+            .unwrap_or_default();
+        let now = crate::emacs_core::eval::GnuTimerTimestamp::now();
+
+        timers
+            .into_iter()
+            .filter_map(pending_gnu_timer_in_keyboard_runtime)
+            .map(|timer| timer.when.duration_until(now))
+            .min()
+    }
+
+    pub(crate) fn next_idle_gnu_timer_timeout(&self) -> Option<std::time::Duration> {
+        let Some(idle_duration) = self.current_idle_duration() else {
+            return None;
+        };
+        let idle_timers = self
+            .obarray
+            .symbol_value("timer-idle-list")
+            .and_then(crate::emacs_core::value::list_to_vec)
+            .unwrap_or_default();
+        let now = crate::emacs_core::eval::GnuTimerTimestamp::from_duration(idle_duration);
+
+        idle_timers
+            .into_iter()
+            .filter_map(pending_gnu_idle_timer_in_keyboard_runtime)
+            .map(|timer| timer.when.duration_until(now))
+            .min()
+    }
+
+    pub(crate) fn next_input_wait_timeout(&self) -> Option<std::time::Duration> {
+        let mut timeout = self.timers.next_fire_time();
+
+        if let Some(gnu_timeout) = self.next_ordinary_gnu_timer_timeout() {
+            timeout = Some(timeout.map_or(gnu_timeout, |current| current.min(gnu_timeout)));
+        }
+
+        if let Some(idle_timeout) = self.next_idle_gnu_timer_timeout() {
+            timeout = Some(timeout.map_or(idle_timeout, |current| current.min(idle_timeout)));
+        }
+
+        if !self.processes.live_process_ids().is_empty() {
+            let process_poll = std::time::Duration::from_millis(100);
+            timeout = Some(timeout.map_or(process_poll, |current| current.min(process_poll)));
+        }
+
+        timeout
+    }
+
+    pub(crate) fn fire_pending_timers(&mut self) {
+        let mut fired_any = false;
+
+        for timer in self.due_gnu_timers_snapshot() {
+            fired_any = true;
+            if let Value::Vector(timer_id) = timer {
+                crate::emacs_core::value::with_heap_mut(|heap| {
+                    heap.get_vector_mut(timer_id)[0] = Value::True
+                });
+            }
+            if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
+                tracing::warn!("GNU Lisp timer callback error: {:?}", e);
+            }
+        }
+
+        for timer in self.due_gnu_idle_timers_snapshot() {
+            fired_any = true;
+            if let Value::Vector(timer_id) = timer {
+                crate::emacs_core::value::with_heap_mut(|heap| {
+                    heap.get_vector_mut(timer_id)[0] = Value::True
+                });
+            }
+            if cfg!(test) {
+                eprintln!("fire_pending_timers idle timer={:?}", timer);
+            }
+            if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
+                tracing::warn!("GNU Lisp idle timer callback error: {:?}", e);
+            } else if cfg!(test) {
+                eprintln!("fire_pending_timers idle callback returned");
+            }
+        }
+
+        let now = std::time::Instant::now();
+        let fired = self.timers.fire_pending_timers(now);
+        for (callback, args) in fired {
+            fired_any = true;
+            let mut call_args = vec![callback];
+            call_args.extend(args);
+            if let Err(e) =
+                crate::emacs_core::builtins::dispatch_builtin(self, "funcall", call_args)
+                    .unwrap_or(Ok(Value::Nil))
+            {
+                tracing::warn!("Rust timer callback error: {:?}", e);
+            }
+        }
+
+        if fired_any {
+            self.redisplay();
+        }
+    }
+
+    pub(crate) fn poll_process_output(&mut self) {
+        let proc_ids = self.processes.live_process_ids();
+        if proc_ids.is_empty() {
+            return;
+        }
+
+        for pid in proc_ids {
+            let exited = self.processes.check_child_exit(pid);
+
+            let read_result = self.processes.read_process_output(pid);
+            let is_network = self
+                .processes
+                .get(pid)
+                .map(|p| p.kind == crate::emacs_core::process::ProcessKind::Network)
+                .unwrap_or(false);
+
+            match read_result {
+                Some(ref data) if !data.is_empty() => {
+                    let filter = self
+                        .processes
+                        .get(pid)
+                        .map(|p| p.filter)
+                        .unwrap_or(Value::Nil);
+
+                    let saved_match_data = self.match_data.clone();
+                    let saved_current_buffer = self.buffers.current_buffer_id();
+
+                    if filter.is_nil() || filter.is_symbol_named("internal-default-process-filter")
+                    {
+                        let proc_val = Value::Int(pid as i64);
+                        let output_val = Value::string(data);
+                        if let Err(e) =
+                            crate::emacs_core::process::builtin_internal_default_process_filter(
+                                self,
+                                vec![proc_val, output_val],
+                            )
+                        {
+                            tracing::warn!("Default process filter error for pid {}: {:?}", pid, e);
+                        }
+                    } else if filter.is_truthy() {
+                        let proc_val = Value::Int(pid as i64);
+                        let output_val = Value::string(data);
+                        if let Err(e) = self.apply(filter, vec![proc_val, output_val]) {
+                            tracing::warn!("Process filter error for pid {}: {:?}", pid, e);
+                        }
+                    }
+
+                    self.match_data = saved_match_data;
+                    if let Some(buf_id) = saved_current_buffer {
+                        self.restore_current_buffer_if_live(buf_id);
+                    }
+                }
+                None if is_network => {
+                    if let Some(proc) = self.processes.get_mut(pid) {
+                        proc.status = crate::emacs_core::process::ProcessStatus::Exit(0);
+                    }
+                    let sentinel = self
+                        .processes
+                        .get(pid)
+                        .map(|p| p.sentinel)
+                        .unwrap_or(Value::Nil);
+                    if !sentinel.is_nil()
+                        && !sentinel.is_symbol_named("internal-default-process-sentinel")
+                        && sentinel.is_truthy()
+                    {
+                        let saved_match_data = self.match_data.clone();
+                        let saved_current_buffer = self.buffers.current_buffer_id();
+
+                        let proc_val = Value::Int(pid as i64);
+                        let msg_val = Value::string("connection broken by remote peer\n");
+                        if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
+                            tracing::warn!("Network sentinel error for pid {}: {:?}", pid, e);
+                        }
+
+                        self.match_data = saved_match_data;
+                        if let Some(buf_id) = saved_current_buffer {
+                            self.restore_current_buffer_if_live(buf_id);
+                        }
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+
+            if exited {
+                let sentinel = self
+                    .processes
+                    .get(pid)
+                    .map(|p| p.sentinel)
+                    .unwrap_or(Value::Nil);
+                let exit_msg = self
+                    .processes
+                    .get(pid)
+                    .map(|p| match &p.status {
+                        crate::emacs_core::process::ProcessStatus::Exit(code) => {
+                            if *code == 0 {
+                                "finished\n".to_string()
+                            } else {
+                                format!("exited abnormally with code {}\n", code)
+                            }
+                        }
+                        crate::emacs_core::process::ProcessStatus::Signal(sig) => {
+                            format!("killed by signal {}\n", sig)
+                        }
+                        _ => "finished\n".to_string(),
+                    })
+                    .unwrap_or_else(|| "finished\n".to_string());
+                if !sentinel.is_nil()
+                    && !sentinel.is_symbol_named("internal-default-process-sentinel")
+                    && sentinel.is_truthy()
+                {
+                    let saved_match_data = self.match_data.clone();
+                    let saved_current_buffer = self.buffers.current_buffer_id();
+
+                    let proc_val = Value::Int(pid as i64);
+                    let msg_val = Value::string(&exit_msg);
+                    if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
+                        tracing::warn!("Process sentinel error for pid {}: {:?}", pid, e);
+                    }
+
+                    self.match_data = saved_match_data;
+                    if let Some(buf_id) = saved_current_buffer {
+                        self.restore_current_buffer_if_live(buf_id);
+                    }
+                }
+            }
         }
     }
 }

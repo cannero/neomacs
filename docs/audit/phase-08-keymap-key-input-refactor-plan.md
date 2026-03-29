@@ -164,6 +164,9 @@ Completed on 2026-03-29:
 - Resize synchronization for `read_char` / `redisplay` now lives in
   `src/keyboard.rs` too, including pending resize draining and opening GUI
   frame host-size reconciliation.
+- Timer timeout selection, GNU timer firing, and process-output polling for the
+  command loop now live in `src/keyboard.rs` too, so the `read_char` wait path
+  is no longer evaluator-owned.
 
 Still open:
 
@@ -172,7 +175,7 @@ Still open:
   normalization is now centralized.
 - The moved `read_char` / `read_key_sequence` code still reaches through
   `Context` helper/state surfaces that are evaluator-shaped; the next cleanup is
-  the timer/process wait and recent-key bookkeeping boundary.
+  the recent-key bookkeeping and remaining display-host/timer reach-through.
 - Keymap autoload and parent-cycle semantics are still thinner than GNU.
 
 ### Slice 1: Active maps and `key-binding`
