@@ -2633,8 +2633,12 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
         Value::symbol("interpreted-function")
     );
 
-    assert_eq!(builtin_cancel_kbd_macro_events(vec![]).unwrap(), Value::Nil);
-    let cancel_arity = builtin_cancel_kbd_macro_events(vec![Value::Nil])
+    let mut cancel_eval = crate::emacs_core::eval::Context::new();
+    assert_eq!(
+        builtin_cancel_kbd_macro_events(&mut cancel_eval, vec![]).unwrap(),
+        Value::Nil
+    );
+    let cancel_arity = builtin_cancel_kbd_macro_events(&mut cancel_eval, vec![Value::Nil])
         .expect_err("cancel-kbd-macro-events should reject args");
     match cancel_arity {
         Flow::Signal(sig) => {

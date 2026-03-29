@@ -6084,7 +6084,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "cancel-kbd-macro-events",
-        |_ctx, args| builtin_cancel_kbd_macro_events(args),
+        |ctx, args| builtin_cancel_kbd_macro_events(ctx, args),
         0,
         Some(0),
     );

@@ -713,8 +713,12 @@ pub struct KBoard {
     local_function_key_map: Value,
     /// Defining keyboard macro (if any).
     pub defining_kbd_macro: bool,
-    /// Keyboard macro being defined, as Lisp-visible Emacs events.
+    /// Keyboard macro buffer being defined, as Lisp-visible Emacs events.
     pub kbd_macro_events: Vec<Value>,
+    /// Finalized prefix of `kbd_macro_events` that belongs to completed commands.
+    pub kbd_macro_end: usize,
+    /// The last completed keyboard macro, matching GNU `last-kbd-macro`.
+    pub last_kbd_macro: Option<Vec<Value>>,
     /// Keyboard macro being executed, as Lisp-visible Emacs events.
     pub executing_kbd_macro: Option<Vec<Value>>,
     /// Index into executing keyboard macro.
@@ -734,6 +738,8 @@ impl KBoard {
             local_function_key_map: Value::Nil,
             defining_kbd_macro: false,
             kbd_macro_events: Vec::new(),
+            kbd_macro_end: 0,
+            last_kbd_macro: None,
             executing_kbd_macro: None,
             kbd_macro_index: 0,
         }
@@ -835,19 +841,51 @@ impl KBoard {
     }
 
     pub fn start_kbd_macro(&mut self) {
+        self.start_kbd_macro_with_initial(None);
+    }
+
+    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>) {
         self.defining_kbd_macro = true;
         self.kbd_macro_events.clear();
-    }
-
-    pub fn end_kbd_macro(&mut self) {
-        self.defining_kbd_macro = false;
-    }
-
-    pub fn call_last_kbd_macro(&mut self) {
-        if !self.kbd_macro_events.is_empty() {
-            self.executing_kbd_macro = Some(self.kbd_macro_events.clone());
-            self.kbd_macro_index = 0;
+        if let Some(initial_events) = initial_events {
+            self.kbd_macro_events.extend_from_slice(initial_events);
         }
+        self.kbd_macro_end = self.kbd_macro_events.len();
+    }
+
+    pub fn store_kbd_macro_event(&mut self, event: Value) {
+        if self.defining_kbd_macro {
+            self.kbd_macro_events.push(event);
+        }
+    }
+
+    pub fn finalize_kbd_macro_chars(&mut self) {
+        self.kbd_macro_end = self.kbd_macro_events.len();
+    }
+
+    pub fn cancel_kbd_macro_events(&mut self) {
+        self.kbd_macro_events.truncate(self.kbd_macro_end);
+    }
+
+    pub fn end_kbd_macro(&mut self) -> Vec<Value> {
+        self.defining_kbd_macro = false;
+        let finalized = self.kbd_macro_events[..self.kbd_macro_end].to_vec();
+        self.last_kbd_macro = Some(finalized.clone());
+        finalized
+    }
+
+    pub fn last_kbd_macro(&self) -> Option<&[Value]> {
+        self.last_kbd_macro.as_deref()
+    }
+
+    pub fn begin_executing_kbd_macro(&mut self, events: Vec<Value>) {
+        self.executing_kbd_macro = Some(events);
+        self.kbd_macro_index = 0;
+    }
+
+    pub fn finish_executing_kbd_macro(&mut self) {
+        self.executing_kbd_macro = None;
+        self.kbd_macro_index = 0;
     }
 }
 
@@ -876,6 +914,9 @@ impl crate::gc::GcTrace for KBoard {
         roots.push(self.input_decode_map);
         roots.push(self.local_function_key_map);
         roots.extend(self.kbd_macro_events.iter().copied());
+        if let Some(events) = &self.last_kbd_macro {
+            roots.extend(events.iter().copied());
+        }
         if let Some(events) = &self.executing_kbd_macro {
             roots.extend(events.iter().copied());
         }
@@ -958,9 +999,7 @@ impl KeyboardRuntime {
         while let Some(event) = self.event_queue.pop_front() {
             if let InputEvent::KeyPress(key) = event {
                 let emacs_event = key.to_emacs_event_value();
-                if self.kboard.defining_kbd_macro {
-                    self.kboard.kbd_macro_events.push(emacs_event);
-                }
+                self.kboard.store_kbd_macro_event(emacs_event);
                 return Some(emacs_event);
             }
         }
@@ -1030,19 +1069,39 @@ impl KeyboardRuntime {
     }
 
     pub fn start_kbd_macro(&mut self) {
-        self.kboard.defining_kbd_macro = true;
-        self.kboard.kbd_macro_events.clear();
+        self.kboard.start_kbd_macro();
     }
 
-    pub fn end_kbd_macro(&mut self) {
-        self.kboard.defining_kbd_macro = false;
+    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>) {
+        self.kboard.start_kbd_macro_with_initial(initial_events);
     }
 
-    pub fn call_last_kbd_macro(&mut self) {
-        if !self.kboard.kbd_macro_events.is_empty() {
-            self.kboard.executing_kbd_macro = Some(self.kboard.kbd_macro_events.clone());
-            self.kboard.kbd_macro_index = 0;
-        }
+    pub fn store_kbd_macro_event(&mut self, event: Value) {
+        self.kboard.store_kbd_macro_event(event);
+    }
+
+    pub fn finalize_kbd_macro_chars(&mut self) {
+        self.kboard.finalize_kbd_macro_chars();
+    }
+
+    pub fn cancel_kbd_macro_events(&mut self) {
+        self.kboard.cancel_kbd_macro_events();
+    }
+
+    pub fn end_kbd_macro(&mut self) -> Vec<Value> {
+        self.kboard.end_kbd_macro()
+    }
+
+    pub fn last_kbd_macro(&self) -> Option<&[Value]> {
+        self.kboard.last_kbd_macro()
+    }
+
+    pub fn begin_executing_kbd_macro(&mut self, events: Vec<Value>) {
+        self.kboard.begin_executing_kbd_macro(events);
+    }
+
+    pub fn finish_executing_kbd_macro(&mut self) {
+        self.kboard.finish_executing_kbd_macro();
     }
 }
 
@@ -1165,14 +1224,37 @@ impl CommandLoop {
         self.keyboard.start_kbd_macro();
     }
 
-    /// Stop recording a keyboard macro.
-    pub fn end_kbd_macro(&mut self) {
-        self.keyboard.end_kbd_macro();
+    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>) {
+        self.keyboard.start_kbd_macro_with_initial(initial_events);
     }
 
-    /// Execute the last keyboard macro.
-    pub fn call_last_kbd_macro(&mut self) {
-        self.keyboard.call_last_kbd_macro();
+    pub fn store_kbd_macro_event(&mut self, event: Value) {
+        self.keyboard.store_kbd_macro_event(event);
+    }
+
+    pub fn finalize_kbd_macro_chars(&mut self) {
+        self.keyboard.finalize_kbd_macro_chars();
+    }
+
+    pub fn cancel_kbd_macro_events(&mut self) {
+        self.keyboard.cancel_kbd_macro_events();
+    }
+
+    /// Stop recording a keyboard macro.
+    pub fn end_kbd_macro(&mut self) -> Vec<Value> {
+        self.keyboard.end_kbd_macro()
+    }
+
+    pub fn last_kbd_macro(&self) -> Option<&[Value]> {
+        self.keyboard.last_kbd_macro()
+    }
+
+    pub fn begin_executing_kbd_macro(&mut self, events: Vec<Value>) {
+        self.keyboard.begin_executing_kbd_macro(events);
+    }
+
+    pub fn finish_executing_kbd_macro(&mut self) {
+        self.keyboard.finish_executing_kbd_macro();
     }
 
     /// Signal a quit (C-g).
@@ -2139,6 +2221,10 @@ impl crate::emacs_core::eval::Context {
             if self.command_loop.keyboard.kboard.kbd_macro_index < macro_events.len() {
                 let event = macro_events[self.command_loop.keyboard.kboard.kbd_macro_index];
                 self.command_loop.keyboard.kboard.kbd_macro_index += 1;
+                self.assign(
+                    "executing-kbd-macro-index",
+                    Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
+                );
                 return Ok(event);
             }
         }
@@ -2266,13 +2352,7 @@ impl crate::emacs_core::eval::Context {
                     if self.event_is_quit_char(&emacs_event) {
                         self.request_quit_from_keyboard_input();
                     }
-                    if self.command_loop.keyboard.kboard.defining_kbd_macro {
-                        self.command_loop
-                            .keyboard
-                            .kboard
-                            .kbd_macro_events
-                            .push(emacs_event);
-                    }
+                    self.command_loop.store_kbd_macro_event(emacs_event);
                     return Ok(emacs_event);
                 }
                 InputEvent::MousePress {
@@ -2292,6 +2372,7 @@ impl crate::emacs_core::eval::Context {
                         "down-mouse",
                         self,
                     );
+                    self.command_loop.store_kbd_macro_event(event);
                     return Ok(event);
                 }
                 InputEvent::MouseRelease {
@@ -2310,6 +2391,7 @@ impl crate::emacs_core::eval::Context {
                         "mouse",
                         self,
                     );
+                    self.command_loop.store_kbd_macro_event(event);
                     return Ok(event);
                 }
                 InputEvent::MouseScroll {
@@ -2329,7 +2411,9 @@ impl crate::emacs_core::eval::Context {
                     Self::append_modifier_prefix(&modifiers, &mut sym);
                     sym.push_str(dir);
                     let position = Self::make_mouse_position(x, y, target_frame_id, self);
-                    return Ok(Value::list(vec![Value::symbol(&sym), position]));
+                    let event = Value::list(vec![Value::symbol(&sym), position]);
+                    self.command_loop.store_kbd_macro_event(event);
+                    return Ok(event);
                 }
                 InputEvent::MouseMove { .. } => {
                     self.timer_resume_idle();
@@ -3236,6 +3320,91 @@ impl crate::emacs_core::eval::Context {
         self.command_loop.read_raw_command_keys()
     }
 
+    pub(crate) fn sync_keyboard_macro_runtime_vars(&mut self) {
+        self.assign(
+            "defining-kbd-macro",
+            Value::bool(self.command_loop.keyboard.kboard.defining_kbd_macro),
+        );
+        let last_kbd_macro = self
+            .command_loop
+            .last_kbd_macro()
+            .map(|events| Value::vector(events.to_vec()))
+            .unwrap_or(Value::Nil);
+        self.assign("last-kbd-macro", last_kbd_macro);
+        let executing_kbd_macro = self
+            .command_loop
+            .keyboard
+            .kboard
+            .executing_kbd_macro
+            .as_ref()
+            .map(|events| Value::vector(events.clone()))
+            .unwrap_or(Value::Nil);
+        self.assign("executing-kbd-macro", executing_kbd_macro);
+        self.assign(
+            "executing-kbd-macro-index",
+            Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
+        );
+    }
+
+    pub(crate) fn start_kbd_macro_runtime(
+        &mut self,
+        initial_events: Option<&[Value]>,
+    ) -> Result<(), crate::emacs_core::error::Flow> {
+        if self.command_loop.keyboard.kboard.defining_kbd_macro {
+            return Err(crate::emacs_core::error::signal(
+                "error",
+                vec![Value::string("Already defining a keyboard macro")],
+            ));
+        }
+        self.command_loop
+            .start_kbd_macro_with_initial(initial_events);
+        self.sync_keyboard_macro_runtime_vars();
+        Ok(())
+    }
+
+    pub(crate) fn store_kbd_macro_runtime_event(&mut self, event: Value) {
+        self.command_loop.store_kbd_macro_event(event);
+    }
+
+    pub(crate) fn finalize_kbd_macro_runtime_chars(&mut self) {
+        self.command_loop.finalize_kbd_macro_chars();
+    }
+
+    pub(crate) fn cancel_kbd_macro_runtime_events(&mut self) {
+        self.command_loop.cancel_kbd_macro_events();
+    }
+
+    pub(crate) fn end_kbd_macro_runtime(
+        &mut self,
+    ) -> Result<Vec<Value>, crate::emacs_core::error::Flow> {
+        if !self.command_loop.keyboard.kboard.defining_kbd_macro {
+            return Err(crate::emacs_core::error::signal(
+                "error",
+                vec![Value::string("Not defining a keyboard macro")],
+            ));
+        }
+        let previous = self
+            .command_loop
+            .last_kbd_macro()
+            .map(|events| events.to_vec());
+        let recorded = self.command_loop.end_kbd_macro();
+        if let Some(previous) = previous {
+            self.kmacro.macro_ring.push(previous);
+        }
+        self.sync_keyboard_macro_runtime_vars();
+        Ok(recorded)
+    }
+
+    pub(crate) fn begin_executing_kbd_macro_runtime(&mut self, events: Vec<Value>) {
+        self.command_loop.begin_executing_kbd_macro(events);
+        self.sync_keyboard_macro_runtime_vars();
+    }
+
+    pub(crate) fn finish_executing_kbd_macro_runtime(&mut self) {
+        self.command_loop.finish_executing_kbd_macro();
+        self.sync_keyboard_macro_runtime_vars();
+    }
+
     pub(crate) fn clear_command_key_state(&mut self, keep_record: bool) {
         self.clear_read_command_keys();
         if !keep_record {
@@ -3467,11 +3636,13 @@ mod tests {
         cl.read_key_event(); // 'h' — recorded
         cl.read_key_event(); // 'i' — recorded
 
-        cl.end_kbd_macro();
-        assert_eq!(cl.keyboard.kboard.kbd_macro_events.len(), 2);
+        cl.finalize_kbd_macro_chars();
+        let recorded = cl.end_kbd_macro();
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(cl.keyboard.kboard.kbd_macro_end, 2);
 
         // Replay.
-        cl.call_last_kbd_macro();
+        cl.begin_executing_kbd_macro(recorded);
         let e1 = cl.read_key_event().unwrap();
         assert_eq!(e1, Value::Int('h' as i64));
         let e2 = cl.read_key_event().unwrap();

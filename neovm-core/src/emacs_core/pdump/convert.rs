@@ -1073,11 +1073,11 @@ pub(crate) fn dump_rectangle(r: &RectangleState) -> DumpRectangleState {
 
 pub(crate) fn dump_kmacro(km: &KmacroManager) -> DumpKmacroManager {
     DumpKmacroManager {
-        current_macro: km.current_macro.iter().map(dump_value).collect(),
-        last_macro: km
-            .last_macro
-            .as_ref()
-            .map(|m| m.iter().map(dump_value).collect()),
+        // Live recording/playback state is keyboard-runtime owned and is not
+        // persisted in fresh dumps. Keep the fields for backward-compatible
+        // decoding of older pdumps only.
+        current_macro: Vec::new(),
+        last_macro: None,
         macro_ring: km
             .macro_ring
             .iter()
@@ -2364,13 +2364,6 @@ pub(crate) fn load_rectangle(dr: &DumpRectangleState) -> RectangleState {
 
 pub(crate) fn load_kmacro(dkm: &DumpKmacroManager) -> KmacroManager {
     KmacroManager {
-        recording: false,
-        executing: false,
-        current_macro: dkm.current_macro.iter().map(load_value).collect(),
-        last_macro: dkm
-            .last_macro
-            .as_ref()
-            .map(|m| m.iter().map(load_value).collect()),
         macro_ring: dkm
             .macro_ring
             .iter()

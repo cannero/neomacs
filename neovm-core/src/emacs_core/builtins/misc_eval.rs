@@ -917,8 +917,12 @@ pub(crate) fn builtin_bury_buffer_internal_impl(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_cancel_kbd_macro_events(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_cancel_kbd_macro_events(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("cancel-kbd-macro-events", &args, 0)?;
+    eval.cancel_kbd_macro_runtime_events();
     Ok(Value::Nil)
 }
 

@@ -2910,23 +2910,24 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_call_last_kbd_macro_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (macro_events, count) = {
-            let kmacro = self.ctx.kmacro_mut();
-            crate::emacs_core::kmacro::plan_call_last_kbd_macro(kmacro, args)?
-        };
+        let (macro_events, count) = crate::emacs_core::kmacro::plan_call_last_kbd_macro(
+            self.ctx.command_loop.last_kbd_macro(),
+            args,
+        )?;
         let self_insert = self
             .ctx
             .obarray
             .symbol_function("self-insert-command")
             .cloned();
-        self.ctx.kmacro_mut().executing = true;
+        self.ctx
+            .begin_executing_kbd_macro_runtime(macro_events.clone());
         let result = crate::emacs_core::kmacro::execute_kbd_macro_events(
             self_insert,
             &macro_events,
             count,
             |func, call_args| self.call_function_with_roots(func, &call_args),
         );
-        self.ctx.kmacro_mut().executing = false;
+        self.ctx.finish_executing_kbd_macro_runtime();
         result
     }
 
@@ -2937,14 +2938,15 @@ impl<'a> Vm<'a> {
             .obarray
             .symbol_function("self-insert-command")
             .cloned();
-        self.ctx.kmacro_mut().executing = true;
+        self.ctx
+            .begin_executing_kbd_macro_runtime(macro_events.clone());
         let result = crate::emacs_core::kmacro::execute_kbd_macro_events(
             self_insert,
             &macro_events,
             count,
             |func, call_args| self.call_function_with_roots(func, &call_args),
         );
-        self.ctx.kmacro_mut().executing = false;
+        self.ctx.finish_executing_kbd_macro_runtime();
         result
     }
 
@@ -3594,6 +3596,38 @@ impl<'a> Vm<'a> {
         // VM-internal bytecode operations that are not real Elisp builtins.
         match name {
             "call-interactively" => return self.builtin_call_interactively_shared(&args),
+            "start-kbd-macro" => {
+                return crate::emacs_core::kmacro::builtin_start_kbd_macro(&mut *self.ctx, args);
+            }
+            "end-kbd-macro" => {
+                return crate::emacs_core::kmacro::builtin_end_kbd_macro(&mut *self.ctx, args);
+            }
+            "call-last-kbd-macro" => return self.builtin_call_last_kbd_macro_shared(&args),
+            "execute-kbd-macro" => return self.builtin_execute_kbd_macro_shared(&args),
+            "store-kbd-macro-event" => {
+                return crate::emacs_core::kmacro::builtin_store_kbd_macro_event(
+                    &mut *self.ctx,
+                    args,
+                );
+            }
+            "cancel-kbd-macro-events" => {
+                return crate::emacs_core::builtins::builtin_cancel_kbd_macro_events(
+                    &mut *self.ctx,
+                    args,
+                );
+            }
+            "name-last-kbd-macro" => {
+                return crate::emacs_core::kmacro::builtin_name_last_kbd_macro(
+                    &mut *self.ctx,
+                    args,
+                );
+            }
+            "kmacro-name-last-macro" => {
+                return crate::emacs_core::kmacro::builtin_kmacro_name_last_macro(
+                    &mut *self.ctx,
+                    args,
+                );
+            }
             "%%defvar" => {
                 if args.len() >= 2 {
                     let sym_name = args[1].as_symbol_name().unwrap_or("nil").to_string();

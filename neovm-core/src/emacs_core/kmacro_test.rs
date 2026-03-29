@@ -28,110 +28,80 @@ fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
 }
 
 // -----------------------------------------------------------------------
-// KmacroManager unit tests
+// Kmacro metadata / keyboard runtime tests
 // -----------------------------------------------------------------------
 
 #[test]
 fn new_manager_defaults() {
     let mgr = KmacroManager::new();
-    assert!(!mgr.recording);
-    assert!(!mgr.executing);
-    assert!(mgr.current_macro.is_empty());
-    assert!(mgr.last_macro.is_none());
     assert!(mgr.macro_ring.is_empty());
     assert_eq!(mgr.counter, 0);
     assert_eq!(mgr.counter_format, "%d");
 }
 
 #[test]
-fn start_stop_recording() {
-    let mut mgr = KmacroManager::new();
+fn keyboard_runtime_finalize_and_cancel_match_gnu_macro_boundary_shape() {
+    let mut eval = Context::new();
 
-    // Start recording
-    mgr.start_recording(false);
-    assert!(mgr.recording);
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
+    assert!(eval.command_loop.keyboard.kboard.defining_kbd_macro);
+    assert_eq!(
+        eval.eval_symbol("defining-kbd-macro")
+            .expect("defining-kbd-macro"),
+        Value::True
+    );
 
-    // Store some events
-    mgr.store_event(Value::Char('a'));
-    mgr.store_event(Value::Char('b'));
-    mgr.store_event(Value::Char('c'));
-    assert_eq!(mgr.current_macro.len(), 3);
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('a')]).expect("store a");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('b')]).expect("store b");
+    crate::emacs_core::builtins::builtin_cancel_kbd_macro_events(&mut eval, vec![])
+        .expect("cancel current command events");
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
 
-    // Stop recording
-    let result = mgr.stop_recording();
-    assert!(!mgr.recording);
-    assert!(result.is_some());
-    let recorded = result.unwrap();
-    assert_eq!(recorded.len(), 3);
-
-    // last_macro should be set
-    assert!(mgr.last_macro.is_some());
-    assert_eq!(mgr.last_macro.as_ref().unwrap().len(), 3);
-
-    // current_macro should be cleared
-    assert!(mgr.current_macro.is_empty());
+    assert_eq!(
+        eval.command_loop.last_kbd_macro(),
+        Some([Value::Char('a')].as_slice())
+    );
+    assert_eq!(
+        builtin_last_kbd_macro(&mut eval, vec![]).expect("last-kbd-macro"),
+        Value::vector(vec![Value::Char('a')])
+    );
+    assert_eq!(
+        eval.eval_symbol("last-kbd-macro")
+            .expect("last-kbd-macro var"),
+        Value::vector(vec![Value::Char('a')])
+    );
+    assert_eq!(
+        eval.eval_symbol("defining-kbd-macro")
+            .expect("defining-kbd-macro"),
+        Value::Nil
+    );
 }
 
 #[test]
-fn stop_recording_empty() {
-    let mut mgr = KmacroManager::new();
-    mgr.start_recording(false);
-    // Don't store any events
-    let result = mgr.stop_recording();
-    assert!(result.is_none());
-    assert!(mgr.last_macro.is_none());
-}
+fn macro_ring_pushes_previous_keyboard_runtime_macro() {
+    let mut eval = Context::new();
 
-#[test]
-fn append_recording() {
-    let mut mgr = KmacroManager::new();
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start first");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('a')]).expect("store a");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end first");
+    assert!(eval.kmacro.macro_ring.is_empty());
 
-    // Record first macro
-    mgr.start_recording(false);
-    mgr.store_event(Value::Char('x'));
-    mgr.store_event(Value::Char('y'));
-    mgr.stop_recording();
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start second");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('b')]).expect("store b");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end second");
+    assert_eq!(eval.kmacro.macro_ring, vec![vec![Value::Char('a')]]);
 
-    // Record second macro with append
-    mgr.start_recording(true);
-    assert_eq!(mgr.current_macro.len(), 2); // starts with previous
-    mgr.store_event(Value::Char('z'));
-    assert_eq!(mgr.current_macro.len(), 3);
-    mgr.stop_recording();
-
-    assert_eq!(mgr.last_macro.as_ref().unwrap().len(), 3);
-}
-
-#[test]
-fn macro_ring_push() {
-    let mut mgr = KmacroManager::new();
-
-    // Record first macro
-    mgr.start_recording(false);
-    mgr.store_event(Value::Char('a'));
-    mgr.stop_recording();
-    assert!(mgr.macro_ring.is_empty()); // first macro, nothing to push
-
-    // Record second macro (pushes first onto ring)
-    mgr.start_recording(false);
-    mgr.store_event(Value::Char('b'));
-    mgr.stop_recording();
-    assert_eq!(mgr.macro_ring.len(), 1);
-    assert_eq!(mgr.macro_ring[0].len(), 1); // the 'a' macro
-
-    // Record third macro (pushes second onto ring)
-    mgr.start_recording(false);
-    mgr.store_event(Value::Char('c'));
-    mgr.stop_recording();
-    assert_eq!(mgr.macro_ring.len(), 2);
-}
-
-#[test]
-fn store_event_not_recording() {
-    let mut mgr = KmacroManager::new();
-    // Not recording -- store_event should be a no-op
-    mgr.store_event(Value::Char('a'));
-    assert!(mgr.current_macro.is_empty());
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start third");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('c')]).expect("store c");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end third");
+    assert_eq!(
+        eval.kmacro.macro_ring,
+        vec![vec![Value::Char('a')], vec![Value::Char('b')]]
+    );
 }
 
 #[test]
@@ -198,7 +168,7 @@ fn test_start_and_end_macro() {
     // Start recording
     let result = builtin_start_kbd_macro(&mut eval, vec![]);
     assert!(result.is_ok());
-    assert!(eval.kmacro.recording);
+    assert!(eval.command_loop.keyboard.kboard.defining_kbd_macro);
 
     // Double-start should error
     let result = builtin_start_kbd_macro(&mut eval, vec![]);
@@ -207,13 +177,16 @@ fn test_start_and_end_macro() {
     // Store some events
     let _ = builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('h')]);
     let _ = builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('i')]);
+    eval.finalize_kbd_macro_runtime_chars();
 
     // End recording
     let result = builtin_end_kbd_macro(&mut eval, vec![]);
     assert!(result.is_ok());
-    assert!(!eval.kmacro.recording);
-    assert!(eval.kmacro.last_macro.is_some());
-    assert_eq!(eval.kmacro.last_macro.as_ref().unwrap().len(), 2);
+    assert!(!eval.command_loop.keyboard.kboard.defining_kbd_macro);
+    assert_eq!(
+        eval.command_loop.last_kbd_macro(),
+        Some([Value::Char('h'), Value::Char('i')].as_slice())
+    );
 
     // Double-end should error
     let result = builtin_end_kbd_macro(&mut eval, vec![]);
@@ -241,7 +214,7 @@ fn test_defining_kbd_macro_builtin_contract() {
         builtin_defining_kbd_macro(&mut eval, vec![Value::Nil]).unwrap(),
         Value::Nil
     );
-    assert!(eval.kmacro.recording);
+    assert!(eval.command_loop.keyboard.kboard.defining_kbd_macro);
 
     // Re-entry while recording should signal `error`.
     let already = builtin_defining_kbd_macro(&mut eval, vec![Value::Nil, Value::True]);
@@ -249,8 +222,12 @@ fn test_defining_kbd_macro_builtin_contract() {
 
     // Finish recording and ensure append path works once a last macro exists.
     let _ = builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('a')]);
+    eval.finalize_kbd_macro_runtime_chars();
     let _ = builtin_end_kbd_macro(&mut eval, vec![]);
-    assert!(eval.kmacro.last_macro.is_some());
+    assert_eq!(
+        eval.command_loop.last_kbd_macro(),
+        Some([Value::Char('a')].as_slice())
+    );
     assert_eq!(
         builtin_defining_kbd_macro(&mut eval, vec![Value::True, Value::True]).unwrap(),
         Value::Nil
@@ -267,15 +244,20 @@ fn test_start_with_append() {
     // Record a macro
     let _ = builtin_start_kbd_macro(&mut eval, vec![]);
     let _ = builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('a')]);
+    eval.finalize_kbd_macro_runtime_chars();
     let _ = builtin_end_kbd_macro(&mut eval, vec![]);
 
     // Append to it
     let _ = builtin_start_kbd_macro(&mut eval, vec![Value::True]);
-    assert_eq!(eval.kmacro.current_macro.len(), 1); // 'a' carried over
+    assert_eq!(eval.command_loop.keyboard.kboard.kbd_macro_events.len(), 1);
     let _ = builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('b')]);
+    eval.finalize_kbd_macro_runtime_chars();
     let _ = builtin_end_kbd_macro(&mut eval, vec![]);
 
-    assert_eq!(eval.kmacro.last_macro.as_ref().unwrap().len(), 2);
+    assert_eq!(
+        eval.command_loop.last_kbd_macro(),
+        Some([Value::Char('a'), Value::Char('b')].as_slice())
+    );
 }
 
 #[test]
@@ -315,18 +297,19 @@ fn test_defining_executing_kbd_macro_p_builtins() {
         Value::Nil
     );
 
-    eval.kmacro.recording = true;
+    eval.start_kbd_macro_runtime(None).unwrap();
     assert_eq!(
         builtin_defining_kbd_macro_p(&mut eval, vec![]).unwrap(),
         Value::True
     );
-    eval.kmacro.recording = false;
+    let _ = eval.end_kbd_macro_runtime().unwrap();
 
-    eval.kmacro.executing = true;
+    eval.begin_executing_kbd_macro_runtime(vec![Value::Char('x')]);
     assert_eq!(
         builtin_executing_kbd_macro_p(&mut eval, vec![]).unwrap(),
         Value::True
     );
+    eval.finish_executing_kbd_macro_runtime();
 
     assert!(builtin_defining_kbd_macro_p(&mut eval, vec![Value::Nil]).is_err());
     assert!(builtin_executing_kbd_macro_p(&mut eval, vec![Value::Nil]).is_err());
@@ -343,7 +326,8 @@ fn test_last_kbd_macro_builtin() {
         Value::Nil
     );
 
-    eval.kmacro.last_macro = Some(vec![Value::Char('x'), Value::Char('y')]);
+    eval.command_loop.keyboard.kboard.last_kbd_macro =
+        Some(vec![Value::Char('x'), Value::Char('y')]);
     let value = builtin_last_kbd_macro(&mut eval, vec![]).unwrap();
     match value {
         Value::Vector(v) => {
@@ -484,10 +468,11 @@ fn test_name_last_kbd_macro() {
     assert!(result.is_err());
 
     // Record a macro
-    eval.kmacro.start_recording(false);
-    eval.kmacro
-        .store_event(Value::Symbol(intern("forward-char")));
-    eval.kmacro.stop_recording();
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Symbol(intern("forward-char"))])
+        .expect("store");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
 
     // Name it
     let result = builtin_name_last_kbd_macro(&mut eval, vec![Value::symbol("my-macro")]);

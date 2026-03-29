@@ -812,20 +812,20 @@ fn vm_variable_watcher_management_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_kmacro_builtins_use_shared_runtime_state() {
-    assert_eq!(
-        vm_eval_str(
-            "(progn
-               (start-kbd-macro nil nil)
-               (store-kbd-macro-event 'ignore)
-               (end-kbd-macro)
-               (list
-                 (condition-case nil (progn (call-last-kbd-macro) t) (error nil))
-                 (condition-case nil
-                     (progn (execute-kbd-macro [ignore]) t)
-                   (error nil))))"
-        ),
-        "OK (t t)"
+    let result = with_vm_eval_full_context_state(
+        "(progn
+           (start-kbd-macro nil nil)
+           (store-kbd-macro-event 'ignore)
+           (end-kbd-macro)
+           (list
+             (condition-case nil (progn (call-last-kbd-macro) t) (error nil))
+             (condition-case nil
+                 (progn (execute-kbd-macro [ignore]) t)
+               (error nil))))",
+        false,
+        |result, _| crate::emacs_core::error::format_eval_result(&result),
     );
+    assert_eq!(result, "OK (t t)");
 }
 
 #[test]

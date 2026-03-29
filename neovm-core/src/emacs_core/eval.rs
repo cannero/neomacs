@@ -765,7 +765,8 @@ pub struct Context {
     pub(crate) modes: ModeRegistry,
     /// Thread manager — cooperative threading primitives.
     pub(crate) threads: ThreadManager,
-    /// Keyboard macro manager — recording, playback, macro ring.
+    /// Keyboard macro metadata — ring/counter state layered above the
+    /// keyboard-owned live recording/playback runtime.
     pub(crate) kmacro: KmacroManager,
     /// Command loop state — event queue, prefix args, kbd macros, quit flag.
     /// Used by the interactive command loop (recursive-edit → command_loop).
@@ -4036,6 +4037,16 @@ impl Context {
 
             // Run post-command-hook
             let _ = self.run_hook_if_bound("post-command-hook");
+
+            if exec_result.is_ok()
+                && self.command_loop.keyboard.kboard.defining_kbd_macro
+                && self
+                    .eval_symbol("prefix-arg")
+                    .unwrap_or(Value::Nil)
+                    .is_nil()
+            {
+                self.finalize_kbd_macro_runtime_chars();
+            }
         }
     }
 
