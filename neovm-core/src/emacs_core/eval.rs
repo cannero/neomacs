@@ -758,12 +758,12 @@ pub struct Context {
     saved_lexenvs: Vec<Value>,
     /// Small hot cache for named callable resolution in `funcall`/`apply`.
     named_call_cache: Vec<NamedCallCache>,
-    /// Cache for `quote_to_value` results keyed on `Expr` pointer identity.
-    /// Ensures the same source-code literal (e.g. pcase case patterns inside
-    /// a lambda body) evaluates to the same `Value` object across calls,
-    /// preserving `eq` identity required by pcase's memoization cache.
+    /// Cache for source-literal materialization keyed on `Expr` pointer
+    /// identity. This is generic reader/runtime support: repeated evaluation
+    /// of the same source literal node should reuse the same runtime object
+    /// where GNU Lisp expects `eq` identity to remain stable across calls.
     /// GC-rooted via `collect_roots`.
-    pub(crate) literal_cache: HashMap<*const Expr, Value>,
+    pub(crate) source_literal_cache: HashMap<*const Expr, Value>,
     /// Cache for macro expansion results.
     ///
     /// Key: `(macro_heap_id, args_slice_ptr)` — the macro's ObjId plus the
@@ -1557,7 +1557,7 @@ impl Context {
         ev.catch_tags.clear();
         ev.saved_lexenvs.clear();
         ev.named_call_cache.clear();
-        ev.literal_cache.clear();
+        ev.source_literal_cache.clear();
         ev.macro_expansion_cache.clear();
         ev.macro_cache_hits = 0;
         ev.macro_cache_misses = 0;
@@ -3115,7 +3115,7 @@ impl Context {
             catch_tags: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
-            literal_cache: HashMap::new(),
+            source_literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
             macro_cache_misses: 0,
@@ -3166,6 +3166,7 @@ impl Context {
         bookmarks: BookmarkManager,
         watchers: VariableWatcherList,
     ) -> Self {
+        let dumped_function_surface = obarray.clone();
         let mut obarray = obarray;
         obarray.intern("internal-interpreter-environment");
         let internal_interpreter_environment_symbol =
@@ -3245,7 +3246,7 @@ impl Context {
             catch_tags: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
-            literal_cache: HashMap::new(),
+            source_literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
             macro_cache_misses: 0,
@@ -3260,7 +3261,20 @@ impl Context {
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
         super::category::restore_standard_category_table_object(ev.standard_category_table);
 
-        // init_builtins is called by Context::new() after new_inner returns.
+        // Rebuild the builtin subr registry after pdump restore. The dumped
+        // obarray already carries the authoritative runtime function-cell
+        // surface, so restore that surface immediately afterward.
+        builtins::init_builtins(&mut ev);
+        for (sym_id, symbol) in dumped_function_surface.iter_symbols() {
+            match symbol.function.as_ref() {
+                Some(function) => ev.obarray.set_symbol_function_id(*sym_id, *function),
+                None if dumped_function_surface.is_function_unbound_id(*sym_id) => {
+                    ev.obarray.fmakunbound_id(*sym_id);
+                }
+                None => ev.obarray.clear_function_silent_id(*sym_id),
+            }
+        }
+
         ev
     }
 
@@ -3301,7 +3315,7 @@ impl Context {
         }
 
         // Literal cache — cached quote_to_value results for pcase eq-memoization
-        roots.extend(self.literal_cache.values().copied());
+        roots.extend(self.source_literal_cache.values().copied());
 
         // Macro expansion cache — root any OpaqueValue nodes in cached Expr trees
         for entry in self.macro_expansion_cache.values() {
@@ -8063,11 +8077,14 @@ impl Context {
         let lambda_data = self.heap.get_macro_data(id).clone();
 
         // Root arg values during macro expansion to survive GC.
-        // Use cached_quote_to_value so that the same Expr pointer (from a
-        // shared Rc<Vec<Expr>> lambda body) produces the same Value, preserving
-        // `eq` identity required by pcase's memoization cache.
+        // Use cached source-literal materialization so that the same Expr
+        // pointer (from a shared Rc<Vec<Expr>> lambda body) produces the same
+        // runtime Value object when re-evaluated.
         let saved = self.save_temp_roots();
-        let arg_values: Vec<Value> = args.iter().map(|e| self.cached_quote_to_value(e)).collect();
+        let arg_values: Vec<Value> = args
+            .iter()
+            .map(|e| self.cached_source_literal_to_value(e))
+            .collect();
         for v in &arg_values {
             self.push_temp_root(*v);
         }
@@ -8821,17 +8838,17 @@ impl Context {
 
     /// Cached version of quote construction keyed on `Expr` pointer identity.
     ///
-    /// When the same `&Expr` node is converted multiple times (e.g. pcase case
-    /// patterns from a shared `Rc<Vec<Expr>>` lambda body), returns the same
-    /// `Value` so that `eq` identity is preserved.  Only compound types
-    /// (`List`, `DottedList`, `Vector`, `Str`) benefit from caching; scalars
-    /// like `Int`, `Symbol`, `Char` already have identity-free representations.
-    fn cached_quote_to_value(&mut self, expr: &Expr) -> Value {
+    /// When the same `&Expr` node is converted multiple times, return the same
+    /// `Value` so source-literal identity stays stable across re-evaluation.
+    /// Only compound types (`List`, `DottedList`, `Vector`, `Str`) benefit
+    /// from caching; scalars like `Int`, `Symbol`, `Char` already have
+    /// identity-free representations.
+    fn cached_source_literal_to_value(&mut self, expr: &Expr) -> Value {
         if expr.depends_on_reader_runtime_state() {
             return self.quote_to_runtime_value(expr);
         }
         let key = expr as *const Expr;
-        if let Some(&cached) = self.literal_cache.get(&key) {
+        if let Some(&cached) = self.source_literal_cache.get(&key) {
             return cached;
         }
         // For compound types, recursively cache children too
@@ -8839,16 +8856,16 @@ impl Context {
             Expr::List(items) => {
                 let quoted: Vec<Value> = items
                     .iter()
-                    .map(|e| self.cached_quote_to_value(e))
+                    .map(|e| self.cached_source_literal_to_value(e))
                     .collect();
                 Value::list(quoted)
             }
             Expr::DottedList(items, last) => {
                 let head_vals: Vec<Value> = items
                     .iter()
-                    .map(|e| self.cached_quote_to_value(e))
+                    .map(|e| self.cached_source_literal_to_value(e))
                     .collect();
-                let tail_val = self.cached_quote_to_value(last);
+                let tail_val = self.cached_source_literal_to_value(last);
                 head_vals
                     .into_iter()
                     .rev()
@@ -8857,13 +8874,13 @@ impl Context {
             Expr::Vector(items) => {
                 let vals: Vec<Value> = items
                     .iter()
-                    .map(|e| self.cached_quote_to_value(e))
+                    .map(|e| self.cached_source_literal_to_value(e))
                     .collect();
                 Value::vector(vals)
             }
             _ => self.quote_to_runtime_value(expr),
         };
-        self.literal_cache.insert(key, value);
+        self.source_literal_cache.insert(key, value);
         value
     }
 }

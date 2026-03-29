@@ -1096,7 +1096,7 @@ fn load_file_body(
         if !is_elc {
             // Clear pointer-identity caches before each source file.
             eval.macro_expansion_cache.clear();
-            eval.literal_cache.clear();
+            eval.source_literal_cache.clear();
 
             let generated_loaddefs = is_generated_loaddefs_source(&content);
             if generated_loaddefs {

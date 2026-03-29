@@ -19,9 +19,7 @@ fn compat_pcase_semantics_matches_gnu_emacs() {
     let cases = [
         PcaseCase {
             name: "pcase_surface_shape",
-            form: r#"(let* ((pcase-macroexpander
-              (intern (format "%s--pcase-macroexpander" '\`)))
-              (symbols `(pcase
+            form: r#"(let ((symbols '(pcase
                          pcase-defmacro
                          pcase--make-docstring
                          pcase-exhaustive
@@ -29,8 +27,7 @@ fn compat_pcase_semantics_matches_gnu_emacs() {
                          pcase-let
                          pcase-let*
                          pcase-dolist
-                         pcase-setq
-                         ,pcase-macroexpander)))
+                         pcase-setq)))
   (mapcar
    (lambda (sym)
      (let ((fn (symbol-function sym)))

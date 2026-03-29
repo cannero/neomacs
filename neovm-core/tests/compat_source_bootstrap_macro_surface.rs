@@ -7,14 +7,19 @@ fn compat_source_bootstrap_macro_surface_is_minimal() {
     eval.set_lexical_binding(true);
 
     let forms = parse_forms(
-        r#"(let ((symbols '(eval-and-compile
-                            defvar-local
-                            track-mouse
-                            with-current-buffer
-                            with-temp-buffer
-                            with-output-to-string
-                            with-syntax-table
-                            with-mutex)))
+        r#"(let* ((pcase-macroexpander
+                   (intern "`--pcase-macroexpander"))
+                  (symbols (list 'eval-and-compile
+                                 'defvar-local
+                                 'track-mouse
+                                 'with-current-buffer
+                                 'with-temp-buffer
+                                 'with-output-to-string
+                                 'with-syntax-table
+                                 'with-mutex
+                                 'pcase
+                                 'pcase-defmacro
+                                 pcase-macroexpander)))
   (mapcar
    (lambda (sym)
      (list sym
@@ -28,6 +33,6 @@ fn compat_source_bootstrap_macro_surface_is_minimal() {
     let rendered = format_eval_result(&result);
     assert_eq!(
         rendered,
-        "OK ((eval-and-compile t t) (defvar-local nil nil) (track-mouse nil nil) (with-current-buffer nil nil) (with-temp-buffer nil nil) (with-output-to-string nil nil) (with-syntax-table nil nil) (with-mutex nil nil))"
+        "OK ((eval-and-compile t t) (defvar-local nil nil) (track-mouse nil nil) (with-current-buffer nil nil) (with-temp-buffer nil nil) (with-output-to-string nil nil) (with-syntax-table nil nil) (with-mutex nil nil) (pcase nil nil) (pcase-defmacro nil nil) (\\`--pcase-macroexpander nil nil))"
     );
 }

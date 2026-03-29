@@ -20,6 +20,13 @@ fn compat_bootstrap_runtime_core_surface_matches_gnu_emacs() {
         (featurep 'simple)
         (fboundp 'shell-command)
         (autoloadp (symbol-function 'shell-command)))
+  (list 'core
+        (fboundp 'cons)
+        (subrp (symbol-function 'cons))
+        (fboundp 'intern)
+        (subrp (symbol-function 'intern))
+        (fboundp 'format)
+        (subrp (symbol-function 'format)))
   (list 'faces
         (featurep 'faces)
         (fboundp 'face-spec-recalc)

@@ -508,6 +508,28 @@ mod tests {
     }
 
     #[test]
+    fn test_restore_snapshot_preserves_core_subr_callable_surface() {
+        let template = Context::new();
+        let snapshot = snapshot_evaluator(&template);
+
+        let mut restored = restore_snapshot(&snapshot).expect("restored snapshot should succeed");
+        let forms = crate::emacs_core::parser::parse_forms(
+            r#"(list (funcall 'cons 1 2)
+                     (funcall 'list 1 2 3)
+                     (funcall 'intern "compat-pdump-subr-probe")
+                     (funcall 'format "%s-%s" "pdump" "ok"))"#,
+        )
+        .expect("parse");
+        let result = restored
+            .eval_expr(&forms[0])
+            .expect("restored runtime subrs should be callable");
+        assert_eq!(
+            crate::emacs_core::print_value_with_buffers(&result, &restored.buffers),
+            "((1 . 2) (1 2 3) compat-pdump-subr-probe \"pdump-ok\")"
+        );
+    }
+
+    #[test]
     fn test_pdump_checksum_mismatch() {
         let dir = tempfile::tempdir().unwrap();
         let dump_path = dir.path().join("test.pdump");
