@@ -181,6 +181,7 @@ fn compat_split_window_copies_window_display_state() {
             original_window_id,
             SplitDirection::Horizontal,
             BufferId(2),
+            None,
         )
         .expect("split");
     let frame = frames.get(frame_id).expect("frame");

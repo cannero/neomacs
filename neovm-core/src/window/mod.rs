@@ -1178,12 +1178,20 @@ impl FrameManager {
 
     /// Split a window horizontally or vertically.
     /// Returns the new window's ID, or None if the window wasn't found.
+    ///
+    /// `size` controls how space is divided:
+    /// - `None` or `Some(0)`: split 50/50
+    /// - `Some(n)` where n > 0: the **new** window gets `n` units (lines or
+    ///   columns), the old window gets the remainder.
+    /// - `Some(n)` where n < 0: the **old** window gets `|n|` units, the new
+    ///   window gets the remainder.
     pub fn split_window(
         &mut self,
         frame_id: FrameId,
         window_id: WindowId,
         direction: SplitDirection,
         new_buffer_id: BufferId,
+        size: Option<i64>,
     ) -> Option<WindowId> {
         let internal_id = self.alloc_window_id();
         let new_id = self.alloc_window_id();
@@ -1196,6 +1204,7 @@ impl FrameManager {
             internal_id,
             new_id,
             new_buffer_id,
+            size,
         )?;
 
         frame.recalculate_minibuffer_bounds();
@@ -1303,6 +1312,12 @@ impl Default for FrameManager {
 // ---------------------------------------------------------------------------
 
 /// Split a window in the tree by wrapping it in an Internal node.
+///
+/// `size` semantics (lines for vertical, columns for horizontal — 1 unit = 1.0
+/// pixel in the abstract coordinate system):
+/// - `None` / `Some(0)`: 50/50 split.
+/// - `Some(n)` (n > 0): new window (right/bottom) gets `n` units.
+/// - `Some(n)` (n < 0): old window (left/top) keeps `|n|` units.
 fn split_window_in_tree(
     tree: &mut Window,
     target: WindowId,
@@ -1310,6 +1325,7 @@ fn split_window_in_tree(
     internal_id: WindowId,
     new_id: WindowId,
     new_buffer_id: BufferId,
+    size: Option<i64>,
 ) -> Option<()> {
     if tree.id() == target {
         let old_id = tree.id();
@@ -1322,26 +1338,40 @@ fn split_window_in_tree(
         {
             let (left_bounds, right_bounds) = match direction {
                 SplitDirection::Horizontal => {
-                    let half = old_bounds.width / 2.0;
+                    let total = old_bounds.width;
+                    // Compute size for the NEW window (right pane).
+                    let new_size = match size {
+                        Some(n) if n > 0 => (n as f32).min(total - 1.0).max(1.0),
+                        Some(n) if n < 0 => (total - (-n) as f32).max(1.0).min(total - 1.0),
+                        _ => total / 2.0,
+                    };
+                    let old_size = total - new_size;
                     (
-                        Rect::new(old_bounds.x, old_bounds.y, half, old_bounds.height),
+                        Rect::new(old_bounds.x, old_bounds.y, old_size, old_bounds.height),
                         Rect::new(
-                            old_bounds.x + half,
+                            old_bounds.x + old_size,
                             old_bounds.y,
-                            old_bounds.width - half,
+                            new_size,
                             old_bounds.height,
                         ),
                     )
                 }
                 SplitDirection::Vertical => {
-                    let half = old_bounds.height / 2.0;
+                    let total = old_bounds.height;
+                    // Compute size for the NEW window (bottom pane).
+                    let new_size = match size {
+                        Some(n) if n > 0 => (n as f32).min(total - 1.0).max(1.0),
+                        Some(n) if n < 0 => (total - (-n) as f32).max(1.0).min(total - 1.0),
+                        _ => total / 2.0,
+                    };
+                    let old_size = total - new_size;
                     (
-                        Rect::new(old_bounds.x, old_bounds.y, old_bounds.width, half),
+                        Rect::new(old_bounds.x, old_bounds.y, old_bounds.width, old_size),
                         Rect::new(
                             old_bounds.x,
-                            old_bounds.y + half,
+                            old_bounds.y + old_size,
                             old_bounds.width,
-                            old_bounds.height - half,
+                            new_size,
                         ),
                     )
                 }
@@ -1401,8 +1431,16 @@ fn split_window_in_tree(
     // Recurse into children.
     if let Window::Internal { children, .. } = tree {
         for child in children {
-            if split_window_in_tree(child, target, direction, internal_id, new_id, new_buffer_id)
-                .is_some()
+            if split_window_in_tree(
+                child,
+                target,
+                direction,
+                internal_id,
+                new_id,
+                new_buffer_id,
+                size,
+            )
+            .is_some()
             {
                 return Some(());
             }
@@ -1870,7 +1908,7 @@ mod tests {
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
 
-        let new_wid = mgr.split_window(fid, wid, SplitDirection::Horizontal, BufferId(2));
+        let new_wid = mgr.split_window(fid, wid, SplitDirection::Horizontal, BufferId(2), None);
         assert!(new_wid.is_some());
 
         let frame = mgr.get(fid).unwrap();
@@ -1883,7 +1921,7 @@ mod tests {
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
 
-        let new_wid = mgr.split_window(fid, wid, SplitDirection::Vertical, BufferId(2));
+        let new_wid = mgr.split_window(fid, wid, SplitDirection::Vertical, BufferId(2), None);
         assert!(new_wid.is_some());
 
         let frame = mgr.get(fid).unwrap();
@@ -1919,7 +1957,13 @@ mod tests {
 
         let original_wid = mgr.get(fid).unwrap().window_list()[0];
         let new_wid = mgr
-            .split_window(fid, original_wid, SplitDirection::Horizontal, BufferId(2))
+            .split_window(
+                fid,
+                original_wid,
+                SplitDirection::Horizontal,
+                BufferId(2),
+                None,
+            )
             .expect("split");
 
         let frame = mgr.get(fid).unwrap();
@@ -1975,7 +2019,13 @@ mod tests {
         }
 
         let new_wid = mgr
-            .split_window(fid, original_wid, SplitDirection::Horizontal, BufferId(2))
+            .split_window(
+                fid,
+                original_wid,
+                SplitDirection::Horizontal,
+                BufferId(2),
+                None,
+            )
             .expect("split");
 
         let frame = mgr.get(fid).unwrap();
@@ -2010,7 +2060,7 @@ mod tests {
 
         // Split first.
         let new_wid = mgr
-            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2))
+            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2), None)
             .unwrap();
 
         // Delete the new window.
@@ -2034,7 +2084,7 @@ mod tests {
         let wid = mgr.get(fid).unwrap().window_list()[0];
 
         let new_wid = mgr
-            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2))
+            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2), None)
             .unwrap();
 
         assert!(mgr.get_mut(fid).unwrap().select_window(new_wid));
@@ -2047,7 +2097,7 @@ mod tests {
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
 
-        mgr.split_window(fid, wid, SplitDirection::Horizontal, BufferId(2));
+        mgr.split_window(fid, wid, SplitDirection::Horizontal, BufferId(2), None);
 
         let frame = mgr.get(fid).unwrap();
         // Left half
@@ -2146,7 +2196,7 @@ mod tests {
 
         mgr.set_window_parameter(wid, key, Value::Int(42));
         let new_wid = mgr
-            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2))
+            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2), None)
             .expect("split");
 
         assert_eq!(mgr.window_parameter(wid, &key), Some(Value::Int(42)));
@@ -2159,7 +2209,7 @@ mod tests {
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
         let other = mgr
-            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2))
+            .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2), None)
             .expect("split");
         let key = Value::symbol("deleted-param");
 
@@ -2199,12 +2249,12 @@ mod tests {
 
         // Split w1 horizontally → w2
         let w2 = mgr
-            .split_window(fid, w1, SplitDirection::Horizontal, BufferId(2))
+            .split_window(fid, w1, SplitDirection::Horizontal, BufferId(2), None)
             .unwrap();
 
         // Split w2 vertically → w3
         let w3 = mgr
-            .split_window(fid, w2, SplitDirection::Vertical, BufferId(3))
+            .split_window(fid, w2, SplitDirection::Vertical, BufferId(3), None)
             .unwrap();
 
         assert_eq!(mgr.get(fid).unwrap().window_count(), 3);
@@ -2227,7 +2277,7 @@ mod tests {
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let w1 = mgr.get(fid).unwrap().window_list()[0];
         let w2 = mgr
-            .split_window(fid, w1, SplitDirection::Horizontal, BufferId(2))
+            .split_window(fid, w1, SplitDirection::Horizontal, BufferId(2), None)
             .unwrap();
 
         let t1 = mgr.note_window_selected(w1);
@@ -2273,7 +2323,7 @@ mod tests {
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let w1 = mgr.get(fid).unwrap().window_list()[0];
         let w2 = mgr
-            .split_window(fid, w1, SplitDirection::Horizontal, BufferId(2))
+            .split_window(fid, w1, SplitDirection::Horizontal, BufferId(2), None)
             .unwrap();
 
         let frame = mgr.get_mut(fid).unwrap();

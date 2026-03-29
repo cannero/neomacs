@@ -3187,15 +3187,17 @@ pub(crate) fn builtin_window_at(eval: &mut super::eval::Context, args: Vec<Value
 pub(crate) fn split_window_internal_impl(
     eval: &mut super::eval::Context,
     window: Value,
+    size: Value,
     side: Value,
 ) -> EvalResult {
-    split_window_internal_impl_in_state(&mut eval.frames, &mut eval.buffers, window, side)
+    split_window_internal_impl_in_state(&mut eval.frames, &mut eval.buffers, window, size, side)
 }
 
 pub(crate) fn split_window_internal_impl_in_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
     window: Value,
+    size: Value,
     side: Value,
 ) -> EvalResult {
     let (fid, wid) = resolve_window_id_or_error_in_state(frames, buffers, Some(&window))?;
@@ -3208,6 +3210,13 @@ pub(crate) fn split_window_internal_impl_in_state(
         _ => SplitDirection::Vertical,
     };
 
+    // Parse SIZE: positive means new window gets SIZE units, negative means
+    // old window keeps |SIZE| units, nil/0 means 50/50.
+    let size_opt: Option<i64> = match &size {
+        Value::Int(n) if *n != 0 => Some(*n),
+        _ => None,
+    };
+
     // Use the same buffer as the window being split.
     let buf_id = {
         let w = get_leaf(frames, fid, wid)?;
@@ -3215,7 +3224,7 @@ pub(crate) fn split_window_internal_impl_in_state(
     };
 
     let new_wid = frames
-        .split_window(fid, wid, direction, buf_id)
+        .split_window(fid, wid, direction, buf_id, size_opt)
         .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
     Ok(window_value(new_wid))
 }
@@ -3855,7 +3864,16 @@ pub(crate) fn builtin_switch_to_buffer(
 
 /// `(display-buffer BUFFER-OR-NAME &optional ACTION FRAME)` -> window object or nil.
 ///
-/// Simplified: displays the buffer in the selected window.
+/// Simplified but functional implementation that respects basic display
+/// actions.  The strategy is:
+///
+/// 1. If the buffer is already displayed in a window on the frame, reuse that
+///    window.
+/// 2. If ACTION contains `display-buffer-same-window`, use the selected window.
+/// 3. If ACTION contains `display-buffer-pop-up-window`, split the selected
+///    window and display there.
+/// 4. Default (no matching action): try to find another (non-selected) window,
+///    and if only one window exists, split it.
 pub(crate) fn builtin_display_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -3890,14 +3908,111 @@ pub(crate) fn builtin_display_buffer(
         .get(fid)
         .map(|f| f.selected_window)
         .ok_or_else(|| signal("error", vec![Value::string("No selected window")]))?;
-    if let Some(w) = eval
-        .frames
-        .get_mut(fid)
-        .and_then(|f| f.find_window_mut(sel_wid))
+
+    // Collect the ACTION argument to check for specific display functions.
+    let action = args.get(1).copied().unwrap_or(Value::Nil);
+
+    // Helper: check whether a particular display-function symbol appears in
+    // the ACTION value.  ACTION can be:
+    //   - nil                         -> no specific action
+    //   - (FUNCTION . ALIST)          -> single function
+    //   - ((FUNCTION ...) . ALIST)    -> list of functions
+    let action_contains = |name: &str| -> bool {
+        if action.is_nil() {
+            return false;
+        }
+        // ACTION is a cons cell; the car is a function or a list of functions.
+        let car = match action {
+            Value::Cons(id) => {
+                let snap = read_cons(id);
+                snap.car
+            }
+            _ => return false,
+        };
+        // car could be a symbol directly ...
+        if let Some(sym_name) = car.as_symbol_name() {
+            if sym_name == name {
+                return true;
+            }
+        }
+        // ... or a list of symbols.
+        let mut cursor = car;
+        while let Value::Cons(id) = cursor {
+            let snap = read_cons(id);
+            if let Some(sym_name) = snap.car.as_symbol_name() {
+                if sym_name == name {
+                    return true;
+                }
+            }
+            cursor = snap.cdr;
+        }
+        false
+    };
+
+    // --- Strategy 1: reuse an existing window showing the buffer. -----------
+    // (covers `display-buffer-reuse-window` action and the default check)
     {
-        w.set_buffer(buf_id);
+        let frame = eval
+            .frames
+            .get(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        for wid in frame.window_list() {
+            if let Some(w) = frame.find_window(wid) {
+                if w.buffer_id() == Some(buf_id) {
+                    return Ok(window_value(wid));
+                }
+            }
+        }
     }
-    Ok(window_value(sel_wid))
+
+    // --- Strategy 2: `display-buffer-same-window` ---------------------------
+    if action_contains("display-buffer-same-window") {
+        if let Some(w) = eval
+            .frames
+            .get_mut(fid)
+            .and_then(|f| f.find_window_mut(sel_wid))
+        {
+            w.set_buffer(buf_id);
+        }
+        return Ok(window_value(sel_wid));
+    }
+
+    // --- Strategy 3: `display-buffer-pop-up-window` -------------------------
+    if action_contains("display-buffer-pop-up-window") {
+        let new_wid = eval
+            .frames
+            .split_window(fid, sel_wid, SplitDirection::Vertical, buf_id, None)
+            .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
+        return Ok(window_value(new_wid));
+    }
+
+    // --- Strategy 4 (default): use another window, or split if needed. ------
+    {
+        let window_list = eval
+            .frames
+            .get(fid)
+            .map(|f| f.window_list())
+            .unwrap_or_default();
+
+        // Prefer a different window from the selected one.
+        if let Some(&other_wid) = window_list.iter().find(|&&wid| wid != sel_wid) {
+            if let Some(w) = eval
+                .frames
+                .get_mut(fid)
+                .and_then(|f| f.find_window_mut(other_wid))
+            {
+                w.set_buffer(buf_id);
+            }
+            return Ok(window_value(other_wid));
+        }
+
+        // Only one window -- split it.
+        let new_wid = eval
+            .frames
+            .split_window(fid, sel_wid, SplitDirection::Vertical, buf_id, None)
+            .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
+        Ok(window_value(new_wid))
+    }
 }
 
 /// `(pop-to-buffer BUFFER-OR-NAME &optional ACTION NORECORD)` -> buffer.

@@ -1246,7 +1246,9 @@ pub(crate) fn builtin_split_window_internal(
     if let Some(refer) = args.get(4) {
         let _ = refer;
     }
-    super::window_cmds::split_window_internal_impl_in_state(frames, buffers, args[0], args[2])
+    super::window_cmds::split_window_internal_impl_in_state(
+        frames, buffers, args[0], args[1], args[2],
+    )
 }
 
 pub(crate) fn builtin_buffer_text_pixel_size(
