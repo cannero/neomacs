@@ -4686,87 +4686,7 @@ fn cached_bootstrap_reload_evaluates_full_advice_remove_member_form() {
     );
 }
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_source_eval_honors_advised_subr_function_cell() {
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
-        r#"(progn
-           (let ((log nil))
-             (fset 'neovm--combo-plus-before
-                   (lambda (&rest args)
-                     (setq log (cons args log))))
-             (unwind-protect
-                 (list
-                   (progn
-                     (advice-add '+ :before 'neovm--combo-plus-before)
-                     (setq log nil)
-                     (list
-                       (+ 4 7)
-                       (funcall '+ 4 7)
-                       (apply '+ (list 4 7))
-                       (nreverse log)
-                       (if (advice-member-p 'neovm--combo-plus-before '+) t nil)))
-                   (progn
-                     (advice-remove '+ 'neovm--combo-plus-before)
-                     (setq log nil)
-                     (list
-                       (+ 4 7)
-                       (funcall '+ 4 7)
-                       (apply '+ (list 4 7))
-                       (nreverse log)
-                       (if (advice-member-p 'neovm--combo-plus-before '+) t nil))))
-               (condition-case nil
-                   (advice-remove '+ 'neovm--combo-plus-before)
-                 (error nil))
-               (fmakunbound 'neovm--combo-plus-before))))"#,
-    )
-    .expect("evaluate plus advice shape");
-    assert_eq!(
-        rendered,
-        "OK ((11 11 11 ((4 7) (4 7) (4 7)) t) (11 11 11 nil nil))"
-    );
-}
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_source_eval_honors_advised_callbuiltin_function_cell() {
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
-        r#"(progn
-           (let ((log nil))
-             (fset 'neovm--substring-before
-                   (lambda (&rest args)
-                     (setq log (cons args log))))
-             (unwind-protect
-                 (list
-                   (progn
-                     (advice-add 'substring :before 'neovm--substring-before)
-                     (setq log nil)
-                     (list
-                       (substring "abcdef" 1 4)
-                       (funcall 'substring "abcdef" 1 4)
-                       (apply 'substring (list "abcdef" 1 4))
-                       (nreverse log)
-                       (if (advice-member-p 'neovm--substring-before 'substring) t nil)))
-                   (progn
-                     (advice-remove 'substring 'neovm--substring-before)
-                     (setq log nil)
-                     (list
-                       (substring "abcdef" 1 4)
-                       (funcall 'substring "abcdef" 1 4)
-                       (apply 'substring (list "abcdef" 1 4))
-                       (nreverse log)
-                       (if (advice-member-p 'neovm--substring-before 'substring) t nil))))
-               (condition-case nil
-                   (advice-remove 'substring 'neovm--substring-before)
-                 (error nil))
-               (fmakunbound 'neovm--substring-before))))"#,
-    )
-    .expect("evaluate substring advice shape");
-    assert_eq!(
-        rendered,
-        "OK ((\"bcd\" \"bcd\" \"bcd\" ((\"abcdef\" 1 4) (\"abcdef\" 1 4) (\"abcdef\" 1 4)) t) (\"bcd\" \"bcd\" \"bcd\" nil nil))"
-    );
-}
 
 #[test]
 fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
@@ -4819,185 +4739,11 @@ fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
     );
 }
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn oracle_bootstrap_helper_matches_char_syntax_comprehensive_form() {
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
-        r#"
-(list
- ;; Standard syntax table entries
- (char-syntax ?a)       ;; ?w (word)
- (char-syntax ?Z)       ;; ?w
- (char-syntax ?0)       ;; ?w
- (char-syntax ?9)       ;; ?w
- (char-syntax ?_)       ;; ?_ (symbol) in standard table
- (char-syntax ?\ )      ;; ?\  (whitespace)
- (char-syntax ?\t)      ;; ?\  (whitespace)
- (char-syntax ?\n)      ;; ?\  (whitespace or comment-end)
- (char-syntax ?\()      ;; ?\( (open paren)
- (char-syntax ?\))      ;; ?\) (close paren)
- (char-syntax ?\[)      ;; ?\( (open paren in standard)
- (char-syntax ?\])      ;; ?\) (close paren in standard)
- (char-syntax ?{)
- (char-syntax ?})
- (char-syntax ?.)       ;; ?. (punctuation)
- (char-syntax ?,)       ;; ?. (punctuation)
- (char-syntax ?;)
- (char-syntax ?\")      ;; ?\" (string delimiter)
- (char-syntax ?+)       ;; ?. (punctuation)
- (char-syntax ?-)       ;; ?. (punctuation)
- (char-syntax ?*)
- (char-syntax ?/)
- (char-syntax ?')       ;; ?' (expression prefix) or ?w
- ;; With a custom syntax table
- (with-syntax-table (copy-syntax-table)
-   ;; Make _ a word constituent
-   (modify-syntax-entry ?_ "w")
-   ;; Make - a word constituent
-   (modify-syntax-entry ?- "w")
-   (list (char-syntax ?_)
-         (char-syntax ?-)
-         ;; Other entries unchanged
-         (char-syntax ?a)
-         (char-syntax ?\())))
-"#,
-    )
-    .expect("oracle bootstrap helper should evaluate form");
-    assert_eq!(
-        rendered,
-        "OK (119 119 119 119 95 32 32 62 40 41 40 41 95 95 95 39 60 34 95 95 95 95 39 (119 119 119 40))"
-    );
-}
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_cl_subseq_setf_updates_vector() {
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
-        r#"
-(progn
-  (require 'cl-lib)
-  (let ((v (vector 1 2 3 4 5)))
-    (setf (cl-subseq v 1 3) '(20 30))
-    (append v nil)))
-"#,
-    )
-    .expect("bootstrapped cl-subseq setf evaluation");
-    assert_eq!(rendered, "OK (1 20 30 4 5)");
-}
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_function_put_gv_expander_round_trip() {
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
-        r#"
-(progn
-  (require 'gv)
-  (function-put
-   'vm-direct-gv
-   'gv-expander
-   (lambda (do &rest args)
-     (gv--defsetter
-      'vm-direct-gv
-      (lambda (new seq start &optional end)
-        (macroexp-let2 nil new new
-          `(progn
-             (list ,new ,seq ,start ,end)
-             ,new)))
-      do args)))
-  (funcall
-   (function-get 'vm-direct-gv 'gv-expander)
-   (lambda (_getter setter) (funcall setter '(20 30)))
-   'v 1 3))
-"#,
-    )
-    .expect("bootstrapped direct gv expander evaluation");
-    assert_eq!(
-        rendered,
-        "OK (let* ((v v) (new (20 30))) (progn (list new v 1 3) new))"
-    );
-}
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_gv_define_setter_round_trip() {
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
-        r#"
-(progn
-  (require 'gv)
-  (gv-define-setter vm-gv-defined (new seq start &optional end)
-    (macroexp-let2 nil new new
-      `(progn
-         (list ,new ,seq ,start ,end)
-         ,new)))
-  (funcall
-   (function-get 'vm-gv-defined 'gv-expander)
-   (lambda (_getter setter) (funcall setter '(20 30)))
-   'v 1 3))
-"#,
-    )
-    .expect("bootstrapped gv-define-setter evaluation");
-    assert_eq!(
-        rendered,
-        "OK (let* ((v v) (new (20 30))) (progn (list new v 1 3) new))"
-    );
-}
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_defun_gv_setter_declaration_round_trip() {
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
-        r#"
-(progn
-  (defun vm-decl-gv (seq start &optional end)
-    (declare
-     (gv-setter
-      (lambda (new)
-        (macroexp-let2 nil new new
-          `(progn
-             (list ,seq ,new ,start ,end)
-             ,new)))))
-    (list seq start end))
-  (funcall
-   (function-get 'vm-decl-gv 'gv-expander)
-   (lambda (_getter setter) (funcall setter '(20 30)))
-   'v 1 3))
-"#,
-    )
-    .expect("bootstrapped defun gv-setter declaration evaluation");
-    assert_eq!(
-        rendered,
-        "OK (let* ((v v) (new (20 30))) (progn (list v new 1 3) new))"
-    );
-}
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_defun_gv_setter_declaration_evaluates_generated_form() {
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
-        r#"
-(progn
-  (defun vm-decl-gv-subseq (seq start &optional end)
-    (declare
-     (gv-setter
-      (lambda (new)
-        (macroexp-let2 nil new new
-          `(progn
-             (cl-replace ,seq ,new :start1 ,start :end1 ,end)
-             ,new)))))
-    (seq-subseq seq start end))
-  (let ((v (vector 1 2 3 4 5)))
-    (eval
-     (funcall
-      (function-get 'vm-decl-gv-subseq 'gv-expander)
-      (lambda (_getter setter) (funcall setter ''(20 30)))
-      'v 1 3)
-     t)
-    (append v nil)))
-"#,
-    )
-    .expect("bootstrapped defun gv-setter declaration setter-eval");
-    assert_eq!(rendered, "OK (1 20 30 4 5)");
-}
 
 #[test]
 fn bootstrap_eieio_core_preserves_accessor_compiler_macro() {
@@ -5232,34 +4978,6 @@ fn bootstrap_eieio_core_accessor_compiler_macro_call_matches_gnu_source_shape() 
     );
 }
 
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_eieio_runtime_defclass_metadata_matches_oracle() {
-    let form = r#"
-(progn
-  (require 'eieio)
-  (defclass neovm--dbg-point ()
-    ((x :initarg :x :initform 0)
-     (y :initarg :y :initform 0)))
-  (unwind-protect
-      (let* ((class (cl--find-class 'neovm--dbg-point))
-             (obj (make-instance 'neovm--dbg-point :x 3 :y 4))
-             (slots (eieio-class-slots class))
-             (idx (cl--class-index-table class)))
-        (list
-         (mapcar #'cl--slot-descriptor-name slots)
-         (symbolp (aref class 0))
-         (eq (aref class 0) 'eieio--class)
-         (gethash 'x idx)
-         (gethash 'y idx)
-         (symbolp (aref obj 0))
-         (eq (aref obj 0) 'neovm--dbg-point)
-         (aref obj 1)
-         (aref obj 2)))
-    (fmakunbound 'neovm--dbg-point)))
-"#;
-    crate::emacs_core::oracle_test::common::assert_oracle_parity_with_bootstrap(form);
-}
 
 #[test]
 fn bootstrap_cl_extra_source_vs_compiled_cl_subseq_setf() {
@@ -6140,20 +5858,5 @@ fn contains_opaque_value_detection() {
     assert!(
         !dotted_clean.contains_opaque_value(),
         "clean dotted list should not contain opaque values"
-    );
-}
-
-#[test]
-#[cfg(feature = "oracle-tests")]
-fn bootstrap_interpreted_closure_body_shape_matches_gnu_emacs() {
-    let form = r#"(let* ((compose (lambda (f g) (lambda (x) (funcall f (funcall g x)))))
-         (church-zero (lambda (f) (lambda (x) x))))
-    (list (aref compose 1)
-          (aref church-zero 1)))"#;
-    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(form)
-        .expect("bootstrap eval should run");
-    assert_eq!(
-        rendered,
-        "OK (((lambda (x) (funcall f (funcall g x)))) (#'(lambda (x) x)))"
     );
 }

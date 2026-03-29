@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
-use crate::emacs_core::{Context, EvalError, Value, print_value_with_buffers};
+use neovm_core::emacs_core::{Context, EvalError, Value, print_value_with_buffers};
 
 /// Maximum virtual address space (in bytes) for each spawned oracle Emacs
 /// process.  This prevents runaway evaluations from consuming unbounded
@@ -105,7 +105,7 @@ fn ensure_oracle_timing_tracing() {
 
 macro_rules! return_if_neovm_enable_oracle_proptest_not_set {
     () => {
-        if !$crate::emacs_core::oracle_test::common::oracle_prop_enabled() {
+        if !$crate::common::oracle_prop_enabled() {
             tracing::info!(
                 "skipping {}:{}: set NEOVM_FORCE_ORACLE_PATH=/path/to/emacs",
                 module_path!(),
@@ -115,7 +115,7 @@ macro_rules! return_if_neovm_enable_oracle_proptest_not_set {
         }
     };
     ($ret:expr) => {
-        if !$crate::emacs_core::oracle_test::common::oracle_prop_enabled() {
+        if !$crate::common::oracle_prop_enabled() {
             tracing::info!(
                 "skipping {}:{}: set NEOVM_FORCE_ORACLE_PATH=/path/to/emacs",
                 module_path!(),
@@ -450,22 +450,22 @@ fn run_neovm_eval_in_temp_buffer(
 
     let mut result = Ok(Value::Nil);
     loop {
-        match crate::emacs_core::reader::builtin_read(eval, vec![Value::Buffer(temp_id)]) {
+        match neovm_core::emacs_core::reader::builtin_read(eval, vec![Value::Buffer(temp_id)]) {
             Ok(read_form) => {
                 result = eval
                     .eval_value(&read_form)
-                    .map_err(crate::emacs_core::error::map_flow);
+                    .map_err(neovm_core::emacs_core::error::map_flow);
                 if result.is_err() {
                     break;
                 }
             }
-            Err(crate::emacs_core::error::Flow::Signal(sig))
+            Err(neovm_core::emacs_core::error::Flow::Signal(sig))
                 if sig.symbol_name() == "end-of-file" =>
             {
                 break;
             }
             Err(flow) => {
-                result = Err(crate::emacs_core::error::map_flow(flow));
+                result = Err(neovm_core::emacs_core::error::map_flow(flow));
                 break;
             }
         }
@@ -561,9 +561,9 @@ pub(crate) fn run_neovm_eval_with_bootstrap_and_load(
     load_files: &[&str],
 ) -> Result<String, String> {
     ensure_neovm_mem_limit()?;
-    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached()
+    let mut eval = neovm_core::emacs_core::load::create_bootstrap_evaluator_cached()
         .map_err(|e| format!("bootstrap failed: {e:?}"))?;
-    crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
+    neovm_core::emacs_core::load::apply_runtime_startup_state(&mut eval)
         .map_err(|e| format!("startup state failed: {e:?}"))?;
 
     let lisp_dir = project_lisp_dir();
@@ -591,9 +591,9 @@ pub(crate) fn run_neovm_eval_with_bootstrap_and_load_raw(
     load_files: &[&str],
 ) -> Result<String, String> {
     ensure_neovm_mem_limit()?;
-    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached()
+    let mut eval = neovm_core::emacs_core::load::create_bootstrap_evaluator_cached()
         .map_err(|e| format!("bootstrap failed: {e:?}"))?;
-    crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
+    neovm_core::emacs_core::load::apply_runtime_startup_state(&mut eval)
         .map_err(|e| format!("startup state failed: {e:?}"))?;
 
     let lisp_dir = project_lisp_dir();
@@ -623,7 +623,7 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
     ensure_oracle_timing_tracing();
     let log_timing = oracle_timing_enabled();
     let bootstrap_t0 = std::time::Instant::now();
-    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached()
+    let mut eval = neovm_core::emacs_core::load::create_bootstrap_evaluator_cached()
         .map_err(|e| format!("bootstrap failed: {e:?}"))?;
     if log_timing {
         tracing::info!(
@@ -632,7 +632,7 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
         );
     }
     let startup_t0 = std::time::Instant::now();
-    crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
+    neovm_core::emacs_core::load::apply_runtime_startup_state(&mut eval)
         .map_err(|e| format!("startup state failed: {e:?}"))?;
     if log_timing {
         tracing::info!(
@@ -643,12 +643,12 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
 
     ensure_nonempty_form(form)?;
 
-    crate::emacs_core::perf_trace::reset_hotpath_stats();
+    neovm_core::emacs_core::perf_trace::reset_hotpath_stats();
     let eval_t0 = std::time::Instant::now();
     let result = run_neovm_eval_in_temp_buffer(&mut eval, form)?;
     if log_timing {
         tracing::info!("oracle-timing: neovm-form-eval {:.3?}", eval_t0.elapsed());
-        crate::emacs_core::perf_trace::log_hotpath_stats("oracle-hotpath");
+        neovm_core::emacs_core::perf_trace::log_hotpath_stats("oracle-hotpath");
     }
 
     let rendered = render_neovm_oracle_result(&eval, result);
@@ -719,25 +719,25 @@ fn normalize_neovm_oracle_value(value: Value) -> Value {
     match value {
         Value::Lambda(_) => normalize_interpreted_function_for_oracle(value).unwrap_or(value),
         Value::Cons(cell) => {
-            let pair = crate::emacs_core::value::read_cons(cell);
+            let pair = neovm_core::emacs_core::value::read_cons(cell);
             let car = normalize_neovm_oracle_value(pair.car);
-            crate::emacs_core::eval::push_scratch_gc_root(car);
+            neovm_core::emacs_core::eval::push_scratch_gc_root(car);
             let cdr = normalize_neovm_oracle_value(pair.cdr);
-            crate::emacs_core::eval::push_scratch_gc_root(cdr);
+            neovm_core::emacs_core::eval::push_scratch_gc_root(cdr);
             let out = Value::cons(car, cdr);
-            crate::emacs_core::eval::push_scratch_gc_root(out);
+            neovm_core::emacs_core::eval::push_scratch_gc_root(out);
             out
         }
         Value::Vector(id) => {
-            let items = crate::emacs_core::value::with_heap(|h| h.get_vector(id).clone());
+            let items = neovm_core::emacs_core::value::with_heap(|h| h.get_vector(id).clone());
             let mut normalized = Vec::with_capacity(items.len());
             for item in items {
                 let item = normalize_neovm_oracle_value(item);
-                crate::emacs_core::eval::push_scratch_gc_root(item);
+                neovm_core::emacs_core::eval::push_scratch_gc_root(item);
                 normalized.push(item);
             }
             let out = Value::vector(normalized);
-            crate::emacs_core::eval::push_scratch_gc_root(out);
+            neovm_core::emacs_core::eval::push_scratch_gc_root(out);
             out
         }
         _ => value,
@@ -746,21 +746,21 @@ fn normalize_neovm_oracle_value(value: Value) -> Value {
 
 fn normalize_interpreted_function_for_oracle(value: Value) -> Option<Value> {
     let lambda = value.get_lambda_data()?.clone();
-    let closure_vec = crate::emacs_core::builtins::lambda_to_closure_vector(&value);
+    let closure_vec = neovm_core::emacs_core::builtins::lambda_to_closure_vector(&value);
     if closure_vec.len() < 3 {
         return None;
     }
 
     let args = normalize_neovm_oracle_value(closure_vec[0]);
-    crate::emacs_core::eval::push_scratch_gc_root(args);
+    neovm_core::emacs_core::eval::push_scratch_gc_root(args);
 
-    let body_forms = crate::emacs_core::value::list_to_vec(&closure_vec[1]).unwrap_or_default();
+    let body_forms = neovm_core::emacs_core::value::list_to_vec(&closure_vec[1]).unwrap_or_default();
     let mut elements = Vec::with_capacity(body_forms.len() + 3);
 
     if lambda.env.is_some() {
         elements.push(Value::symbol("closure"));
         let env = normalize_neovm_oracle_value(closure_vec[2]);
-        crate::emacs_core::eval::push_scratch_gc_root(env);
+        neovm_core::emacs_core::eval::push_scratch_gc_root(env);
         elements.push(env);
     } else {
         elements.push(Value::symbol("lambda"));
@@ -769,17 +769,17 @@ fn normalize_interpreted_function_for_oracle(value: Value) -> Option<Value> {
     elements.push(args);
     for form in body_forms {
         let form = normalize_neovm_oracle_value(form);
-        crate::emacs_core::eval::push_scratch_gc_root(form);
+        neovm_core::emacs_core::eval::push_scratch_gc_root(form);
         elements.push(form);
     }
 
     let out = Value::list(elements);
-    crate::emacs_core::eval::push_scratch_gc_root(out);
+    neovm_core::emacs_core::eval::push_scratch_gc_root(out);
     Some(out)
 }
 
 fn render_neovm_oracle_result(eval: &Context, result: Result<Value, EvalError>) -> String {
-    let saved_roots = crate::emacs_core::eval::save_scratch_gc_roots();
+    let saved_roots = neovm_core::emacs_core::eval::save_scratch_gc_roots();
     let rendered = match result {
         Ok(value) => {
             let value = normalize_neovm_oracle_value(value);
@@ -802,7 +802,7 @@ fn render_neovm_oracle_result(eval: &Context, result: Result<Value, EvalError>) 
             )
         }
     };
-    crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
+    neovm_core::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
     rendered
 }
 

@@ -324,7 +324,7 @@ pub(crate) fn current_heap_ptr() -> *mut LispHeap {
 /// The returned reference is valid only for the duration of `f`.
 /// Do NOT call `with_heap` or `with_heap_mut` from within `f`.
 #[inline]
-pub(crate) fn with_heap<R>(f: impl FnOnce(&LispHeap) -> R) -> R {
+pub fn with_heap<R>(f: impl FnOnce(&LispHeap) -> R) -> R {
     let ptr = current_heap_ptr();
     f(unsafe { &*ptr })
 }

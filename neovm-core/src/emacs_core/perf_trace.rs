@@ -138,7 +138,7 @@ pub(crate) fn time_op<R>(op: HotpathOp, f: impl FnOnce() -> R) -> R {
     result
 }
 
-pub(crate) fn reset_hotpath_stats() {
+pub fn reset_hotpath_stats() {
     if !hotpath_timing_enabled() {
         return;
     }
@@ -147,7 +147,7 @@ pub(crate) fn reset_hotpath_stats() {
     });
 }
 
-pub(crate) fn log_hotpath_stats(label: &str) {
+pub fn log_hotpath_stats(label: &str) {
     if !hotpath_timing_enabled() {
         return;
     }

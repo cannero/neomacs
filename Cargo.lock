@@ -2097,6 +2097,18 @@ name = "neovm-host-abi"
 version = "0.0.1"
 
 [[package]]
+name = "neovm-oracle-tests"
+version = "0.0.1"
+dependencies = [
+ "libc",
+ "neovm-core",
+ "proptest",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "neovm-worker"
 version = "0.0.1"
 dependencies = [

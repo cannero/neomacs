@@ -470,15 +470,15 @@ fn collect_thread_local_gc_roots(roots: &mut Vec<Value>) {
     SCRATCH_GC_ROOTS.with(|scratch| roots.extend(scratch.borrow().iter().copied()));
 }
 
-pub(crate) fn save_scratch_gc_roots() -> usize {
+pub fn save_scratch_gc_roots() -> usize {
     SCRATCH_GC_ROOTS.with(|scratch| scratch.borrow().len())
 }
 
-pub(crate) fn push_scratch_gc_root(value: Value) {
+pub fn push_scratch_gc_root(value: Value) {
     SCRATCH_GC_ROOTS.with(|scratch| scratch.borrow_mut().push(value));
 }
 
-pub(crate) fn restore_scratch_gc_roots(saved_len: usize) {
+pub fn restore_scratch_gc_roots(saved_len: usize) {
     SCRATCH_GC_ROOTS.with(|scratch| scratch.borrow_mut().truncate(saved_len));
 }
 
@@ -615,7 +615,7 @@ pub struct Context {
     /// Files currently being loaded (mirrors `Vloads_in_progress` in lread.c).
     pub(crate) loads_in_progress: Vec<std::path::PathBuf>,
     /// Buffer manager — owns all live buffers and tracks current buffer.
-    pub(crate) buffers: BufferManager,
+    pub buffers: BufferManager,
     /// Match data from the last successful search/match operation.
     pub(crate) match_data: Option<MatchData>,
     /// Process manager — owns all tracked processes.
@@ -3363,7 +3363,7 @@ impl Context {
         self.sync_current_buffer_runtime_state()
     }
 
-    pub(crate) fn restore_current_buffer_if_live(&mut self, id: crate::buffer::BufferId) {
+    pub fn restore_current_buffer_if_live(&mut self, id: crate::buffer::BufferId) {
         if self.buffers.get(id).is_none() {
             return;
         }
@@ -4857,7 +4857,7 @@ impl Context {
     }
 
     /// Load a file, converting EvalError back to Flow for use in special forms.
-    pub(crate) fn load_file_internal(&mut self, path: &std::path::Path) -> EvalResult {
+    pub fn load_file_internal(&mut self, path: &std::path::Path) -> EvalResult {
         super::load::load_file(self, path).map_err(|e| match e {
             EvalError::Signal { symbol, data } => signal(resolve_sym(symbol), data),
             EvalError::UncaughtThrow { tag, value } => signal("no-catch", vec![tag, value]),
@@ -5038,7 +5038,7 @@ impl Context {
     /// Evaluate a Value as code (like Elisp's `eval`).
     /// Converts Value to Expr, roots any embedded OpaqueValues (closures,
     /// bytecode, etc.) so they survive GC, then evaluates.
-    pub(crate) fn eval_value(&mut self, value: &Value) -> EvalResult {
+    pub fn eval_value(&mut self, value: &Value) -> EvalResult {
         let expr = value_to_expr(value);
         let saved = self.save_temp_roots();
         let mut opaques = Vec::new();

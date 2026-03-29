@@ -78,11 +78,9 @@ pub mod misc;
 pub mod mode;
 pub mod navigation;
 pub mod network;
-#[cfg(all(test, feature = "oracle-tests"))]
-mod oracle_test;
 pub mod parser;
 pub mod pdump;
-pub(crate) mod perf_trace;
+pub mod perf_trace;
 pub mod print;
 pub mod process;
 pub mod reader;

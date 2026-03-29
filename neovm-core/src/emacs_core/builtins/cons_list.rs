@@ -77,7 +77,7 @@ pub(crate) fn lambda_closure_length(value: &Value) -> Option<i64> {
 ///   [0]=ARGS  [1]=BODY  [2]=ENV  [(3)=nil, (4)=DOCSTRING/TYPE]
 /// NeoVM does not currently store the optional interactive slot.
 /// This is used by `aref` on closures for oclosure slot access.
-pub(crate) fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
+pub fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
     let data = match value.get_lambda_data() {
         Some(d) => d.clone(),
         None => return Vec::new(),

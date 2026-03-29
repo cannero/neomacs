@@ -40,13 +40,13 @@ impl Error for EvalError {}
 
 /// Internal non-local control flow.
 #[derive(Clone, Debug)]
-pub(crate) enum Flow {
+pub enum Flow {
     Signal(SignalData),
     Throw { tag: Value, value: Value },
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SignalData {
+pub struct SignalData {
     pub symbol: SymId,
     pub data: Vec<Value>,
     /// Original cdr payload when a signal uses non-list data.
@@ -84,7 +84,7 @@ pub(crate) fn signal_with_data(symbol: &str, data: Value) -> Flow {
 }
 
 /// Convert internal flow to public EvalError.
-pub(crate) fn map_flow(flow: Flow) -> EvalError {
+pub fn map_flow(flow: Flow) -> EvalError {
     match flow {
         Flow::Signal(sig) => EvalError::Signal {
             symbol: sig.symbol,
