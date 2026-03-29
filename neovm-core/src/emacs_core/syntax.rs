@@ -89,42 +89,46 @@ pub fn init_syntax_vars(
 // Syntax classes
 // ===========================================================================
 
-/// Emacs syntax classes, matching the designator characters used in
-/// `string-to-syntax` and `modify-syntax-entry`.
+/// Emacs syntax classes, matching GNU's `enum syntaxcode` from `syntax.h`.
+///
+/// Discriminant values match the GNU numbering (0–15) so the enum can be
+/// cast to `u8` and used directly in bytecode (e.g. the regex engine's
+/// `SyntaxSpec` / `NotSyntaxSpec` opcodes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum SyntaxClass {
-    /// ' ' — Whitespace
-    Whitespace,
-    /// 'w' — Word constituent
-    Word,
-    /// '_' — Symbol constituent
-    Symbol,
-    /// '.' — Punctuation
-    Punctuation,
-    /// '(' — Open parenthesis/bracket
-    Open,
-    /// ')' — Close parenthesis/bracket
-    Close,
-    /// '\'' — Expression prefix
-    Prefix,
-    /// '"' — String delimiter
-    StringDelim,
-    /// '$' — Math delimiter (paired)
-    MathDelim,
-    /// '\\' — Escape character
-    Escape,
-    /// '/' — Character quote (only quotes the next character)
-    CharQuote,
-    /// '<' — Comment starter
-    Comment,
-    /// '>' — Comment ender
-    EndComment,
-    /// '@' — Inherit from standard syntax table
-    InheritStandard,
-    /// '!' — Generic comment delimiter
-    Generic,
-    /// '|' — Generic string fence (pairs with itself, like `"` but independent)
-    StringFence,
+    /// ' ' — Whitespace (Swhitespace = 0)
+    Whitespace = 0,
+    /// '.' — Punctuation (Spunct = 1)
+    Punctuation = 1,
+    /// 'w' — Word constituent (Sword = 2)
+    Word = 2,
+    /// '_' — Symbol constituent (Ssymbol = 3)
+    Symbol = 3,
+    /// '(' — Open parenthesis/bracket (Sopen = 4)
+    Open = 4,
+    /// ')' — Close parenthesis/bracket (Sclose = 5)
+    Close = 5,
+    /// '\'' — Expression prefix (Squote = 6)
+    Quote = 6,
+    /// '"' — String delimiter (Sstring = 7)
+    StringDelim = 7,
+    /// '$' — Math delimiter, paired (Smath = 8)
+    Math = 8,
+    /// '\\' — Escape character (Sescape = 9)
+    Escape = 9,
+    /// '/' — Character quote, only quotes the next character (Scharquote = 10)
+    CharQuote = 10,
+    /// '<' — Comment starter (Scomment = 11)
+    Comment = 11,
+    /// '>' — Comment ender (Sendcomment = 12)
+    EndComment = 12,
+    /// '@' — Inherit from standard syntax table (Sinherit = 13)
+    InheritStd = 13,
+    /// '!' — Generic comment delimiter / comment fence (Scomment_fence = 14)
+    CommentFence = 14,
+    /// '|' — Generic string fence (Sstring_fence = 15)
+    StringFence = 15,
 }
 
 impl SyntaxClass {
@@ -137,15 +141,15 @@ impl SyntaxClass {
             '.' => Some(SyntaxClass::Punctuation),
             '(' => Some(SyntaxClass::Open),
             ')' => Some(SyntaxClass::Close),
-            '\'' => Some(SyntaxClass::Prefix),
+            '\'' => Some(SyntaxClass::Quote),
             '"' => Some(SyntaxClass::StringDelim),
-            '$' => Some(SyntaxClass::MathDelim),
+            '$' => Some(SyntaxClass::Math),
             '\\' => Some(SyntaxClass::Escape),
             '/' => Some(SyntaxClass::CharQuote),
             '<' => Some(SyntaxClass::Comment),
             '>' => Some(SyntaxClass::EndComment),
-            '@' => Some(SyntaxClass::InheritStandard),
-            '!' => Some(SyntaxClass::Generic),
+            '@' => Some(SyntaxClass::InheritStd),
+            '!' => Some(SyntaxClass::CommentFence),
             '|' => Some(SyntaxClass::StringFence),
             _ => None,
         }
@@ -160,40 +164,24 @@ impl SyntaxClass {
             SyntaxClass::Punctuation => '.',
             SyntaxClass::Open => '(',
             SyntaxClass::Close => ')',
-            SyntaxClass::Prefix => '\'',
+            SyntaxClass::Quote => '\'',
             SyntaxClass::StringDelim => '"',
-            SyntaxClass::MathDelim => '$',
+            SyntaxClass::Math => '$',
             SyntaxClass::Escape => '\\',
             SyntaxClass::CharQuote => '/',
             SyntaxClass::Comment => '<',
             SyntaxClass::EndComment => '>',
-            SyntaxClass::InheritStandard => '@',
-            SyntaxClass::Generic => '!',
+            SyntaxClass::InheritStd => '@',
+            SyntaxClass::CommentFence => '!',
             SyntaxClass::StringFence => '|',
         }
     }
 
     /// Return the integer code Emacs uses for this syntax class
     /// (used in the cons cell returned by `string-to-syntax`).
+    #[inline]
     pub fn code(self) -> i64 {
-        match self {
-            SyntaxClass::Whitespace => 0,
-            SyntaxClass::Punctuation => 1,
-            SyntaxClass::Word => 2,
-            SyntaxClass::Symbol => 3,
-            SyntaxClass::Open => 4,
-            SyntaxClass::Close => 5,
-            SyntaxClass::Prefix => 6,
-            SyntaxClass::StringDelim => 7,
-            SyntaxClass::MathDelim => 8,
-            SyntaxClass::Escape => 9,
-            SyntaxClass::CharQuote => 10,
-            SyntaxClass::Comment => 11,
-            SyntaxClass::EndComment => 12,
-            SyntaxClass::InheritStandard => 13,
-            SyntaxClass::Generic => 14,
-            SyntaxClass::StringFence => 15,
-        }
+        self as i64
     }
 
     /// Parse a syntax class from its integer code (inverse of `code()`).
@@ -205,15 +193,15 @@ impl SyntaxClass {
             3 => Some(SyntaxClass::Symbol),
             4 => Some(SyntaxClass::Open),
             5 => Some(SyntaxClass::Close),
-            6 => Some(SyntaxClass::Prefix),
+            6 => Some(SyntaxClass::Quote),
             7 => Some(SyntaxClass::StringDelim),
-            8 => Some(SyntaxClass::MathDelim),
+            8 => Some(SyntaxClass::Math),
             9 => Some(SyntaxClass::Escape),
             10 => Some(SyntaxClass::CharQuote),
             11 => Some(SyntaxClass::Comment),
             12 => Some(SyntaxClass::EndComment),
-            13 => Some(SyntaxClass::InheritStandard),
-            14 => Some(SyntaxClass::Generic),
+            13 => Some(SyntaxClass::InheritStd),
+            14 => Some(SyntaxClass::CommentFence),
             15 => Some(SyntaxClass::StringFence),
             _ => None,
         }
@@ -836,7 +824,7 @@ fn scan_sexp_forward(
                 | SyntaxClass::Comment
                 | SyntaxClass::EndComment
                 | SyntaxClass::Punctuation
-                | SyntaxClass::Prefix
+                | SyntaxClass::Quote
         )
     {
         idx += 1;
@@ -959,7 +947,7 @@ fn scan_sexp_forward(
             }
             Ok(idx)
         }
-        SyntaxClass::MathDelim => {
+        SyntaxClass::Math => {
             // Scan to matching math delimiter.
             let delim = ch;
             idx += 1;
@@ -1003,7 +991,7 @@ fn scan_sexp_backward(
                 | SyntaxClass::Comment
                 | SyntaxClass::EndComment
                 | SyntaxClass::Punctuation
-                | SyntaxClass::Prefix
+                | SyntaxClass::Quote
         )
     {
         idx -= 1;
@@ -1119,7 +1107,7 @@ fn scan_sexp_backward(
             // The escape char itself is a sexp.
             Ok(idx)
         }
-        SyntaxClass::MathDelim => {
+        SyntaxClass::Math => {
             let delim = ch;
             if idx == 0 {
                 return Err("Scan error: unterminated math delimiter".to_string());
@@ -1165,7 +1153,7 @@ pub(crate) fn builtin_string_to_syntax(args: Vec<Value>) -> EvalResult {
         }
     };
     let entry = string_to_syntax(&s).map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
-    if matches!(entry.class, SyntaxClass::InheritStandard) {
+    if matches!(entry.class, SyntaxClass::InheritStd) {
         return Ok(Value::Nil);
     }
     Ok(syntax_entry_to_value(&entry))
@@ -1774,7 +1762,7 @@ pub(crate) fn modify_syntax_entry_in_buffers(
     let update_current_buffer_table = target_table == current_table;
 
     // Update the exposed syntax-table object.
-    let chartable_entry = if matches!(entry.class, SyntaxClass::InheritStandard) {
+    let chartable_entry = if matches!(entry.class, SyntaxClass::InheritStd) {
         Value::Nil
     } else {
         syntax_entry_to_value(&entry)
@@ -2007,7 +1995,7 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64, honor_properties: bool)
         }
 
         // Comment fence (class `!` = Generic).
-        if class == SyntaxClass::Generic {
+        if class == SyntaxClass::CommentFence {
             buf.goto_char(pt + ch.len_utf8());
             // Scan forward for matching comment fence.
             if !scan_forward_comment_fence(buf, honor_properties) {
@@ -2147,7 +2135,7 @@ fn scan_forward_comment_body(
         }
 
         // Comment fence end.
-        if class == SyntaxClass::Generic {
+        if class == SyntaxClass::CommentFence {
             buf.goto_char(pt + ch.len_utf8());
             nesting -= 1;
             if nesting <= 0 {
@@ -2221,7 +2209,7 @@ fn scan_forward_comment_fence(buf: &mut Buffer, honor_properties: bool) -> bool 
 
         buf.goto_char(pt + ch.len_utf8());
 
-        if class == SyntaxClass::Generic {
+        if class == SyntaxClass::CommentFence {
             return true;
         }
     }
@@ -2295,7 +2283,7 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64, honor_properties: bool
             }
 
             // Comment fence backward.
-            if code == SyntaxClass::Generic {
+            if code == SyntaxClass::CommentFence {
                 buf.goto_char(pt - ch.len_utf8());
                 if !scan_backward_comment_fence(buf, honor_properties) {
                     buf.goto_char(pt);
@@ -2470,7 +2458,7 @@ fn scan_backward_comment_body(
         }
 
         // ── Comment fence ────────────────────────────────────────
-        if class == SyntaxClass::Generic {
+        if class == SyntaxClass::CommentFence {
             let new_pos = pt - ch.len_utf8();
             buf.goto_char(new_pos);
             if nested {
@@ -2559,7 +2547,7 @@ fn scan_backward_comment_fence(buf: &mut Buffer, honor_properties: bool) -> bool
 
         buf.goto_char(pt - ch.len_utf8());
 
-        if class == SyntaxClass::Generic {
+        if class == SyntaxClass::CommentFence {
             return true;
         }
     }
@@ -2613,7 +2601,7 @@ pub(crate) fn builtin_backward_prefix_chars_in_buffers(
             honor_properties,
         );
         let is_prefix =
-            entry.class == SyntaxClass::Prefix || entry.flags.contains(SyntaxFlags::PREFIX);
+            entry.class == SyntaxClass::Quote || entry.flags.contains(SyntaxFlags::PREFIX);
         if !is_prefix {
             break;
         }
@@ -3176,7 +3164,7 @@ fn parse_state_from_range_with_options(
                 ParseCommentState::Fence {
                     depth: comment_depth,
                 } => {
-                    if class == SyntaxClass::Generic {
+                    if class == SyntaxClass::CommentFence {
                         let next_depth = comment_depth - 1;
                         idx += 1;
                         if next_depth <= 0 {
@@ -3380,7 +3368,7 @@ fn parse_state_from_range_with_options(
                 }
                 continue;
             }
-            SyntaxClass::Generic => {
+            SyntaxClass::CommentFence => {
                 state.in_comment = Some(ParseCommentState::Fence { depth: 1 });
                 state.comment_or_string_start = Some(pos1);
                 idx += 1;

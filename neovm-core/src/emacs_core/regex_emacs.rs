@@ -27,6 +27,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::emacs_core::syntax::SyntaxClass;
+
 // ---------------------------------------------------------------------------
 // Phase 1: Opcodes and Data Structures
 // ---------------------------------------------------------------------------
@@ -261,59 +263,7 @@ struct FailurePoint {
     saved_counters: HashMap<usize, i16>,
 }
 
-// ---------------------------------------------------------------------------
-// Syntax helpers
-// ---------------------------------------------------------------------------
-
-/// Syntax class codes matching GNU's `enum syntaxcode` from syntax.h.
-///
-/// These are the classes that `\sC` and `\SC` match against.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub(crate) enum SyntaxClass {
-    Whitespace = 0,    // \s-  (space, tab, newline)
-    Punctuation = 1,   // \s.
-    Word = 2,          // \sw
-    Symbol = 3,        // \s_
-    Open = 4,          // \s(
-    Close = 5,         // \s)
-    Quote = 6,         // \s'
-    StringDelim = 7,   // \s"
-    Math = 8,          // \s$
-    Escape = 9,        // \s\\
-    CharQuote = 10,    // \s/
-    Comment = 11,      // \s<
-    EndComment = 12,   // \s>
-    InheritStd = 13,   // \s@
-    CommentFence = 14, // \s!
-    StringFence = 15,  // \s|
-}
-
-impl SyntaxClass {
-    /// Convert a character code letter to a syntax class.
-    /// E.g., '-' → Whitespace, 'w' → Word, '_' → Symbol, etc.
-    pub fn from_char(c: char) -> Option<Self> {
-        match c {
-            '-' | ' ' => Some(Self::Whitespace),
-            '.' => Some(Self::Punctuation),
-            'w' => Some(Self::Word),
-            '_' => Some(Self::Symbol),
-            '(' => Some(Self::Open),
-            ')' => Some(Self::Close),
-            '\'' => Some(Self::Quote),
-            '"' => Some(Self::StringDelim),
-            '$' => Some(Self::Math),
-            '\\' => Some(Self::Escape),
-            '/' => Some(Self::CharQuote),
-            '<' => Some(Self::Comment),
-            '>' => Some(Self::EndComment),
-            '@' => Some(Self::InheritStd),
-            '!' => Some(Self::CommentFence),
-            '|' => Some(Self::StringFence),
-            _ => None,
-        }
-    }
-}
+// SyntaxClass is imported from crate::emacs_core::syntax.
 
 // ---------------------------------------------------------------------------
 // Bytecode helpers
@@ -1647,31 +1597,9 @@ impl SyntaxLookup for DefaultSyntaxLookup {
     }
 }
 
-/// Convert from the syntax module's SyntaxClass to the regex engine's SyntaxClass.
-fn convert_syntax_class(sc: crate::emacs_core::syntax::SyntaxClass) -> SyntaxClass {
-    use crate::emacs_core::syntax::SyntaxClass as SC;
-    match sc {
-        SC::Whitespace => SyntaxClass::Whitespace,
-        SC::Word => SyntaxClass::Word,
-        SC::Symbol => SyntaxClass::Symbol,
-        SC::Punctuation => SyntaxClass::Punctuation,
-        SC::Open => SyntaxClass::Open,
-        SC::Close => SyntaxClass::Close,
-        SC::Prefix | SC::InheritStandard => SyntaxClass::Quote,
-        SC::StringDelim => SyntaxClass::StringDelim,
-        SC::MathDelim => SyntaxClass::Math,
-        SC::Escape => SyntaxClass::Escape,
-        SC::CharQuote => SyntaxClass::CharQuote,
-        SC::Comment => SyntaxClass::Comment,
-        SC::EndComment => SyntaxClass::EndComment,
-        SC::Generic => SyntaxClass::CommentFence,
-        SC::StringFence => SyntaxClass::StringFence,
-    }
-}
-
 impl<'a> SyntaxLookup for BufferSyntaxLookup<'a> {
     fn char_syntax(&self, c: char) -> SyntaxClass {
-        convert_syntax_class(self.syntax_table.char_syntax(c))
+        self.syntax_table.char_syntax(c)
     }
 
     fn char_has_category(&self, c: char, cat: u8) -> bool {

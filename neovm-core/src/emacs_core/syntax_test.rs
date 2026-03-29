@@ -25,15 +25,15 @@ fn syntax_class_roundtrip() {
         ('.', SyntaxClass::Punctuation),
         ('(', SyntaxClass::Open),
         (')', SyntaxClass::Close),
-        ('\'', SyntaxClass::Prefix),
+        ('\'', SyntaxClass::Quote),
         ('"', SyntaxClass::StringDelim),
-        ('$', SyntaxClass::MathDelim),
+        ('$', SyntaxClass::Math),
         ('\\', SyntaxClass::Escape),
         ('/', SyntaxClass::CharQuote),
         ('<', SyntaxClass::Comment),
         ('>', SyntaxClass::EndComment),
-        ('@', SyntaxClass::InheritStandard),
-        ('!', SyntaxClass::Generic),
+        ('@', SyntaxClass::InheritStd),
+        ('!', SyntaxClass::CommentFence),
     ];
     for (ch, class) in &classes {
         assert_eq!(SyntaxClass::from_char(*ch), Some(*class));
@@ -90,7 +90,7 @@ fn string_to_syntax_prefix_class() {
     crate::emacs_core::value::set_current_heap(&mut heap);
 
     let entry = string_to_syntax("'").unwrap();
-    assert_eq!(entry.class, SyntaxClass::Prefix);
+    assert_eq!(entry.class, SyntaxClass::Quote);
     let value = syntax_entry_to_value(&entry);
     if let Value::Cons(cell) = &value {
         let cell = read_cons(*cell);
