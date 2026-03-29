@@ -157,6 +157,10 @@ Completed on 2026-03-29:
 - `read_char` and `read_key_sequence` implementation ownership has moved out of
   `emacs_core/eval.rs` and into `src/keyboard.rs`, so keyboard sequencing now
   lives with the command-loop owner instead of evaluator glue.
+- Pending host input and GNU idle-epoch state now live on `CommandLoop`, and
+  the mouse-event builders moved into `src/keyboard.rs`, so the keyboard owner
+  no longer depends on evaluator-owned storage for those parts of command-loop
+  state.
 
 Still open:
 
@@ -165,7 +169,8 @@ Still open:
   normalization is now centralized.
 - The moved `read_char` / `read_key_sequence` code still reaches through
   `Context` helper/state surfaces that are evaluator-shaped; the next cleanup is
-  to reduce those remaining cross-owner helper boundaries.
+  to reduce the remaining resize/display-host and timer-scheduler cross-owner
+  helper boundaries.
 - Keymap autoload and parent-cycle semantics are still thinner than GNU.
 
 ### Slice 1: Active maps and `key-binding`

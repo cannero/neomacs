@@ -574,6 +574,8 @@ impl PrefixArg {
 pub struct CommandLoop {
     /// Input event queue.
     pub event_queue: VecDeque<InputEvent>,
+    /// Input already received from the host but not yet returned by `read_char`.
+    pub pending_input_events: VecDeque<InputEvent>,
     /// Unread command events in the Lisp-visible Emacs event form.
     pub unread_events: VecDeque<Value>,
     /// Current key sequence being accumulated.
@@ -600,12 +602,17 @@ pub struct CommandLoop {
     pub executing_kbd_macro: Option<Vec<Value>>,
     /// Index into executing keyboard macro.
     pub kbd_macro_index: usize,
+    /// GNU-style idle timer epoch: when Emacs most recently became idle.
+    idle_start_time: Option<std::time::Instant>,
+    /// Last idle epoch preserved across non-user internal events.
+    last_idle_start_time: Option<std::time::Instant>,
 }
 
 impl CommandLoop {
     pub fn new() -> Self {
         Self {
             event_queue: VecDeque::new(),
+            pending_input_events: VecDeque::new(),
             unread_events: VecDeque::new(),
             current_key_sequence: KeySequence::new(),
             prefix_arg: PrefixArg::None,
@@ -619,6 +626,8 @@ impl CommandLoop {
             kbd_macro_events: Vec::new(),
             executing_kbd_macro: None,
             kbd_macro_index: 0,
+            idle_start_time: None,
+            last_idle_start_time: None,
         }
     }
 
@@ -866,7 +875,7 @@ impl crate::emacs_core::eval::Context {
                 self.redisplay();
             }
 
-            let event = if let Some(event) = self.pending_input_events.pop_front() {
+            let event = if let Some(event) = self.command_loop.pending_input_events.pop_front() {
                 self.timer_stop_idle();
                 event
             } else {
@@ -995,6 +1004,115 @@ impl crate::emacs_core::eval::Context {
                     continue;
                 }
             }
+        }
+    }
+
+    /// Build an Emacs mouse event value.
+    ///
+    /// Returns `(EVENT-SYMBOL POSITION)` where EVENT-SYMBOL is e.g.
+    /// `mouse-1`, `down-mouse-2`, `C-mouse-1`, etc.
+    pub(crate) fn make_mouse_event(
+        button: &MouseButton,
+        x: f32,
+        y: f32,
+        modifiers: &Modifiers,
+        prefix: &str,
+        eval: &Self,
+    ) -> Value {
+        let button_num = match button {
+            MouseButton::Left => 1,
+            MouseButton::Middle => 2,
+            MouseButton::Right => 3,
+            MouseButton::Button4 => 4,
+            MouseButton::Button5 => 5,
+        };
+        let mut sym = String::new();
+        Self::append_modifier_prefix(modifiers, &mut sym);
+        sym.push_str(&format!("{}-{}", prefix, button_num));
+
+        let position = Self::make_mouse_position(x, y, eval);
+        Value::list(vec![Value::symbol(&sym), position])
+    }
+
+    /// Build an Emacs mouse position value.
+    ///
+    /// Returns `(WINDOW POS (X . Y) TIMESTAMP)` where WINDOW is the
+    /// selected window, POS is the current point, and TIMESTAMP is 0.
+    pub(crate) fn make_mouse_position(x: f32, y: f32, eval: &Self) -> Value {
+        let window = eval.eval_symbol("selected-window").unwrap_or(Value::Nil);
+        let window_val = if window.is_nil() { Value::Nil } else { window };
+        let pos = eval
+            .buffers
+            .current_buffer()
+            .map(|buf| Value::Int(buf.point_char() as i64 + 1))
+            .unwrap_or(Value::Int(1));
+        let xy = Value::cons(Value::Int(x as i64), Value::Int(y as i64));
+        Value::list(vec![Value::list(vec![window_val, pos, xy, Value::Int(0)])])
+    }
+
+    /// Append modifier prefix characters to a symbol name string.
+    pub(crate) fn append_modifier_prefix(modifiers: &Modifiers, out: &mut String) {
+        if modifiers.ctrl {
+            out.push_str("C-");
+        }
+        if modifiers.meta {
+            out.push_str("M-");
+        }
+        if modifiers.shift {
+            out.push_str("S-");
+        }
+        if modifiers.super_ {
+            out.push_str("s-");
+        }
+        if modifiers.hyper {
+            out.push_str("H-");
+        }
+    }
+
+    pub(crate) fn current_idle_duration(&self) -> Option<std::time::Duration> {
+        self.command_loop
+            .idle_start_time
+            .map(|start| start.elapsed())
+    }
+
+    pub(crate) fn current_idle_time_value(&self) -> Value {
+        let Some(idle_duration) = self.current_idle_duration() else {
+            return Value::Nil;
+        };
+        let secs = idle_duration.as_secs() as i64;
+        let usecs = idle_duration.subsec_micros() as i64;
+        Value::list(vec![
+            Value::Int((secs >> 16) & 0xFFFF_FFFF),
+            Value::Int(secs & 0xFFFF),
+            Value::Int(usecs),
+            Value::Int(0),
+        ])
+    }
+
+    pub(crate) fn timer_start_idle(&mut self) {
+        if self.command_loop.idle_start_time.is_some() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        self.command_loop.idle_start_time = Some(now);
+        self.command_loop.last_idle_start_time = Some(now);
+
+        if self.obarray.fboundp("internal-timer-start-idle") {
+            if let Err(err) = self.apply(Value::symbol("internal-timer-start-idle"), vec![]) {
+                tracing::warn!("internal-timer-start-idle failed: {:?}", err);
+            }
+        }
+    }
+
+    pub(crate) fn timer_stop_idle(&mut self) {
+        if let Some(start) = self.command_loop.idle_start_time.take() {
+            self.command_loop.last_idle_start_time = Some(start);
+        }
+    }
+
+    pub(crate) fn timer_resume_idle(&mut self) {
+        if self.command_loop.idle_start_time.is_none() {
+            self.command_loop.idle_start_time = self.command_loop.last_idle_start_time;
         }
     }
 }

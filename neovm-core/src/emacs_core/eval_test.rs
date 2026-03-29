@@ -490,9 +490,11 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
             .push((frame.width, frame.height));
     }));
 
-    ev.pending_input_events
+    ev.command_loop
+        .pending_input_events
         .push_back(crate::keyboard::InputEvent::Focus(true));
-    ev.pending_input_events
+    ev.command_loop
+        .pending_input_events
         .push_back(crate::keyboard::InputEvent::Resize {
             width: 700,
             height: 800,
@@ -503,10 +505,10 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
 
     assert_eq!(*redisplay_calls.borrow(), vec![(700, 800)]);
     assert!(matches!(
-        ev.pending_input_events.front(),
+        ev.command_loop.pending_input_events.front(),
         Some(crate::keyboard::InputEvent::Focus(true))
     ));
-    assert_eq!(ev.pending_input_events.len(), 1);
+    assert_eq!(ev.command_loop.pending_input_events.len(), 1);
 }
 
 #[test]
@@ -517,15 +519,18 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
     assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
 
-    ev.pending_input_events
+    ev.command_loop
+        .pending_input_events
         .push_back(crate::keyboard::InputEvent::Focus(true));
-    ev.pending_input_events
+    ev.command_loop
+        .pending_input_events
         .push_back(crate::keyboard::InputEvent::Resize {
             width: 700,
             height: 800,
             emacs_frame_id: 0,
         });
-    ev.pending_input_events
+    ev.command_loop
+        .pending_input_events
         .push_back(crate::keyboard::InputEvent::KeyPress(
             crate::keyboard::KeyEvent::char('a'),
         ));

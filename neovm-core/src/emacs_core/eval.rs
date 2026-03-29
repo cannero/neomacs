@@ -682,10 +682,6 @@ pub struct Context {
     pub(crate) input_mode_interrupt: bool,
     /// True while the command loop is blocked waiting for external input.
     pub(crate) waiting_for_user_input: bool,
-    /// GNU-style idle timer epoch: when Emacs most recently became idle.
-    idle_start_time: Option<std::time::Instant>,
-    /// Last idle epoch preserved across non-user internal events.
-    last_idle_start_time: Option<std::time::Instant>,
     /// Frame manager — owns all frames and windows.
     pub(crate) frames: FrameManager,
     /// Mode registry — major/minor modes.
@@ -701,9 +697,6 @@ pub struct Context {
     /// `None` in batch mode (tests, non-interactive evaluation).
     /// When `Some`, `read_char()` blocks on this channel for interactive input.
     pub input_rx: Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
-    /// Non-keyboard events drained opportunistically outside `read_char()`,
-    /// plus non-resize input preserved while syncing pending GUI resizes.
-    pub(crate) pending_input_events: VecDeque<crate::keyboard::InputEvent>,
     /// Wakeup file descriptor — the read end of a pipe that the render thread
     /// writes to when input is available.  Used by `wait_for_input()` with
     /// `pselect()`/`poll()` to multiplex input with process I/O and timers.
@@ -1299,12 +1292,12 @@ fn apply_resize_input_event_in_runtime(
 
 fn sync_pending_resize_events_in_runtime(
     frames: &mut FrameManager,
-    pending_input_events: &mut VecDeque<crate::keyboard::InputEvent>,
     input_rx: &mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
     command_loop: &mut crate::keyboard::CommandLoop,
 ) -> bool {
     let mut applied_resize = false;
     let mut deferred = VecDeque::new();
+    let pending_input_events = &mut command_loop.pending_input_events;
 
     loop {
         match pending_input_events.front() {
@@ -1532,7 +1525,7 @@ impl Context {
         ev.interactive = InteractiveRegistry::new();
         ev.recent_input_events.clear();
         ev.read_command_keys.clear();
-        ev.pending_input_events.clear();
+        ev.command_loop.pending_input_events.clear();
         ev.input_mode_interrupt = false;
         ev.frames = FrameManager::new();
         ev.modes = ModeRegistry::new();
@@ -3094,15 +3087,12 @@ impl Context {
             shutdown_request: None,
             input_mode_interrupt: true,
             waiting_for_user_input: false,
-            idle_start_time: None,
-            last_idle_start_time: None,
             frames: FrameManager::new(),
             modes: ModeRegistry::new(),
             threads: ThreadManager::new(),
             kmacro: KmacroManager::new(),
             command_loop: crate::keyboard::CommandLoop::new(),
             input_rx: None,
-            pending_input_events: VecDeque::new(),
             #[cfg(unix)]
             wakeup_fd: None,
             redisplay_fn: None,
@@ -3225,15 +3215,12 @@ impl Context {
             shutdown_request: None,
             input_mode_interrupt: true,
             waiting_for_user_input: false,
-            idle_start_time: None,
-            last_idle_start_time: None,
             frames: FrameManager::new(),
             modes,
             threads: ThreadManager::new(),
             kmacro,
             command_loop: crate::keyboard::CommandLoop::new(),
             input_rx: None,
-            pending_input_events: VecDeque::new(),
             #[cfg(unix)]
             wakeup_fd: None,
             redisplay_fn: None,
@@ -3510,7 +3497,6 @@ impl Context {
     pub(crate) fn sync_pending_resize_events(&mut self) -> bool {
         let applied_resize = sync_pending_resize_events_in_runtime(
             &mut self.frames,
-            &mut self.pending_input_events,
             &mut self.input_rx,
             &mut self.command_loop,
         );
@@ -3880,70 +3866,6 @@ impl Context {
         }
     }
 
-    /// Build an Emacs mouse event value.
-    ///
-    /// Returns `(EVENT-SYMBOL POSITION)` where EVENT-SYMBOL is e.g.
-    /// `mouse-1`, `down-mouse-2`, `C-mouse-1`, etc.
-    pub(crate) fn make_mouse_event(
-        button: &crate::keyboard::MouseButton,
-        x: f32,
-        y: f32,
-        modifiers: &crate::keyboard::Modifiers,
-        prefix: &str,
-        eval: &Self,
-    ) -> Value {
-        use crate::keyboard::MouseButton;
-        let button_num = match button {
-            MouseButton::Left => 1,
-            MouseButton::Middle => 2,
-            MouseButton::Right => 3,
-            MouseButton::Button4 => 4,
-            MouseButton::Button5 => 5,
-        };
-        let mut sym = String::new();
-        Self::append_modifier_prefix(modifiers, &mut sym);
-        sym.push_str(&format!("{}-{}", prefix, button_num));
-
-        let position = Self::make_mouse_position(x, y, eval);
-        Value::list(vec![Value::symbol(&sym), position])
-    }
-
-    /// Build an Emacs mouse position value.
-    ///
-    /// Returns `(WINDOW POS (X . Y) TIMESTAMP)` where WINDOW is the
-    /// selected window, POS is the current point, and TIMESTAMP is 0.
-    pub(crate) fn make_mouse_position(x: f32, y: f32, eval: &Self) -> Value {
-        let window = eval.eval_symbol("selected-window").unwrap_or(Value::Nil);
-        // Use selected window value, or fall back to a generic list
-        let window_val = if window.is_nil() { Value::Nil } else { window };
-        let pos = eval
-            .buffers
-            .current_buffer()
-            .map(|buf| Value::Int(buf.point_char() as i64 + 1))
-            .unwrap_or(Value::Int(1));
-        let xy = Value::cons(Value::Int(x as i64), Value::Int(y as i64));
-        Value::list(vec![Value::list(vec![window_val, pos, xy, Value::Int(0)])])
-    }
-
-    /// Append modifier prefix characters to a symbol name string.
-    pub(crate) fn append_modifier_prefix(modifiers: &crate::keyboard::Modifiers, out: &mut String) {
-        if modifiers.ctrl {
-            out.push_str("C-");
-        }
-        if modifiers.meta {
-            out.push_str("M-");
-        }
-        if modifiers.shift {
-            out.push_str("S-");
-        }
-        if modifiers.super_ {
-            out.push_str("s-");
-        }
-        if modifiers.hyper {
-            out.push_str("H-");
-        }
-    }
-
     fn pending_gnu_timer(timer: Value) -> Option<PendingGnuTimer> {
         let Value::Vector(timer_id) = timer else {
             return None;
@@ -4021,24 +3943,6 @@ impl Context {
             .collect()
     }
 
-    pub(crate) fn current_idle_duration(&self) -> Option<std::time::Duration> {
-        self.idle_start_time.map(|start| start.elapsed())
-    }
-
-    pub(crate) fn current_idle_time_value(&self) -> Value {
-        let Some(idle_duration) = self.current_idle_duration() else {
-            return Value::Nil;
-        };
-        let secs = idle_duration.as_secs() as i64;
-        let usecs = idle_duration.subsec_micros() as i64;
-        Value::list(vec![
-            Value::Int((secs >> 16) & 0xFFFF_FFFF),
-            Value::Int(secs & 0xFFFF),
-            Value::Int(usecs),
-            Value::Int(0),
-        ])
-    }
-
     fn due_gnu_idle_timers_snapshot(&self) -> Vec<Value> {
         let Some(idle_duration) = self.current_idle_duration() else {
             return Vec::new();
@@ -4108,33 +4012,6 @@ impl Context {
         }
 
         timeout
-    }
-
-    pub(crate) fn timer_start_idle(&mut self) {
-        if self.idle_start_time.is_some() {
-            return;
-        }
-        let now = std::time::Instant::now();
-        self.idle_start_time = Some(now);
-        self.last_idle_start_time = Some(now);
-
-        if self.obarray.fboundp("internal-timer-start-idle") {
-            if let Err(err) = self.apply(Value::symbol("internal-timer-start-idle"), vec![]) {
-                tracing::warn!("internal-timer-start-idle failed: {:?}", err);
-            }
-        }
-    }
-
-    pub(crate) fn timer_stop_idle(&mut self) {
-        if let Some(start) = self.idle_start_time.take() {
-            self.last_idle_start_time = Some(start);
-        }
-    }
-
-    pub(crate) fn timer_resume_idle(&mut self) {
-        if self.idle_start_time.is_none() {
-            self.idle_start_time = self.last_idle_start_time;
-        }
     }
 
     /// Run a named hook if it is bound and non-nil.
