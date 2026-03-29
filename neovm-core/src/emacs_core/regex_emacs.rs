@@ -25,7 +25,7 @@
 //! - GNU header: `src/regex-emacs.h`
 //! - GNU search: `src/search.c` (3514 lines)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // Phase 1: Opcodes and Data Structures
@@ -883,8 +883,8 @@ pub(crate) fn regex_compile(
                         let (min_count, max_count) = parse_interval(pattern_bytes, &mut p)?;
 
                         // Check for non-greedy suffix ?
-                        let _lazy = p < plen && pattern_bytes[p] == b'?';
-                        if _lazy {
+                        let lazy = p < plen && pattern_bytes[p] == b'?';
+                        if lazy {
                             p += 1;
                         }
 
@@ -894,11 +894,7 @@ pub(crate) fn regex_compile(
                             });
                         };
 
-                        // TODO: pass lazy flag to compile_interval for
-                        // non-greedy semantics. For now, greedy works for
-                        // most patterns since backtracking still finds the
-                        // correct match.
-                        compile_interval(min_count, max_count, last, &mut buf)?;
+                        compile_interval(min_count, max_count, lazy, last, &mut buf)?;
                         laststart = None;
                         pending_exact = None;
                     }
@@ -981,6 +977,9 @@ pub(crate) fn regex_compile(
 
     // Emit final succeed
     emit_op!(RegexOp::Succeed);
+
+    // Populate the fastmap for search-time position skipping.
+    compile_fastmap(&mut buf);
 
     Ok(buf)
 }
@@ -1399,6 +1398,7 @@ fn parse_interval(
 fn compile_interval(
     min: usize,
     max: Option<usize>,
+    lazy: bool,
     laststart: usize,
     buf: &mut CompiledPattern,
 ) -> Result<(), RegexCompileError> {
@@ -1419,39 +1419,81 @@ fn compile_interval(
     // Emit optional copies (up to max - min)
     match max {
         Some(max_val) if max_val > min => {
-            for _ in 0..(max_val - min) {
-                // on_failure_jump past this copy
-                buf.buffer.push(RegexOp::OnFailureJump as u8);
-                let jpos = buf.buffer.len();
-                buf.buffer.push(0);
-                buf.buffer.push(0);
-                buf.buffer.extend_from_slice(&expr_bytes);
-                let target = (buf.buffer.len() - jpos - 2) as i16;
-                store_number(&mut buf.buffer, jpos, target);
+            if lazy {
+                // Non-greedy: use OnFailureKeepStringJump to prefer
+                // skipping the optional copy (matching fewer).
+                for _ in 0..(max_val - min) {
+                    buf.buffer.push(RegexOp::OnFailureKeepStringJump as u8);
+                    let jpos = buf.buffer.len();
+                    buf.buffer.push(0);
+                    buf.buffer.push(0);
+                    buf.buffer.extend_from_slice(&expr_bytes);
+                    let target = (buf.buffer.len() - jpos - 2) as i16;
+                    store_number(&mut buf.buffer, jpos, target);
+                }
+            } else {
+                // Greedy: use OnFailureJump to prefer matching the copy.
+                for _ in 0..(max_val - min) {
+                    buf.buffer.push(RegexOp::OnFailureJump as u8);
+                    let jpos = buf.buffer.len();
+                    buf.buffer.push(0);
+                    buf.buffer.push(0);
+                    buf.buffer.extend_from_slice(&expr_bytes);
+                    let target = (buf.buffer.len() - jpos - 2) as i16;
+                    store_number(&mut buf.buffer, jpos, target);
+                }
             }
         }
         None => {
-            // Unbounded: add * loop
-            let loop_start = buf.buffer.len();
-            buf.buffer.push(RegexOp::OnFailureJumpLoop as u8);
-            let jpos = buf.buffer.len();
-            buf.buffer.push(0);
-            buf.buffer.push(0);
+            if lazy {
+                // Non-greedy unbounded: OFKSJ + OFJ loop
+                // Layout:
+                //   [loop_start] OFKSJ  offset(2)  <expr>  OFJ  offset(2)
+                //   OFKSJ skip target → past OFJ (done)
+                //   OFJ fail target → back to OFKSJ (try another iteration)
+                let loop_start = buf.buffer.len();
+                buf.buffer.push(RegexOp::OnFailureKeepStringJump as u8);
+                let jpos = buf.buffer.len();
+                buf.buffer.push(0);
+                buf.buffer.push(0);
 
-            buf.buffer.extend_from_slice(&expr_bytes);
+                buf.buffer.extend_from_slice(&expr_bytes);
 
-            buf.buffer.push(RegexOp::Jump as u8);
-            let jpos2 = buf.buffer.len();
-            buf.buffer.push(0);
-            buf.buffer.push(0);
+                buf.buffer.push(RegexOp::OnFailureJump as u8);
+                let jpos2 = buf.buffer.len();
+                buf.buffer.push(0);
+                buf.buffer.push(0);
 
-            // OFJL fail: from (jpos+2) → past Jump = (jpos2+2)
-            let fail_target = (jpos2 + 2 - jpos - 2) as i16;
-            store_number(&mut buf.buffer, jpos, fail_target);
+                // OFKSJ skip target: from (jpos+2) → past OFJ = (jpos2+2)
+                let skip_target = (jpos2 + 2 - jpos - 2) as i16;
+                store_number(&mut buf.buffer, jpos, skip_target);
 
-            // Jump target: from (jpos2+2) → loop_start
-            let jump_target = loop_start as i16 - (jpos2 as i16 + 2);
-            store_number(&mut buf.buffer, jpos2, jump_target);
+                // OFJ target: from (jpos2+2) → loop_start
+                let ofj_target = loop_start as i16 - (jpos2 as i16 + 2);
+                store_number(&mut buf.buffer, jpos2, ofj_target);
+            } else {
+                // Greedy unbounded: OFJL + Jump loop
+                let loop_start = buf.buffer.len();
+                buf.buffer.push(RegexOp::OnFailureJumpLoop as u8);
+                let jpos = buf.buffer.len();
+                buf.buffer.push(0);
+                buf.buffer.push(0);
+
+                buf.buffer.extend_from_slice(&expr_bytes);
+
+                buf.buffer.push(RegexOp::Jump as u8);
+                let jpos2 = buf.buffer.len();
+                buf.buffer.push(0);
+                buf.buffer.push(0);
+
+                // OFJL fail: from (jpos+2) → past Jump = (jpos2+2)
+                let fail_target = (jpos2 + 2 - jpos - 2) as i16;
+                store_number(&mut buf.buffer, jpos, fail_target);
+
+                // Jump target: from (jpos2+2) → loop_start
+                let jump_target = loop_start as i16 - (jpos2 as i16 + 2);
+                store_number(&mut buf.buffer, jpos2, jump_target);
+            }
         }
         _ => {} // max == min, already handled
     }
@@ -2399,6 +2441,297 @@ fn goto_fail(
 // Searches for a match in text, using fastmap for optimization.
 // ---------------------------------------------------------------------------
 
+/// Analyze compiled bytecode to populate `pattern.fastmap`.
+///
+/// For each byte value `c` that could possibly appear as the first byte of a
+/// match, sets `pattern.fastmap[c] = true`.  The searcher (`re_search`) uses
+/// this to skip positions that cannot start a match, giving a significant
+/// speed-up for patterns that begin with a restricted set of characters.
+///
+/// Translated from GNU regex-emacs.c `re_compile_fastmap`.
+fn compile_fastmap(pattern: &mut CompiledPattern) {
+    pattern.fastmap = [false; 256];
+    pattern.can_be_null = false;
+
+    let bytecode = &pattern.buffer;
+    if bytecode.is_empty() {
+        pattern.can_be_null = true;
+        pattern.fastmap_accurate = true;
+        return;
+    }
+
+    let case_fold = pattern.translate.is_some();
+
+    // Worklist of bytecode positions still to process.
+    let mut worklist: Vec<usize> = vec![0];
+    let mut visited: HashSet<usize> = HashSet::new();
+
+    while let Some(pc) = worklist.pop() {
+        let mut pc = pc;
+
+        loop {
+            if !visited.insert(pc) {
+                // Already processed this position — avoid infinite loops.
+                break;
+            }
+
+            if pc >= bytecode.len() {
+                // Fell off the end of bytecode — pattern can match empty string.
+                pattern.can_be_null = true;
+                break;
+            }
+
+            let Some(op) = RegexOp::from_byte(bytecode[pc]) else {
+                break;
+            };
+            pc += 1;
+
+            match op {
+                RegexOp::Succeed => {
+                    // Pattern can succeed here (may match empty string).
+                    pattern.can_be_null = true;
+                    break;
+                }
+
+                RegexOp::Exactn => {
+                    if pc >= bytecode.len() {
+                        break;
+                    }
+                    let count = bytecode[pc] as usize;
+                    pc += 1;
+                    if count == 0 || pc >= bytecode.len() {
+                        break;
+                    }
+                    let first = bytecode[pc];
+                    pattern.fastmap[first as usize] = true;
+                    if case_fold {
+                        let upper = (first as char)
+                            .to_uppercase()
+                            .next()
+                            .unwrap_or(first as char) as u8;
+                        let lower = (first as char)
+                            .to_lowercase()
+                            .next()
+                            .unwrap_or(first as char) as u8;
+                        pattern.fastmap[upper as usize] = true;
+                        pattern.fastmap[lower as usize] = true;
+                    }
+                    break; // This opcode consumes input — done on this path.
+                }
+
+                RegexOp::AnyChar => {
+                    // Matches any character except newline.
+                    for c in 0..256usize {
+                        if c != b'\n' as usize {
+                            pattern.fastmap[c] = true;
+                        }
+                    }
+                    break;
+                }
+
+                RegexOp::Charset => {
+                    if pc >= bytecode.len() {
+                        break;
+                    }
+                    let bitmap_len = bytecode[pc] as usize & 0x7F;
+                    pc += 1;
+                    for c in 0..256usize {
+                        if c / 8 < bitmap_len && pc + c / 8 < bytecode.len() {
+                            if (bytecode[pc + c / 8] >> (c % 8)) & 1 != 0 {
+                                pattern.fastmap[c] = true;
+                            }
+                        }
+                    }
+                    break;
+                }
+
+                RegexOp::CharsetNot => {
+                    if pc >= bytecode.len() {
+                        break;
+                    }
+                    let bitmap_len = bytecode[pc] as usize & 0x7F;
+                    pc += 1;
+                    for c in 0..256usize {
+                        let in_set = if c / 8 < bitmap_len && pc + c / 8 < bytecode.len() {
+                            (bytecode[pc + c / 8] >> (c % 8)) & 1 != 0
+                        } else {
+                            false
+                        };
+                        if !in_set {
+                            pattern.fastmap[c] = true;
+                        }
+                    }
+                    break;
+                }
+
+                RegexOp::SyntaxSpec => {
+                    if pc >= bytecode.len() {
+                        break;
+                    }
+                    let class_byte = bytecode[pc];
+                    // Set fastmap entries for all bytes whose ASCII char matches
+                    // this syntax class (approximation for the default syntax table).
+                    for c in 0u8..=127 {
+                        let ch = c as char;
+                        let matches_class = match class_byte {
+                            // Whitespace = 0
+                            0 => ch.is_whitespace(),
+                            // Punctuation = 1
+                            1 => ch.is_ascii_punctuation(),
+                            // Word = 2
+                            2 => ch.is_alphanumeric() || ch == '_',
+                            // Symbol = 3
+                            3 => {
+                                !ch.is_alphanumeric()
+                                    && !ch.is_whitespace()
+                                    && !ch.is_ascii_punctuation()
+                                    && ch != '_'
+                            }
+                            _ => false,
+                        };
+                        if matches_class {
+                            pattern.fastmap[c as usize] = true;
+                        }
+                    }
+                    // For non-ASCII bytes, conservatively set them all true.
+                    for c in 128..256usize {
+                        pattern.fastmap[c] = true;
+                    }
+                    break;
+                }
+
+                RegexOp::NotSyntaxSpec => {
+                    if pc >= bytecode.len() {
+                        break;
+                    }
+                    let class_byte = bytecode[pc];
+                    for c in 0u8..=127 {
+                        let ch = c as char;
+                        let matches_class = match class_byte {
+                            0 => ch.is_whitespace(),
+                            1 => ch.is_ascii_punctuation(),
+                            2 => ch.is_alphanumeric() || ch == '_',
+                            3 => {
+                                !ch.is_alphanumeric()
+                                    && !ch.is_whitespace()
+                                    && !ch.is_ascii_punctuation()
+                                    && ch != '_'
+                            }
+                            _ => false,
+                        };
+                        if !matches_class {
+                            pattern.fastmap[c as usize] = true;
+                        }
+                    }
+                    for c in 128..256usize {
+                        pattern.fastmap[c] = true;
+                    }
+                    break;
+                }
+
+                RegexOp::CategorySpec | RegexOp::NotCategorySpec => {
+                    // Categories are too dynamic to predict — allow all bytes.
+                    pattern.fastmap = [true; 256];
+                    break;
+                }
+
+                // Zero-width assertions: they don't consume input, so we
+                // continue to the next opcode to find what actually starts
+                // the match.
+                RegexOp::BegLine
+                | RegexOp::EndLine
+                | RegexOp::BegBuf
+                | RegexOp::EndBuf
+                | RegexOp::AtDot
+                | RegexOp::WordBound
+                | RegexOp::NotWordBound
+                | RegexOp::WordBeg
+                | RegexOp::WordEnd
+                | RegexOp::SymBeg
+                | RegexOp::SymEnd => {
+                    // Continue to the next opcode.
+                }
+
+                RegexOp::StartMemory | RegexOp::StopMemory => {
+                    // Skip the group number byte, continue.
+                    pc += 1;
+                }
+
+                RegexOp::Duplicate => {
+                    // Backreferences can match anything — set all.
+                    pattern.fastmap = [true; 256];
+                    break;
+                }
+
+                RegexOp::NoOp => {
+                    // Continue to next opcode.
+                }
+
+                RegexOp::Jump => {
+                    if pc + 1 >= bytecode.len() {
+                        break;
+                    }
+                    let offset = extract_number(bytecode, pc);
+                    pc = ((pc as i64) + 2 + (offset as i64)) as usize;
+                    // Continue walking from the jump target (don't break).
+                }
+
+                RegexOp::OnFailureJump
+                | RegexOp::OnFailureKeepStringJump
+                | RegexOp::OnFailureJumpLoop
+                | RegexOp::OnFailureJumpNastyloop
+                | RegexOp::OnFailureJumpSmart => {
+                    if pc + 1 >= bytecode.len() {
+                        break;
+                    }
+                    let offset = extract_number(bytecode, pc);
+                    pc += 2;
+                    // Both the fallthrough (next opcode) and the jump target
+                    // can start a match.  Push the jump target onto the
+                    // worklist and continue with the fallthrough.
+                    let target = ((pc as i64) + (offset as i64)) as usize;
+                    worklist.push(target);
+                    // Continue with the next opcode (fallthrough path).
+                }
+
+                RegexOp::SucceedN => {
+                    // succeed_n <offset:2> <counter:2>
+                    // When counter > 0, acts like a mandatory match of what follows.
+                    // When counter == 0, acts like on_failure_jump.
+                    // For fastmap purposes, both paths are possible.
+                    if pc + 3 >= bytecode.len() {
+                        break;
+                    }
+                    let offset = extract_number(bytecode, pc);
+                    let target = ((pc as i64) + 2 + (offset as i64)) as usize;
+                    worklist.push(target);
+                    pc += 4; // skip offset + counter, continue with fallthrough
+                }
+
+                RegexOp::JumpN => {
+                    // jump_n <offset:2> <counter:2>
+                    // If counter > 0, jumps; if counter == 0, falls through.
+                    // For fastmap, both paths are possible.
+                    if pc + 3 >= bytecode.len() {
+                        break;
+                    }
+                    let offset = extract_number(bytecode, pc);
+                    let target = ((pc as i64) + 2 + (offset as i64)) as usize;
+                    worklist.push(target);
+                    pc += 4; // fallthrough
+                }
+
+                RegexOp::SetNumberAt => {
+                    // set_number_at <offset:2> <value:2> — no input consumed.
+                    pc += 4;
+                }
+            }
+        }
+    }
+
+    pattern.fastmap_accurate = true;
+}
+
 /// Search for a match of the compiled pattern in text.
 ///
 /// Equivalent to GNU's `re_search_2()`.
@@ -2431,7 +2764,12 @@ pub(crate) fn re_search(
             if pos > text_len {
                 break;
             }
-            // TODO: Use fastmap to skip positions that can't start a match
+            // Use fastmap to skip positions that can't start a match
+            if pattern.fastmap_accurate && pos < text_len {
+                if !pattern.fastmap[text[pos] as usize] {
+                    continue;
+                }
+            }
             if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
                 return Some((pos, result.1));
             }
@@ -2440,6 +2778,12 @@ pub(crate) fn re_search(
         // Backward search
         let end = start.saturating_sub((-range) as usize);
         for pos in (end..=start).rev() {
+            // Use fastmap to skip positions that can't start a match
+            if pattern.fastmap_accurate && pos < text_len {
+                if !pattern.fastmap[text[pos] as usize] {
+                    continue;
+                }
+            }
             if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
                 return Some((pos, result.1));
             }
@@ -2605,5 +2949,87 @@ mod tests {
         assert!(r.as_ref().unwrap().is_some(), "match failed");
         let (pos, _regs) = r.unwrap().unwrap();
         assert_eq!(pos, 4, "match position");
+    }
+
+    #[test]
+    fn test_fastmap_skips_positions() {
+        let syn = DefaultSyntaxLookup;
+        // Pattern starts with 'z' — should skip to position where 'z' appears
+        let r = search_pattern("zing", "aaaaaaaaaazing", 0, false, &syn, 0);
+        assert!(r.unwrap().is_some());
+        let r = search_pattern("zing", "aaaaaaaaaazing", 0, false, &syn, 0);
+        let (pos, _) = r.unwrap().unwrap();
+        assert_eq!(pos, 10);
+    }
+
+    #[test]
+    fn test_fastmap_literal_accurate() {
+        // Verify fastmap is populated and accurate for a simple literal
+        let compiled = regex_compile("hello", false, false).unwrap();
+        assert!(compiled.fastmap_accurate);
+        assert!(compiled.fastmap[b'h' as usize]);
+        assert!(!compiled.fastmap[b'a' as usize]);
+        assert!(!compiled.fastmap[b'z' as usize]);
+    }
+
+    #[test]
+    fn test_fastmap_charset() {
+        // Verify fastmap for character class patterns
+        let compiled = regex_compile("[abc]", false, false).unwrap();
+        assert!(compiled.fastmap_accurate);
+        assert!(compiled.fastmap[b'a' as usize]);
+        assert!(compiled.fastmap[b'b' as usize]);
+        assert!(compiled.fastmap[b'c' as usize]);
+        assert!(!compiled.fastmap[b'd' as usize]);
+    }
+
+    #[test]
+    fn test_fastmap_case_fold() {
+        // Case-folded pattern should match both cases
+        let compiled = regex_compile("Hello", false, true).unwrap();
+        assert!(compiled.fastmap_accurate);
+        assert!(compiled.fastmap[b'h' as usize]);
+        assert!(compiled.fastmap[b'H' as usize]);
+    }
+
+    #[test]
+    fn test_fastmap_alternation() {
+        // Alternation: both branches should appear in fastmap
+        let compiled = regex_compile("\\(foo\\|bar\\)", false, false).unwrap();
+        assert!(compiled.fastmap_accurate);
+        assert!(compiled.fastmap[b'f' as usize]);
+        assert!(compiled.fastmap[b'b' as usize]);
+        assert!(!compiled.fastmap[b'z' as usize]);
+    }
+
+    #[test]
+    fn test_fastmap_dot() {
+        // AnyChar: everything except newline
+        let compiled = regex_compile(".", false, false).unwrap();
+        assert!(compiled.fastmap_accurate);
+        assert!(compiled.fastmap[b'a' as usize]);
+        assert!(compiled.fastmap[b'Z' as usize]);
+        assert!(!compiled.fastmap[b'\n' as usize]);
+    }
+
+    #[test]
+    fn test_fastmap_anchor_then_literal() {
+        // ^hello — anchor is zero-width, fastmap should see 'h'
+        let compiled = regex_compile("^hello", false, false).unwrap();
+        assert!(compiled.fastmap_accurate);
+        assert!(compiled.fastmap[b'h' as usize]);
+        assert!(!compiled.fastmap[b'x' as usize]);
+    }
+
+    #[test]
+    fn test_fastmap_charset_not() {
+        // [^abc] should allow everything except a, b, c
+        let compiled = regex_compile("[^abc]", false, false).unwrap();
+        assert!(compiled.fastmap_accurate);
+        assert!(!compiled.fastmap[b'a' as usize]);
+        assert!(!compiled.fastmap[b'b' as usize]);
+        assert!(!compiled.fastmap[b'c' as usize]);
+        assert!(compiled.fastmap[b'd' as usize]);
+        assert!(compiled.fastmap[b'z' as usize]);
     }
 }

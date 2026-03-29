@@ -1303,3 +1303,14 @@ fn string_match_start_offset_respects_real_line_start() {
         .unwrap_or(searched.len());
     assert_eq!(&searched[byte_s1..byte_e1], "beta");
 }
+
+#[test]
+fn test_lazy_interval() {
+    use crate::emacs_core::regex_emacs::{DefaultSyntaxLookup, search_pattern};
+    let syn = DefaultSyntaxLookup;
+    // Greedy: a\{1,3\} on "aaab" matches "aaa"
+    let r = search_pattern("a\\{1,3\\}b", "aaab", 0, false, &syn, 0);
+    let (_, regs) = r.unwrap().expect("should match");
+    assert_eq!(regs.start[0], 0);
+    assert_eq!(regs.end[0], 4); // matches "aaab"
+}
