@@ -998,6 +998,26 @@ fn color_to_pixel(c: &NeoColor) -> u32 {
     ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
 }
 
+/// Check if two colors are perceptually close.
+///
+/// GNU Emacs uses this for `:distant-foreground`: when the foreground
+/// is too similar to the background, swap to the distant foreground
+/// for readability.  Uses simple RGB distance threshold.
+fn colors_close(a: u32, b: u32) -> bool {
+    let ar = (a >> 16) & 0xFF;
+    let ag = (a >> 8) & 0xFF;
+    let ab = a & 0xFF;
+    let br = (b >> 16) & 0xFF;
+    let bg = (b >> 8) & 0xFF;
+    let bb = b & 0xFF;
+    let dr = ar.abs_diff(br) as u32;
+    let dg = ag.abs_diff(bg) as u32;
+    let db = ab.abs_diff(bb) as u32;
+    // Weighted Euclidean distance (human perception weights R more than B)
+    // Threshold ~30 in each channel ≈ 2700 squared distance
+    (dr * dr * 3 + dg * dg * 4 + db * db * 2) < 3000
+}
+
 /// Resolved face attributes ready for the layout engine.
 ///
 /// This is the neovm-core equivalent of `FaceDataFFI`.  All attributes are
@@ -1239,6 +1259,13 @@ impl FaceResolver {
         }
         if face.overstrike {
             rf.overstrike = true;
+        }
+
+        // Distant-foreground: swap fg when too close to bg
+        if let Some(dfg) = &face.distant_foreground {
+            if colors_close(rf.fg, rf.bg) {
+                rf.fg = color_to_pixel(dfg);
+            }
         }
 
         rf
@@ -1667,6 +1694,16 @@ impl FaceResolver {
         // Overstrike
         if face.overstrike {
             rf.overstrike = true;
+        }
+
+        // Distant-foreground: GNU Emacs (xfaces.c) uses this when the
+        // foreground is too close to the background, improving readability.
+        // Check if fg ≈ bg and substitute distant-foreground if available.
+        if let Some(dfg) = &face.distant_foreground {
+            let dfg_pixel = color_to_pixel(dfg);
+            if colors_close(rf.fg, rf.bg) {
+                rf.fg = dfg_pixel;
+            }
         }
 
         rf
