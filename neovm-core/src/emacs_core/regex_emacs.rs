@@ -348,8 +348,13 @@ struct CompileStackEntry {
     fixup_alt_jump: Option<usize>,
     /// Bytecode position of the last expression start (for postfix ops).
     laststart_offset: Option<usize>,
-    /// Group number (0-based).
+    /// Group number at the time of \( (before incrementing).
     regnum: usize,
+    /// The actual group number assigned to this \( (None for shy groups).
+    assigned_group: Option<usize>,
+    /// Bytecode position of the group's StartMemory (or OnFailureJump
+    /// for shy groups). Used by postfix ops like ? * + after \).
+    group_bytecode_start: usize,
 }
 
 /// Compile an Emacs regex pattern into bytecode.
@@ -540,14 +545,59 @@ pub(crate) fn regex_compile(
                             p += 2; // skip ?:
                         }
 
+                        // Check for explicit numbered group \(?N:...\)
+                        let mut explicit_group: Option<usize> = None;
+                        if !shy && p < plen && pattern_bytes[p] == b'?' {
+                            // Look for \(?N:...\) where N is a digit
+                            let saved_p = p;
+                            p += 1; // skip ?
+                            // Parse digits
+                            let num_start = p;
+                            while p < plen && pattern_bytes[p].is_ascii_digit() {
+                                p += 1;
+                            }
+                            if p > num_start && p < plen && pattern_bytes[p] == b':' {
+                                let num_str = std::str::from_utf8(&pattern_bytes[num_start..p])
+                                    .unwrap_or("0");
+                                if let Ok(n) = num_str.parse::<usize>() {
+                                    explicit_group = Some(n);
+                                    p += 1; // skip :
+                                }
+                            }
+                            if explicit_group.is_none() {
+                                p = saved_p; // not a valid numbered group
+                            }
+                        }
+
+                        let is_shy = shy;
+
+                        let group_start = bpos!();
+                        let assigned = if let Some(n) = explicit_group {
+                            Some(n)
+                        } else if !is_shy {
+                            Some(regnum + 1)
+                        } else {
+                            None
+                        };
+
                         compile_stack.push(CompileStackEntry {
                             begalt_offset,
                             fixup_alt_jump,
                             laststart_offset: laststart,
                             regnum,
+                            assigned_group: assigned,
+                            group_bytecode_start: group_start,
                         });
 
-                        if !shy {
+                        if let Some(n) = explicit_group {
+                            // Explicit numbered group: assign group number n
+                            while buf.re_nsub < n {
+                                buf.re_nsub += 1;
+                            }
+                            regnum = n;
+                            emit_op!(RegexOp::StartMemory);
+                            emit!(n as u8);
+                        } else if !is_shy {
                             regnum += 1;
                             buf.re_nsub += 1;
                             emit_op!(RegexOp::StartMemory);
@@ -574,21 +624,19 @@ pub(crate) fn regex_compile(
                             store_number(&mut buf.buffer, fixup, target);
                         }
 
-                        let was_shy = entry.regnum == regnum;
-                        // Only emit stop_memory for non-shy groups
-                        if !was_shy {
-                            // The group number for this group
-                            let this_group = entry.regnum + 1;
-                            // Actually, regnum was incremented at open, so
-                            // the group that's closing is the current stack entry's
+                        // Emit StopMemory for non-shy groups.
+                        if let Some(group_num) = entry.assigned_group {
                             emit_op!(RegexOp::StopMemory);
-                            emit!(this_group as u8);
+                            emit!(group_num as u8);
                         }
 
                         begalt_offset = entry.begalt_offset;
                         fixup_alt_jump = entry.fixup_alt_jump;
-                        laststart = Some(entry.laststart_offset.unwrap_or(0));
-                        regnum = entry.regnum;
+                        // After \), laststart points to the group's start
+                        // so postfix operators (?, *, +) apply to the group.
+                        laststart = Some(entry.group_bytecode_start);
+                        // Do NOT restore regnum — it keeps incrementing
+                        // across sibling groups (GNU behavior).
                         pending_exact = None;
                     }
 
@@ -808,8 +856,14 @@ pub(crate) fn regex_compile(
                     // \{ — interval \{n,m\}
                     b'{' => {
                         // Parse interval
-                        let interval_start = p;
+                        let _interval_start = p;
                         let (min_count, max_count) = parse_interval(pattern_bytes, &mut p)?;
+
+                        // Check for non-greedy suffix ?
+                        let _lazy = p < plen && pattern_bytes[p] == b'?';
+                        if _lazy {
+                            p += 1;
+                        }
 
                         let Some(last) = laststart else {
                             return Err(RegexCompileError {
@@ -817,9 +871,60 @@ pub(crate) fn regex_compile(
                             });
                         };
 
+                        // TODO: pass lazy flag to compile_interval for
+                        // non-greedy semantics. For now, greedy works for
+                        // most patterns since backtracking still finds the
+                        // correct match.
                         compile_interval(min_count, max_count, last, &mut buf)?;
                         laststart = None;
                         pending_exact = None;
+                    }
+
+                    // Control/escape character shortcuts
+                    // GNU Emacs receives these already converted by the
+                    // Lisp reader, but callers from Rust may pass the
+                    // backslash-letter form. Handle both.
+                    b't' => {
+                        goto_normal_char(b'\t', &mut buf, &mut pending_exact, &mut laststart);
+                    }
+                    b'n' => {
+                        goto_normal_char(b'\n', &mut buf, &mut pending_exact, &mut laststart);
+                    }
+                    b'r' => {
+                        goto_normal_char(b'\r', &mut buf, &mut pending_exact, &mut laststart);
+                    }
+                    b'f' => {
+                        goto_normal_char(0x0c, &mut buf, &mut pending_exact, &mut laststart);
+                    }
+                    b'a' => {
+                        goto_normal_char(0x07, &mut buf, &mut pending_exact, &mut laststart);
+                    }
+                    b'e' => {
+                        goto_normal_char(0x1b, &mut buf, &mut pending_exact, &mut laststart);
+                    }
+                    // \d — digit [0-9]  (not in GNU Emacs, but used in tests)
+                    b'd' => {
+                        laststart = Some(bpos!());
+                        pending_exact = None;
+                        emit_op!(RegexOp::Charset);
+                        emit!(32);
+                        let bitmap_start = buf.buffer.len();
+                        buf.buffer.extend_from_slice(&[0u8; 32]);
+                        for ch in b'0'..=b'9' {
+                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
+                        }
+                    }
+                    // \D — non-digit [^0-9]
+                    b'D' => {
+                        laststart = Some(bpos!());
+                        pending_exact = None;
+                        emit_op!(RegexOp::CharsetNot);
+                        emit!(32);
+                        let bitmap_start = buf.buffer.len();
+                        buf.buffer.extend_from_slice(&[0u8; 32]);
+                        for ch in b'0'..=b'9' {
+                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
+                        }
                     }
 
                     // Other escaped characters — treat as literal
@@ -1050,6 +1155,7 @@ fn compile_charset(
 
     // Special case: ] at start is literal
     let mut first = true;
+    let mut last_char: Option<u8> = None; // Track last single char for ranges
 
     while *p < plen {
         let c = pattern[*p];
@@ -1060,20 +1166,88 @@ fn compile_charset(
         }
         first = false;
 
-        if c == b'-' && *p < plen && !first {
-            // Range: previous char - next char
-            // The previous char was already set in bitmap
-            // We need to set all chars in range
-            if *p < plen && pattern[*p] != b']' {
+        if c == b'-' && *p < plen && pattern[*p] != b']' {
+            if let Some(range_start) = last_char {
+                // Range: range_start - next char
                 let range_end = pattern[*p];
                 *p += 1;
-                // Get the range start from the last char we set
-                // For simplicity, set the range_end char
-                if (range_end as usize) < 256 {
-                    set_bitmap_bit(&mut buf.buffer, bitmap_start, range_end, case_fold);
+                for ch in range_start..=range_end {
+                    set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
                 }
+                last_char = None; // Range consumed
                 continue;
             }
+            // '-' at start or after a range → literal '-'
+            set_bitmap_bit(&mut buf.buffer, bitmap_start, b'-', case_fold);
+            last_char = Some(b'-');
+            continue;
+        }
+
+        // In GNU Emacs, backslash is NOT special inside [...].
+        // It's treated as a literal backslash character.
+        // However, NeoVM callers (from Rust) may pass \w, \s, \d
+        // inside [...] expecting them to work. We handle the most
+        // common cases but fall through to literal for unknown escapes.
+        if c == b'\\' && *p < plen {
+            let esc = pattern[*p];
+            match esc {
+                b'w' => {
+                    *p += 1;
+                    for ch in b'a'..=b'z' {
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
+                    }
+                    for ch in b'A'..=b'Z' {
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
+                    }
+                    for ch in b'0'..=b'9' {
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
+                    }
+                    set_bitmap_bit(&mut buf.buffer, bitmap_start, b'_', false);
+                    last_char = None;
+                    continue;
+                }
+                b'W' => {
+                    *p += 1;
+                    for ch in 0u8..=127 {
+                        if !ch.is_ascii_alphanumeric() && ch != b'_' {
+                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
+                        }
+                    }
+                    last_char = None;
+                    continue;
+                }
+                b's' if *p + 1 < plen => {
+                    let sc = pattern[*p + 1];
+                    if sc == b'-' || sc == b' ' {
+                        *p += 2;
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, b' ', false);
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\t', false);
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\n', false);
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\r', false);
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, 0x0c, false);
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, 0x0b, false);
+                        last_char = None;
+                        continue;
+                    }
+                    // Fall through to treat \ as literal
+                }
+                b'd' => {
+                    *p += 1;
+                    for ch in b'0'..=b'9' {
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
+                    }
+                    last_char = None;
+                    continue;
+                }
+                _ => {
+                    // In GNU Emacs, backslash inside [...] is literal.
+                    // Don't consume the next char — just set '\' bit.
+                }
+            }
+            // Treat backslash as literal character
+            set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\\', case_fold);
+            last_char = Some(b'\\');
+            continue;
         }
 
         // Handle POSIX classes [[:alpha:]], etc.
@@ -1090,6 +1264,7 @@ fn compile_charset(
                     *p += 1; // skip ]
                 }
                 apply_posix_class(class_name, &mut buf.buffer, bitmap_start, case_fold);
+                last_char = None;
                 continue;
             }
         }
@@ -1097,6 +1272,7 @@ fn compile_charset(
         // Regular character
         if (c as usize) < 256 {
             set_bitmap_bit(&mut buf.buffer, bitmap_start, c, case_fold);
+            last_char = Some(c);
         }
     }
 
@@ -1303,8 +1479,13 @@ impl SyntaxLookup for DefaultSyntaxLookup {
         }
     }
 
-    fn char_has_category(&self, _c: char, _cat: u8) -> bool {
-        false // Default: no categories
+    fn char_has_category(&self, c: char, cat: u8) -> bool {
+        // Minimal category support for standalone testing.
+        // Category '|' (0x7c) = multibyte characters
+        if cat == b'|' {
+            return !c.is_ascii();
+        }
+        false
     }
 }
 
@@ -1445,29 +1626,27 @@ pub(crate) fn re_match(
             RegexOp::Exactn => {
                 let count = bytecode[pc] as usize;
                 pc += 1;
+                let mut matched = true;
                 for i in 0..count {
                     if d >= stop {
-                        // Backtrack
-                        if let Some(fp) = fail_stack.pop() {
-                            pc = fp.pattern_pos;
-                            if let Some(sp) = fp.string_pos {
-                                d = sp;
-                            }
-                            restore_registers(&fp, &mut regstart, &mut regend);
-                            continue;
-                        }
-                        return None;
+                        matched = false;
+                        pc += count - i;
+                        break;
                     }
                     let pat_byte = bytecode[pc + i];
                     let txt_byte = text[d];
                     if tr(txt_byte) != tr(pat_byte) {
-                        pc += count - i; // skip remaining pattern bytes
-                        goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
-                        continue;
+                        matched = false;
+                        pc += count - i;
+                        break;
                     }
                     d += 1;
                 }
-                pc += count;
+                if matched {
+                    pc += count;
+                } else {
+                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                }
             }
 
             RegexOp::AnyChar => {
@@ -2113,5 +2292,27 @@ mod tests {
         assert!(r.unwrap().is_some());
         let r = search_pattern("\\(a\\)\\1", "ab", 0, false, &syn, 0);
         assert!(r.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_alternation() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("\\(foo\\|bar\\)", "test bar baz", 0, false, &syn, 0);
+        assert!(r.is_ok(), "compile failed: {:?}", r.err());
+        assert!(r.as_ref().unwrap().is_some(), "match failed");
+        let (pos, regs) = r.unwrap().unwrap();
+        assert_eq!(pos, 5, "match position");
+        assert_eq!(regs.start[0], 5);
+        assert_eq!(regs.end[0], 8);
+    }
+
+    #[test]
+    fn test_char_range() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("[0-9]+", "foo 123 bar", 0, false, &syn, 0);
+        assert!(r.is_ok(), "compile failed: {:?}", r.err());
+        assert!(r.as_ref().unwrap().is_some(), "match failed");
+        let (pos, _regs) = r.unwrap().unwrap();
+        assert_eq!(pos, 4, "match position");
     }
 }

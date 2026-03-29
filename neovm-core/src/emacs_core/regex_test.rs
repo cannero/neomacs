@@ -125,7 +125,7 @@ fn translate_backslash_w() {
 fn compile_search_pattern_uses_backref_engine_for_supported_captures() {
     assert!(matches!(
         compile_search_pattern("\\([a-z]+\\)-\\([0-9]+\\)", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -133,7 +133,7 @@ fn compile_search_pattern_uses_backref_engine_for_supported_captures() {
 fn compile_search_pattern_uses_backref_engine_for_noncapturing_groups() {
     assert!(matches!(
         compile_search_pattern("\\(?:foo\\|bar\\)+", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -141,7 +141,7 @@ fn compile_search_pattern_uses_backref_engine_for_noncapturing_groups() {
 fn compile_search_pattern_routes_syntax_classes_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("\\(defun\\|defvar\\)\\s-+\\(\\w+\\)", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -149,7 +149,7 @@ fn compile_search_pattern_routes_syntax_classes_through_backref_engine() {
 fn compile_search_pattern_routes_category_classes_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("[ \t]\\|\\c|.\\|.\\c|", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -157,7 +157,7 @@ fn compile_search_pattern_routes_category_classes_through_backref_engine() {
 fn compile_search_pattern_routes_digit_classes_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("\\d+", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -165,11 +165,11 @@ fn compile_search_pattern_routes_digit_classes_through_backref_engine() {
 fn compile_search_pattern_routes_char_class_escapes_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("[\\w-]+", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
     assert!(matches!(
         compile_search_pattern("[\\s-]+", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -177,11 +177,11 @@ fn compile_search_pattern_routes_char_class_escapes_through_backref_engine() {
 fn compile_search_pattern_routes_lazy_quantifiers_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("a.*?b", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
     assert!(matches!(
         compile_search_pattern("a\\{2,4\\}?b", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -189,7 +189,7 @@ fn compile_search_pattern_routes_lazy_quantifiers_through_backref_engine() {
 fn compile_search_pattern_routes_open_interval_quantifiers_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("a\\{,2\\}b", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -197,11 +197,11 @@ fn compile_search_pattern_routes_open_interval_quantifiers_through_backref_engin
 fn compile_search_pattern_routes_explicit_numbered_groups_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("\\(?1:[^}]*\\)", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
     assert!(matches!(
         compile_search_pattern("\\(?9:.*?\\)", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -209,7 +209,7 @@ fn compile_search_pattern_routes_explicit_numbered_groups_through_backref_engine
 fn compile_search_pattern_routes_symbol_boundaries_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("\\_<foo\\_>", false),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 
@@ -217,7 +217,7 @@ fn compile_search_pattern_routes_symbol_boundaries_through_backref_engine() {
 fn compile_search_pattern_routes_bracket_section_anchor_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("\\`\\[\\([^]]+\\)\\]\\'", true),
-        Ok(CompiledSearchPattern::Backref(_))
+        Ok(CompiledSearchPattern::Emacs(_))
     ));
 }
 

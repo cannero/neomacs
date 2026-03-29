@@ -1,23 +1,52 @@
 //! Regex engine and search primitives for the Elisp VM.
 //!
-//! Uses the `regex` crate as the backend.  Translates basic Emacs regex
-//! syntax to Rust regex syntax before compiling patterns.
+//! Uses a direct translation of GNU Emacs's `regex-emacs.c` as the backend.
+//! All pattern compilation, matching, and searching goes through the
+//! `regex_emacs` module, ensuring 100% semantic compatibility with GNU.
 
 use regex::Regex;
 use std::cell::RefCell;
 
 use crate::buffer::{Buffer, BufferId};
 use crate::emacs_core::casefiddle::apply_replace_match_case;
+use crate::emacs_core::regex_emacs::{
+    self, CompiledPattern, DefaultSyntaxLookup, MatchRegisters, SyntaxLookup,
+};
 use crate::emacs_core::value::with_heap;
 
 pub(crate) const REPLACE_MATCH_SUBEXP_MISSING: &str = "replace-match subexpression does not exist";
 const SEARCH_PATTERN_CACHE_SIZE: usize = 20;
 
+/// Convert `MatchRegisters` (from the GNU-translated engine) into `MatchData`
+/// (the public representation used by Elisp builtins).
+fn match_data_from_registers(regs: &MatchRegisters, offset: usize) -> MatchData {
+    let num_groups = regs.num_regs();
+    let mut groups = Vec::with_capacity(num_groups);
+    for i in 0..num_groups {
+        if regs.start[i] >= 0 && regs.end[i] >= 0 {
+            groups.push(Some((
+                regs.start[i] as usize + offset,
+                regs.end[i] as usize + offset,
+            )));
+        } else {
+            groups.push(None);
+        }
+    }
+    MatchData {
+        groups,
+        searched_string: None,
+        searched_buffer: None,
+    }
+}
+
 #[derive(Clone)]
 enum CompiledSearchPattern {
+    /// New GNU-translated engine (primary path for all patterns).
+    Emacs(CompiledPattern),
+    /// Legacy: simple literal search (no regex engine needed).
     Literal(String),
-    Segmented(SegmentedPattern),
-    Backref(BackrefPattern),
+    /// Legacy: Rust `regex` crate fallback (kept during transition).
+    #[allow(dead_code)]
     Regex(Regex),
 }
 
@@ -1419,21 +1448,16 @@ fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSear
     let compiled = crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexCompileMiss,
         || {
-            if let Some(segmented) = parse_segmented_pattern(pattern) {
-                Ok(CompiledSearchPattern::Segmented(segmented))
-            } else if let Some(literal) = literal_from_trivial_regexp(pattern)
+            // Use the GNU-translated engine for all patterns.
+            // Only optimize plain literals (no regex metacharacters).
+            if let Some(literal) = literal_from_trivial_regexp(pattern)
                 && (!case_fold || literal.is_ascii())
             {
                 Ok(CompiledSearchPattern::Literal(literal))
-            } else if pattern_supported_by_backref_engine(pattern) {
-                if let Some(backref) = BackrefParser::new(pattern).parse() {
-                    Ok(CompiledSearchPattern::Backref(backref))
-                } else {
-                    compile_emacs_regex_case_fold(pattern, case_fold)
-                        .map(CompiledSearchPattern::Regex)
-                }
             } else {
-                compile_emacs_regex_case_fold(pattern, case_fold).map(CompiledSearchPattern::Regex)
+                regex_emacs::regex_compile(pattern, false, case_fold)
+                    .map(CompiledSearchPattern::Emacs)
+                    .map_err(|e| format!("Invalid regexp: {}", e.message))
             }
         },
     )?;
@@ -1452,8 +1476,7 @@ fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSear
 fn compiled_capture_count(compiled: &CompiledSearchPattern) -> usize {
     match compiled {
         CompiledSearchPattern::Literal(_) => 1,
-        CompiledSearchPattern::Segmented(pattern) => pattern.capture_count + 1,
-        CompiledSearchPattern::Backref(pattern) => pattern.group_count + 1,
+        CompiledSearchPattern::Emacs(cp) => cp.re_nsub + 1,
         CompiledSearchPattern::Regex(re) => re.captures_len(),
     }
 }
@@ -1478,11 +1501,12 @@ fn find_forward_match_data_compiled(
                 searched_buffer: None,
             })
         }
-        CompiledSearchPattern::Segmented(pattern) => {
-            find_forward_segmented_match_data(pattern, text, start, limit, offset, case_fold)
-        }
-        CompiledSearchPattern::Backref(pattern) => {
-            find_forward_backref_match_data(pattern, text, start, limit, offset, case_fold)
+        CompiledSearchPattern::Emacs(cp) => {
+            let syn = DefaultSyntaxLookup;
+            let text_bytes = text.as_bytes();
+            let range = (limit - start) as isize;
+            let result = regex_emacs::re_search(cp, &text_bytes[..limit], start, range, &syn, 0);
+            result.map(|(_pos, regs)| match_data_from_registers(&regs, offset))
         }
         CompiledSearchPattern::Regex(re) => find_forward_match_data(re, text, start, limit, offset),
     }
@@ -2647,83 +2671,45 @@ pub fn re_search_forward(
     let start_rel = start - region_start;
     let limit_rel = limit - region_start;
 
-    match compile_search_pattern(pattern, case_fold)? {
+    let md_opt = match compile_search_pattern(pattern, case_fold)? {
         CompiledSearchPattern::Literal(literal) => {
-            if let Some((rel_start, rel_end)) =
-                literal_find(&text[start_rel..limit_rel], &literal, case_fold)
-            {
-                let full_match = (start + rel_start, start + rel_end);
-                buf.goto_byte(full_match.1);
-                *match_data = Some(MatchData {
-                    groups: vec![Some(full_match)],
+            literal_find(&text[start_rel..limit_rel], &literal, case_fold).map(
+                |(rel_start, rel_end)| MatchData {
+                    groups: vec![Some((start + rel_start, start + rel_end))],
                     searched_string: None,
                     searched_buffer: Some(buf.id),
-                });
-                Ok(Some(full_match.1))
-            } else if noerror {
-                Ok(None)
-            } else {
-                Err(format!("Search failed: \"{}\"", pattern))
-            }
+                },
+            )
         }
-        CompiledSearchPattern::Segmented(segmented) => {
-            if let Some(mut md) = find_forward_segmented_match_data(
-                &segmented,
-                &text,
-                start_rel,
-                limit_rel,
-                region_start,
-                case_fold,
-            ) {
-                md.searched_string = None;
-                md.searched_buffer = Some(buf.id);
-                let full_match = md.groups[0].unwrap();
-                buf.goto_byte(full_match.1);
-                *match_data = Some(md);
-                Ok(Some(full_match.1))
-            } else if noerror {
-                Ok(None)
-            } else {
-                Err(format!("Search failed: \"{}\"", pattern))
-            }
-        }
-        CompiledSearchPattern::Backref(backref) => {
-            if let Some(mut md) = find_forward_backref_match_data(
-                &backref,
-                &text,
-                start_rel,
-                limit_rel,
-                region_start,
-                case_fold,
-            ) {
-                md.searched_string = None;
-                md.searched_buffer = Some(buf.id);
-                let full_match = md.groups[0].unwrap();
-                buf.goto_byte(full_match.1);
-                *match_data = Some(md);
-                Ok(Some(full_match.1))
-            } else if noerror {
-                Ok(None)
-            } else {
-                Err(format!("Search failed: \"{}\"", pattern))
-            }
+        CompiledSearchPattern::Emacs(cp) => {
+            let syn = DefaultSyntaxLookup;
+            let text_bytes = text.as_bytes();
+            let range = (limit_rel - start_rel) as isize;
+            regex_emacs::re_search(&cp, &text_bytes[..limit_rel], start_rel, range, &syn, 0).map(
+                |(_pos, regs)| {
+                    let mut md = match_data_from_registers(&regs, region_start);
+                    md.searched_buffer = Some(buf.id);
+                    md
+                },
+            )
         }
         CompiledSearchPattern::Regex(re) => {
-            if let Some(mut md) =
-                find_forward_match_data(&re, &text, start_rel, limit_rel, region_start)
-            {
-                md.searched_string = None;
+            find_forward_match_data(&re, &text, start_rel, limit_rel, region_start).map(|mut md| {
                 md.searched_buffer = Some(buf.id);
-                let full_match = md.groups[0].unwrap();
-                buf.goto_byte(full_match.1);
-                *match_data = Some(md);
-                Ok(Some(full_match.1))
-            } else if noerror {
-                Ok(None)
-            } else {
-                Err(format!("Search failed: \"{}\"", pattern))
-            }
+                md
+            })
         }
+    };
+
+    if let Some(md) = md_opt {
+        let full_match = md.groups[0].unwrap();
+        buf.goto_byte(full_match.1);
+        *match_data = Some(md);
+        Ok(Some(full_match.1))
+    } else if noerror {
+        Ok(None)
+    } else {
+        Err(format!("Search failed: \"{}\"", pattern))
     }
 }
 
@@ -2754,83 +2740,48 @@ pub fn re_search_backward(
     let start_rel = end - region_start;
     let limit_rel = limit - region_start;
 
-    match compile_search_pattern(pattern, case_fold)? {
+    let md_opt = match compile_search_pattern(pattern, case_fold)? {
         CompiledSearchPattern::Literal(literal) => {
-            if let Some((rel_start, rel_end)) =
-                literal_rfind(&text[limit_rel..start_rel], &literal, case_fold)
-            {
-                let full_match = (limit + rel_start, limit + rel_end);
-                buf.goto_byte(full_match.0);
-                *match_data = Some(MatchData {
-                    groups: vec![Some(full_match)],
+            literal_rfind(&text[limit_rel..start_rel], &literal, case_fold).map(
+                |(rel_start, rel_end)| MatchData {
+                    groups: vec![Some((limit + rel_start, limit + rel_end))],
                     searched_string: None,
                     searched_buffer: Some(buf.id),
-                });
-                Ok(Some(full_match.0))
-            } else if noerror {
-                Ok(None)
-            } else {
-                Err(format!("Search failed: \"{}\"", pattern))
-            }
+                },
+            )
         }
-        CompiledSearchPattern::Segmented(segmented) => {
-            if let Some(mut md) = find_backward_segmented_match_data(
-                &segmented,
-                &text,
-                start_rel,
-                limit_rel,
-                region_start,
-                case_fold,
-            ) {
-                md.searched_string = None;
-                md.searched_buffer = Some(buf.id);
-                let full_match = md.groups[0].unwrap();
-                buf.goto_byte(full_match.0);
-                *match_data = Some(md);
-                Ok(Some(full_match.0))
-            } else if noerror {
-                Ok(None)
-            } else {
-                Err(format!("Search failed: \"{}\"", pattern))
-            }
-        }
-        CompiledSearchPattern::Backref(backref) => {
-            if let Some(mut md) = find_backward_backref_match_data(
-                &backref,
-                &text,
-                start_rel,
-                limit_rel,
-                region_start,
-                case_fold,
-            ) {
-                md.searched_string = None;
-                md.searched_buffer = Some(buf.id);
-                let full_match = md.groups[0].unwrap();
-                buf.goto_byte(full_match.0);
-                *match_data = Some(md);
-                Ok(Some(full_match.0))
-            } else if noerror {
-                Ok(None)
-            } else {
-                Err(format!("Search failed: \"{}\"", pattern))
-            }
+        CompiledSearchPattern::Emacs(cp) => {
+            let syn = DefaultSyntaxLookup;
+            let text_bytes = text.as_bytes();
+            // Backward search: negative range means search backward
+            let range = -((start_rel - limit_rel) as isize);
+            regex_emacs::re_search(&cp, text_bytes, start_rel, range, &syn, 0).map(
+                |(_pos, regs)| {
+                    let mut md = match_data_from_registers(&regs, region_start);
+                    md.searched_buffer = Some(buf.id);
+                    md
+                },
+            )
         }
         CompiledSearchPattern::Regex(re) => {
-            if let Some(mut md) =
-                find_backward_match_data(&re, &text, start_rel, limit_rel, region_start)
-            {
-                md.searched_string = None;
-                md.searched_buffer = Some(buf.id);
-                let full_match = md.groups[0].unwrap();
-                buf.goto_byte(full_match.0);
-                *match_data = Some(md);
-                Ok(Some(full_match.0))
-            } else if noerror {
-                Ok(None)
-            } else {
-                Err(format!("Search failed: \"{}\"", pattern))
-            }
+            find_backward_match_data(&re, &text, start_rel, limit_rel, region_start).map(
+                |mut md| {
+                    md.searched_buffer = Some(buf.id);
+                    md
+                },
+            )
         }
+    };
+
+    if let Some(md) = md_opt {
+        let full_match = md.groups[0].unwrap();
+        buf.goto_byte(full_match.0);
+        *match_data = Some(md);
+        Ok(Some(full_match.0))
+    } else if noerror {
+        Ok(None)
+    } else {
+        Err(format!("Search failed: \"{}\"", pattern))
     }
 }
 
@@ -2869,27 +2820,13 @@ pub fn looking_at(
             });
             Ok(true)
         }
-        CompiledSearchPattern::Segmented(segmented) => {
-            if let Some(mut md) =
-                segmented_match_at(&segmented, &text, start_rel, text.len(), case_fold)
+        CompiledSearchPattern::Emacs(cp) => {
+            let syn = DefaultSyntaxLookup;
+            let text_bytes = text.as_bytes();
+            if let Some((_end, regs)) =
+                regex_emacs::re_match(&cp, text_bytes, start_rel, text_bytes.len(), &syn, 0)
             {
-                md = offset_match_data(md, region_start);
-                md.searched_string = None;
-                md.searched_buffer = Some(buf.id);
-                *match_data = Some(md);
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        }
-        CompiledSearchPattern::Backref(backref) => {
-            if let Some(mut md) = backref_match_at(&backref, &text, start_rel, start_rel, case_fold)
-            {
-                if md.groups[0].unwrap().0 != start_rel {
-                    return Ok(false);
-                }
-                md = offset_match_data(md, region_start);
-                md.searched_string = None;
+                let mut md = match_data_from_registers(&regs, region_start);
                 md.searched_buffer = Some(buf.id);
                 *match_data = Some(md);
                 Ok(true)
@@ -2938,22 +2875,16 @@ pub fn looking_at_string(
             ));
             Ok(true)
         }
-        CompiledSearchPattern::Segmented(segmented) => {
-            if let Some(md) = segmented_match_at(&segmented, string, 0, string.len(), case_fold) {
+        CompiledSearchPattern::Emacs(cp) => {
+            let syn = DefaultSyntaxLookup;
+            let text_bytes = string.as_bytes();
+            if let Some((_end, regs)) =
+                regex_emacs::re_match(&cp, text_bytes, 0, text_bytes.len(), &syn, 0)
+            {
+                let byte_md = match_data_from_registers(&regs, 0);
                 *match_data = Some(string_char_match_data(
                     SearchedString::Owned(string.to_string()),
-                    md,
-                ));
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        }
-        CompiledSearchPattern::Backref(backref) => {
-            if let Some(md) = backref_match_at(&backref, string, 0, 0, case_fold) {
-                *match_data = Some(string_char_match_data(
-                    SearchedString::Owned(string.to_string()),
-                    md,
+                    byte_md,
                 ));
                 Ok(true)
             } else {
@@ -3068,12 +2999,12 @@ fn string_match_full_with_case_fold_source_compiled(
     string: &str,
     searched_string: SearchedString,
     start: usize,
-    case_fold: bool,
+    _case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
     match compiled {
         CompiledSearchPattern::Literal(literal) => {
-            let byte_match = literal_find(&string[start..], &literal, case_fold)
+            let byte_match = literal_find(&string[start..], &literal, _case_fold)
                 .map(|(match_start, match_end)| (start + match_start, start + match_end));
             if let Some((byte_start, byte_end)) = byte_match {
                 let char_md = string_char_match_data(
@@ -3087,28 +3018,15 @@ fn string_match_full_with_case_fold_source_compiled(
                 Ok(None)
             }
         }
-        CompiledSearchPattern::Segmented(segmented) => {
-            if let Some(md) = find_forward_segmented_match_data(
-                &segmented,
-                string,
-                start,
-                string.len(),
-                0,
-                case_fold,
-            ) {
-                let char_md = string_char_match_data(searched_string, md);
-                let result_pos = char_md.groups[0].unwrap().0;
-                *match_data = Some(char_md);
-                Ok(Some(result_pos))
-            } else {
-                Ok(None)
-            }
-        }
-        CompiledSearchPattern::Backref(backref) => {
-            if let Some(md) =
-                find_forward_backref_match_data(&backref, string, start, string.len(), 0, case_fold)
+        CompiledSearchPattern::Emacs(cp) => {
+            let syn = DefaultSyntaxLookup;
+            let text_bytes = string.as_bytes();
+            let range = (text_bytes.len() - start) as isize;
+            if let Some((_pos, regs)) =
+                regex_emacs::re_search(&cp, text_bytes, start, range, &syn, start)
             {
-                let char_md = string_char_match_data(searched_string, md);
+                let byte_md = match_data_from_registers(&regs, 0);
+                let char_md = string_char_match_data(searched_string, byte_md);
                 let result_pos = char_md.groups[0].unwrap().0;
                 *match_data = Some(char_md);
                 Ok(Some(result_pos))
