@@ -704,19 +704,22 @@ pub(crate) fn builtin_func_arity(eval: &mut super::eval::Context, args: Vec<Valu
                 return Err(signal("void-function", vec![Value::symbol(name)]));
             }
             if super::subr_info::is_special_form(name) {
-                return super::subr_info::builtin_func_arity_impl(vec![Value::Subr(intern(name))]);
+                return super::subr_info::builtin_func_arity_ctx(
+                    eval,
+                    vec![Value::Subr(intern(name))],
+                );
             }
             if let Some(arity) =
                 dispatch_symbol_func_arity_override_in_obarray(obarray, name, &function)
             {
                 return Ok(arity);
             }
-            return super::subr_info::builtin_func_arity_impl(vec![function]);
+            return super::subr_info::builtin_func_arity_ctx(eval, vec![function]);
         }
         return Err(signal("void-function", vec![Value::symbol(name)]));
     }
 
-    super::subr_info::builtin_func_arity_impl(vec![args[0]])
+    super::subr_info::builtin_func_arity_ctx(eval, vec![args[0]])
 }
 
 fn has_startup_subr_wrapper_in_obarray(obarray: &Obarray, name: &str) -> bool {

@@ -7,7 +7,7 @@
 //! - `func-arity`, `indirect-function`
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{lookup_interned, resolve_sym};
+use super::intern::{SymId, lookup_interned, resolve_sym};
 use super::value::*;
 
 // ---------------------------------------------------------------------------
@@ -1460,18 +1460,32 @@ pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
 
 /// `(subr-arity SUBR)` -- return (MIN . MAX) cons cell for argument counts.
 ///
-/// Built-in subrs are dispatched by name and we do not yet have complete
-/// per-subr metadata in NeoVM, so this is a partial compatibility table:
-/// known shapes are special-cased and other subrs default to `(0 . many)`.
-pub(crate) fn builtin_subr_arity(args: Vec<Value>) -> EvalResult {
+/// Reads arity from the SubrObject registration (single source of truth).
+/// Falls back to the hardcoded table for builtins not yet updated.
+pub(crate) fn builtin_subr_arity(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("subr-arity", &args, 1)?;
     match &args[0] {
-        Value::Subr(id) => Ok(subr_arity_value(resolve_sym(*id))),
+        Value::Subr(id) => Ok(subr_arity_from_registry(ctx, *id)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), *other],
         )),
     }
+}
+
+/// Look up arity from SubrObject registration first, fall back to hardcoded table.
+fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value {
+    if let Some(subr) = ctx.subr_slot(sym_id) {
+        // If registration has actual arity (not the default 0/None),
+        // use it as the authoritative source.
+        let min = subr.min_args;
+        let max = subr.max_args;
+        if min > 0 || max.is_some() {
+            return arity_cons(min as usize, max.map(|m| m as usize));
+        }
+    }
+    // Fall back to hardcoded table for builtins still using (0, None)
+    subr_arity_value(resolve_sym(sym_id))
 }
 
 /// `(native-comp-function-p OBJECT)` -- return t if OBJECT is a native-compiled
@@ -1542,8 +1556,11 @@ pub(crate) fn builtin_commandp(args: Vec<Value>) -> EvalResult {
 /// `(func-arity FUNCTION)` -- return (MIN . MAX) for any callable.
 ///
 /// Works for lambdas (reads `LambdaParams`), byte-code (reads `params`),
-/// and subrs (returns `(0 . many)` as a conservative default).
-pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
+/// and subrs (reads from SubrObject registration).
+pub(crate) fn builtin_func_arity_ctx(
+    ctx: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("func-arity", &args, 1)?;
     if super::autoload::is_autoload_value(&args[0]) {
         return Err(signal(
@@ -1564,12 +1581,39 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
             let max = bc.params.max_arity();
             Ok(arity_cons(min, max))
         }
-        Value::Subr(id) => Ok(subr_arity_value(resolve_sym(*id))),
+        Value::Subr(id) => Ok(subr_arity_from_registry(ctx, *id)),
         Value::Macro(_) => {
             let ld = args[0].get_lambda_data().unwrap();
             let min = ld.params.min_arity();
             let max = ld.params.max_arity();
             Ok(arity_cons(min, max))
+        }
+        other => Err(signal("invalid-function", vec![*other])),
+    }
+}
+
+/// Legacy pure version for callers that don't have Context access.
+pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
+    expect_args("func-arity", &args, 1)?;
+    if super::autoload::is_autoload_value(&args[0]) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), args[0]],
+        ));
+    }
+    match &args[0] {
+        Value::Lambda(_) => {
+            let ld = args[0].get_lambda_data().unwrap();
+            Ok(arity_cons(ld.params.min_arity(), ld.params.max_arity()))
+        }
+        Value::ByteCode(_) => {
+            let bc = args[0].get_bytecode_data().unwrap();
+            Ok(arity_cons(bc.params.min_arity(), bc.params.max_arity()))
+        }
+        Value::Subr(id) => Ok(subr_arity_value(resolve_sym(*id))),
+        Value::Macro(_) => {
+            let ld = args[0].get_lambda_data().unwrap();
+            Ok(arity_cons(ld.params.min_arity(), ld.params.max_arity()))
         }
         other => Err(signal("invalid-function", vec![*other])),
     }

@@ -1475,7 +1475,7 @@ impl Drop for Context {
 
 impl Context {
     #[inline]
-    fn subr_slot(&self, sym_id: SymId) -> Option<&SubrObject> {
+    pub(crate) fn subr_slot(&self, sym_id: SymId) -> Option<&SubrObject> {
         self.subr_registry
             .get(sym_id.0 as usize)
             .and_then(|slot| slot.as_ref())

@@ -6866,9 +6866,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "subr-arity",
-        |_ctx, args| super::subr_info::builtin_subr_arity(args),
-        0,
-        None,
+        super::subr_info::builtin_subr_arity,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "native-comp-function-p",
