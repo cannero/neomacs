@@ -593,9 +593,6 @@ pub(crate) fn builtin_command_remapping_impl(
     let Some(command_name) = command_remapping_command_name(&args[0]) else {
         return Ok(Value::Nil);
     };
-    if let Some(position) = args.get(1) {
-        interactive_validate_integer_position_arg_in_buffers(&ctx.buffers, position)?;
-    }
     if let Some(keymap_arg) = args.get(2) {
         match keymap_arg {
             Value::Cons(keymap) => {
@@ -608,13 +605,11 @@ pub(crate) fn builtin_command_remapping_impl(
                 return Ok(Value::Nil);
             }
             Value::Nil => {
-                return Ok(command_remapping_lookup_in_active_keymaps_in_state(
-                    &ctx.obarray,
-                    &[],
-                    ctx.buffers.current_local_map(),
-                    &command_name,
-                )
-                .unwrap_or(Value::Nil));
+                let active_maps = crate::emacs_core::builtins::keymaps::current_active_maps_for_position_read_only(ctx, true, args.get(1))?;
+                return Ok(
+                    command_remapping_lookup_in_keymaps(&active_maps, &command_name)
+                        .unwrap_or(Value::Nil),
+                );
             }
             _ => {
                 // Not a valid keymap
@@ -622,13 +617,13 @@ pub(crate) fn builtin_command_remapping_impl(
             }
         }
     }
-    Ok(command_remapping_lookup_in_active_keymaps_in_state(
-        &ctx.obarray,
-        &[],
-        ctx.buffers.current_local_map(),
-        &command_name,
-    )
-    .unwrap_or(Value::Nil))
+    let active_maps =
+        crate::emacs_core::builtins::keymaps::current_active_maps_for_position_read_only(
+            ctx,
+            true,
+            args.get(1),
+        )?;
+    Ok(command_remapping_lookup_in_keymaps(&active_maps, &command_name).unwrap_or(Value::Nil))
 }
 
 fn builtin_command_name(name: &str) -> bool {
@@ -2783,10 +2778,6 @@ pub(crate) fn builtin_key_binding_impl(
     expect_max_args("key-binding", &args, 4)?;
     let string_designator = args[0].is_string();
     let no_remap = args.get(2).is_some_and(|v| v.is_truthy());
-    if let Some(position) = args.get(3) {
-        interactive_validate_integer_position_arg_in_buffers(&ctx.buffers, position)?;
-    }
-
     let events = match super::kbd::key_events_from_designator(&args[0]) {
         Ok(events) => events,
         Err(super::kbd::KeyDesignatorError::WrongType(other)) => {
@@ -2803,74 +2794,31 @@ pub(crate) fn builtin_key_binding_impl(
         if !string_designator {
             return Ok(Value::Nil);
         }
-        let global =
-            crate::emacs_core::builtins::keymaps::ensure_global_keymap_in_obarray(&mut ctx.obarray);
-        let mut maps = Vec::new();
-        if !ctx.buffers.current_local_map().is_nil() {
-            maps.push(ctx.buffers.current_local_map());
-        }
-        maps.push(global);
-        return Ok(Value::list(maps));
+        let active_maps = crate::emacs_core::builtins::keymaps::current_active_maps_for_position(
+            ctx,
+            true,
+            args.get(3),
+        )?;
+        return Ok(Value::list(active_maps));
     }
 
-    let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
-
-    let local_map = ctx.buffers.current_local_map();
-    let mut lookup_binding = |obarray: &mut Obarray, emacs_events: &[Value]| -> Option<Value> {
-        if let Some(value) =
-            key_binding_lookup_in_minor_mode_maps_in_state(obarray, &[], emacs_events)
-        {
-            return Some(key_binding_apply_remap_in_state(
-                obarray,
-                &[],
-                local_map,
-                value,
-                no_remap,
-            ));
-        }
-
-        if !local_map.is_nil() {
-            if let Some(value) =
-                key_binding_lookup_in_keymap_in_obarray(obarray, &local_map, emacs_events)
-            {
-                return Some(key_binding_apply_remap_in_state(
-                    obarray,
-                    &[],
-                    local_map,
-                    value,
-                    no_remap,
-                ));
-            }
-        }
-
-        let global = get_global_keymap_in_obarray(obarray);
-        if !global.is_nil() {
-            if let Some(value) =
-                key_binding_lookup_in_keymap_in_obarray(obarray, &global, emacs_events)
-            {
-                return Some(key_binding_apply_remap_in_state(
-                    obarray,
-                    &[],
-                    local_map,
-                    value,
-                    no_remap,
-                ));
-            }
-        }
-
-        None
-    };
-
-    if let Some(value) = lookup_binding(&mut ctx.obarray, &emacs_events) {
-        return Ok(value);
-    }
-
-    if let Some(expanded_events) =
-        expand_meta_prefix_char_events_in_obarray(&mut ctx.obarray, &emacs_events)
-    {
-        if let Some(value) = lookup_binding(&mut ctx.obarray, &expanded_events) {
-            return Ok(value);
-        }
+    let active_maps = crate::emacs_core::builtins::keymaps::current_active_maps_for_position(
+        ctx,
+        true,
+        args.get(3),
+    )?;
+    let keymaps = Value::list(active_maps.clone());
+    let accept_default = args.get(1).copied().unwrap_or(Value::Nil);
+    let lookup = crate::emacs_core::builtins::keymaps::builtin_lookup_key_impl(
+        &ctx.obarray,
+        &[keymaps, args[0], accept_default],
+    )?;
+    if !lookup.is_nil() && !matches!(lookup, Value::Int(_)) {
+        return Ok(key_binding_apply_remap_in_active_maps(
+            &active_maps,
+            lookup,
+            no_remap,
+        ));
     }
 
     // Fallback: unbound printable chars default to self-insert-command
@@ -2879,31 +2827,6 @@ pub(crate) fn builtin_key_binding_impl(
     }
 
     Ok(Value::Nil)
-}
-
-fn interactive_validate_integer_position_arg(eval: &Context, position: &Value) -> Result<(), Flow> {
-    interactive_validate_integer_position_arg_in_buffers(&eval.buffers, position)
-}
-
-fn interactive_validate_integer_position_arg_in_buffers(
-    buffers: &crate::buffer::BufferManager,
-    position: &Value,
-) -> Result<(), Flow> {
-    let Value::Int(pos) = position else {
-        return Ok(());
-    };
-    let Some(buf) = buffers.current_buffer() else {
-        return Ok(());
-    };
-    let point_min = buf.point_min_char() as i64 + 1;
-    let point_max = buf.point_max_char() as i64 + 1;
-    if *pos < point_min || *pos > point_max {
-        return Err(signal(
-            "args-out-of-range",
-            vec![Value::Buffer(buf.id), Value::Int(*pos)],
-        ));
-    }
-    Ok(())
 }
 
 /// `(local-key-binding KEY &optional ACCEPT-DEFAULTS)`
@@ -3020,32 +2943,8 @@ fn get_global_keymap_in_obarray(obarray: &Obarray) -> Value {
         .unwrap_or(Value::Nil)
 }
 
-/// Get the global keymap, creating one if it doesn't exist.
-fn ensure_global_keymap(eval: &mut Context) -> Value {
-    if let Some(val) = eval.obarray.symbol_value("global-map").copied() {
-        if is_list_keymap(&val) {
-            return val;
-        }
-    }
-    let km = make_list_keymap();
-    eval.obarray.set_symbol_value("global-map", km);
-    km
-}
-
-fn key_binding_apply_remap(eval: &Context, binding: Value, no_remap: bool) -> Value {
-    key_binding_apply_remap_in_state(
-        &eval.obarray,
-        &[],
-        eval.buffers.current_local_map(),
-        binding,
-        no_remap,
-    )
-}
-
-fn key_binding_apply_remap_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    current_local_map: Value,
+fn key_binding_apply_remap_in_active_maps(
+    active_maps: &[Value],
     binding: Value,
     no_remap: bool,
 ) -> Value {
@@ -3055,12 +2954,7 @@ fn key_binding_apply_remap_in_state(
     let Some(command_name) = binding.as_symbol_name().map(ToString::to_string) else {
         return binding;
     };
-    match command_remapping_lookup_in_active_keymaps_in_state(
-        obarray,
-        dynamic,
-        current_local_map,
-        &command_name,
-    ) {
+    match command_remapping_lookup_in_keymaps(active_maps, &command_name) {
         Some(remapped) if !remapped.is_nil() => remapped,
         _ => binding,
     }
@@ -3617,38 +3511,16 @@ fn command_remapping_lookup_in_minor_mode_maps_in_state(
     None
 }
 
-fn command_remapping_lookup_in_active_keymaps(eval: &Context, command_name: &str) -> Option<Value> {
-    command_remapping_lookup_in_active_keymaps_in_state(
-        &eval.obarray,
-        &[],
-        eval.buffers.current_local_map(),
-        command_name,
-    )
-}
-
-fn command_remapping_lookup_in_active_keymaps_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    current_local_map: Value,
-    command_name: &str,
-) -> Option<Value> {
-    if let Some(value) =
-        command_remapping_lookup_in_minor_mode_maps_in_state(obarray, dynamic, command_name)
-    {
-        return Some(value);
-    }
-    if is_list_keymap(&current_local_map) {
-        if let Some(value) =
-            command_remapping_lookup_in_keymap_value(&current_local_map, command_name)
-        {
+fn command_remapping_lookup_in_keymaps(keymaps: &[Value], command_name: &str) -> Option<Value> {
+    for keymap in keymaps {
+        if !is_list_keymap(keymap) {
+            continue;
+        }
+        if let Some(value) = command_remapping_lookup_in_keymap_value(keymap, command_name) {
             return Some(value);
         }
     }
-    let global_map = get_global_keymap_in_obarray(obarray);
-    if !is_list_keymap(&global_map) {
-        return None;
-    }
-    command_remapping_lookup_in_keymap_value(&global_map, command_name)
+    None
 }
 
 fn command_remapping_command_name(command: &Value) -> Option<String> {

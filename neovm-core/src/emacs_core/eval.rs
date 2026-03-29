@@ -2594,9 +2594,14 @@ impl Context {
         obarray.set_symbol_value("transient-mark-mode", Value::Nil);
         obarray.set_symbol_value("transient-mark-mode-hook", Value::Nil);
         obarray.set_symbol_value("overriding-local-map", Value::Nil);
+        obarray.make_special("overriding-local-map");
         obarray.set_symbol_value("overriding-local-map-menu-flag", Value::Nil);
+        obarray.make_special("overriding-local-map-menu-flag");
         obarray.set_symbol_value("overriding-plist-environment", Value::Nil);
         obarray.set_symbol_value("overriding-terminal-local-map", Value::Nil);
+        // GNU uses DEFVAR_KBOARD here. NeoVM does not yet split keyboard state
+        // per terminal, so model it as a dynamically scoped runtime variable.
+        obarray.make_special("overriding-terminal-local-map");
         obarray.set_symbol_value("overriding-text-conversion-style", Value::symbol("lambda"));
 
         // ---- C-level bootstrap variables required by loadup.el files ----

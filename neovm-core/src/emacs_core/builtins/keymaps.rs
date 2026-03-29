@@ -529,21 +529,212 @@ pub(crate) fn builtin_current_active_maps_impl(
     args: &[Value],
 ) -> EvalResult {
     expect_max_args("current-active-maps", &args, 2)?;
+    let obey_overriding_local_maps = args.first().is_some_and(Value::is_truthy);
+    let maps = current_active_maps_for_position(ctx, obey_overriding_local_maps, args.get(1))?;
+    Ok(Value::list(maps))
+}
+
+fn active_map_position_in_current_buffer(
+    buffers: &crate::buffer::BufferManager,
+    position: Option<&Value>,
+) -> Result<Option<(Value, i64)>, Flow> {
+    let Some(buffer) = buffers.current_buffer() else {
+        return Ok(None);
+    };
+
+    let (char_pos, original_position) = match position {
+        Some(value)
+            if matches!(value, Value::Int(_) | Value::Char(_))
+                || crate::emacs_core::marker::is_marker(value) =>
+        {
+            (
+                super::buffers::expect_integer_or_marker_in_buffers(buffers, value)?,
+                *value,
+            )
+        }
+        _ => (
+            buffer.point_char() as i64 + 1,
+            Value::Int(buffer.point_char() as i64 + 1),
+        ),
+    };
+
+    let point_min = buffer.point_min_char() as i64 + 1;
+    let point_max = buffer.point_max_char() as i64 + 1;
+    if char_pos < point_min || char_pos > point_max {
+        return Err(signal(
+            "args-out-of-range",
+            vec![Value::Buffer(buffer.id), original_position],
+        ));
+    }
+
+    Ok(Some((Value::Buffer(buffer.id), char_pos)))
+}
+
+fn keymap_property_at_position(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    buffer_object: Value,
+    char_pos: i64,
+    prop_name: &str,
+) -> Result<Value, Flow> {
+    let prop_symbol = Value::symbol(prop_name);
+    let char_property = super::textprop::builtin_get_char_property_in_state(
+        obarray,
+        buffers,
+        vec![Value::Int(char_pos), prop_symbol, buffer_object],
+    )?;
+    if !char_property.is_nil() {
+        return Ok(char_property);
+    }
+
+    super::misc_eval::builtin_get_pos_property_impl(
+        obarray,
+        &[],
+        buffers,
+        vec![Value::Int(char_pos), prop_symbol, buffer_object],
+    )
+}
+
+fn current_local_map_for_position(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    fallback_local_map: Value,
+    position: Option<&Value>,
+) -> Result<Value, Flow> {
+    let Some((buffer_object, char_pos)) = active_map_position_in_current_buffer(buffers, position)?
+    else {
+        return Ok(fallback_local_map);
+    };
+
+    let property =
+        keymap_property_at_position(obarray, buffers, buffer_object, char_pos, "local-map")?;
+    Ok(expect_keymap_in_obarray(obarray, &property).unwrap_or(fallback_local_map))
+}
+
+fn position_keymap(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    position: Option<&Value>,
+) -> Result<Value, Flow> {
+    let Some((buffer_object, char_pos)) = active_map_position_in_current_buffer(buffers, position)?
+    else {
+        return Ok(Value::Nil);
+    };
+
+    let property =
+        keymap_property_at_position(obarray, buffers, buffer_object, char_pos, "keymap")?;
+    Ok(expect_keymap_in_obarray(obarray, &property).unwrap_or(Value::Nil))
+}
+
+pub(crate) fn current_active_maps_for_position(
+    ctx: &mut crate::emacs_core::eval::Context,
+    obey_overriding_local_maps: bool,
+    position: Option<&Value>,
+) -> Result<Vec<Value>, Flow> {
+    let global_map = ensure_global_keymap_in_obarray(&mut ctx.obarray);
+    let minor_maps = collect_minor_mode_maps_in_state(&ctx.obarray, &[]);
+    let overriding_local_map = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        &ctx.obarray,
+        &[],
+        "overriding-local-map",
+    )
+    .and_then(|value| expect_keymap_in_obarray(&ctx.obarray, &value).ok());
+    let overriding_terminal_local_map = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        &ctx.obarray,
+        &[],
+        "overriding-terminal-local-map",
+    )
+    .and_then(|value| expect_keymap_in_obarray(&ctx.obarray, &value).ok());
+    current_active_maps_from_parts(
+        &ctx.obarray,
+        &ctx.buffers,
+        ctx.buffers.current_local_map(),
+        global_map,
+        minor_maps,
+        overriding_local_map,
+        overriding_terminal_local_map,
+        obey_overriding_local_maps,
+        position,
+    )
+}
+
+pub(crate) fn current_active_maps_for_position_read_only(
+    ctx: &crate::emacs_core::eval::Context,
+    obey_overriding_local_maps: bool,
+    position: Option<&Value>,
+) -> Result<Vec<Value>, Flow> {
+    let global_map = ctx
+        .obarray
+        .symbol_value("global-map")
+        .copied()
+        .filter(is_list_keymap)
+        .unwrap_or_else(make_list_keymap);
+    let minor_maps = collect_minor_mode_maps_in_state(&ctx.obarray, &[]);
+    let overriding_local_map = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        &ctx.obarray,
+        &[],
+        "overriding-local-map",
+    )
+    .and_then(|value| expect_keymap_in_obarray(&ctx.obarray, &value).ok());
+    let overriding_terminal_local_map = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        &ctx.obarray,
+        &[],
+        "overriding-terminal-local-map",
+    )
+    .and_then(|value| expect_keymap_in_obarray(&ctx.obarray, &value).ok());
+    current_active_maps_from_parts(
+        &ctx.obarray,
+        &ctx.buffers,
+        ctx.buffers.current_local_map(),
+        global_map,
+        minor_maps,
+        overriding_local_map,
+        overriding_terminal_local_map,
+        obey_overriding_local_maps,
+        position,
+    )
+}
+
+fn current_active_maps_from_parts(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    current_local_map: Value,
+    global_map: Value,
+    minor_maps: Vec<Value>,
+    overriding_local_map: Option<Value>,
+    overriding_terminal_local_map: Option<Value>,
+    obey_overriding_local_maps: bool,
+    position: Option<&Value>,
+) -> Result<Vec<Value>, Flow> {
+    if obey_overriding_local_maps
+        && overriding_terminal_local_map.is_none()
+        && let Some(overriding_local_map) = overriding_local_map
+    {
+        return Ok(vec![overriding_local_map, global_map]);
+    }
 
     let mut maps = Vec::new();
 
-    // Collect minor mode keymaps (highest precedence).
-    let minor_maps = collect_minor_mode_maps_in_state(&mut ctx.obarray, &[]);
-    maps.extend(minor_maps);
-
-    // Local map.
-    if !ctx.buffers.current_local_map().is_nil() {
-        maps.push(ctx.buffers.current_local_map());
+    if obey_overriding_local_maps
+        && let Some(overriding_terminal_local_map) = overriding_terminal_local_map
+    {
+        maps.push(overriding_terminal_local_map);
     }
 
-    // Global map (lowest precedence).
-    maps.push(ensure_global_keymap_in_obarray(&mut ctx.obarray));
-    Ok(Value::list(maps))
+    let property_keymap = position_keymap(obarray, buffers, position)?;
+    if !property_keymap.is_nil() {
+        maps.push(property_keymap);
+    }
+
+    maps.extend(minor_maps);
+
+    let local_map = current_local_map_for_position(obarray, buffers, current_local_map, position)?;
+    if !local_map.is_nil() {
+        maps.push(local_map);
+    }
+
+    maps.push(global_map);
+    Ok(maps)
 }
 
 /// `(current-minor-mode-maps)` -> list of active minor mode keymaps.
@@ -565,16 +756,6 @@ pub(crate) fn builtin_current_minor_mode_maps_impl(
     } else {
         Ok(Value::list(maps))
     }
-}
-
-/// Collect all active minor mode keymaps in precedence order.
-///
-/// Mirrors GNU Emacs `current_minor_maps()` in keymap.c:
-/// 1. `emulation-mode-map-alists` (highest precedence)
-/// 2. `minor-mode-overriding-map-alist`
-/// 3. `minor-mode-map-alist` (entries already in overriding alist are skipped)
-fn collect_minor_mode_maps(eval: &super::eval::Context) -> Vec<Value> {
-    collect_minor_mode_maps_in_state(eval.obarray(), &[])
 }
 
 fn collect_minor_mode_maps_in_state(

@@ -424,8 +424,11 @@ pub(crate) fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::O
         ]),
     );
     obarray.set_symbol_value("minor-mode-map-alist", Value::Nil);
+    obarray.make_special("minor-mode-map-alist");
     obarray.set_symbol_value("minor-mode-overriding-map-alist", Value::Nil);
+    obarray.make_special("minor-mode-overriding-map-alist");
     obarray.set_symbol_value("emulation-mode-map-alists", Value::Nil);
+    obarray.make_special("emulation-mode-map-alists");
 }
 #[cfg(test)]
 #[path = "pure_test.rs"]

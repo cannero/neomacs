@@ -59,6 +59,13 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
     eval_all_with(&mut ev, src)
 }
 
+fn bootstrap_eval_one(src: &str) -> String {
+    bootstrap_eval_all(src)
+        .into_iter()
+        .next()
+        .expect("at least one form")
+}
+
 fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
     let mut ev = Context::new();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -1655,7 +1662,7 @@ fn key_binding_too_many_args_errors() {
 #[test]
 fn key_binding_integer_position_out_of_range_signals_args_out_of_range() {
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((g (make-sparse-keymap)))
                    (use-global-map g)
@@ -1668,7 +1675,7 @@ fn key_binding_integer_position_out_of_range_signals_args_out_of_range() {
         "OK (args-out-of-range t 0)"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((g (make-sparse-keymap)))
                    (use-global-map g)
@@ -1683,9 +1690,9 @@ fn key_binding_integer_position_out_of_range_signals_args_out_of_range() {
 }
 
 #[test]
-fn key_binding_non_integer_position_is_accepted_and_ignored() {
+fn key_binding_non_position_designators_default_to_point() {
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((g (make-sparse-keymap)))
                    (use-global-map g)
@@ -1697,10 +1704,9 @@ fn key_binding_non_integer_position_is_accepted_and_ignored() {
                     (key-binding "a" t nil "x")
                     (key-binding "a" t nil [1])
                     (key-binding "a" t nil '(1))
-                    (key-binding "a" t nil 1.5)
-                    (key-binding "a" t nil (copy-marker (point))))))"#
+                    (key-binding "a" t nil 1.5))))"#
         ),
-        "OK (forward-char forward-char forward-char forward-char forward-char forward-char forward-char forward-char)"
+        "OK (forward-char forward-char forward-char forward-char forward-char forward-char forward-char)"
     );
 }
 
