@@ -161,6 +161,9 @@ Completed on 2026-03-29:
   the mouse-event builders moved into `src/keyboard.rs`, so the keyboard owner
   no longer depends on evaluator-owned storage for those parts of command-loop
   state.
+- Resize synchronization for `read_char` / `redisplay` now lives in
+  `src/keyboard.rs` too, including pending resize draining and opening GUI
+  frame host-size reconciliation.
 
 Still open:
 
@@ -169,8 +172,7 @@ Still open:
   normalization is now centralized.
 - The moved `read_char` / `read_key_sequence` code still reaches through
   `Context` helper/state surfaces that are evaluator-shaped; the next cleanup is
-  to reduce the remaining resize/display-host and timer-scheduler cross-owner
-  helper boundaries.
+  the timer/process wait and recent-key bookkeeping boundary.
 - Keymap autoload and parent-cycle semantics are still thinner than GNU.
 
 ### Slice 1: Active maps and `key-binding`

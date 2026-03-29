@@ -725,7 +725,266 @@ impl Default for CommandLoop {
     }
 }
 
+fn apply_resize_input_event_in_keyboard_runtime(
+    frames: &mut crate::window::FrameManager,
+    width: u32,
+    height: u32,
+    emacs_frame_id: u64,
+) {
+    let target_fid = if emacs_frame_id == 0 {
+        frames.selected_frame().map(|frame| frame.id)
+    } else {
+        Some(crate::window::FrameId(emacs_frame_id))
+    };
+
+    if let Some(fid) = target_fid
+        && let Some(frame) = frames.get_mut(fid)
+    {
+        frame.resize_pixelwise(width, height);
+    }
+}
+
+fn sync_pending_resize_events_in_keyboard_runtime(
+    frames: &mut crate::window::FrameManager,
+    input_rx: &mut Option<crossbeam_channel::Receiver<InputEvent>>,
+    command_loop: &mut CommandLoop,
+) -> bool {
+    let mut applied_resize = false;
+    let mut deferred = VecDeque::new();
+    let pending_input_events = &mut command_loop.pending_input_events;
+
+    loop {
+        match pending_input_events.front() {
+            Some(InputEvent::Focus(_)) => {
+                if let Some(event) = pending_input_events.pop_front() {
+                    deferred.push_back(event);
+                }
+            }
+            Some(InputEvent::Resize {
+                width,
+                height,
+                emacs_frame_id,
+            }) => {
+                let (width, height, emacs_frame_id) = (*width, *height, *emacs_frame_id);
+                pending_input_events.pop_front();
+                apply_resize_input_event_in_keyboard_runtime(frames, width, height, emacs_frame_id);
+                applied_resize = true;
+            }
+            _ => break,
+        }
+    }
+
+    if !pending_input_events.is_empty() {
+        while let Some(event) = deferred.pop_back() {
+            pending_input_events.push_front(event);
+        }
+        return applied_resize;
+    }
+
+    let Some(rx) = input_rx.clone() else {
+        while let Some(event) = deferred.pop_back() {
+            pending_input_events.push_front(event);
+        }
+        return applied_resize;
+    };
+
+    loop {
+        match rx.try_recv() {
+            Ok(InputEvent::Resize {
+                width,
+                height,
+                emacs_frame_id,
+            }) => {
+                apply_resize_input_event_in_keyboard_runtime(frames, width, height, emacs_frame_id);
+                applied_resize = true;
+            }
+            Ok(event @ InputEvent::Focus(_)) => {
+                deferred.push_back(event);
+            }
+            Ok(event) => {
+                deferred.push_back(event);
+                break;
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => break,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                command_loop.running = false;
+                break;
+            }
+        }
+    }
+
+    while let Some(event) = deferred.pop_back() {
+        pending_input_events.push_front(event);
+    }
+
+    applied_resize
+}
+
+fn sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
+    frames: &mut crate::window::FrameManager,
+    display_host: Option<&dyn crate::emacs_core::eval::DisplayHost>,
+) {
+    let trace_host_sync = std::env::var("NEOMACS_TRACE_HOST_SYNC")
+        .ok()
+        .is_some_and(|value| value == "1");
+    let Some(host) = display_host else {
+        if trace_host_sync {
+            tracing::debug!("sync_opening_gui_frame_size_from_host: no display host");
+        }
+        return;
+    };
+    if !host.opening_gui_frame_pending() {
+        if trace_host_sync {
+            tracing::debug!("sync_opening_gui_frame_size_from_host: no opening gui frame pending");
+        }
+        return;
+    }
+    let Some(size) = host.current_primary_window_size() else {
+        if trace_host_sync {
+            tracing::debug!("sync_opening_gui_frame_size_from_host: host size unavailable");
+        }
+        return;
+    };
+    if size.width == 0 || size.height == 0 {
+        if trace_host_sync {
+            tracing::debug!(
+                "sync_opening_gui_frame_size_from_host: ignoring zero host size {}x{}",
+                size.width,
+                size.height
+            );
+        }
+        return;
+    }
+    let Some(fid) = frames.selected_frame().map(|frame| frame.id) else {
+        if trace_host_sync {
+            tracing::debug!("sync_opening_gui_frame_size_from_host: no selected frame");
+        }
+        return;
+    };
+    let Some(frame) = frames.get_mut(fid) else {
+        if trace_host_sync {
+            tracing::debug!(
+                "sync_opening_gui_frame_size_from_host: selected frame {:?} missing",
+                fid
+            );
+        }
+        return;
+    };
+    if frame.effective_window_system().is_none() {
+        if trace_host_sync {
+            tracing::debug!(
+                "sync_opening_gui_frame_size_from_host: selected frame {:?} is not gui (size={}x{})",
+                fid,
+                frame.width,
+                frame.height
+            );
+        }
+        return;
+    }
+    if frame.width == size.width && frame.height == size.height {
+        if trace_host_sync {
+            tracing::debug!(
+                "sync_opening_gui_frame_size_from_host: selected frame {:?} already matches host size {}x{}",
+                fid,
+                size.width,
+                size.height
+            );
+        }
+        return;
+    }
+    tracing::debug!(
+        "sync_opening_gui_frame_size_from_host: resizing selected frame {:?} from {}x{} to {}x{}",
+        fid,
+        frame.width,
+        frame.height,
+        size.width,
+        size.height
+    );
+    frame.resize_pixelwise(size.width, size.height);
+}
+
 impl crate::emacs_core::eval::Context {
+    pub(crate) fn apply_resize_input_event(
+        &mut self,
+        width: u32,
+        height: u32,
+        emacs_frame_id: u64,
+        trigger_redisplay: bool,
+    ) {
+        let trace_frame_geometry = std::env::var("NEOMACS_TRACE_FRAME_GEOMETRY")
+            .ok()
+            .is_some_and(|value| value == "1");
+        let target_fid = if emacs_frame_id == 0 {
+            self.frames.selected_frame().map(|frame| frame.id)
+        } else {
+            Some(crate::window::FrameId(emacs_frame_id))
+        };
+        let selected_fid = self.frames.selected_frame().map(|selected| selected.id);
+        tracing::debug!(
+            "apply_resize_input_event: {}x{} emacs_frame_id=0x{:x} target_fid={:?}",
+            width,
+            height,
+            emacs_frame_id,
+            target_fid
+        );
+        if let Some(fid) = target_fid {
+            if trace_frame_geometry {
+                if let Some(frame) = self.frames.get(fid) {
+                    tracing::debug!(
+                        "apply_resize_input_event: before fid={:?} selected={:?} size={}x{} effective_ws={:?} param_ws={:?}",
+                        fid,
+                        selected_fid,
+                        frame.width,
+                        frame.height,
+                        frame.effective_window_system(),
+                        frame.parameters.get("window-system").copied()
+                    );
+                }
+            }
+            apply_resize_input_event_in_keyboard_runtime(
+                &mut self.frames,
+                width,
+                height,
+                emacs_frame_id,
+            );
+            if let Some(frame) = self.frames.get(fid) {
+                tracing::debug!(
+                    "apply_resize_input_event: resized frame {:?} to {}x{}",
+                    fid,
+                    frame.width,
+                    frame.height
+                );
+                if trace_frame_geometry {
+                    tracing::debug!(
+                        "apply_resize_input_event: after fid={:?} selected={:?} size={}x{} effective_ws={:?} param_ws={:?}",
+                        fid,
+                        selected_fid,
+                        frame.width,
+                        frame.height,
+                        frame.effective_window_system(),
+                        frame.parameters.get("window-system").copied()
+                    );
+                }
+            }
+        }
+        if trigger_redisplay {
+            self.redisplay();
+        }
+    }
+
+    pub(crate) fn sync_pending_resize_events(&mut self) -> bool {
+        let applied_resize = sync_pending_resize_events_in_keyboard_runtime(
+            &mut self.frames,
+            &mut self.input_rx,
+            &mut self.command_loop,
+        );
+        sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
+            &mut self.frames,
+            self.display_host.as_deref(),
+        );
+        applied_resize
+    }
+
     /// Read a complete key sequence through keymaps.
     ///
     /// Mirrors GNU Emacs `read_key_sequence()` (keyboard.c:10098).
