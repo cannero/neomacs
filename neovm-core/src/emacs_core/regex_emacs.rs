@@ -184,6 +184,11 @@ pub(crate) struct CompiledPattern {
     /// Character translation table for case-folding.
     /// Maps each character to its canonical form (e.g., 'A' → 'a').
     pub translate: Option<Vec<char>>,
+
+    /// Multibyte (non-ASCII) character ranges for Charset/CharsetNot opcodes.
+    /// Key = bytecode position of the Charset/CharsetNot opcode.
+    /// Value = list of inclusive (start_char, end_char) character ranges.
+    pub multibyte_charsets: HashMap<usize, Vec<(char, char)>>,
 }
 
 impl CompiledPattern {
@@ -196,6 +201,7 @@ impl CompiledPattern {
             posix: false,
             can_be_null: false,
             translate: None,
+            multibyte_charsets: HashMap::new(),
         }
     }
 }
@@ -1146,6 +1152,17 @@ fn compile_repetition(
     Ok(())
 }
 
+/// Decode one UTF-8 character from a byte slice starting at position `pos`.
+/// Returns the character and how many bytes it consumed.
+fn decode_utf8_char(bytes: &[u8], pos: usize) -> Option<(char, usize)> {
+    if pos >= bytes.len() {
+        return None;
+    }
+    let s = std::str::from_utf8(&bytes[pos..]).ok()?;
+    let c = s.chars().next()?;
+    Some((c, c.len_utf8()))
+}
+
 /// Compile a character class `[...]` into charset bytecode.
 fn compile_charset(
     pattern: &[u8],
@@ -1167,41 +1184,76 @@ fn compile_charset(
         RegexOp::Charset
     };
 
+    // Record the bytecode position of this charset opcode for the
+    // multibyte_charsets map.
+    let charset_opcode_pos = buf.buffer.len();
     buf.buffer.push(op as u8);
-    let bitmap_len_pos = buf.buffer.len();
+    let _bitmap_len_pos = buf.buffer.len();
     buf.buffer.push(32); // 256 bits = 32 bytes bitmap
 
     // Initialize 32-byte bitmap (256 bits, one per ASCII char)
     let bitmap_start = buf.buffer.len();
     buf.buffer.extend_from_slice(&[0u8; 32]);
 
+    // Collect multibyte (non-ASCII) ranges for this charset.
+    let mut mb_ranges: Vec<(char, char)> = Vec::new();
+
     // Special case: ] at start is literal
     let mut first = true;
-    let mut last_char: Option<u8> = None; // Track last single char for ranges
+    let mut last_char: Option<char> = None; // Track last single char for ranges
 
     while *p < plen {
-        let c = pattern[*p];
-        *p += 1;
+        let b = pattern[*p];
 
-        if c == b']' && !first {
+        // Decode a full UTF-8 character from the pattern.
+        let (c, clen) = decode_utf8_char(pattern, *p).unwrap_or((b as char, 1));
+        *p += clen;
+
+        if b == b']' && !first {
             break;
         }
         first = false;
 
-        if c == b'-' && *p < plen && pattern[*p] != b']' {
+        if b == b'-' && *p < plen && pattern[*p] != b']' {
             if let Some(range_start) = last_char {
-                // Range: range_start - next char
-                let range_end = pattern[*p];
-                *p += 1;
-                for ch in range_start..=range_end {
-                    set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
+                // Range: range_start - next_char
+                let (range_end, rlen) =
+                    decode_utf8_char(pattern, *p).unwrap_or((pattern[*p] as char, 1));
+                *p += rlen;
+                if range_start.is_ascii() && range_end.is_ascii() {
+                    // Both ASCII — use the bitmap
+                    for ch in (range_start as u8)..=(range_end as u8) {
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
+                    }
+                } else {
+                    // At least one endpoint is non-ASCII.
+                    // Put the ASCII portion in the bitmap and the rest in
+                    // multibyte ranges.
+                    let start_u32 = range_start as u32;
+                    let end_u32 = range_end as u32;
+                    // ASCII portion: codepoints <= 127
+                    if start_u32 <= 127 {
+                        let ascii_end = end_u32.min(127) as u8;
+                        for ch in (start_u32 as u8)..=ascii_end {
+                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
+                        }
+                    }
+                    // Multibyte portion: codepoints >= 128
+                    let mb_start = if start_u32 >= 128 {
+                        range_start
+                    } else {
+                        '\u{80}'
+                    };
+                    if end_u32 >= 128 {
+                        add_multibyte_range(&mut mb_ranges, mb_start, range_end, case_fold);
+                    }
                 }
                 last_char = None; // Range consumed
                 continue;
             }
             // '-' at start or after a range → literal '-'
             set_bitmap_bit(&mut buf.buffer, bitmap_start, b'-', case_fold);
-            last_char = Some(b'-');
+            last_char = Some('-');
             continue;
         }
 
@@ -1210,7 +1262,7 @@ fn compile_charset(
         // However, NeoVM callers (from Rust) may pass \w, \s, \d
         // inside [...] expecting them to work. We handle the most
         // common cases but fall through to literal for unknown escapes.
-        if c == b'\\' && *p < plen {
+        if b == b'\\' && *p < plen {
             let esc = pattern[*p];
             match esc {
                 b'w' => {
@@ -1268,12 +1320,12 @@ fn compile_charset(
             }
             // Treat backslash as literal character
             set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\\', case_fold);
-            last_char = Some(b'\\');
+            last_char = Some('\\');
             continue;
         }
 
         // Handle POSIX classes [[:alpha:]], etc.
-        if c == b'[' && *p < plen && pattern[*p] == b':' {
+        if b == b'[' && *p < plen && pattern[*p] == b':' {
             *p += 1; // skip :
             let class_start = *p;
             while *p < plen && pattern[*p] != b':' {
@@ -1292,13 +1344,47 @@ fn compile_charset(
         }
 
         // Regular character
-        if (c as usize) < 256 {
-            set_bitmap_bit(&mut buf.buffer, bitmap_start, c, case_fold);
-            last_char = Some(c);
+        if c.is_ascii() {
+            set_bitmap_bit(&mut buf.buffer, bitmap_start, c as u8, case_fold);
+        } else {
+            // Non-ASCII character — add as a single-char range to multibyte list
+            add_multibyte_range(&mut mb_ranges, c, c, case_fold);
         }
+        last_char = Some(c);
+    }
+
+    // Store multibyte ranges if any were collected.
+    if !mb_ranges.is_empty() {
+        buf.multibyte_charsets.insert(charset_opcode_pos, mb_ranges);
     }
 
     Ok(())
+}
+
+/// Add a multibyte character range, optionally expanding for case-folding.
+fn add_multibyte_range(ranges: &mut Vec<(char, char)>, start: char, end: char, case_fold: bool) {
+    ranges.push((start, end));
+    if case_fold {
+        // For case-folding, also add the upper/lower-case variants.
+        // For single-char ranges, just add the case-folded char.
+        // For multi-char ranges, this is a conservative approximation:
+        // we add the lowercased and uppercased versions of the endpoints.
+        if start == end {
+            for variant in start.to_lowercase() {
+                if variant != start {
+                    ranges.push((variant, variant));
+                }
+            }
+            for variant in start.to_uppercase() {
+                if variant != start {
+                    ranges.push((variant, variant));
+                }
+            }
+        }
+        // For multi-char ranges (start != end), the range itself should
+        // cover the needed codepoints in most cases. We don't expand
+        // further to avoid combinatorial explosion.
+    }
 }
 
 /// Set a bit in the charset bitmap (and its case-fold partner).
@@ -1635,10 +1721,24 @@ pub(crate) fn re_match(
         Some((c, c.len_utf8()))
     };
 
+    // Helper: find start of the UTF-8 character before `pos`.
+    // Scans backward past continuation bytes (10xxxxxx).
+    let prev_char_start = |pos: usize| -> Option<usize> {
+        if pos == 0 {
+            return None;
+        }
+        let mut p = pos - 1;
+        // UTF-8 continuation bytes have top bits 10
+        while p > 0 && (text[p] & 0xC0) == 0x80 {
+            p -= 1;
+        }
+        Some(p)
+    };
+
     // Helper: is position at a word boundary?
     let at_word_boundary = |pos: usize| -> bool {
-        let prev_word = if pos > 0 {
-            text_char(pos.saturating_sub(1))
+        let prev_word = if let Some(prev) = prev_char_start(pos) {
+            text_char(prev)
                 .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
                 .unwrap_or(false)
         } else {
@@ -1656,8 +1756,8 @@ pub(crate) fn re_match(
             let syn = syntax.char_syntax(c);
             syn == SyntaxClass::Word || syn == SyntaxClass::Symbol
         };
-        let prev_sym = if pos > 0 {
-            text_char(pos.saturating_sub(1))
+        let prev_sym = if let Some(prev) = prev_char_start(pos) {
+            text_char(prev)
                 .map(|(c, _)| is_symbol_char(c))
                 .unwrap_or(false)
         } else {
@@ -1759,6 +1859,7 @@ pub(crate) fn re_match(
 
             RegexOp::Charset | RegexOp::CharsetNot => {
                 let negate = op == RegexOp::CharsetNot;
+                let charset_op_pos = pc - 1; // bytecode position of the opcode
                 let bitmap_len = bytecode[pc] as usize & 0x7F;
                 pc += 1;
 
@@ -1775,12 +1876,25 @@ pub(crate) fn re_match(
                     continue;
                 }
 
-                let c = text[d];
-                let in_set = if (c as usize / 8) < bitmap_len {
-                    let byte = bytecode[pc + c as usize / 8];
-                    (byte >> (c as usize % 8)) & 1 != 0
+                // Decode one UTF-8 character at position d
+                let (ch, ch_len) = text_char(d).unwrap_or((text[d] as char, 1));
+
+                let in_set = if ch.is_ascii() {
+                    // ASCII path: check the bitmap
+                    let c = ch as u8;
+                    if (c as usize / 8) < bitmap_len {
+                        let byte = bytecode[pc + c as usize / 8];
+                        (byte >> (c as usize % 8)) & 1 != 0
+                    } else {
+                        false
+                    }
                 } else {
-                    false
+                    // Non-ASCII: check the multibyte ranges
+                    if let Some(ranges) = pattern.multibyte_charsets.get(&charset_op_pos) {
+                        ranges.iter().any(|&(lo, hi)| ch >= lo && ch <= hi)
+                    } else {
+                        false
+                    }
                 };
 
                 let matched = if negate { !in_set } else { in_set };
@@ -1797,7 +1911,7 @@ pub(crate) fn re_match(
                     )?;
                     continue;
                 }
-                d += 1;
+                d += ch_len;
             }
 
             RegexOp::StartMemory => {
@@ -1975,10 +2089,10 @@ pub(crate) fn re_match(
 
             RegexOp::WordBeg => {
                 // Word beginning: not in word before, in word after
-                let prev_word = d > 0
-                    && text_char(d - 1)
-                        .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
-                        .unwrap_or(false);
+                let prev_word = prev_char_start(d)
+                    .and_then(|p| text_char(p))
+                    .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                    .unwrap_or(false);
                 let curr_word = text_char(d)
                     .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
                     .unwrap_or(false);
@@ -1995,10 +2109,10 @@ pub(crate) fn re_match(
             }
 
             RegexOp::WordEnd => {
-                let prev_word = d > 0
-                    && text_char(d - 1)
-                        .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
-                        .unwrap_or(false);
+                let prev_word = prev_char_start(d)
+                    .and_then(|p| text_char(p))
+                    .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                    .unwrap_or(false);
                 let curr_word = text_char(d)
                     .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
                     .unwrap_or(false);
@@ -2019,7 +2133,10 @@ pub(crate) fn re_match(
                     let s = syntax.char_syntax(c);
                     s == SyntaxClass::Word || s == SyntaxClass::Symbol
                 };
-                let prev_sym = d > 0 && text_char(d - 1).map(|(c, _)| is_sym(c)).unwrap_or(false);
+                let prev_sym = prev_char_start(d)
+                    .and_then(|p| text_char(p))
+                    .map(|(c, _)| is_sym(c))
+                    .unwrap_or(false);
                 let curr_sym = text_char(d).map(|(c, _)| is_sym(c)).unwrap_or(false);
                 if prev_sym || !curr_sym {
                     goto_fail(
@@ -2038,7 +2155,10 @@ pub(crate) fn re_match(
                     let s = syntax.char_syntax(c);
                     s == SyntaxClass::Word || s == SyntaxClass::Symbol
                 };
-                let prev_sym = d > 0 && text_char(d - 1).map(|(c, _)| is_sym(c)).unwrap_or(false);
+                let prev_sym = prev_char_start(d)
+                    .and_then(|p| text_char(p))
+                    .map(|(c, _)| is_sym(c))
+                    .unwrap_or(false);
                 let curr_sym = text_char(d).map(|(c, _)| is_sym(c)).unwrap_or(false);
                 if !prev_sym || curr_sym {
                     goto_fail(
@@ -2533,6 +2653,7 @@ fn compile_fastmap(pattern: &mut CompiledPattern) {
                     if pc >= bytecode.len() {
                         break;
                     }
+                    let charset_op_pos = pc - 1;
                     let bitmap_len = bytecode[pc] as usize & 0x7F;
                     pc += 1;
                     for c in 0..256usize {
@@ -2542,6 +2663,13 @@ fn compile_fastmap(pattern: &mut CompiledPattern) {
                             }
                         }
                     }
+                    // If this charset has multibyte ranges, conservatively
+                    // allow all non-ASCII leading bytes in the fastmap.
+                    if pattern.multibyte_charsets.contains_key(&charset_op_pos) {
+                        for c in 128..256usize {
+                            pattern.fastmap[c] = true;
+                        }
+                    }
                     break;
                 }
 
@@ -2549,6 +2677,7 @@ fn compile_fastmap(pattern: &mut CompiledPattern) {
                     if pc >= bytecode.len() {
                         break;
                     }
+                    let charset_op_pos = pc - 1;
                     let bitmap_len = bytecode[pc] as usize & 0x7F;
                     pc += 1;
                     for c in 0..256usize {
@@ -2760,24 +2889,37 @@ pub(crate) fn re_search(
     if range >= 0 {
         // Forward search
         let end = (start + range as usize).min(text_len);
-        for pos in start..=end {
+        let mut pos = start;
+        while pos <= end {
             if pos > text_len {
                 break;
+            }
+            // Skip UTF-8 continuation bytes — only try match at character
+            // boundaries to avoid matching in the middle of a multibyte char.
+            if pos < text_len && (text[pos] & 0xC0) == 0x80 {
+                pos += 1;
+                continue;
             }
             // Use fastmap to skip positions that can't start a match
             if pattern.fastmap_accurate && pos < text_len {
                 if !pattern.fastmap[text[pos] as usize] {
+                    pos += 1;
                     continue;
                 }
             }
             if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
                 return Some((pos, result.1));
             }
+            pos += 1;
         }
     } else {
         // Backward search
         let end = start.saturating_sub((-range) as usize);
         for pos in (end..=start).rev() {
+            // Skip UTF-8 continuation bytes — only try at character boundaries.
+            if pos < text_len && (text[pos] & 0xC0) == 0x80 {
+                continue;
+            }
             // Use fastmap to skip positions that can't start a match
             if pattern.fastmap_accurate && pos < text_len {
                 if !pattern.fastmap[text[pos] as usize] {
@@ -3031,5 +3173,86 @@ mod tests {
         assert!(!compiled.fastmap[b'c' as usize]);
         assert!(compiled.fastmap[b'd' as usize]);
         assert!(compiled.fastmap[b'z' as usize]);
+    }
+
+    #[test]
+    fn test_multibyte_charset() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("[àáâ]", "hello à world", 0, false, &syn, 0);
+        assert!(r.is_ok(), "compile failed: {:?}", r.err());
+        assert!(r.unwrap().is_some(), "should match à in text");
+    }
+
+    #[test]
+    fn test_multibyte_charset_no_match() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("[àáâ]", "hello world", 0, false, &syn, 0);
+        assert!(r.is_ok());
+        assert!(
+            r.unwrap().is_none(),
+            "should not match when no accented chars"
+        );
+    }
+
+    #[test]
+    fn test_multibyte_charset_range() {
+        let syn = DefaultSyntaxLookup;
+        // Range of accented Latin characters: é (U+00E9) through ü (U+00FC)
+        let r = search_pattern("[é-ü]", "hello ö world", 0, false, &syn, 0);
+        assert!(r.is_ok(), "compile failed: {:?}", r.err());
+        assert!(r.unwrap().is_some(), "ö should be in range é-ü");
+    }
+
+    #[test]
+    fn test_multibyte_charset_range_no_match() {
+        let syn = DefaultSyntaxLookup;
+        // 'a' (U+0061) is outside the range é (U+00E9) through ü (U+00FC)
+        let r = search_pattern("[é-ü]", "hello a world", 0, false, &syn, 0);
+        assert!(r.is_ok());
+        assert!(r.unwrap().is_none(), "ASCII 'a' should not be in range é-ü");
+    }
+
+    #[test]
+    fn test_multibyte_charset_not() {
+        let syn = DefaultSyntaxLookup;
+        // [^à] should match any character that is not à
+        let r = search_pattern("[^à]", "à", 0, false, &syn, 0);
+        assert!(r.is_ok());
+        assert!(r.unwrap().is_none(), "[^à] should not match 'à'");
+
+        let r = search_pattern("[^à]", "b", 0, false, &syn, 0);
+        assert!(r.is_ok());
+        assert!(r.unwrap().is_some(), "[^à] should match 'b'");
+    }
+
+    #[test]
+    fn test_multibyte_charset_mixed() {
+        let syn = DefaultSyntaxLookup;
+        // Mix of ASCII and non-ASCII in one charset
+        let r = search_pattern("[aéz]", "hello é world", 0, false, &syn, 0);
+        assert!(r.is_ok());
+        assert!(r.unwrap().is_some(), "should match é");
+
+        let r = search_pattern("[aéz]", "hello z world", 0, false, &syn, 0);
+        assert!(r.is_ok());
+        assert!(r.unwrap().is_some(), "should also match z");
+    }
+
+    #[test]
+    fn test_multibyte_charset_cjk() {
+        let syn = DefaultSyntaxLookup;
+        // CJK characters
+        let r = search_pattern("[你好世]", "say 好 to the world", 0, false, &syn, 0);
+        assert!(r.is_ok());
+        assert!(r.unwrap().is_some(), "should match 好");
+    }
+
+    #[test]
+    fn test_multibyte_charset_match_position() {
+        let syn = DefaultSyntaxLookup;
+        let r = search_pattern("[àáâ]", "hello á world", 0, false, &syn, 0);
+        let (pos, regs) = r.unwrap().unwrap();
+        assert_eq!(pos, 6, "á starts at byte 6");
+        assert_eq!(regs.end[0], 8, "á is 2 bytes in UTF-8, ends at byte 8");
     }
 }
