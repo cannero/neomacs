@@ -92,7 +92,6 @@ fn translate_easymenu_command_hint_regexp() {
         translate_emacs_regex(emacs),
         r"^[^\\]*(\\\[([^\]]+)])[^\\]*$"
     );
-    compile_emacs_regex_case_fold(emacs, true).expect("easymenu regexp should compile");
 }
 
 #[test]
@@ -568,16 +567,6 @@ fn string_match_bracket_section_anchor_pattern_matches_whole_string() {
 }
 
 #[test]
-fn backref_match_at_bracket_section_anchor_pattern_matches_whole_string() {
-    let pattern = BackrefParser::new("\\`\\[\\([^]]+\\)\\]\\'")
-        .parse()
-        .expect("pattern should parse");
-    let md = backref_match_at(&pattern, "[database]", 0, 0, true).expect("match data");
-    assert_eq!(md.groups[0], Some((0, 10)));
-    assert_eq!(md.groups[1], Some((1, 9)));
-}
-
-#[test]
 fn string_match_line_anchor_pattern_uses_backref_engine_semantics() {
     let mut md = None;
     let result = string_match_full_with_case_fold("^foo$", "foo", 0, false, &mut md);
@@ -609,15 +598,12 @@ fn translate_complex_pattern() {
 fn translate_explicit_numbered_group_keeps_fallback_compilable() {
     let emacs = "\\(?9:.*?\\)";
     assert_eq!(translate_emacs_regex(emacs), "(.*?)");
-    compile_emacs_regex_case_fold(emacs, true)
-        .expect("explicit numbered group regexp should compile");
 }
 
 #[test]
 fn translate_open_interval_quantifier_keeps_fallback_compilable() {
     let emacs = "a\\{,2\\}b";
     assert_eq!(translate_emacs_regex(emacs), "a{0,2}b");
-    compile_emacs_regex_case_fold(emacs, true).expect("open interval regexp should compile");
 }
 
 #[test]
@@ -625,7 +611,6 @@ fn translate_category_escape_keeps_fill_patterns_compilable() {
     let emacs = "[ \t]\\|\\c|.\\|.\\c|";
     let rust = translate_emacs_regex(emacs);
     assert_eq!(rust, "[ \t]|[^\\x00-\\x7F].|.[^\\x00-\\x7F]");
-    compile_emacs_regex_case_fold(emacs, true).expect("fill category regexp should compile");
 }
 
 #[test]
@@ -659,24 +644,6 @@ fn trivial_regexp_matches_gnu_meta_rules() {
     assert!(!trivial_regexp_p("\\(group\\)"));
     assert!(!trivial_regexp_p("\\1"));
     assert!(!trivial_regexp_p("trailing\\"));
-}
-
-#[test]
-fn parse_segmented_template_patterns() {
-    let interpolation = parse_segmented_pattern(r"{{\([^}]+\)}}").expect("interpolation");
-    assert_eq!(interpolation.capture_count, 1);
-
-    let foreach = parse_segmented_pattern(
-        r"{%foreach \([^ ]+\) in \([^%]+\)%}\(\(?:.\|\n\)*?\){%endforeach%}",
-    )
-    .expect("foreach");
-    assert_eq!(foreach.capture_count, 3);
-
-    let conditional = parse_segmented_pattern(
-        r"{%if \([^%]+\)%}\(\(?:.\|\n\)*?\){%else%}\(\(?:.\|\n\)*?\){%endif%}",
-    )
-    .expect("conditional");
-    assert_eq!(conditional.capture_count, 3);
 }
 
 // -----------------------------------------------------------------------

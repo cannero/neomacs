@@ -25,6 +25,8 @@
 //! - GNU header: `src/regex-emacs.h`
 //! - GNU search: `src/search.c` (3514 lines)
 
+use std::collections::HashMap;
+
 // ---------------------------------------------------------------------------
 // Phase 1: Opcodes and Data Structures
 // ---------------------------------------------------------------------------
@@ -247,6 +249,10 @@ struct FailurePoint {
 
     /// Saved group register values at this point.
     saved_registers: Vec<(usize, i64, i64)>, // (group_idx, start, end)
+
+    /// Saved interval-counter overrides at this point.
+    /// Keyed by bytecode position of the 2-byte counter field.
+    saved_counters: HashMap<usize, i16>,
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +323,23 @@ fn store_number(buf: &mut [u8], pos: usize, number: i16) {
 /// Read a 2-byte signed offset from bytecode buffer.
 fn extract_number(buf: &[u8], pos: usize) -> i16 {
     i16::from_le_bytes([buf[pos], buf[pos + 1]])
+}
+
+/// Read a counter value from the counter table, falling back to the bytecode
+/// if no override has been stored yet.  Used by `succeed_n`, `jump_n`, and
+/// `set_number_at` to emulate GNU's in-place bytecode mutation on immutable
+/// bytecode.
+fn get_counter(counters: &HashMap<usize, i16>, bytecode: &[u8], pos: usize) -> i16 {
+    counters
+        .get(&pos)
+        .copied()
+        .unwrap_or_else(|| extract_number(bytecode, pos))
+}
+
+/// Store a counter value in the mutable counter table (keyed by bytecode
+/// position).
+fn set_counter(counters: &mut HashMap<usize, i16>, pos: usize, val: i16) {
+    counters.insert(pos, val);
 }
 
 // ---------------------------------------------------------------------------
@@ -1518,6 +1541,10 @@ pub(crate) fn re_match(
     let mut regs = MatchRegisters::new(num_regs);
     let mut fail_stack: Vec<FailurePoint> = Vec::new();
 
+    // Mutable counter table for interval repetition (succeed_n / jump_n / set_number_at).
+    // GNU modifies bytecode in-place; we use a side table keyed by bytecode position.
+    let mut counters: HashMap<usize, i16> = HashMap::new();
+
     // Register tracking arrays
     let mut regstart: Vec<Option<usize>> = vec![None; num_regs];
     let mut regend: Vec<Option<usize>> = vec![None; num_regs];
@@ -1645,18 +1672,39 @@ pub(crate) fn re_match(
                 if matched {
                     pc += count;
                 } else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
             RegexOp::AnyChar => {
                 if d >= stop {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 // Match any character except newline
                 if text[d] == b'\n' {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 // Advance past one UTF-8 character
@@ -1674,7 +1722,14 @@ pub(crate) fn re_match(
 
                 if d >= stop {
                     pc += bitmap_len;
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
 
@@ -1690,7 +1745,14 @@ pub(crate) fn re_match(
                 pc += bitmap_len;
 
                 if !matched {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 d += 1;
@@ -1717,17 +1779,38 @@ pub(crate) fn re_match(
                 pc += 1;
 
                 let Some(start) = regstart.get(group).copied().flatten() else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 };
                 let Some(end) = regend.get(group).copied().flatten() else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 };
 
                 let ref_len = end - start;
                 if d + ref_len > stop {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
 
@@ -1740,7 +1823,14 @@ pub(crate) fn re_match(
                     }
                 }
                 if !matched {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 d += ref_len;
@@ -1750,7 +1840,14 @@ pub(crate) fn re_match(
                 if d == 0 || (d > 0 && text[d - 1] == b'\n') {
                     // At beginning of line — succeed
                 } else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
@@ -1758,37 +1855,79 @@ pub(crate) fn re_match(
                 if d >= stop || text[d] == b'\n' {
                     // At end of line — succeed
                 } else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
             RegexOp::BegBuf => {
                 if d != 0 {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
             RegexOp::EndBuf => {
                 if d != stop {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
             RegexOp::AtDot => {
                 if d != point {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
             RegexOp::WordBound => {
                 if !at_word_boundary(d) {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
             RegexOp::NotWordBound => {
                 if at_word_boundary(d) {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
@@ -1802,7 +1941,14 @@ pub(crate) fn re_match(
                     .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
                     .unwrap_or(false);
                 if prev_word || !curr_word {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
@@ -1815,7 +1961,14 @@ pub(crate) fn re_match(
                     .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
                     .unwrap_or(false);
                 if !prev_word || curr_word {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
@@ -1827,7 +1980,14 @@ pub(crate) fn re_match(
                 let prev_sym = d > 0 && text_char(d - 1).map(|(c, _)| is_sym(c)).unwrap_or(false);
                 let curr_sym = text_char(d).map(|(c, _)| is_sym(c)).unwrap_or(false);
                 if prev_sym || !curr_sym {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
@@ -1839,7 +1999,14 @@ pub(crate) fn re_match(
                 let prev_sym = d > 0 && text_char(d - 1).map(|(c, _)| is_sym(c)).unwrap_or(false);
                 let curr_sym = text_char(d).map(|(c, _)| is_sym(c)).unwrap_or(false);
                 if !prev_sym || curr_sym {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                 }
             }
 
@@ -1847,15 +2014,36 @@ pub(crate) fn re_match(
                 let class_byte = bytecode[pc];
                 pc += 1;
                 if d >= stop {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 let Some((c, len)) = text_char(d) else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 };
                 if syntax.char_syntax(c) as u8 != class_byte {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 d += len;
@@ -1865,15 +2053,36 @@ pub(crate) fn re_match(
                 let class_byte = bytecode[pc];
                 pc += 1;
                 if d >= stop {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 let Some((c, len)) = text_char(d) else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 };
                 if syntax.char_syntax(c) as u8 == class_byte {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 d += len;
@@ -1883,15 +2092,36 @@ pub(crate) fn re_match(
                 let cat = bytecode[pc];
                 pc += 1;
                 if d >= stop {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 let Some((c, len)) = text_char(d) else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 };
                 if !syntax.char_has_category(c, cat) {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 d += len;
@@ -1901,15 +2131,36 @@ pub(crate) fn re_match(
                 let cat = bytecode[pc];
                 pc += 1;
                 if d >= stop {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 let Some((c, len)) = text_char(d) else {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 };
                 if syntax.char_has_category(c, cat) {
-                    goto_fail(&mut pc, &mut d, &mut fail_stack, &mut regstart, &mut regend)?;
+                    goto_fail(
+                        &mut pc,
+                        &mut d,
+                        &mut fail_stack,
+                        &mut regstart,
+                        &mut regend,
+                        &mut counters,
+                    )?;
                     continue;
                 }
                 d += len;
@@ -1928,6 +2179,7 @@ pub(crate) fn re_match(
                     pattern_pos: fail_pc,
                     string_pos: Some(d),
                     saved_registers: save_registers(&regstart, &regend, num_regs),
+                    saved_counters: counters.clone(),
                 });
             }
 
@@ -1939,6 +2191,7 @@ pub(crate) fn re_match(
                     pattern_pos: fail_pc,
                     string_pos: None, // Don't restore string position
                     saved_registers: save_registers(&regstart, &regend, num_regs),
+                    saved_counters: counters.clone(),
                 });
             }
 
@@ -1958,6 +2211,7 @@ pub(crate) fn re_match(
                         pattern_pos: fail_pc,
                         string_pos: Some(d),
                         saved_registers: save_registers(&regstart, &regend, num_regs),
+                        saved_counters: counters.clone(),
                     });
                 }
             }
@@ -1971,6 +2225,7 @@ pub(crate) fn re_match(
                     pattern_pos: fail_pc,
                     string_pos: Some(d),
                     saved_registers: save_registers(&regstart, &regend, num_regs),
+                    saved_counters: counters.clone(),
                 });
             }
 
@@ -1983,43 +2238,76 @@ pub(crate) fn re_match(
                     pattern_pos: fail_pc,
                     string_pos: Some(d),
                     saved_registers: save_registers(&regstart, &regend, num_regs),
+                    saved_counters: counters.clone(),
                 });
             }
 
             RegexOp::SucceedN => {
-                let offset = extract_number(bytecode, pc);
-                let count = extract_number(bytecode, pc + 2);
-                if count > 0 {
-                    // Decrement counter
-                    store_number(&mut Vec::new(), 0, 0); // Can't modify bytecode in-place
-                    // Simplified: treat as on_failure_jump
+                // GNU: succeed_n  <jump-offset:2> <counter:2>
+                // "Have to succeed matching what follows at least n times."
+                // Counter lives at pc+2 (2 bytes).  When counter > 0 we
+                // decrement and continue (must still succeed more times).
+                // When counter == 0 we fall through to on_failure_jump_loop
+                // semantics using the jump offset.
+                let counter_pos = pc + 2; // bytecode position of the counter
+                let count = get_counter(&counters, bytecode, counter_pos);
+                if count != 0 {
+                    // Still must succeed more times — decrement & continue
+                    set_counter(&mut counters, counter_pos, count - 1);
                     pc += 4;
-                    let fail_pc = ((pc as i64) + (offset as i64) - 4) as usize;
-                    fail_stack.push(FailurePoint {
-                        pattern_pos: fail_pc,
-                        string_pos: Some(d),
-                        saved_registers: save_registers(&regstart, &regend, num_regs),
-                    });
                 } else {
-                    pc = ((pc as i64) + 4 + (offset as i64) - 4) as usize;
+                    // Counter exhausted — behave like on_failure_jump_loop.
+                    // Read the jump offset and push a failure point.
+                    let offset = extract_number(bytecode, pc);
+                    pc += 2; // skip the offset field
+                    let fail_pc = ((pc as i64) + (offset as i64)) as usize;
+                    pc += 2; // skip the counter field
+                    // Infinite-loop detection (same as OnFailureJumpLoop)
+                    let already_at_same_pos = fail_stack
+                        .last()
+                        .is_some_and(|fp| fp.string_pos == Some(d) && fp.pattern_pos == fail_pc);
+                    if already_at_same_pos {
+                        pc = fail_pc;
+                    } else {
+                        fail_stack.push(FailurePoint {
+                            pattern_pos: fail_pc,
+                            string_pos: Some(d),
+                            saved_registers: save_registers(&regstart, &regend, num_regs),
+                            saved_counters: counters.clone(),
+                        });
+                    }
                 }
             }
 
             RegexOp::JumpN => {
-                let offset = extract_number(bytecode, pc);
-                let count = extract_number(bytecode, pc + 2);
-                if count > 0 {
-                    // Decrement and jump
-                    pc = ((pc as i64) + (offset as i64)) as usize;
+                // GNU: jump_n  <jump-offset:2> <counter:2>
+                // "Originally, this is how many times we CAN jump."
+                // If counter > 0, decrement and jump.
+                // If counter == 0, skip past (don't jump).
+                let counter_pos = pc + 2;
+                let count = get_counter(&counters, bytecode, counter_pos);
+                if count != 0 {
+                    // Decrement counter and perform unconditional jump
+                    set_counter(&mut counters, counter_pos, count - 1);
+                    let offset = extract_number(bytecode, pc);
+                    pc = ((pc as i64) + 2 + (offset as i64)) as usize;
                 } else {
-                    pc += 4; // Skip past
+                    pc += 4; // Skip past offset + counter fields
                 }
             }
 
             RegexOp::SetNumberAt => {
-                // Set a counter at an offset — used for interval repetition
-                // Simplified: skip the 4 bytes
-                pc += 4;
+                // GNU: set_number_at  <offset-to-counter:2> <value:2>
+                // Sets the counter at the given offset to the given value.
+                // Used to reset interval counters at the start of a loop.
+                let rel_offset = extract_number(bytecode, pc);
+                pc += 2; // advance past the offset field
+                let value = extract_number(bytecode, pc);
+                pc += 2; // advance past the value field
+                // Target counter position: relative to position after
+                // the offset field (same convention as GNU).
+                let target_pos = ((pc as i64) - 2 + (rel_offset as i64)) as usize;
+                set_counter(&mut counters, target_pos, value);
             }
         }
     }
@@ -2091,6 +2379,7 @@ fn goto_fail(
     fail_stack: &mut Vec<FailurePoint>,
     regstart: &mut Vec<Option<usize>>,
     regend: &mut Vec<Option<usize>>,
+    counters: &mut HashMap<usize, i16>,
 ) -> Option<()> {
     let fp = fail_stack.pop()?;
     *pc = fp.pattern_pos;
@@ -2098,6 +2387,8 @@ fn goto_fail(
         *d = sp;
     }
     restore_registers(&fp, regstart, regend);
+    // Restore interval counters to the state when this failure point was pushed
+    *counters = fp.saved_counters;
     Some(())
 }
 
