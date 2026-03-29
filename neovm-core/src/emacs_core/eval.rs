@@ -650,6 +650,16 @@ fn wants_debugger(setting: &Value, conditions: &Value) -> bool {
         .any(|entry| signal_conditions.iter().any(|condition| condition == entry))
 }
 
+fn signal_hook_payload_value(sig: &SignalData) -> Value {
+    if let Some(raw) = &sig.raw_data {
+        *raw
+    } else if sig.data.is_empty() {
+        Value::Nil
+    } else {
+        Value::list(sig.data.clone())
+    }
+}
+
 pub struct Context {
     /// Builtin function registry — directly indexed by `SymId`.
     ///
@@ -1499,6 +1509,9 @@ impl Context {
     }
 
     fn dispatch_signal(&mut self, mut sig: SignalData) -> Result<SignalData, Flow> {
+        self.run_signal_hook(&sig)?;
+        sig = self.canonicalize_signal_symbol(sig);
+
         let mut idx = self.condition_stack.len();
         let mut seen_condition_entries = 0usize;
 
@@ -1586,6 +1599,53 @@ impl Context {
         sig.search_complete = true;
         sig.selected_resume = None;
         Ok(sig)
+    }
+
+    fn run_signal_hook(&mut self, sig: &SignalData) -> Result<(), Flow> {
+        if sig.suppress_signal_hook {
+            return Ok(());
+        }
+
+        let hook = self
+            .obarray
+            .symbol_value("signal-hook-function")
+            .copied()
+            .unwrap_or(Value::Nil);
+        if hook.is_nil() {
+            return Ok(());
+        }
+
+        self.apply(
+            hook,
+            vec![Value::Symbol(sig.symbol), signal_hook_payload_value(sig)],
+        )
+        .map(|_| ())
+    }
+
+    fn canonicalize_signal_symbol(&self, sig: SignalData) -> SignalData {
+        let sym_name = sig.symbol_name();
+        if sym_name == "error" || sym_name == "quit" {
+            return sig;
+        }
+        if self
+            .obarray
+            .get_property(sym_name, "error-conditions")
+            .is_some()
+        {
+            return sig;
+        }
+
+        SignalData {
+            symbol: intern("error"),
+            data: vec![
+                Value::string("Invalid error symbol"),
+                Value::Symbol(sig.symbol),
+            ],
+            raw_data: None,
+            suppress_signal_hook: sig.suppress_signal_hook,
+            selected_resume: None,
+            search_complete: false,
+        }
     }
 
     fn maybe_call_debugger_for_signal(

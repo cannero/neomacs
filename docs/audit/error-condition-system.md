@@ -3,258 +3,195 @@
 Date: 2026-03-29
 
 Scope:
-- `signal`, `condition-case`, `handler-bind`, throw/signal formatting, and signal payload fidelity.
+- `signal`, `condition-case`, `handler-bind`, debugger entry policy, throw/catch dispatch, and signal payload fidelity.
 - GNU Emacs reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
-
-## Fixed in this patch
-
-### Raw signal payload shape now matches GNU Emacs
-
-GNU Emacs preserves the original cdr passed to `signal`. In `src/eval.c`, the error object is constructed as `(ERROR-SYMBOL . DATA)` instead of normalizing DATA into a proper list. That matters for cases like:
-
-```elisp
-(condition-case err
-    (signal 'error 1)
-  (error err))
-```
-
-GNU returns:
-
-```elisp
-(error . 1)
-```
-
-Before this patch, neomacs normalized non-list signal payloads into a `Vec<Value>` and lost the original cdr shape. That broke:
-- `condition-case` bindings for raw/non-list payloads
-- display/formatting of signaled errors
-- rethrowing/conversion paths that round-tripped `EvalError` back into `Flow`
-
-The fix introduces `raw_data` alongside the normalized vector payload and preserves it through:
-- `neovm-core/src/emacs_core/error.rs`
-- `neovm-core/src/emacs_core/errors.rs`
-- `neovm-core/src/emacs_core/eval.rs`
-- `neovm-core/src/emacs_core/load.rs`
-- `neovm-core/src/emacs_core/lread.rs`
-- `neovm-core/src/emacs_core/builtins/misc_eval.rs`
-- `neovm-worker/src/lib.rs`
-
-Focused regression tests were added for:
-- raw payload preservation in `builtin_signal`
-- `condition-case` binding shape for `(signal 'error 1)`
-- formatter output for raw payload signals
 
 ## GNU design and implementation
 
-### Lisp macros only define syntax
-
-GNU keeps the Lisp-facing surface of this subsystem in `lisp/subr.el`, but the
-runtime semantics are owned by C:
-
-- `handler-bind` is only a macro wrapper around `handler-bind-1`
-- `condition-case-unless-debug` is only a macro rewrite around
-  `condition-case`
-
-That means the actual behavior is not "implemented in Lisp" even though the
-user-level entry points are Lisp macros.
-
-Important GNU ownership:
+GNU Emacs keeps the Lisp-facing syntax for this subsystem partly in Lisp, but
+the runtime semantics live in C:
 
 - `lisp/subr.el`
   - `handler-bind`
   - `condition-case-unless-debug`
 - `src/eval.c`
-  - `Fhandler_bind_1`
-  - `internal_lisp_condition_case`
+  - `Fsignal`
   - `signal_or_quit`
   - `find_handler_clause`
   - `maybe_call_debugger`
-  - `push_handler`
+  - `internal_lisp_condition_case`
+  - `Fhandler_bind_1`
 - `src/lisp.h`
-  - `enum handlertype`
   - `struct handler`
+  - `enum handlertype`
 
-### One unified handler stack owns signals, catches, and debugger entry
+The important architectural point is that GNU uses one active handler runtime
+for:
 
-GNU does not treat `catch`, `condition-case`, `handler-bind`, and debugger
-entry as separate subsystems.
-
-`src/lisp.h` defines a single `struct handler` chain with:
-
-- `CATCHER`
-- `CONDITION_CASE`
-- `CATCHER_ALL`
-- `HANDLER_BIND`
-- `SKIP_CONDITIONS`
-
-This is the key design choice.  Non-local control is not first caught by
-special forms and then post-processed.  Instead, `signal_or_quit` walks one
-active handler chain and decides what happens next.
-
-### `handler-bind` is part of signal dispatch, not a wrapper retry
-
-GNU `Fhandler_bind_1` pushes `HANDLER_BIND` entries before calling the body
-function.  The handler is therefore active at the instant the signal is
-searched.
-
-When `signal_or_quit` reaches a matching `HANDLER_BIND`, it:
-
-1. pushes `SKIP_CONDITIONS`
-2. calls the handler immediately with the full error object
-3. pops the temporary mask
-4. continues searching
-
-The `SKIP_CONDITIONS` entry is important.  GNU uses it to mute the relevant
-`CONDITION_CASE` / `HANDLER_BIND` frames underneath the running handler without
-hiding `catch` frames.  This is how GNU gets all of these behaviors at once:
-
-- handler runs inside the signal's dynamic extent
-- lower condition handlers are temporarily muted
-- handlers do not recursively apply to code run inside themselves
-- non-error nonlocal exits like `throw` are still visible
-
-This behavior is directly documented by GNU's own comments in `src/lisp.h` and
-tested in `test/src/eval-tests.el`.
-
-### `condition-case` is also installed into the same chain
-
-GNU `internal_lisp_condition_case` validates handlers, reverses the clause
-table, and pushes `CONDITION_CASE` frames using `setjmp`/`longjmp` machinery.
-When a signal is selected for one of those frames, unwinding lands in the
-chosen clause body and binds the error object there.
-
-Two details matter for compatibility:
-
-- `:success` is handled by the same C implementation, not by a separate macro
-  layer
-- the bound error value is the original error object, i.e.
-  `(ERROR-SYMBOL . DATA)`
-
-### Debugger entry is decided after handler search, not before
-
-GNU `signal_or_quit` first searches active handlers, then decides whether the
-debugger should still run.
-
-That debugger decision depends on:
-
-- whether any clause matched
-- whether the chosen clause contains `debug`
-- `debug-on-error` / `debug-on-quit`
-- `inhibit-debugger`
-- `debugger-ignored-errors`
-
-This is why `condition-case-unless-debug` works.  The macro in `lisp/subr.el`
-rewrites each condition into a handler head like `(debug error ...)`.  The
-special behavior comes from `signal_or_quit`, not from the macro itself.
-
-So GNU's `debug` symbol in a condition list is not an ordinary error condition.
-It is a control marker interpreted by the signal runtime.
-
-### Interpreter and bytecode share one runtime path
-
-GNU's handler chain is also the bridge between the interpreter and bytecode
-execution.  `struct handler` stores bytecode state (`bytecode_top`,
-`bytecode_dest`) so the same signal search logic can resume the right target.
-
-That means GNU does not duplicate condition dispatch logic across:
-
-- special forms
-- bytecode interpreter
-- debugger
+- `catch` / `throw`
+- `condition-case`
 - `handler-bind`
+- debugger suppression vs `(debug ...)`
+- interpreter / bytecode resumption choice
 
-The language-visible semantics come from one condition runtime.
+GNU does not fold everything into one generic stack. Handler search is unified,
+while bindings, backtraces, and unwind cleanup remain separate via `specpdl`.
 
-## Neomacs current ownership
+### Signal search in GNU
 
-Neomacs currently splits this subsystem across several independent paths:
+`signal_or_quit` in `src/eval.c` does this, in order:
 
-- interpreter `condition-case`
-  - `neovm-core/src/emacs_core/eval.rs`
-- wrapper-style `handler-bind-1`
-  - `neovm-core/src/emacs_core/builtins/symbols.rs`
-- bytecode `condition-case` resumption
-  - `neovm-core/src/emacs_core/bytecode/vm.rs`
-- standalone debugger state
-  - `neovm-core/src/emacs_core/debug.rs`
+1. constructs the error object
+2. runs `signal-hook-function` if applicable
+3. canonicalizes invalid error symbols
+4. walks the unified handler chain
+5. decides debugger entry after handler search
+6. unwinds to the selected target
 
-This is the architectural mismatch.
+`handler-bind` participates directly in that search via `HANDLER_BIND` and
+temporary `SKIP_CONDITIONS` masking. That is what gives GNU all of these
+properties at once:
 
-The current neomacs design does not have a single active condition-handler
-stack shared by interpreter, VM, and debugger decisions.  Instead:
+- handlers run in the signal's dynamic extent
+- lower condition handlers are muted while a handler runs
+- handlers do not recursively apply inside themselves
+- non-error exits like `throw` remain visible
 
-- `sf_condition_case` catches `Flow::Signal` after body evaluation returns
-- `handler-bind-1` runs handlers only after the body already failed
-- VM condition handling is implemented separately in `resume_nonlocal`
-- debugger state exists, but it is not part of the actual signal search path
+### Peculiar `signal` cases in GNU
 
-## Consequences for compatibility
+GNU's public `signal` entry point also has a few intentionally odd edge cases:
 
-Because GNU owns all of this in one runtime path, the following GNU behaviors
-are linked and should not be fixed independently:
+- `(signal nil 1)` behaves like `(signal 'error 1)`
+- `(signal nil nil)` behaves like `(signal 'error nil)`
+- `(signal nil '(error 1))` treats the cons as a full error object
+- that cons/object path does not run `signal-hook-function`
 
-- `handler-bind` dynamic extent
-- `condition-case` binding shape
-- muting lower handlers while a handler runs
-- debugger suppression vs `(debug ...)` clauses
-- bytecode/interpreter parity for condition dispatch
+Those details come from `Fsignal` and `signal_or_quit` sharing the same internal
+representation, including GNU's special `ERROR_SYMBOL == nil` carrier used for
+memory-full style errors.
 
-Neomacs can keep patching local symptoms, but 100% GNU compatibility here
-probably requires a unified internal condition-dispatch stack.
+## Neomacs current design
 
-## Remaining incompatibilities
+After the unification refactor, neomacs now matches GNU's structure much more
+closely:
 
-### `handler-bind` runs too late in neomacs
+- [eval.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/eval.rs)
+  owns the shared condition runtime and signal dispatch
+- [vm.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/bytecode/vm.rs)
+  consumes already-selected resume targets instead of deciding winners again
+- [debug.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/debug.rs)
+  no longer owns signal/debugger semantics
+- VM unwind cleanup is separate from condition selection, matching GNU's
+  "unified search, separate unwind" split
 
-GNU Emacs installs handler-bind frames into the active handler stack before calling the body function. The handler is therefore invoked inside the dynamic extent of the signaling code. See:
-- GNU `src/eval.c`: `push_handler_bind` / `Fhandler_bind_1`
-- GNU `test/src/eval-tests.el`: `eval-tests--handler-bind`
+The shared `Context.condition_stack` now carries:
 
-Current neomacs behavior is different. `builtin_handler_bind_1` calls the body first, waits for `Err(Flow::Signal(sig))`, and only then walks handlers in Rust:
-- `neovm-core/src/emacs_core/builtins/symbols.rs`
+- catches
+- `condition-case` resumptions
+- `handler-bind` frames
+- `SKIP_CONDITIONS`-style masking
 
-That means inner dynamic context has already unwound before the handler runs. GNU specifically guarantees the opposite for `handler-bind`.
+Interpreter and VM both feed that same runtime.
 
-Impact:
-- inner `catch`
-- inner `condition-case`
-- dynamic bindings visible at signal time
+## Fixed by this audit pass
 
-These can behave differently under neomacs even when the same handler eventually runs.
+### `signal-hook-function` timing now matches GNU
 
-This is not a small local fix. To match GNU, handler-bind needs to participate directly in the evaluator's nonlocal-exit search, not as an after-the-fact retry layer.
+This audit found one remaining real runtime mismatch after the larger handler
+unification: neomacs had seeded `signal-hook-function` as a Lisp variable, but
+shared dispatch did not actually consult it.
 
-### Historical `debug`-condition gap
+GNU runs the hook before invalid-error-symbol canonicalization, and passes the
+split `(SYMBOL DATA)` form while preserving raw payload shape. Neomacs now does
+the same in shared dispatch:
 
-GNU Lisp uses a special `debug` condition to let handlers coexist with debugger entry. `condition-case-unless-debug` in `lisp/subr.el` rewrites handlers to include `debug`, relying on runtime debugger-aware signal handling.
+- hook runs before canonicalization
+- hook sees raw payloads such as `(signal 'error 1)` as `(error . 1)`
+- invalid symbols such as `(signal 'bogus 1)` reach the hook as `(bogus 1)`
 
-This was a real incompatibility in the original audit. It is now fixed by the
-shared-dispatch refactor: debugger policy lives in signal dispatch, `(debug ...)`
-markers are honored, and `condition-case-unless-debug` / `with-demoted-errors`
-run through the same GNU-style search-then-debugger path as interpreter and VM
-condition handling.
+This behavior is now covered in:
+
+- [eval_test.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/eval_test.rs)
+- [vm_test.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/bytecode/vm_test.rs)
+
+### Public `signal nil ...` behavior now matches GNU
+
+This audit also found a separate entry-point mismatch in neomacs's `builtin_signal`.
+Because `Value::Nil` is represented as a symbol-like value, neomacs had been
+treating `(signal nil ...)` as `signal` on the literal symbol `nil`, which is
+not what GNU does.
+
+Neomacs now matches GNU's public behavior for the audited cases:
+
+- `(signal nil 1)` binds as `(error . 1)`
+- `(signal nil nil)` binds as `(error)`
+- `(signal nil '(error 1))` binds as `(error 1)`
+- the cons/object path suppresses `signal-hook-function`
+- `(signal nil '(bogus 1))` reports `(error "Invalid error symbol")`
+
+The runtime models this by distinguishing normal signals from the hook-suppressed
+error-object path at construction time, while still keeping shared dispatch as
+the semantic owner.
+
+## Current audit conclusion
+
+Within the audited runtime path, neomacs now matches GNU Emacs's design much
+more closely than the original split implementation:
+
+- one shared condition search path
+- `handler-bind` participates during signal search
+- debugger policy lives in signal dispatch
+- interpreter and VM share the same winner selection
+- raw signal payloads are preserved end-to-end
+- `signal-hook-function` runs at the GNU point in the pipeline
+- public `signal nil ...` peculiar-error behavior matches GNU in the tested cases
+
+## Remaining confirmed mismatches
+
+No confirmed user-visible runtime mismatch remains in the audited scope after
+this pass.
+
+Residual risk remains in two narrower areas:
+
+- GNU's actual internal memory-full carrier (`ERROR_SYMBOL == nil` inside
+  `signal_or_quit`) is only emulated at neomacs's public `signal` boundary,
+  not represented as a separate internal signal form.
+- broader compatibility still depends on un-audited callers and larger oracle
+  coverage outside this focused error/condition slice.
+
+Neither of those produced a confirmed semantic mismatch in the GNU checks or
+focused regressions used here.
 
 ## Verification notes
 
-GNU reference check used:
+GNU reference checks used during this audit included:
 
 ```sh
-/home/exec/Projects/github.com/emacs-mirror/emacs/src/emacs --batch -Q -l /tmp/neomacs-oracle-read-file.el /tmp/neomacs-signal-raw.forms
+/home/exec/Projects/github.com/emacs-mirror/emacs/src/emacs --batch -Q \
+  --eval "(prin1 (let (seen) (let ((signal-hook-function (lambda (sym data) (setq seen (cons sym data))))) (condition-case nil (signal 'error 1) (error seen)))))"
+
+/home/exec/Projects/github.com/emacs-mirror/emacs/src/emacs --batch -Q \
+  --eval "(prin1 (catch 'tag (let ((signal-hook-function (lambda (sym data) (throw 'tag (list sym data))))) (signal 'bogus 1))))"
+
+/home/exec/Projects/github.com/emacs-mirror/emacs/src/emacs --batch -Q \
+  --eval "(prin1 (let (seen) (let ((signal-hook-function (lambda (&rest xs) (setq seen xs)))) (condition-case err (signal nil '(error 1)) (error (list err seen))))))"
 ```
 
-Observed GNU result:
+Observed GNU results:
 
 ```elisp
 (error . 1)
+(bogus 1)
+((error 1) nil)
 ```
 
-`cargo nextest` on the broader oracle slice remains too expensive for this area under the current parallel setup and produced many timeouts, so this patch uses focused regression coverage instead of treating those timeouts as semantic failures.
+Neomacs verification for this patch used:
 
-## Recommended next steps
-
-See also: `docs/plans/error-condition-unification.md`
-
-1. Introduce a unified condition-handler stack owned by the evaluator runtime, not by individual special forms or wrapper builtins.
-2. Rework `handler-bind` so handler frames live in that active stack during body execution, with GNU-style masking of lower condition handlers.
-3. Move debugger entry decisions into the same signal-dispatch path, including GNU's special handling of `debug` and `debugger-ignored-errors`.
-4. Reconcile interpreter and VM condition dispatch so both consume the same handler model instead of separate implementations.
-5. Split large oracle/property suites for error handling into smaller nextest-friendly groups so compatibility regressions stop hiding behind timeouts.
+- `cargo fmt --all`
+- `cargo check`
+- focused `cargo nextest` with redirected output, covering interpreter and VM
+  regressions for:
+  - `signal-hook-function` timing
+  - raw payload fidelity
+  - `signal nil ...` peculiar-error behavior
+  - existing `handler-bind` dispatch invariants

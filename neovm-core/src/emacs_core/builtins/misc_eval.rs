@@ -498,6 +498,7 @@ fn eval_error_to_flow(e: super::error::EvalError) -> Flow {
             symbol,
             data,
             raw_data,
+            suppress_signal_hook: false,
             selected_resume: None,
             search_complete: false,
         }),

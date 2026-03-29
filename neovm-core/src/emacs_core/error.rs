@@ -61,6 +61,7 @@ pub struct SignalData {
     pub data: Vec<Value>,
     /// Original cdr payload when a signal uses non-list data.
     pub raw_data: Option<Value>,
+    pub(crate) suppress_signal_hook: bool,
     pub(crate) selected_resume: Option<ResumeTarget>,
     pub(crate) search_complete: bool,
 }
@@ -76,10 +77,25 @@ pub(crate) type EvalResult = Result<Value, Flow>;
 
 /// Create a signal flow.
 pub(crate) fn signal(symbol: &str, data: Vec<Value>) -> Flow {
+    signal_internal(symbol, data, None, false)
+}
+
+/// Create a signal flow without running `signal-hook-function`.
+pub(crate) fn signal_suppressed(symbol: &str, data: Vec<Value>) -> Flow {
+    signal_internal(symbol, data, None, true)
+}
+
+fn signal_internal(
+    symbol: &str,
+    data: Vec<Value>,
+    raw_data: Option<Value>,
+    suppress_signal_hook: bool,
+) -> Flow {
     Flow::Signal(SignalData {
         symbol: intern(symbol),
         data,
-        raw_data: None,
+        raw_data,
+        suppress_signal_hook,
         selected_resume: None,
         search_complete: false,
     })
@@ -89,14 +105,17 @@ pub(crate) fn signal(symbol: &str, data: Vec<Value>) -> Flow {
 ///
 /// This preserves dotted signal data shapes such as `(foo . 1)`.
 pub(crate) fn signal_with_data(symbol: &str, data: Value) -> Flow {
+    signal_with_data_internal(symbol, data, false)
+}
+
+/// Create a signal with raw cdr payload without running `signal-hook-function`.
+pub(crate) fn signal_with_data_suppressed(symbol: &str, data: Value) -> Flow {
+    signal_with_data_internal(symbol, data, true)
+}
+
+fn signal_with_data_internal(symbol: &str, data: Value, suppress_signal_hook: bool) -> Flow {
     let normalized = super::value::list_to_vec(&data).unwrap_or_else(|| vec![data]);
-    Flow::Signal(SignalData {
-        symbol: intern(symbol),
-        data: normalized,
-        raw_data: Some(data),
-        selected_resume: None,
-        search_complete: false,
-    })
+    signal_internal(symbol, normalized, Some(data), suppress_signal_hook)
 }
 
 /// Convert internal flow to public EvalError.

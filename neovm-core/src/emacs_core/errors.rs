@@ -16,7 +16,9 @@
 //! signalled error's `error-conditions` list includes the handler's condition
 //! symbol.
 
-use super::error::{EvalResult, Flow, signal, signal_with_data};
+use super::error::{
+    EvalResult, Flow, signal, signal_suppressed, signal_with_data, signal_with_data_suppressed,
+};
 use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
@@ -415,15 +417,73 @@ fn extract_parent_symbols(value: &Value) -> Result<Vec<String>, Flow> {
 // Builtins: signal wrapper and error-message-string
 // ---------------------------------------------------------------------------
 
-/// Eval-aware `signal` — checks error hierarchy and converts
-/// unregistered error symbols to `(error "Invalid error symbol" SYM)`,
-/// matching GNU eval.c:1949-1951.
+fn build_signal_flow(symbol_name: &str, data: Value) -> Flow {
+    match data {
+        Value::Nil => signal(symbol_name, vec![]),
+        Value::Cons(_) => match list_to_vec(&data) {
+            Some(data) => signal(symbol_name, data),
+            None => signal_with_data(symbol_name, data),
+        },
+        _ => signal_with_data(symbol_name, data),
+    }
+}
+
+fn build_signal_flow_suppressed(symbol_name: &str, data: Value) -> Flow {
+    match data {
+        Value::Nil => signal_suppressed(symbol_name, vec![]),
+        Value::Cons(_) => match list_to_vec(&data) {
+            Some(data) => signal_suppressed(symbol_name, data),
+            None => signal_with_data_suppressed(symbol_name, data),
+        },
+        _ => signal_with_data_suppressed(symbol_name, data),
+    }
+}
+
+fn build_peculiar_signal_flow(eval: &super::eval::Context, error_object: Value) -> Flow {
+    let Value::Cons(cell) = error_object else {
+        unreachable!("peculiar signal error object must be a cons");
+    };
+    let pair = read_cons(cell);
+    let error_symbol = pair.car;
+    let data = pair.cdr;
+
+    let Some(sym_name) = error_symbol.as_symbol_name() else {
+        return signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), error_symbol],
+        );
+    };
+
+    if sym_name != "error"
+        && sym_name != "quit"
+        && eval
+            .obarray
+            .get_property(sym_name, "error-conditions")
+            .is_none()
+    {
+        return signal_suppressed("error", vec![Value::string("Invalid error symbol")]);
+    }
+
+    build_signal_flow_suppressed(sym_name, data)
+}
+
+/// Eval-aware `signal`, including GNU's "peculiar error" handling for
+/// `nil` as the public error symbol.
 pub(crate) fn builtin_signal(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
             vec![Value::symbol("signal"), Value::Int(args.len() as i64)],
         ));
+    }
+
+    if args[0].is_nil() {
+        let flow = if args[1].is_cons() {
+            build_peculiar_signal_flow(eval, args[1])
+        } else {
+            build_signal_flow("error", args[1])
+        };
+        return Err(flow);
     }
 
     let sym_name = match args[0].as_symbol_name() {
@@ -436,30 +496,7 @@ pub(crate) fn builtin_signal(eval: &mut super::eval::Context, args: Vec<Value>) 
         }
     };
 
-    // GNU eval.c:1949-1951: check error-conditions property.
-    // If the symbol has no error-conditions (not registered in the
-    // error hierarchy), convert to (error "Invalid error symbol" SYM).
-    if sym_name != "error" && sym_name != "quit" {
-        let has_conditions = eval
-            .obarray
-            .get_property(&sym_name, "error-conditions")
-            .is_some();
-        if !has_conditions {
-            return Err(signal(
-                "error",
-                vec![Value::string("Invalid error symbol"), args[0]],
-            ));
-        }
-    }
-
-    let flow = match &args[1] {
-        Value::Nil => signal(&sym_name, vec![]),
-        Value::Cons(_) => match list_to_vec(&args[1]) {
-            Some(data) => signal(&sym_name, data),
-            None => signal_with_data(&sym_name, args[1]),
-        },
-        _ => signal_with_data(&sym_name, args[1]),
-    };
+    let flow = build_signal_flow(&sym_name, args[1]);
 
     Err(flow)
 }

@@ -211,6 +211,46 @@ fn vm_handler_bind_1_handlers_do_not_apply_within_handlers() {
 }
 
 #[test]
+fn vm_signal_hook_function_sees_raw_signal_payload_before_condition_case() {
+    with_vm_eval_full_context_state(
+        "(let (seen)
+           (let ((signal-hook-function
+                  (lambda (sym data)
+                    (setq seen (cons sym data)))))
+             (condition-case nil
+                 (signal 'error 1)
+               (error seen))))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (error . 1)"
+            );
+        },
+    );
+}
+
+#[test]
+fn vm_signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
+    with_vm_eval_full_context_state(
+        "(let (seen)
+           (let ((signal-hook-function
+                  (lambda (&rest xs)
+                    (setq seen xs))))
+             (condition-case err
+                 (signal nil '(error 1))
+               (error (list err seen)))))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK ((error 1) nil)"
+            );
+        },
+    );
+}
+
+#[test]
 fn vm_compiled_unwind_protect_runs_cleanup_on_throw() {
     assert_eq!(
         vm_eval_str(

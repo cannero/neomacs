@@ -520,6 +520,7 @@ pub(crate) fn builtin_load_in_vm_runtime(
                         symbol,
                         data,
                         raw_data,
+                        suppress_signal_hook: false,
                         selected_resume: None,
                         search_complete: false,
                     }),

@@ -114,6 +114,7 @@ pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &s
                     symbol,
                     data,
                     raw_data,
+                    suppress_signal_hook: false,
                     selected_resume: None,
                     search_complete: false,
                 }),
@@ -312,6 +313,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
                         symbol,
                         data,
                         raw_data,
+                        suppress_signal_hook: false,
                         selected_resume: None,
                         search_complete: false,
                     }));

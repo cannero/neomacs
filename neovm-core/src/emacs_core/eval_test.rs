@@ -244,6 +244,91 @@ fn handler_bind_1_handlers_do_not_apply_within_handlers() {
 }
 
 #[test]
+fn signal_hook_function_sees_raw_signal_payload_before_condition_case() {
+    let mut eval = Context::new();
+
+    let forms = parse_forms(
+        "(let (seen)
+           (let ((signal-hook-function
+                  (lambda (sym data)
+                    (setq seen (cons sym data)))))
+             (condition-case nil
+                 (signal 'error 1)
+               (error seen))))",
+    )
+    .expect("parse");
+
+    assert_eq!(
+        format_eval_result(&eval.eval_expr(&forms[0])),
+        "OK (error . 1)"
+    );
+}
+
+#[test]
+fn signal_hook_function_runs_before_invalid_error_symbol_canonicalization() {
+    let mut eval = Context::new();
+
+    let forms = parse_forms(
+        "(catch 'tag
+           (let ((signal-hook-function
+                  (lambda (sym data)
+                    (throw 'tag (list sym data)))))
+             (signal 'neomacs-invalid-signal 1)))",
+    )
+    .expect("parse");
+
+    assert_eq!(
+        format_eval_result(&eval.eval_expr(&forms[0])),
+        "OK (neomacs-invalid-signal 1)"
+    );
+}
+
+#[test]
+fn signal_nil_symbol_with_non_list_payload_becomes_plain_error() {
+    assert_eq!(
+        eval_one("(condition-case err (signal nil 1) (error err))"),
+        "OK (error . 1)"
+    );
+}
+
+#[test]
+fn signal_nil_symbol_with_nil_payload_becomes_plain_error() {
+    assert_eq!(
+        eval_one("(condition-case err (signal nil nil) (error err))"),
+        "OK (error)"
+    );
+}
+
+#[test]
+fn signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
+    let mut eval = Context::new();
+
+    let forms = parse_forms(
+        "(let (seen)
+           (let ((signal-hook-function
+                  (lambda (&rest xs)
+                    (setq seen xs))))
+             (condition-case err
+                 (signal nil '(error 1))
+               (error (list err seen)))))",
+    )
+    .expect("parse");
+
+    assert_eq!(
+        format_eval_result(&eval.eval_expr(&forms[0])),
+        "OK ((error 1) nil)"
+    );
+}
+
+#[test]
+fn signal_nil_error_object_with_invalid_symbol_reports_generic_invalid_error() {
+    assert_eq!(
+        eval_one("(condition-case err (signal nil '(bogus 1)) (error err))"),
+        "OK (error \"Invalid error symbol\")"
+    );
+}
+
+#[test]
 fn evaluator_drop_clears_owned_thread_locals() {
     {
         let mut ev = Context::new_vm_harness();
