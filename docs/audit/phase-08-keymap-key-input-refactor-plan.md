@@ -316,6 +316,10 @@ Current status:
   traversal logic
 - completed: `builtins/keymaps.rs` now acts as Lisp builtin surface over the
   keymap owner instead of carrying its own active-map implementation
+- completed: active key lookup/remap resolution now lives in `keymap.rs`, and
+  both `interactive.rs::key-binding` and `keyboard.rs::read_key_sequence` call
+  the shared keymap-owner resolver instead of routing through interactive
+  builtin glue
 - remaining: `interactive.rs` still contains some thin wrapper surfaces around
   keymap-owner helpers, and `where-is` / `minor-mode-key-binding` still need a
   final owner cleanup pass so the module boundary reads like GNU `keymap.c`

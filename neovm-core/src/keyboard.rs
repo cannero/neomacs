@@ -1256,7 +1256,10 @@ impl crate::emacs_core::eval::Context {
     pub(crate) fn read_key_sequence(
         &mut self,
     ) -> Result<(Vec<Value>, Value), crate::emacs_core::error::Flow> {
-        use crate::emacs_core::keymap::{is_list_keymap, list_keymap_lookup_seq};
+        use crate::emacs_core::keymap::{
+            is_list_keymap, list_keymap_lookup_seq, resolve_active_key_binding,
+            resolve_prefix_keymap_binding_in_obarray,
+        };
 
         let mut events: Vec<Value> = Vec::new();
         let mut raw_events: Vec<Value> = Vec::new();
@@ -1315,8 +1318,8 @@ impl crate::emacs_core::eval::Context {
                     .map(crate::emacs_core::print::print_value)
                     .collect::<Vec<_>>()
             );
-            let key_vec = Value::vector(events.clone());
-            let binding = crate::emacs_core::interactive::builtin_key_binding(self, vec![key_vec])?;
+            let resolved = resolve_active_key_binding(self, &events, false, false, None)?;
+            let binding = resolved.binding;
             tracing::debug!(
                 "read_key_sequence: binding={}",
                 crate::emacs_core::print::print_value(&binding)
@@ -1328,16 +1331,8 @@ impl crate::emacs_core::eval::Context {
                 return Ok((events, Value::Nil));
             }
 
-            let is_prefix = if is_list_keymap(&binding) {
-                true
-            } else if binding.as_symbol_name().is_some() {
-                self.obarray
-                    .symbol_function_of_value(&binding)
-                    .copied()
-                    .is_some_and(|f| is_list_keymap(&f))
-            } else {
-                false
-            };
+            let is_prefix =
+                resolve_prefix_keymap_binding_in_obarray(&self.obarray, &resolved.lookup).is_some();
 
             if is_prefix {
                 let key_vec = Value::vector(events.clone());

@@ -10,9 +10,9 @@ use super::keymap::{
     expand_meta_prefix_char_events_in_obarray, get_keymap_in_obarray, get_keymap_in_runtime,
     is_list_keymap, key_event_to_emacs_event, list_keymap_accessible, list_keymap_copy,
     list_keymap_define_seq_in_obarray, list_keymap_define_seq_in_obarray_ex,
-    list_keymap_inherits_from, list_keymap_lookup_one, list_keymap_lookup_one_t_ok,
-    list_keymap_parent, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
-    maybe_keymap_in_obarray, maybe_keymap_in_runtime, resolve_prefix_keymap_binding_in_obarray,
+    list_keymap_inherits_from, list_keymap_parent, list_keymap_set_parent,
+    lookup_key_in_keymaps_in_obarray, make_list_keymap, make_sparse_list_keymap,
+    maybe_keymap_in_obarray, maybe_keymap_in_runtime,
 };
 
 /// Validate that a value is a keymap, returning it if so.
@@ -260,24 +260,12 @@ pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Valu
         return Ok(keymaps.first().copied().unwrap_or(Value::Nil));
     }
 
-    let mut best = Value::Nil;
-    for keymap in &keymaps {
-        let direct = lookup_key_in_runtime(eval, keymap, &events, t_ok)?;
-        if !direct.is_nil() && !matches!(direct, Value::Int(_)) {
-            return Ok(direct);
-        }
-        if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(eval.obarray(), &events) {
-            let expanded_result = lookup_key_in_runtime(eval, keymap, &expanded, t_ok)?;
-            if !expanded_result.is_nil() && !matches!(expanded_result, Value::Int(_)) {
-                return Ok(expanded_result);
-            }
-        }
-        if best.is_nil() {
-            best = direct;
-        }
-    }
-
-    Ok(best)
+    Ok(lookup_key_in_keymaps_in_obarray(
+        eval.obarray(),
+        &keymaps,
+        &events,
+        t_ok,
+    ))
 }
 
 pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
@@ -295,27 +283,9 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
         return Ok(keymaps.first().copied().unwrap_or(Value::Nil));
     }
 
-    // Try each keymap, returning the first non-nil/non-number result
-    let mut best = Value::Nil;
-    for keymap in &keymaps {
-        let direct = lookup_key_in_obarray(obarray, keymap, &events, t_ok);
-        if !direct.is_nil() && !matches!(direct, Value::Int(_)) {
-            return Ok(direct);
-        }
-        // Also try meta-expanded form
-        if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(obarray, &events) {
-            let expanded_result = lookup_key_in_obarray(obarray, keymap, &expanded, t_ok);
-            if !expanded_result.is_nil() && !matches!(expanded_result, Value::Int(_)) {
-                return Ok(expanded_result);
-            }
-        }
-        // Track the "best" result (prefer the first direct result)
-        if best.is_nil() {
-            best = direct;
-        }
-    }
-
-    Ok(best)
+    Ok(lookup_key_in_keymaps_in_obarray(
+        obarray, &keymaps, &events, t_ok,
+    ))
 }
 
 fn resolve_lookup_keymaps_in_runtime(
@@ -382,81 +352,6 @@ fn resolve_lookup_keymaps_in_obarray(obarray: &Obarray, value: &Value) -> Result
     }
 
     Ok(vec![expect_keymap_in_obarray(obarray, value)?])
-}
-
-fn lookup_key_in_runtime(
-    eval: &mut super::eval::Context,
-    keymap: &Value,
-    events: &[Value],
-    t_ok: bool,
-) -> EvalResult {
-    if events.is_empty() {
-        return Ok(*keymap);
-    }
-
-    let mut current_map = *keymap;
-    for (i, event) in events.iter().enumerate() {
-        let binding = if t_ok {
-            list_keymap_lookup_one_t_ok(&current_map, event)
-        } else {
-            list_keymap_lookup_one(&current_map, event)
-        };
-        let is_last = i == events.len() - 1;
-        if is_last {
-            return Ok(binding);
-        }
-        if binding.is_nil() {
-            return Ok(Value::Int((i + 1) as i64));
-        }
-        let prefix_keymap = maybe_keymap_in_runtime(eval, &binding, true)?;
-        if !prefix_keymap.is_nil() {
-            current_map = prefix_keymap;
-            continue;
-        }
-        return Ok(Value::Int((i + 1) as i64));
-    }
-
-    Ok(Value::Nil)
-}
-
-fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value], t_ok: bool) -> Value {
-    if events.is_empty() {
-        return *keymap;
-    }
-
-    let mut current_map = *keymap;
-    for (i, event) in events.iter().enumerate() {
-        // GNU keymap.c lookup_key_1:1276: access_keymap(keymap, c, t_ok, 0, 1)
-        let binding = if t_ok {
-            list_keymap_lookup_one_t_ok(&current_map, event)
-        } else {
-            list_keymap_lookup_one(&current_map, event)
-        };
-        let is_last = i == events.len() - 1;
-
-        // For the last key in the sequence, return the binding directly
-        // (even if nil), matching GNU Emacs lookup_key_1 behavior.
-        if is_last {
-            return binding;
-        }
-
-        // For non-last keys, the binding must be a prefix keymap.
-        // If nil/unbound, the key sequence is invalid — return
-        // the number of keys consumed so far (matching GNU which
-        // returns make_fixnum(idx) where idx is already incremented).
-        if binding.is_nil() {
-            return Value::Int((i + 1) as i64);
-        }
-
-        if let Some(prefix_keymap) = resolve_prefix_keymap_binding_in_obarray(obarray, &binding) {
-            current_map = prefix_keymap;
-            continue;
-        }
-        // Non-prefix binding found before all keys consumed: "too long"
-        return Value::Int((i + 1) as i64);
-    }
-
-    Value::Nil
 }
 
 /// (global-set-key KEY COMMAND)

@@ -877,6 +877,76 @@ pub(crate) fn resolve_prefix_keymap_binding_in_obarray(
     maybe_keymap_in_obarray(obarray, binding)
 }
 
+pub(crate) fn lookup_key_in_obarray(
+    obarray: &Obarray,
+    keymap: &Value,
+    events: &[Value],
+    t_ok: bool,
+) -> Value {
+    if events.is_empty() {
+        return *keymap;
+    }
+
+    let mut current_map = *keymap;
+    for (i, event) in events.iter().enumerate() {
+        let binding = if t_ok {
+            list_keymap_lookup_one_t_ok(&current_map, event)
+        } else {
+            list_keymap_lookup_one(&current_map, event)
+        };
+        let is_last = i == events.len() - 1;
+
+        if is_last {
+            return binding;
+        }
+
+        if binding.is_nil() {
+            return Value::Int((i + 1) as i64);
+        }
+
+        if let Some(prefix_keymap) = resolve_prefix_keymap_binding_in_obarray(obarray, &binding) {
+            current_map = prefix_keymap;
+            continue;
+        }
+
+        return Value::Int((i + 1) as i64);
+    }
+
+    Value::Nil
+}
+
+pub(crate) fn lookup_key_in_keymaps_in_obarray(
+    obarray: &Obarray,
+    keymaps: &[Value],
+    events: &[Value],
+    t_ok: bool,
+) -> Value {
+    if events.is_empty() {
+        return keymaps.first().copied().unwrap_or(Value::Nil);
+    }
+
+    let mut best = Value::Nil;
+    for keymap in keymaps {
+        let direct = lookup_key_in_obarray(obarray, keymap, events, t_ok);
+        if !direct.is_nil() && !matches!(direct, Value::Int(_)) {
+            return direct;
+        }
+
+        if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(obarray, events) {
+            let expanded_result = lookup_key_in_obarray(obarray, keymap, &expanded, t_ok);
+            if !expanded_result.is_nil() && !matches!(expanded_result, Value::Int(_)) {
+                return expanded_result;
+            }
+        }
+
+        if best.is_nil() {
+            best = direct;
+        }
+    }
+
+    best
+}
+
 /// Define a binding in a keymap.
 ///
 /// For integer events without modifier bits in full keymaps: stores in char-table.
@@ -1434,6 +1504,45 @@ pub(crate) fn current_active_maps_for_position_read_only(
     )
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ActiveKeyBindingResolution {
+    pub lookup: Value,
+    pub binding: Value,
+}
+
+pub(crate) fn is_plain_printable_emacs_event(event: &Value) -> bool {
+    let Some(ch) = (match event {
+        Value::Int(code) if (*code & KEY_CHAR_MOD_MASK) == 0 => char::from_u32(*code as u32),
+        Value::Char(ch) => Some(*ch),
+        _ => None,
+    }) else {
+        return false;
+    };
+
+    !ch.is_control() && ch != '\u{7f}'
+}
+
+pub(crate) fn resolve_active_key_binding(
+    ctx: &mut Context,
+    events: &[Value],
+    accept_default: bool,
+    no_remap: bool,
+    position: Option<&Value>,
+) -> Result<ActiveKeyBindingResolution, Flow> {
+    let active_maps = current_active_maps_for_position(ctx, true, position)?;
+    let lookup =
+        lookup_key_in_keymaps_in_obarray(&ctx.obarray, &active_maps, events, accept_default);
+    let binding = if !lookup.is_nil() && !matches!(lookup, Value::Int(_)) {
+        key_binding_apply_remap_in_active_maps(&active_maps, lookup, no_remap)
+    } else if events.len() == 1 && is_plain_printable_emacs_event(&events[0]) {
+        Value::symbol("self-insert-command")
+    } else {
+        Value::Nil
+    };
+
+    Ok(ActiveKeyBindingResolution { lookup, binding })
+}
+
 fn command_remapping_list_tail(value: &Value, n: usize) -> Option<Value> {
     let mut cursor = *value;
     for _ in 0..n {
@@ -1897,6 +2006,13 @@ pub fn list_keymap_lookup_seq(keymap: &Value, events: &[Value]) -> Value {
         }
     }
     Value::Nil
+}
+
+pub(crate) fn lookup_keymap_with_partial(keymap: &Value, emacs_events: &[Value]) -> Value {
+    if emacs_events.is_empty() {
+        return *keymap;
+    }
+    list_keymap_lookup_seq(keymap, emacs_events)
 }
 
 /// Define a key in a keymap, auto-creating prefix maps for multi-key sequences.

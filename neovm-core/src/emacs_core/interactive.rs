@@ -25,9 +25,9 @@ use super::keymap::{
     command_remapping_normalize_target as keymap_command_remapping_normalize_target,
     current_active_maps_for_position, current_active_maps_for_position_read_only,
     expand_meta_prefix_char_events_in_obarray, format_key_event, format_key_sequence,
-    is_list_keymap, key_binding_apply_remap_in_active_maps, key_event_to_emacs_event,
-    list_keymap_for_each_binding, list_keymap_lookup_seq, make_sparse_list_keymap,
-    minor_mode_map_entry,
+    is_list_keymap, key_event_to_emacs_event, list_keymap_for_each_binding,
+    lookup_keymap_with_partial, make_sparse_list_keymap, minor_mode_map_entry,
+    resolve_active_key_binding,
 };
 use super::mode::{MajorMode, MinorMode};
 use super::symbol::Obarray;
@@ -2801,27 +2801,12 @@ pub(crate) fn builtin_key_binding_impl(
         return Ok(Value::list(active_maps));
     }
 
-    let active_maps = current_active_maps_for_position(ctx, true, args.get(3))?;
-    let keymaps = Value::list(active_maps.clone());
-    let accept_default = args.get(1).copied().unwrap_or(Value::Nil);
-    let lookup = crate::emacs_core::builtins::keymaps::builtin_lookup_key_impl(
-        &ctx.obarray,
-        &[keymaps, args[0], accept_default],
-    )?;
-    if !lookup.is_nil() && !matches!(lookup, Value::Int(_)) {
-        return Ok(key_binding_apply_remap_in_active_maps(
-            &active_maps,
-            lookup,
-            no_remap,
-        ));
-    }
-
-    // Fallback: unbound printable chars default to self-insert-command
-    if events.len() == 1 && is_plain_printable_char_event(&events[0]) {
-        return Ok(Value::symbol("self-insert-command"));
-    }
-
-    Ok(Value::Nil)
+    let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
+    let accept_default = args.get(1).is_some_and(Value::is_truthy);
+    Ok(
+        resolve_active_key_binding(ctx, &emacs_events, accept_default, no_remap, args.get(3))?
+            .binding,
+    )
 }
 
 /// `(local-key-binding KEY &optional ACCEPT-DEFAULTS)`
@@ -2869,14 +2854,6 @@ fn get_global_keymap_in_obarray(obarray: &Obarray) -> Value {
         .symbol_value("global-map")
         .copied()
         .unwrap_or(Value::Nil)
-}
-
-fn lookup_minor_mode_binding_in_alist(
-    eval: &Context,
-    events: &[KeyEvent],
-    alist_value: &Value,
-) -> Result<Option<(String, Value)>, Flow> {
-    lookup_minor_mode_binding_in_alist_in_state(&eval.obarray, &[], events, alist_value)
 }
 
 fn lookup_minor_mode_binding_in_alist_in_state(
@@ -2927,7 +2904,8 @@ fn lookup_minor_mode_binding_in_alist_in_state(
             ));
         };
 
-        let binding = lookup_keymap_with_partial_value(&keymap, events);
+        let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
+        let binding = lookup_keymap_with_partial(&keymap, &emacs_events);
         if binding.is_nil() {
             continue;
         }
@@ -3166,21 +3144,6 @@ pub(crate) fn builtin_clear_this_command_keys_in_runtime(
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn is_plain_printable_char_event(event: &KeyEvent) -> bool {
-    matches!(
-        event,
-        KeyEvent::Char {
-            code,
-            ctrl: false,
-            meta: false,
-            shift: false,
-            super_: false,
-            hyper: false,
-            alt: false,
-        } if !code.is_control() && *code != '\u{7f}'
-    )
-}
-
 fn command_remapping_keymap_arg_valid(value: &Value) -> bool {
     // Oracle accepts cons/list keymap-like objects in this slot, not just valid keymaps.
     // Non-keymap cons cells are silently treated as "no remap found".
@@ -3267,24 +3230,6 @@ fn where_is_internal_explicit_keymaps(eval: &Context, value: &Value) -> Result<V
 
 fn where_is_internal_active_keymaps(eval: &mut Context) -> Vec<Value> {
     current_active_maps_for_position(eval, true, None).unwrap_or_default()
-}
-
-fn lookup_keymap_with_partial_value(keymap: &Value, events: &[KeyEvent]) -> Value {
-    if events.is_empty() {
-        return *keymap;
-    }
-
-    // Convert KeyEvent to emacs event Values
-    let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
-    list_keymap_lookup_seq(keymap, &emacs_events)
-}
-
-/// Same as above but already has emacs events as Values.
-fn lookup_keymap_with_partial(keymap: &Value, emacs_events: &[Value]) -> Value {
-    if emacs_events.is_empty() {
-        return *keymap;
-    }
-    list_keymap_lookup_seq(keymap, emacs_events)
 }
 
 fn binding_matches_definition(binding: &Value, definition: &Value) -> bool {
