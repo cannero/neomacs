@@ -3940,9 +3940,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "do-auto-save",
-        |_ctx, args| builtin_do_auto_save(args),
+        super::fileio::builtin_do_auto_save,
         0,
         Some(2),
+    );
+    ctx.defsubr(
+        "make-auto-save-file-name",
+        super::fileio::builtin_make_auto_save_file_name,
+        0,
+        Some(0),
     );
     ctx.defsubr(
         "external-debugging-output",

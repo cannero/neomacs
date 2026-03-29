@@ -767,11 +767,6 @@ pub(crate) fn builtin_display_update_for_mouse_movement(args: Vec<Value>) -> Eva
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_do_auto_save(args: Vec<Value>) -> EvalResult {
-    expect_range_args("do-auto-save", &args, 0, 2)?;
-    Ok(Value::Nil)
-}
-
 pub(crate) fn builtin_external_debugging_output(args: Vec<Value>) -> EvalResult {
     expect_args("external-debugging-output", &args, 1)?;
     let ch = expect_fixnum(&args[0])?;

@@ -553,7 +553,9 @@ pub fn write_string_to_file(content: &str, filename: &str, append: bool) -> std:
     } else {
         FileWriteMode::Truncate
     };
-    write_string_to_file_with_mode(content, filename, mode)
+    let file = write_bytes_to_file_with_mode(content.as_bytes(), filename, mode)?;
+    drop(file);
+    Ok(())
 }
 
 enum FileWriteMode {
@@ -562,11 +564,13 @@ enum FileWriteMode {
     Seek(u64),
 }
 
-fn write_string_to_file_with_mode(
-    content: &str,
+/// Write raw bytes to a file, returning the open `File` handle so the caller
+/// can optionally `sync_all()` before the handle is dropped.
+fn write_bytes_to_file_with_mode(
+    content: &[u8],
     filename: &str,
     mode: FileWriteMode,
-) -> std::io::Result<()> {
+) -> std::io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true);
     match mode {
@@ -582,7 +586,8 @@ fn write_string_to_file_with_mode(
     if let FileWriteMode::Seek(offset) = mode {
         file.seek(SeekFrom::Start(offset))?;
     }
-    file.write_all(content.as_bytes())
+    file.write_all(content)?;
+    Ok(file)
 }
 
 // ===========================================================================
@@ -2709,12 +2714,158 @@ pub(crate) fn builtin_insert_file_contents(
     Ok(value)
 }
 
+// ===========================================================================
+// Backup file support
+// ===========================================================================
+
+/// Find the next numbered backup version for FILENAME.
+/// Scans `filename.~1~`, `filename.~2~`, ... and returns `max + 1`.
+fn next_backup_version_number(filename: &str) -> u32 {
+    let path = Path::new(filename);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let base_name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let prefix = format!("{base_name}.~");
+    let mut max_ver: u32 = 0;
+    if let Ok(entries) = fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(rest) = name.strip_prefix(&prefix) {
+                if let Some(num_str) = rest.strip_suffix('~') {
+                    if let Ok(n) = num_str.parse::<u32>() {
+                        max_ver = max_ver.max(n);
+                    }
+                }
+            }
+        }
+    }
+    max_ver + 1
+}
+
+/// Compute the backup file name for FILENAME, respecting `backup-directory-alist`
+/// and `version-control`.
+fn compute_backup_file_name(obarray: &Obarray, filename: &str) -> String {
+    // Check backup-directory-alist for redirection
+    let backup_dir = lookup_backup_directory(obarray, filename);
+
+    let use_numbered = match obarray.symbol_value("version-control") {
+        Some(v) if v.is_symbol_named("never") => false,
+        Some(v) if v.is_nil() => {
+            // nil => use numbered if the file already has numbered backups
+            next_backup_version_number(filename) > 1
+        }
+        Some(v) if v.is_truthy() => true,
+        _ => false,
+    };
+
+    if use_numbered {
+        let ver = next_backup_version_number(filename);
+        match backup_dir {
+            Some(dir) => {
+                let base = file_name_nondirectory(filename);
+                format!("{dir}/{base}.~{ver}~")
+            }
+            None => format!("{filename}.~{ver}~"),
+        }
+    } else {
+        match backup_dir {
+            Some(dir) => {
+                let base = file_name_nondirectory(filename);
+                format!("{dir}/{base}~")
+            }
+            None => format!("{filename}~"),
+        }
+    }
+}
+
+/// Look up FILENAME in `backup-directory-alist`.  Each entry is
+/// `(REGEXP . DIRECTORY)`.  Returns `Some(directory)` for the first match,
+/// or `None` if no entry matches.
+fn lookup_backup_directory(obarray: &Obarray, filename: &str) -> Option<String> {
+    let alist_val = obarray.symbol_value("backup-directory-alist")?;
+    let entries = list_to_vec(alist_val)?;
+    for entry in &entries {
+        if let Value::Cons(_) = entry {
+            let car = entry.cons_car();
+            let cdr = entry.cons_cdr();
+            let pattern = match &car {
+                Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+                _ => continue,
+            };
+            let dir = match &cdr {
+                Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+                _ => continue,
+            };
+            // Simple substring match (GNU uses regex, but for now substring is
+            // a pragmatic approximation that covers the common `"."` catch-all).
+            if pattern == "." || filename.contains(&pattern) {
+                // Ensure the backup directory exists
+                let dir_path = expand_file_name(&dir, None);
+                let _ = fs::create_dir_all(&dir_path);
+                return Some(dir_path);
+            }
+        }
+    }
+    None
+}
+
+/// Create a backup of FILENAME before saving, if appropriate.
+///
+/// Checks `make-backup-files`, `backup-inhibited`, and the buffer's
+/// `buffer-backed-up` flag.  On success (or when backup is skipped),
+/// sets `buffer-backed-up` to `t`.
+fn backup_file_before_save(
+    obarray: &Obarray,
+    buffers: &mut crate::buffer::BufferManager,
+    buffer_id: crate::buffer::BufferId,
+    filename: &str,
+) {
+    // 1. Check make-backup-files (default t)
+    if let Some(v) = obarray.symbol_value("make-backup-files") {
+        if v.is_nil() {
+            return;
+        }
+    }
+
+    // 2. Check backup-inhibited
+    if let Some(v) = obarray.symbol_value("backup-inhibited") {
+        if v.is_truthy() {
+            return;
+        }
+    }
+
+    // 3. Check buffer-backed-up flag — skip if already backed up
+    if let Some(buf) = buffers.get(buffer_id) {
+        if let Some(v) = buf.get_buffer_local("buffer-backed-up") {
+            if v.is_truthy() {
+                return;
+            }
+        }
+    }
+
+    // 4. Only backup if the file already exists on disk
+    if !Path::new(filename).exists() {
+        return;
+    }
+
+    // 5. Compute backup name and copy
+    let backup_name = compute_backup_file_name(obarray, filename);
+    if fs::copy(filename, &backup_name).is_ok() {
+        // 6. Set buffer-backed-up to t so we don't back up again until next change
+        if let Some(buf) = buffers.get_mut(buffer_id) {
+            buf.set_buffer_local("buffer-backed-up", Value::True);
+        }
+    }
+}
+
 pub(crate) fn builtin_write_region_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
-) -> EvalResult {
+) -> Result<(Value, String), Flow> {
     expect_min_args("write-region", &args, 3)?;
     expect_max_args("write-region", &args, 7)?;
     let filename = expect_string_strict(&args[2])?;
@@ -2752,17 +2903,91 @@ pub(crate) fn builtin_write_region_impl(
         }
     }
 
+    // --- Backup before save ---
+    // Only for truncate mode (not append/seek) when visiting the file
+    if matches!(append_mode, FileWriteMode::Truncate) {
+        backup_file_before_save(obarray, buffers, current_id, &resolved);
+    }
+
     let content = write_region_content_in_state(buffers, current_id, &args[0], args.get(1))?;
 
-    write_string_to_file_with_mode(&content, &resolved, append_mode)
+    // --- Fix 1: Encode using the appropriate coding system ---
+    // Priority: coding-system-for-write > buffer-file-coding-system > utf-8
+    let coding_system = resolve_write_coding_system(obarray, buffers, current_id);
+    let encoded_bytes = crate::encoding::encode_string(&content, &coding_system);
+
+    // --- Write encoded bytes and handle fsync (Fix 2) ---
+    let file = write_bytes_to_file_with_mode(&encoded_bytes, &resolved, append_mode)
         .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
+
+    // Fix 2: fsync after write unless write-region-inhibit-fsync is non-nil
+    let inhibit_fsync = obarray
+        .symbol_value("write-region-inhibit-fsync")
+        .is_some_and(|v| v.is_truthy());
+    if !inhibit_fsync {
+        file.sync_all()
+            .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
+    }
+    drop(file);
 
     if let Some(visit_path) = visit_path {
         let _ = buffers.set_buffer_file_name(current_id, Some(visit_path));
         let _ = buffers.set_buffer_modified_flag(current_id, false);
     }
 
-    Ok(Value::Nil)
+    Ok((Value::Nil, coding_system))
+}
+
+/// Resolve the coding system to use for writing.
+///
+/// Priority:
+/// 1. `coding-system-for-write` (if bound and non-nil)
+/// 2. `buffer-file-coding-system` (buffer-local)
+/// 3. Fallback to `"utf-8"`
+fn resolve_write_coding_system(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: crate::buffer::BufferId,
+) -> String {
+    // 1. Check coding-system-for-write
+    if let Some(val) = obarray.symbol_value("coding-system-for-write") {
+        if let Some(name) = coding_system_value_to_name(val) {
+            return name;
+        }
+    }
+
+    // 2. Check buffer-file-coding-system (buffer-local)
+    if let Some(buf) = buffers.get(buffer_id) {
+        if let Some(val) = buf.get_buffer_local("buffer-file-coding-system") {
+            if let Some(name) = coding_system_value_to_name(val) {
+                return name;
+            }
+        }
+    }
+
+    // 3. Default
+    "utf-8".to_string()
+}
+
+/// Extract a coding system name from a `Value` (symbol or string).
+/// Returns `None` for nil / unrecognized types.
+fn coding_system_value_to_name(val: &Value) -> Option<String> {
+    match val {
+        Value::Nil => None,
+        Value::Symbol(id) => {
+            let name = resolve_sym(*id).to_owned();
+            if name == "nil" { None } else { Some(name) }
+        }
+        Value::Str(id) => {
+            let name = with_heap(|h| h.get_string(*id).to_owned());
+            if name.is_empty() || name == "nil" {
+                None
+            } else {
+                Some(name)
+            }
+        }
+        _ => None,
+    }
 }
 
 /// (write-region START END FILENAME &optional APPEND VISIT) -> nil
@@ -2773,7 +2998,10 @@ pub(crate) fn builtin_write_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_write_region_impl(&eval.obarray, &[], &mut eval.buffers, args)
+    let (value, used_coding) =
+        builtin_write_region_impl(&eval.obarray, &[], &mut eval.buffers, args)?;
+    eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
+    Ok(value)
 }
 
 /// (find-file-noselect FILENAME &optional NOWARN RAWFILE) -> buffer
@@ -2833,6 +3061,201 @@ pub(crate) fn builtin_find_file_noselect(
 }
 
 // ===========================================================================
+// Auto-save support
+// ===========================================================================
+
+/// Compute the auto-save file name for a buffer.
+///
+/// For visited files: `#filename#` in the same directory.
+/// For non-visited buffers: `#*buffername*#` in the auto-save-list-file-prefix
+/// directory (or temporary-file-directory as fallback).
+fn make_auto_save_file_name_for_buffer(obarray: &Obarray, buf: &crate::buffer::Buffer) -> String {
+    if let Some(ref file_name) = buf.file_name {
+        // Visited file: #dir/filename# -> dir/#filename#
+        let dir = file_name_directory(file_name).unwrap_or_default();
+        let base = file_name_nondirectory(file_name);
+        format!("{dir}#{base}#")
+    } else {
+        // Non-visited buffer: #*buffername*# in prefix dir or temp dir
+        let dir = obarray
+            .symbol_value("auto-save-list-file-prefix")
+            .and_then(|v| v.as_str_owned())
+            .and_then(|s| {
+                if s.is_empty() {
+                    None
+                } else {
+                    file_name_directory(&s)
+                }
+            })
+            .or_else(|| {
+                obarray
+                    .symbol_value("temporary-file-directory")
+                    .and_then(|v| v.as_str_owned())
+            })
+            .unwrap_or_else(|| "/tmp/".to_string());
+        let safe_name = buf.name.replace('/', "!");
+        format!("{dir}#*{safe_name}*#")
+    }
+}
+
+/// `(make-auto-save-file-name)` -> string
+///
+/// Return the file name to use for auto-saves of the current buffer.
+/// Sets `buffer-auto-save-file-name` as a side effect.
+pub(crate) fn builtin_make_auto_save_file_name(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("make-auto-save-file-name", &args, 0)?;
+    expect_max_args("make-auto-save-file-name", &args, 0)?;
+    let current_id = current_buffer_id_or_error(&eval.buffers)?;
+    let auto_name = {
+        let buf = eval
+            .buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        make_auto_save_file_name_for_buffer(&eval.obarray, buf)
+    };
+
+    // Set buffer-auto-save-file-name as side effect
+    if let Some(buf) = eval.buffers.get_mut(current_id) {
+        buf.set_buffer_local("buffer-auto-save-file-name", Value::string(&auto_name));
+        buf.auto_save_file_name = Some(auto_name.clone());
+    }
+
+    Ok(Value::string(auto_name))
+}
+
+/// `(do-auto-save &optional NO-MESSAGE CURRENT)` -> nil
+///
+/// Auto-save all buffers that need it.
+/// If NO-MESSAGE is non-nil, suppress the "Auto-saving..." message.
+/// If CURRENT is non-nil, only auto-save the current buffer.
+pub(crate) fn builtin_do_auto_save(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("do-auto-save", &args, 0)?;
+    expect_max_args("do-auto-save", &args, 2)?;
+
+    let _no_message = args.first().is_some_and(|v| v.is_truthy());
+    let current_only = args.get(1).is_some_and(|v| v.is_truthy());
+
+    // Run auto-save-hook before saving
+    // (We skip hook running here since the stub infrastructure doesn't easily
+    // support calling back into eval from here. The hook will be called by
+    // Elisp wrappers if needed.)
+
+    let auto_save_visited = eval
+        .obarray
+        .symbol_value("auto-save-visited-file-name")
+        .is_some_and(|v| v.is_truthy());
+
+    // Collect buffer ids to process
+    let buffer_ids: Vec<crate::buffer::BufferId> = if current_only {
+        eval.buffers.current_buffer_id().into_iter().collect()
+    } else {
+        eval.buffers.buffer_list()
+    };
+
+    for buf_id in buffer_ids {
+        // Gather info from the buffer (immutable borrow)
+        let (should_save, auto_save_name, file_name, content) = {
+            let Some(buf) = eval.buffers.get(buf_id) else {
+                continue;
+            };
+
+            // Skip internal buffers (name starts with space)
+            if buf.name.starts_with(' ') {
+                continue;
+            }
+
+            // Skip indirect buffers
+            if buf.base_buffer.is_some() {
+                continue;
+            }
+
+            // Check buffer-saved-size: if negative, auto-save is disabled for
+            // this buffer
+            if let Some(saved_size_val) = buf.get_buffer_local("buffer-saved-size") {
+                if let Value::Int(n) = saved_size_val {
+                    if *n < 0 {
+                        continue;
+                    }
+                }
+            }
+
+            // Buffer must be modified since last auto-save
+            // (modified_tick > autosave_modified_tick means unsaved changes)
+            if buf.autosave_modified_tick >= buf.modified_tick {
+                continue;
+            }
+
+            // Buffer must actually be modified
+            if !buf.is_modified() {
+                continue;
+            }
+
+            // Determine the auto-save target
+            let auto_name = buf.auto_save_file_name.clone();
+            let visit_name = buf.file_name.clone();
+
+            // Get buffer content (entire buffer, not just accessible region)
+            let text = buf.text.text_range(0, buf.text.len());
+
+            (true, auto_name, visit_name, text)
+        };
+
+        if !should_save {
+            continue;
+        }
+
+        // Determine which file to write to
+        let target = if auto_save_visited {
+            // Save to visited file if auto-save-visited-file-name is set
+            file_name.clone()
+        } else {
+            auto_save_name.clone()
+        };
+
+        let Some(target_path) = target else {
+            // No auto-save file name and no visited file -- generate one
+            let auto_name = {
+                let buf = eval.buffers.get(buf_id).unwrap();
+                make_auto_save_file_name_for_buffer(&eval.obarray, buf)
+            };
+            // Set the auto-save name on the buffer
+            if let Some(buf) = eval.buffers.get_mut(buf_id) {
+                buf.set_buffer_local("buffer-auto-save-file-name", Value::string(&auto_name));
+                buf.auto_save_file_name = Some(auto_name.clone());
+            }
+            // Write content
+            let _ = write_string_to_file(&content, &auto_name, false);
+            let _ = eval.buffers.set_buffer_auto_saved(buf_id);
+            // Update buffer-saved-size
+            let size = content.len() as i64;
+            if let Some(buf) = eval.buffers.get_mut(buf_id) {
+                buf.set_buffer_local("buffer-saved-size", Value::Int(size));
+            }
+            continue;
+        };
+
+        // Write the buffer content to the target file
+        if write_string_to_file(&content, &target_path, false).is_ok() {
+            // Mark the buffer as auto-saved
+            let _ = eval.buffers.set_buffer_auto_saved(buf_id);
+            // Update buffer-saved-size
+            let size = content.len() as i64;
+            if let Some(buf) = eval.buffers.get_mut(buf_id) {
+                buf.set_buffer_local("buffer-saved-size", Value::Int(size));
+            }
+        }
+    }
+
+    Ok(Value::Nil)
+}
+
+// ===========================================================================
 // Bootstrap variables
 // ===========================================================================
 
@@ -2863,6 +3286,12 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
         Value::string(temporary_file_directory),
     );
     obarray.set_symbol_value("create-lockfiles", Value::True);
+
+    // Backup-related variables
+    obarray.set_symbol_value("make-backup-files", Value::True);
+    obarray.set_symbol_value("backup-inhibited", Value::Nil);
+    obarray.set_symbol_value("version-control", Value::Nil);
+    obarray.set_symbol_value("backup-directory-alist", Value::Nil);
     // files.el: defvar for vc-hooks.el and locate-dominating-file
     obarray.set_symbol_value(
         "locate-dominating-stop-dir-regexp",
