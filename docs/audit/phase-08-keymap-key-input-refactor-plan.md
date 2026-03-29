@@ -569,8 +569,9 @@ Still open:
   edge cases beyond current area-prefix handling, still needs to move over as
   the rest of Slice D.
 - The keyboard owner still lacks GNU's richer fake-prefixed mouse provenance
-  tracking and the unbound-mouse fallback ladder for drag/double/triple/up/down
-  variants, so some non-text mouse replay paths are still thinner than GNU.
+  tracking, but the unbound-mouse fallback ladder now mirrors GNU's
+  drag/double/triple/up/down simplification and drop behavior closely enough
+  that prefix-key mouse replay no longer loses earlier keys.
 - `input-decode-map` and `local-function-key-map` are still mirrored through
   evaluator globals for Lisp visibility; the next step is to make the keyboard
   owner the clearer source of truth for terminal-local translation state.

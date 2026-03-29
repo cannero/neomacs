@@ -447,6 +447,23 @@ struct KeySequenceShiftTranslation {
     original_event: Value,
 }
 
+#[derive(Clone, Debug)]
+enum UndefinedMouseSequenceFallback {
+    Rewrite {
+        events: Vec<Value>,
+        resolved: crate::emacs_core::keymap::ActiveKeyBindingResolution,
+    },
+    Drop {
+        retained_events: Vec<Value>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MouseEventFallbackStep {
+    Rewrite,
+    Drop,
+}
+
 // ---------------------------------------------------------------------------
 // Keysym conversion (X11/winit keysyms → neovm-core KeyEvent)
 // ---------------------------------------------------------------------------
@@ -1962,7 +1979,7 @@ impl crate::emacs_core::eval::Context {
                     .map(crate::emacs_core::print::print_value)
                     .collect::<Vec<_>>()
             );
-            let resolved = match resolve_active_key_binding(
+            let mut resolved = match resolve_active_key_binding(
                 self,
                 &translated_events,
                 false,
@@ -1976,11 +1993,12 @@ impl crate::emacs_core::eval::Context {
                     return Err(err);
                 }
             };
-            let binding = resolved.binding;
-            let lookup_is_undefined =
+            let mut binding = resolved.binding;
+            let mut lookup_is_undefined =
                 resolved.lookup.is_nil() || resolved.lookup == Value::symbol("undefined");
-            let binding_is_undefined = binding.is_nil() || binding == Value::symbol("undefined");
-            let sequence_is_undefined = lookup_is_undefined || binding_is_undefined;
+            let mut binding_is_undefined =
+                binding.is_nil() || binding == Value::symbol("undefined");
+            let mut sequence_is_undefined = lookup_is_undefined || binding_is_undefined;
             tracing::debug!(
                 "read_key_sequence: binding={}",
                 crate::emacs_core::print::print_value(&binding)
@@ -1993,37 +2011,74 @@ impl crate::emacs_core::eval::Context {
                     );
                     continue;
                 }
-                if Self::should_drop_undefined_mouse_press_sequence(&translated_events) {
-                    tracing::debug!(
-                        "read_key_sequence: dropping undefined down-mouse event and continuing"
+                if let Some(fallback) = self.resolve_undefined_mouse_sequence_fallback(
+                    &translated_events,
+                    lookup_position.as_ref(),
+                )? {
+                    match fallback {
+                        UndefinedMouseSequenceFallback::Rewrite {
+                            events,
+                            resolved: rewritten_resolution,
+                        } => {
+                            tracing::debug!(
+                                "read_key_sequence: simplifying undefined mouse event to {:?}",
+                                events
+                                    .iter()
+                                    .map(crate::emacs_core::print::print_value)
+                                    .collect::<Vec<_>>()
+                            );
+                            self.command_loop
+                                .keyboard
+                                .rewrite_key_sequence_translation(events.clone());
+                            translated_events = events;
+                            resolved = rewritten_resolution;
+                            binding = resolved.binding;
+                            lookup_is_undefined = resolved.lookup.is_nil()
+                                || resolved.lookup == Value::symbol("undefined");
+                            binding_is_undefined =
+                                binding.is_nil() || binding == Value::symbol("undefined");
+                            sequence_is_undefined = lookup_is_undefined || binding_is_undefined;
+                        }
+                        UndefinedMouseSequenceFallback::Drop { retained_events } => {
+                            tracing::debug!(
+                                "read_key_sequence: dropping undefined mouse event and retaining {:?}",
+                                retained_events
+                                    .iter()
+                                    .map(crate::emacs_core::print::print_value)
+                                    .collect::<Vec<_>>()
+                            );
+                            self.command_loop
+                                .keyboard
+                                .rewrite_key_sequence_translation(retained_events);
+                            shift_translation = None;
+                            continue;
+                        }
+                    }
+                }
+                if sequence_is_undefined {
+                    if self.translate_upper_case_key_bindings_enabled()
+                        && let Some(applied_shift_translation) =
+                            self.apply_shift_translation_to_current_key_sequence()
+                    {
+                        shift_translation = Some(applied_shift_translation);
+                        replay_current_sequence = true;
+                        tracing::debug!(
+                            "read_key_sequence: replaying after shift/downcase translation"
+                        );
+                        continue;
+                    }
+                    self.finalize_shift_translated_key_sequence(
+                        sequence_is_undefined,
+                        options,
+                        shift_translation.take(),
                     );
-                    self.command_loop.keyboard.reset_key_sequence();
+                    self.restore_delayed_selection_event(&mut delayed_selection_event);
                     self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
-                    shift_translation = None;
-                    continue;
+                    let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
+                    self.command_loop
+                        .set_command_key_sequences(translated.clone(), raw);
+                    return Ok((translated, binding));
                 }
-                if self.translate_upper_case_key_bindings_enabled()
-                    && let Some(applied_shift_translation) =
-                        self.apply_shift_translation_to_current_key_sequence()
-                {
-                    shift_translation = Some(applied_shift_translation);
-                    replay_current_sequence = true;
-                    tracing::debug!(
-                        "read_key_sequence: replaying after shift/downcase translation"
-                    );
-                    continue;
-                }
-                self.finalize_shift_translated_key_sequence(
-                    sequence_is_undefined,
-                    options,
-                    shift_translation.take(),
-                );
-                self.restore_delayed_selection_event(&mut delayed_selection_event);
-                self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
-                let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
-                self.command_loop
-                    .set_command_key_sequences(translated.clone(), raw);
-                return Ok((translated, binding));
             }
 
             let is_prefix =
@@ -2372,20 +2427,193 @@ impl crate::emacs_core::eval::Context {
         Some(prefixed)
     }
 
-    fn should_drop_undefined_mouse_press_sequence(events: &[Value]) -> bool {
-        let mouse_event = match events {
-            [event] => *event,
-            [prefix, event] if prefix.as_symbol_name().is_some() => *event,
-            _ => return false,
+    fn split_event_symbol_modifiers(mut name: &str) -> (String, &str) {
+        let mut prefix = String::new();
+        let is_single_char = |s: &str| {
+            let mut chars = s.chars();
+            chars.next().is_some() && chars.next().is_none()
         };
 
-        crate::emacs_core::value::list_to_vec(&mouse_event).is_some_and(|slots| {
-            slots.first().is_some_and(|value| {
-                value
-                    .as_symbol_name()
-                    .is_some_and(|name| name.contains("down-mouse-"))
-            })
-        })
+        loop {
+            if let Some(rest) = name.strip_prefix("C-") {
+                if is_single_char(rest) {
+                    break;
+                }
+                prefix.push_str("C-");
+                name = rest;
+                continue;
+            }
+            if let Some(rest) = name.strip_prefix("M-") {
+                if is_single_char(rest) {
+                    break;
+                }
+                prefix.push_str("M-");
+                name = rest;
+                continue;
+            }
+            if let Some(rest) = name.strip_prefix("S-") {
+                if is_single_char(rest) {
+                    break;
+                }
+                prefix.push_str("S-");
+                name = rest;
+                continue;
+            }
+            if let Some(rest) = name.strip_prefix("s-") {
+                if is_single_char(rest) {
+                    break;
+                }
+                prefix.push_str("s-");
+                name = rest;
+                continue;
+            }
+            if let Some(rest) = name.strip_prefix("H-") {
+                if is_single_char(rest) {
+                    break;
+                }
+                prefix.push_str("H-");
+                name = rest;
+                continue;
+            }
+            if let Some(rest) = name.strip_prefix("A-") {
+                if is_single_char(rest) {
+                    break;
+                }
+                prefix.push_str("A-");
+                name = rest;
+                continue;
+            }
+            break;
+        }
+
+        (prefix, name)
+    }
+
+    fn mouse_event_symbol_name(event: &Value) -> Option<String> {
+        match event {
+            Value::Symbol(_) => event.as_symbol_name().map(str::to_owned),
+            Value::Cons(_) => {
+                let slots = crate::emacs_core::value::list_to_vec(event)?;
+                slots.first()?.as_symbol_name().map(str::to_owned)
+            }
+            _ => None,
+        }
+    }
+
+    fn rewrite_mouse_event_symbol(event: Value, symbol_name: &str) -> Option<Value> {
+        match event {
+            Value::Symbol(_) => Some(Value::symbol(symbol_name)),
+            Value::Cons(_) => {
+                let mut slots = crate::emacs_core::value::list_to_vec(&event)?;
+                let head = slots.first_mut()?;
+                if head.as_symbol_name().is_none() {
+                    return None;
+                }
+                *head = Value::symbol(symbol_name);
+                Some(Value::list(slots))
+            }
+            _ => None,
+        }
+    }
+
+    fn simplify_mouse_event_once(event: Value) -> Option<(MouseEventFallbackStep, Option<Value>)> {
+        let symbol_name = Self::mouse_event_symbol_name(&event)?;
+        let (modifier_prefix, base) = Self::split_event_symbol_modifiers(&symbol_name);
+        let mut rewritten_name = modifier_prefix;
+
+        let rewritten_base = if let Some(rest) = base.strip_prefix("triple-") {
+            rewritten_name.push_str("double-");
+            rewritten_name.push_str(rest);
+            return Some((
+                MouseEventFallbackStep::Rewrite,
+                Self::rewrite_mouse_event_symbol(event, &rewritten_name),
+            ));
+        } else if let Some(rest) = base.strip_prefix("double-") {
+            rest
+        } else if let Some(rest) = base.strip_prefix("drag-") {
+            rest
+        } else if base.starts_with("down-") || base.starts_with("up-") {
+            return Some((MouseEventFallbackStep::Drop, None));
+        } else {
+            return None;
+        };
+
+        rewritten_name.push_str(rewritten_base);
+        Some((
+            MouseEventFallbackStep::Rewrite,
+            Self::rewrite_mouse_event_symbol(event, &rewritten_name),
+        ))
+    }
+
+    fn retained_key_sequence_len_after_mouse_drop(events: &[Value]) -> usize {
+        let Some(last_event) = events.last() else {
+            return 0;
+        };
+
+        let mut retained_len = events.len().saturating_sub(1);
+        if retained_len > 0
+            && let Some(position) = Self::event_position(last_event)
+            && let Some(area) = Self::event_position_area(&position)
+            && events[retained_len - 1] == area
+        {
+            retained_len -= 1;
+        }
+        retained_len
+    }
+
+    fn resolve_undefined_mouse_sequence_fallback(
+        &mut self,
+        events: &[Value],
+        lookup_position: Option<&Value>,
+    ) -> Result<Option<UndefinedMouseSequenceFallback>, crate::emacs_core::error::Flow> {
+        use crate::emacs_core::keymap::resolve_active_key_binding;
+
+        let Some(last_index) = events.len().checked_sub(1) else {
+            return Ok(None);
+        };
+        let mut rewritten_events = events.to_vec();
+
+        loop {
+            let Some((step, rewritten_event)) =
+                Self::simplify_mouse_event_once(rewritten_events[last_index])
+            else {
+                return Ok(None);
+            };
+
+            match step {
+                MouseEventFallbackStep::Rewrite => {
+                    let Some(rewritten_event) = rewritten_event else {
+                        return Ok(None);
+                    };
+                    rewritten_events[last_index] = rewritten_event;
+                    let resolved = resolve_active_key_binding(
+                        self,
+                        &rewritten_events,
+                        false,
+                        false,
+                        lookup_position,
+                    )?;
+                    let lookup_is_undefined =
+                        resolved.lookup.is_nil() || resolved.lookup == Value::symbol("undefined");
+                    let binding_is_undefined =
+                        resolved.binding.is_nil() || resolved.binding == Value::symbol("undefined");
+                    if !(lookup_is_undefined || binding_is_undefined) {
+                        return Ok(Some(UndefinedMouseSequenceFallback::Rewrite {
+                            events: rewritten_events,
+                            resolved,
+                        }));
+                    }
+                }
+                MouseEventFallbackStep::Drop => {
+                    let retained_len =
+                        Self::retained_key_sequence_len_after_mouse_drop(&rewritten_events);
+                    rewritten_events.truncate(retained_len);
+                    return Ok(Some(UndefinedMouseSequenceFallback::Drop {
+                        retained_events: rewritten_events,
+                    }));
+                }
+            }
+        }
     }
 
     fn window_point(window: &crate::window::Window) -> Option<i64> {

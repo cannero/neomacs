@@ -1690,6 +1690,89 @@ fn read_key_sequence_drops_unbound_down_mouse_before_bound_click() {
 }
 
 #[test]
+fn read_key_sequence_drops_unbound_down_mouse_without_losing_keyboard_prefix() {
+    let mut ev = Context::new();
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+
+    let setup = parse_forms(
+        r#"(fset 'neomacs-prefixed-mouse-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    let prefix_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::Int('a' as i64)],
+        prefix_map,
+    )
+    .expect("define prefix");
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        prefix_map,
+        &[Value::symbol("mouse-1")],
+        Value::symbol("neomacs-prefixed-mouse-command"),
+    )
+    .expect("define mouse binding");
+
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::Int('a' as i64));
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::symbol("down-mouse-1"));
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::symbol("mouse-1"));
+
+    let (keys, binding) = ev
+        .read_key_sequence()
+        .expect("read prefixed mouse sequence");
+
+    assert_eq!(binding, Value::symbol("neomacs-prefixed-mouse-command"));
+    assert_eq!(keys, vec![Value::Int('a' as i64), Value::symbol("mouse-1")]);
+}
+
+#[test]
+fn read_key_sequence_reduces_unbound_triple_mouse_to_bound_click() {
+    let mut ev = Context::new();
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+
+    let setup = parse_forms(
+        r#"(fset 'neomacs-triple-mouse-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::symbol("mouse-1")],
+        Value::symbol("neomacs-triple-mouse-command"),
+    )
+    .expect("define mouse binding");
+
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::symbol("triple-mouse-1"));
+
+    let (keys, binding) = ev.read_key_sequence().expect("read triple mouse sequence");
+
+    assert_eq!(binding, Value::symbol("neomacs-triple-mouse-command"));
+    assert_eq!(keys, vec![Value::symbol("mouse-1")]);
+}
+
+#[test]
 fn read_key_sequence_uses_clicked_window_buffer_local_minor_mode_maps() {
     let mut ev = Context::new();
     ev.frames
