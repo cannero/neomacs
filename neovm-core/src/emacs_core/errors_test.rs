@@ -390,8 +390,9 @@ fn define_error_too_many_args() {
 
 #[test]
 fn builtin_signal_basic() {
+    let mut eval = super::super::eval::Context::new();
     let args = vec![Value::symbol("void-variable"), Value::Nil];
-    let result = builtin_signal_inner(args);
+    let result = builtin_signal(&mut eval, args);
     assert!(result.is_err());
     match result {
         Err(Flow::Signal(sig)) => {
@@ -404,9 +405,10 @@ fn builtin_signal_basic() {
 
 #[test]
 fn builtin_signal_with_data() {
+    let mut eval = super::super::eval::Context::new();
     let data_list = Value::list(vec![Value::symbol("x")]);
     let args = vec![Value::symbol("void-variable"), data_list];
-    let result = builtin_signal_inner(args);
+    let result = builtin_signal(&mut eval, args);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "void-variable");
@@ -418,13 +420,15 @@ fn builtin_signal_with_data() {
 
 #[test]
 fn builtin_signal_wrong_arity() {
-    let result = builtin_signal_inner(vec![Value::symbol("error")]);
+    let mut eval = super::super::eval::Context::new();
+    let result = builtin_signal(&mut eval, vec![Value::symbol("error")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn builtin_signal_non_symbol() {
-    let result = builtin_signal_inner(vec![Value::Int(42), Value::Nil]);
+    let mut eval = super::super::eval::Context::new();
+    let result = builtin_signal(&mut eval, vec![Value::Int(42), Value::Nil]);
     assert!(result.is_err());
 }
 

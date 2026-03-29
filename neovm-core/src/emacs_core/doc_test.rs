@@ -107,37 +107,47 @@ fn substitute_command_keys_startup_is_autoloaded() {
 
 #[test]
 fn documentation_property_returns_nil() {
-    let result = builtin_documentation_property_inner(vec![
-        Value::symbol("foo"),
-        Value::symbol("variable-documentation"),
-    ]);
+    let mut eval = Context::new();
+    let result = builtin_documentation_property(
+        &mut eval,
+        vec![
+            Value::symbol("foo"),
+            Value::symbol("variable-documentation"),
+        ],
+    );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn documentation_property_with_raw() {
-    let result = builtin_documentation_property_inner(vec![
-        Value::symbol("foo"),
-        Value::symbol("variable-documentation"),
-        Value::True,
-    ]);
+    let mut eval = Context::new();
+    let result = builtin_documentation_property(
+        &mut eval,
+        vec![
+            Value::symbol("foo"),
+            Value::symbol("variable-documentation"),
+            Value::True,
+        ],
+    );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn documentation_property_wrong_type() {
-    let result = builtin_documentation_property_inner(vec![
-        Value::Int(42),
-        Value::symbol("variable-documentation"),
-    ]);
+    let mut eval = Context::new();
+    let result = builtin_documentation_property(
+        &mut eval,
+        vec![Value::Int(42), Value::symbol("variable-documentation")],
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn documentation_property_wrong_arity() {
-    let result = builtin_documentation_property_inner(vec![Value::symbol("foo")]);
+    let mut eval = Context::new();
+    let result = builtin_documentation_property(&mut eval, vec![Value::symbol("foo")]);
     assert!(result.is_err());
 }
 

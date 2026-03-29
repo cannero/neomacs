@@ -51,34 +51,38 @@ fn open_termscript_signals_tty_error() {
 
 #[test]
 fn send_string_to_terminal_rejects_non_string() {
-    let result = builtin_send_string_to_terminal_inner(vec![Value::Int(42)]);
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let result = builtin_send_string_to_terminal(&mut eval, vec![Value::Int(42)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn send_string_to_terminal_accepts_string() {
-    let result = builtin_send_string_to_terminal_inner(vec![Value::string("hello")]).unwrap();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let result = builtin_send_string_to_terminal(&mut eval, vec![Value::string("hello")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn internal_show_cursor_tracks_visibility() {
     reset_dispnew_thread_locals();
-    let default_visible = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let default_visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert_eq!(default_visible, Value::True);
 
-    builtin_internal_show_cursor_inner(vec![Value::Nil, Value::Nil]).unwrap();
-    let hidden = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::Nil]).unwrap();
+    let hidden = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert!(hidden.is_nil());
 
-    builtin_internal_show_cursor_inner(vec![Value::Nil, Value::True]).unwrap();
-    let visible = builtin_internal_show_cursor_p_inner(vec![]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::True]).unwrap();
+    let visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert_eq!(visible, Value::True);
 }
 
 #[test]
 fn internal_show_cursor_rejects_non_window() {
-    let result = builtin_internal_show_cursor_inner(vec![Value::Int(1), Value::Nil]);
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let result = builtin_internal_show_cursor(&mut eval, vec![Value::Int(1), Value::Nil]);
     assert!(result.is_err());
 }
 
