@@ -716,6 +716,289 @@ impl Default for CommandLoop {
     }
 }
 
+impl crate::emacs_core::eval::Context {
+    /// Read a complete key sequence through keymaps.
+    ///
+    /// Mirrors GNU Emacs `read_key_sequence()` (keyboard.c:10098).
+    /// Reads keys one at a time, following prefix keymaps until a
+    /// complete binding (command) or undefined key is found.
+    ///
+    /// After each key, checks translation maps in order:
+    /// 1. `input-decode-map` — terminal-specific key decoding
+    /// 2. `local-function-key-map` (inherits `function-key-map`) — function
+    ///    key translation
+    /// 3. `key-translation-map` — user-defined key translations
+    ///
+    /// Returns (key_events_as_emacs_values, binding).
+    /// binding is Value::Nil if the key sequence is undefined.
+    pub(crate) fn read_key_sequence(
+        &mut self,
+    ) -> Result<(Vec<Value>, Value), crate::emacs_core::error::Flow> {
+        use crate::emacs_core::keymap::{is_list_keymap, list_keymap_lookup_seq};
+
+        let mut events: Vec<Value> = Vec::new();
+
+        loop {
+            let emacs_event = self.read_char()?;
+            events.push(emacs_event);
+
+            self.record_input_event(emacs_event);
+
+            tracing::debug!(
+                "read_key_sequence: event={} starting translation",
+                crate::emacs_core::print::print_value(&emacs_event)
+            );
+
+            for map_name in &[
+                "input-decode-map",
+                "local-function-key-map",
+                "key-translation-map",
+            ] {
+                let map = self.eval_symbol(map_name).unwrap_or(Value::Nil);
+                if map.is_nil() || !is_list_keymap(&map) {
+                    continue;
+                }
+                let translation = list_keymap_lookup_seq(&map, &events);
+                if translation.is_nil() || is_list_keymap(&translation) {
+                    continue;
+                }
+                if matches!(translation, Value::Int(_)) {
+                    continue;
+                }
+                if let Value::Vector(id) = translation {
+                    let new_events: Vec<Value> = crate::emacs_core::value::with_heap(|h| {
+                        let len = h.vector_len(id);
+                        (0..len).map(|i| h.vector_ref(id, i)).collect()
+                    });
+                    events = new_events;
+                } else if translation.is_string() {
+                    if let Some(s) = translation.as_str() {
+                        events.clear();
+                        for ch in s.chars() {
+                            events.push(Value::Int(ch as i64));
+                        }
+                    }
+                } else {
+                    events.clear();
+                    events.push(translation);
+                }
+            }
+
+            tracing::debug!(
+                "read_key_sequence: looking up binding for {:?}",
+                events
+                    .iter()
+                    .map(crate::emacs_core::print::print_value)
+                    .collect::<Vec<_>>()
+            );
+            let key_vec = Value::vector(events.clone());
+            let binding = crate::emacs_core::interactive::builtin_key_binding(self, vec![key_vec])?;
+            tracing::debug!(
+                "read_key_sequence: binding={}",
+                crate::emacs_core::print::print_value(&binding)
+            );
+
+            if binding.is_nil() {
+                return Ok((events, Value::Nil));
+            }
+
+            let is_prefix = if is_list_keymap(&binding) {
+                true
+            } else if binding.as_symbol_name().is_some() {
+                self.obarray
+                    .symbol_function_of_value(&binding)
+                    .copied()
+                    .is_some_and(|f| is_list_keymap(&f))
+            } else {
+                false
+            };
+
+            if is_prefix {
+                let key_vec = Value::vector(events.clone());
+                if let Ok(desc) =
+                    crate::emacs_core::builtins::keymaps::builtin_key_description(vec![key_vec])
+                {
+                    if let Some(s) = desc.as_str() {
+                        let echo_msg = format!("{}-", s);
+                        let _ = crate::emacs_core::builtins::dispatch_builtin(
+                            self,
+                            "message",
+                            vec![Value::string(echo_msg)],
+                        );
+                    }
+                }
+                continue;
+            }
+
+            return Ok((events, binding));
+        }
+    }
+
+    /// Read a single input event, blocking if necessary.
+    ///
+    /// Mirrors GNU Emacs `read_char()` (keyboard.c:2489).
+    /// This is THE blocking point in the command loop.
+    /// Before blocking, triggers redisplay.
+    pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
+        if let Some(event) = self.command_loop.unread_events.pop_front() {
+            return Ok(event);
+        }
+
+        if let Some(ref macro_events) = self.command_loop.executing_kbd_macro {
+            if self.command_loop.kbd_macro_index < macro_events.len() {
+                let event = macro_events[self.command_loop.kbd_macro_index].clone();
+                self.command_loop.kbd_macro_index += 1;
+                return Ok(event);
+            }
+        }
+
+        self.sync_pending_resize_events();
+        self.redisplay();
+        self.fire_pending_timers();
+        self.poll_process_output();
+
+        tracing::debug!(
+            "read_char: blocking on input (input_rx={})...",
+            self.input_rx.is_some()
+        );
+        loop {
+            if self.sync_pending_resize_events() {
+                self.redisplay();
+            }
+
+            let event = if let Some(event) = self.pending_input_events.pop_front() {
+                self.timer_stop_idle();
+                event
+            } else {
+                let rx = match self.input_rx {
+                    Some(ref rx) => rx.clone(),
+                    None => {
+                        tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
+                        return Ok(Value::Nil);
+                    }
+                };
+
+                self.timer_start_idle();
+                let timeout = self.next_input_wait_timeout();
+                if cfg!(test) {
+                    eprintln!(
+                        "read_char wait timeout={:?} idle={:?}",
+                        timeout,
+                        self.current_idle_duration()
+                    );
+                }
+
+                self.waiting_for_user_input = true;
+                let wait_result = if let Some(timeout) = timeout {
+                    rx.recv_timeout(timeout)
+                } else {
+                    rx.recv()
+                        .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
+                };
+                self.waiting_for_user_input = false;
+
+                match wait_result {
+                    Ok(event) => {
+                        if cfg!(test) {
+                            eprintln!("read_char recv event={:?}", event);
+                        }
+                        self.timer_stop_idle();
+                        event
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        if cfg!(test) {
+                            eprintln!(
+                                "read_char timeout idle={:?} ordinary={:?} idle-timer={:?}",
+                                self.current_idle_duration(),
+                                self.next_ordinary_gnu_timer_timeout(),
+                                self.next_idle_gnu_timer_timeout()
+                            );
+                        }
+                        self.fire_pending_timers();
+                        self.poll_process_output();
+                        continue;
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                        self.command_loop.running = false;
+                        return Err(crate::emacs_core::error::signal("quit", vec![]));
+                    }
+                }
+            };
+
+            self.fire_pending_timers();
+            self.poll_process_output();
+
+            match event {
+                InputEvent::CloseRequested => {
+                    self.command_loop.running = false;
+                    return Err(crate::emacs_core::error::signal("quit", vec![]));
+                }
+                InputEvent::Resize {
+                    width,
+                    height,
+                    emacs_frame_id,
+                } => {
+                    self.apply_resize_input_event(width, height, emacs_frame_id, true);
+                    self.timer_resume_idle();
+                    continue;
+                }
+                InputEvent::Focus(_focused) => {
+                    self.timer_resume_idle();
+                    continue;
+                }
+                InputEvent::KeyPress(ref key) => {
+                    tracing::debug!("read_char: received KeyPress {:?}", key);
+                    self.clear_current_message();
+                    let emacs_event = key.to_emacs_event_value();
+                    if self.command_loop.defining_kbd_macro {
+                        self.command_loop.kbd_macro_events.push(emacs_event);
+                    }
+                    return Ok(key.to_emacs_event_value());
+                }
+                InputEvent::MousePress {
+                    button,
+                    x,
+                    y,
+                    modifiers,
+                } => {
+                    self.clear_current_message();
+                    let event =
+                        Self::make_mouse_event(&button, x, y, &modifiers, "down-mouse", self);
+                    return Ok(event);
+                }
+                InputEvent::MouseRelease { button, x, y } => {
+                    self.clear_current_message();
+                    let event =
+                        Self::make_mouse_event(&button, x, y, &Modifiers::none(), "mouse", self);
+                    return Ok(event);
+                }
+                InputEvent::MouseScroll {
+                    delta_x: _,
+                    delta_y,
+                    x,
+                    y,
+                    modifiers,
+                } => {
+                    let dir = if delta_y > 0.0 {
+                        "wheel-up"
+                    } else {
+                        "wheel-down"
+                    };
+                    let mut sym = String::new();
+                    Self::append_modifier_prefix(&modifiers, &mut sym);
+                    sym.push_str(dir);
+                    let position = Self::make_mouse_position(x, y, self);
+                    return Ok(Value::list(vec![Value::symbol(&sym), position]));
+                }
+                InputEvent::MouseMove { .. } => {
+                    self.timer_resume_idle();
+                    continue;
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Interactive spec parsing
 // ---------------------------------------------------------------------------

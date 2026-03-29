@@ -154,14 +154,18 @@ Completed on 2026-03-29:
   owner in `neovm-core/src/keyboard.rs`; `neomacs-bin` and the TTY frontend
   forward transport facts instead of keeping their own duplicate key transport
   vocabulary.
+- `read_char` and `read_key_sequence` implementation ownership has moved out of
+  `emacs_core/eval.rs` and into `src/keyboard.rs`, so keyboard sequencing now
+  lives with the command-loop owner instead of evaluator glue.
 
 Still open:
 
-- `read_char` / `read_key_sequence` still live in evaluator-owned code instead
-  of a dedicated keyboard owner.
 - Frontend event transport still passes through a separate Rust `KeyEvent`
   layer before entering the command loop, even though raw keysym/modifier
   normalization is now centralized.
+- The moved `read_char` / `read_key_sequence` code still reaches through
+  `Context` helper/state surfaces that are evaluator-shaped; the next cleanup is
+  to reduce those remaining cross-owner helper boundaries.
 - Keymap autoload and parent-cycle semantics are still thinner than GNU.
 
 ### Slice 1: Active maps and `key-binding`

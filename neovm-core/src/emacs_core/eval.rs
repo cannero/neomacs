@@ -703,7 +703,7 @@ pub struct Context {
     pub input_rx: Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
     /// Non-keyboard events drained opportunistically outside `read_char()`,
     /// plus non-resize input preserved while syncing pending GUI resizes.
-    pending_input_events: VecDeque<crate::keyboard::InputEvent>,
+    pub(crate) pending_input_events: VecDeque<crate::keyboard::InputEvent>,
     /// Wakeup file descriptor — the read end of a pipe that the render thread
     /// writes to when input is available.  Used by `wait_for_input()` with
     /// `pselect()`/`poll()` to multiplex input with process I/O and timers.
@@ -3444,7 +3444,7 @@ impl Context {
         self.display_host = Some(host);
     }
 
-    fn apply_resize_input_event(
+    pub(crate) fn apply_resize_input_event(
         &mut self,
         width: u32,
         height: u32,
@@ -3880,341 +3880,11 @@ impl Context {
         }
     }
 
-    /// Read a complete key sequence through keymaps.
-    ///
-    /// Mirrors GNU Emacs `read_key_sequence()` (keyboard.c:10098).
-    /// Reads keys one at a time, following prefix keymaps until a
-    /// complete binding (command) or undefined key is found.
-    ///
-    /// After each key, checks translation maps in order:
-    /// 1. `input-decode-map` — terminal-specific key decoding
-    /// 2. `local-function-key-map` (inherits `function-key-map`) — function key translation
-    /// 3. `key-translation-map` — user-defined key translations
-    ///
-    /// Returns (key_events_as_emacs_values, binding).
-    /// binding is Value::Nil if the key sequence is undefined.
-    pub(crate) fn read_key_sequence(&mut self) -> Result<(Vec<Value>, Value), Flow> {
-        use super::keymap::{is_list_keymap, list_keymap_lookup_seq};
-
-        let mut events: Vec<Value> = Vec::new();
-
-        loop {
-            // Read next key
-            let emacs_event = self.read_char()?;
-            events.push(emacs_event);
-
-            // Record as last-input-event
-            self.record_input_event(emacs_event);
-
-            tracing::debug!(
-                "read_key_sequence: event={} starting translation",
-                super::print::print_value(&emacs_event)
-            );
-
-            // Apply translation maps to the current key sequence.
-            // Each map can replace the sequence with a translated version.
-            // Process in order: input-decode-map, local-function-key-map,
-            // key-translation-map (same order as GNU Emacs).
-            for map_name in &[
-                "input-decode-map",
-                "local-function-key-map",
-                "key-translation-map",
-            ] {
-                let map = self.eval_symbol(map_name).unwrap_or(Value::Nil);
-                if map.is_nil() || !is_list_keymap(&map) {
-                    continue;
-                }
-                let translation = list_keymap_lookup_seq(&map, &events);
-                // If we got a complete (non-nil, non-keymap, non-integer) binding,
-                // it's a translation.  Replace the events with the translated form.
-                if translation.is_nil() {
-                    continue;
-                }
-                if is_list_keymap(&translation) {
-                    // Prefix in translation map — need more keys before translating
-                    continue;
-                }
-                if matches!(translation, Value::Int(_)) {
-                    // Integer means partial match consumed some prefix — skip
-                    continue;
-                }
-                // The translation is a replacement key or key sequence.
-                // It can be a vector of events or a single event value.
-                if let Value::Vector(id) = translation {
-                    let new_events: Vec<Value> = super::value::with_heap(|h| {
-                        let len = h.vector_len(id);
-                        (0..len).map(|i| h.vector_ref(id, i)).collect()
-                    });
-                    events = new_events;
-                } else if translation.is_string() {
-                    // String translations: each char becomes an event
-                    if let Some(s) = translation.as_str() {
-                        events.clear();
-                        for ch in s.chars() {
-                            events.push(Value::Int(ch as i64));
-                        }
-                    }
-                } else {
-                    // Single event replacement
-                    events.clear();
-                    events.push(translation);
-                }
-            }
-
-            // Look up the full sequence so far
-            tracing::debug!(
-                "read_key_sequence: looking up binding for {:?}",
-                events
-                    .iter()
-                    .map(|e| super::print::print_value(e))
-                    .collect::<Vec<_>>()
-            );
-            let key_vec = Value::vector(events.clone());
-            let binding = super::interactive::builtin_key_binding(self, vec![key_vec])?;
-            tracing::debug!(
-                "read_key_sequence: binding={}",
-                super::print::print_value(&binding)
-            );
-
-            if binding.is_nil() {
-                // Undefined key sequence
-                return Ok((events, Value::Nil));
-            }
-
-            // Check if binding is a keymap (prefix key) — need more keys
-            let is_prefix = if is_list_keymap(&binding) {
-                true
-            } else if binding.as_symbol_name().is_some() {
-                self.obarray
-                    .symbol_function_of_value(&binding)
-                    .copied()
-                    .is_some_and(|f| is_list_keymap(&f))
-            } else {
-                false
-            };
-
-            if is_prefix {
-                // Echo the partial key sequence in the echo area
-                // (mirrors GNU Emacs echo-keystrokes behavior)
-                let key_vec = Value::vector(events.clone());
-                if let Ok(desc) = super::builtins::keymaps::builtin_key_description(vec![key_vec]) {
-                    if let Some(s) = desc.as_str() {
-                        let echo_msg = format!("{}-", s);
-                        let _ = super::builtins::dispatch_builtin(
-                            self,
-                            "message",
-                            vec![Value::string(echo_msg)],
-                        );
-                    }
-                }
-                continue;
-            }
-
-            // Found a complete binding (command)
-            return Ok((events, binding));
-        }
-    }
-
-    /// Read a single input event, blocking if necessary.
-    ///
-    /// Mirrors GNU Emacs `read_char()` (keyboard.c:2489).
-    /// This is THE blocking point in the command loop.
-    /// Before blocking, triggers redisplay.
-    pub(crate) fn read_char(&mut self) -> Result<Value, Flow> {
-        use crate::keyboard::InputEvent;
-
-        // 1. Check unread command events
-        if let Some(event) = self.command_loop.unread_events.pop_front() {
-            return Ok(event);
-        }
-
-        // 2. Check keyboard macro playback
-        if let Some(ref macro_events) = self.command_loop.executing_kbd_macro {
-            if self.command_loop.kbd_macro_index < macro_events.len() {
-                let event = macro_events[self.command_loop.kbd_macro_index].clone();
-                self.command_loop.kbd_macro_index += 1;
-                return Ok(event);
-            }
-        }
-
-        // 3. Apply any queued resizes before the pre-block redisplay so
-        // already-delivered host geometry updates paint in the same cycle.
-        self.sync_pending_resize_events();
-
-        // 4. Redisplay before blocking (same as GNU Emacs)
-        self.redisplay();
-
-        // 5. Fire any already-expired timers before blocking
-        self.fire_pending_timers();
-
-        // 5b. Poll process output before blocking (like GNU Emacs)
-        self.poll_process_output();
-
-        // 6. Block on input (with timer-aware timeout)
-        tracing::debug!(
-            "read_char: blocking on input (input_rx={})...",
-            self.input_rx.is_some()
-        );
-        loop {
-            if self.sync_pending_resize_events() {
-                self.redisplay();
-            }
-
-            let event = if let Some(event) = self.pending_input_events.pop_front() {
-                self.timer_stop_idle();
-                event
-            } else {
-                let rx = match self.input_rx {
-                    Some(ref rx) => rx.clone(),
-                    None => {
-                        tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
-                        return Ok(Value::Nil);
-                    }
-                };
-
-                // Like GNU keyboard.c, bound the wait by the earliest pending
-                // timer or process poll deadline so Lisp timers can run while the
-                // editor is otherwise idle.
-                self.timer_start_idle();
-                let timeout = self.next_input_wait_timeout();
-                if cfg!(test) {
-                    eprintln!(
-                        "read_char wait timeout={:?} idle={:?}",
-                        timeout,
-                        self.current_idle_duration()
-                    );
-                }
-
-                self.waiting_for_user_input = true;
-                let wait_result = if let Some(timeout) = timeout {
-                    rx.recv_timeout(timeout)
-                } else {
-                    rx.recv()
-                        .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
-                };
-                self.waiting_for_user_input = false;
-
-                match wait_result {
-                    Ok(event) => {
-                        if cfg!(test) {
-                            eprintln!("read_char recv event={:?}", event);
-                        }
-                        self.timer_stop_idle();
-                        event
-                    }
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                        if cfg!(test) {
-                            eprintln!(
-                                "read_char timeout idle={:?} ordinary={:?} idle-timer={:?}",
-                                self.current_idle_duration(),
-                                self.next_ordinary_gnu_timer_timeout(),
-                                self.next_idle_gnu_timer_timeout()
-                            );
-                        }
-                        // Timer fired or process poll interval — run pending work and loop back
-                        self.fire_pending_timers();
-                        self.poll_process_output();
-                        continue;
-                    }
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                        self.command_loop.running = false;
-                        return Err(super::error::signal("quit", vec![]));
-                    }
-                }
-            };
-
-            // Fire any timers that expired during the wait
-            self.fire_pending_timers();
-            // Poll process output
-            self.poll_process_output();
-
-            // Handle the event directly
-            match event {
-                InputEvent::CloseRequested => {
-                    self.command_loop.running = false;
-                    return Err(super::error::signal("quit", vec![]));
-                }
-                InputEvent::Resize {
-                    width,
-                    height,
-                    emacs_frame_id,
-                } => {
-                    self.apply_resize_input_event(width, height, emacs_frame_id, true);
-                    self.timer_resume_idle();
-                    continue;
-                }
-                InputEvent::Focus(_focused) => {
-                    // TODO: run focus hooks
-                    self.timer_resume_idle();
-                    continue;
-                }
-                InputEvent::KeyPress(ref key) => {
-                    tracing::debug!("read_char: received KeyPress {:?}", key);
-                    self.clear_current_message();
-                    let emacs_event = key.to_emacs_event_value();
-                    // Record for keyboard macro
-                    if self.command_loop.defining_kbd_macro {
-                        self.command_loop.kbd_macro_events.push(emacs_event);
-                    }
-                    return Ok(key.to_emacs_event_value());
-                }
-                InputEvent::MousePress {
-                    button,
-                    x,
-                    y,
-                    modifiers,
-                } => {
-                    self.clear_current_message();
-                    let event =
-                        Self::make_mouse_event(&button, x, y, &modifiers, "down-mouse", self);
-                    return Ok(event);
-                }
-                InputEvent::MouseRelease { button, x, y } => {
-                    self.clear_current_message();
-                    let event = Self::make_mouse_event(
-                        &button,
-                        x,
-                        y,
-                        &crate::keyboard::Modifiers::none(),
-                        "mouse",
-                        self,
-                    );
-                    return Ok(event);
-                }
-                InputEvent::MouseScroll {
-                    delta_x: _,
-                    delta_y,
-                    x,
-                    y,
-                    modifiers,
-                } => {
-                    // Scroll events: wheel-up / wheel-down
-                    let dir = if delta_y > 0.0 {
-                        "wheel-up"
-                    } else {
-                        "wheel-down"
-                    };
-                    let mut sym = String::new();
-                    Self::append_modifier_prefix(&modifiers, &mut sym);
-                    sym.push_str(dir);
-                    let position = Self::make_mouse_position(x, y, self);
-                    return Ok(Value::list(vec![Value::symbol(&sym), position]));
-                }
-                InputEvent::MouseMove { .. } => {
-                    // Movement events are not typically returned by
-                    // read_char — they are handled by tracking state.
-                    self.timer_resume_idle();
-                    continue;
-                }
-            }
-        }
-    }
-
     /// Build an Emacs mouse event value.
     ///
     /// Returns `(EVENT-SYMBOL POSITION)` where EVENT-SYMBOL is e.g.
     /// `mouse-1`, `down-mouse-2`, `C-mouse-1`, etc.
-    fn make_mouse_event(
+    pub(crate) fn make_mouse_event(
         button: &crate::keyboard::MouseButton,
         x: f32,
         y: f32,
@@ -4242,7 +3912,7 @@ impl Context {
     ///
     /// Returns `(WINDOW POS (X . Y) TIMESTAMP)` where WINDOW is the
     /// selected window, POS is the current point, and TIMESTAMP is 0.
-    fn make_mouse_position(x: f32, y: f32, eval: &Self) -> Value {
+    pub(crate) fn make_mouse_position(x: f32, y: f32, eval: &Self) -> Value {
         let window = eval.eval_symbol("selected-window").unwrap_or(Value::Nil);
         // Use selected window value, or fall back to a generic list
         let window_val = if window.is_nil() { Value::Nil } else { window };
@@ -4256,7 +3926,7 @@ impl Context {
     }
 
     /// Append modifier prefix characters to a symbol name string.
-    fn append_modifier_prefix(modifiers: &crate::keyboard::Modifiers, out: &mut String) {
+    pub(crate) fn append_modifier_prefix(modifiers: &crate::keyboard::Modifiers, out: &mut String) {
         if modifiers.ctrl {
             out.push_str("C-");
         }
@@ -4440,7 +4110,7 @@ impl Context {
         timeout
     }
 
-    fn timer_start_idle(&mut self) {
+    pub(crate) fn timer_start_idle(&mut self) {
         if self.idle_start_time.is_some() {
             return;
         }
@@ -4455,13 +4125,13 @@ impl Context {
         }
     }
 
-    fn timer_stop_idle(&mut self) {
+    pub(crate) fn timer_stop_idle(&mut self) {
         if let Some(start) = self.idle_start_time.take() {
             self.last_idle_start_time = Some(start);
         }
     }
 
-    fn timer_resume_idle(&mut self) {
+    pub(crate) fn timer_resume_idle(&mut self) {
         if self.idle_start_time.is_none() {
             self.idle_start_time = self.last_idle_start_time;
         }
