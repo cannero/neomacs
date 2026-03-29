@@ -379,7 +379,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
     expect_range_args("replace-regexp-in-string", &args, 3, 7)?;
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|value| !value.is_nil())
-        .unwrap_or(true);
+        .unwrap_or(false);
 
     // Check if REP is a string or a function
     let rep_is_string = args[1].as_str().is_some();
