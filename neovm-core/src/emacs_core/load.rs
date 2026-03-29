@@ -170,8 +170,14 @@ fn format_value_for_error(v: &Value) -> String {
 
 fn format_eval_error_in_state(eval: &super::eval::Context, err: &EvalError) -> String {
     match err {
-        EvalError::Signal { symbol, data } => {
-            let payload = if data.is_empty() {
+        EvalError::Signal {
+            symbol,
+            data,
+            raw_data,
+        } => {
+            let payload = if let Some(raw) = raw_data {
+                crate::emacs_core::error::print_value_in_state(eval, raw)
+            } else if data.is_empty() {
                 "nil".to_string()
             } else {
                 crate::emacs_core::error::print_value_in_state(eval, &Value::list(data.clone()))
@@ -209,6 +215,7 @@ fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<
         return Err(EvalError::Signal {
             symbol: intern("wrong-number-of-arguments"),
             data: vec![Value::symbol("defalias"), Value::Int(args.len() as i64)],
+            raw_data: None,
         });
     }
     let values = eval_generated_form_args(eval, args)?;
@@ -505,9 +512,15 @@ pub(crate) fn builtin_load_in_vm_runtime(
             let nomessage = args.get(2).is_some_and(|v| v.is_truthy());
             shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
                 load_file_with_flags(eval, &path, noerror, nomessage).map_err(|e| match e {
-                    EvalError::Signal { symbol, data } => {
-                        crate::emacs_core::error::signal(resolve_sym(symbol), data)
-                    }
+                    EvalError::Signal {
+                        symbol,
+                        data,
+                        raw_data,
+                    } => Flow::Signal(crate::emacs_core::error::SignalData {
+                        symbol,
+                        data,
+                        raw_data,
+                    }),
                     EvalError::UncaughtThrow { tag, value } => {
                         crate::emacs_core::error::signal("no-catch", vec![tag, value])
                     }
@@ -663,6 +676,7 @@ fn parse_source_forms(source_path: &Path, source: &str) -> Result<Vec<Expr>, Eva
         return Err(EvalError::Signal {
             symbol: intern("end-of-file"),
             data: vec![],
+            raw_data: None,
         });
     }
     super::parser::parse_forms(source_for_reader).map_err(|e| EvalError::Signal {
@@ -672,6 +686,7 @@ fn parse_source_forms(source_path: &Path, source: &str) -> Result<Vec<Expr>, Eva
             source_path.display(),
             e
         ))],
+        raw_data: None,
     })
 }
 
@@ -907,11 +922,22 @@ where
         }
         if let Err(ref e) = eval_result {
             let err_detail = match e {
-                EvalError::Signal { symbol, data } => {
+                EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => {
                     let sym_name = super::intern::resolve_sym(*symbol);
-                    let data_strs: Vec<String> =
-                        data.iter().map(|v| format_value_for_error(v)).collect();
-                    format!("({} {})", sym_name, data_strs.join(" "))
+                    let payload = if let Some(raw) = raw_data {
+                        format_value_for_error(raw)
+                    } else if data.is_empty() {
+                        "nil".to_string()
+                    } else {
+                        let data_strs: Vec<String> =
+                            data.iter().map(|v| format_value_for_error(v)).collect();
+                        format!("({})", data_strs.join(" "))
+                    };
+                    format!("({} {})", sym_name, payload)
                 }
                 other => format!("{:?}", other),
             };
@@ -952,6 +978,7 @@ pub fn load_file_with_flags(
                 "Loading compressed compiled Elisp artifacts (.elc.gz) is unsupported in neomacs: {}",
                 path.display()
             ))],
+            raw_data: None,
         });
     }
 
@@ -980,6 +1007,7 @@ pub fn load_file_with_flags(
                     in_progress,
                 ),
             ],
+            raw_data: None,
         });
     }
     eval.loads_in_progress.push(canonical);
@@ -1039,6 +1067,7 @@ fn load_file_body(
             path.display(),
             e
         ))],
+        raw_data: None,
     })?;
 
     // For .elc: skip the ;ELC magic header and detect lexical-binding from raw bytes.
@@ -1131,6 +1160,7 @@ fn load_file_body(
                     path.display(),
                     e
                 ))],
+                raw_data: None,
             })?
         } else {
             parse_source_forms(path, &content)?
@@ -1693,6 +1723,7 @@ fn collect_source_surface_from_paths(
                 "{error_context}: failed reading {}: {err}",
                 path.display()
             ))],
+            raw_data: None,
         })?;
         let source = decode_emacs_utf8(&bytes);
         let forms =
@@ -1702,6 +1733,7 @@ fn collect_source_surface_from_paths(
                     "{error_context}: failed parsing {}: {err}",
                     path.display()
                 ))],
+                raw_data: None,
             })?;
 
         for form in &forms {
@@ -1797,6 +1829,7 @@ fn collect_loaddefs_surface_from_paths(
                 "{error_context}: failed reading {}: {err}",
                 path.display()
             ))],
+            raw_data: None,
         })?;
         let source = decode_emacs_utf8(&bytes);
         let forms =
@@ -1806,6 +1839,7 @@ fn collect_loaddefs_surface_from_paths(
                     "{error_context}: failed parsing {}: {err}",
                     path.display()
                 ))],
+                raw_data: None,
             })?;
 
         for form in &forms {
@@ -1927,6 +1961,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
             "ldefs-boot autoload restore: failed reading {}: {err}",
             ldefs_path.display()
         ))],
+        raw_data: None,
     })?;
     let forms =
         crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
@@ -1935,6 +1970,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
                 "ldefs-boot autoload restore: failed parsing {}: {err}",
                 ldefs_path.display()
             ))],
+            raw_data: None,
         })?;
 
     let wanted = names
@@ -2198,6 +2234,7 @@ fn eval_first_form_after_marker(
         data: vec![Value::string(format!(
             "runtime prefix restore: missing GNU subr marker {marker}"
         ))],
+        raw_data: None,
     })?;
     let forms = crate::emacs_core::parser::parse_forms(&source[start..]).map_err(|err| {
         EvalError::Signal {
@@ -2206,6 +2243,7 @@ fn eval_first_form_after_marker(
                 "runtime prefix restore: failed parsing {} from {marker}: {err:?}",
                 path.display()
             ))],
+            raw_data: None,
         }
     })?;
     let form = forms.first().ok_or_else(|| EvalError::Signal {
@@ -2213,6 +2251,7 @@ fn eval_first_form_after_marker(
         data: vec![Value::string(format!(
             "runtime prefix restore: no GNU subr form after {marker}"
         ))],
+        raw_data: None,
     })?;
     eval.eval_expr(form)?;
     Ok(())
@@ -2251,6 +2290,7 @@ fn restore_runtime_prefix_keymaps_from_subr(
             "runtime prefix restore: failed reading {}: {err}",
             subr_path.display()
         ))],
+        raw_data: None,
     })?;
 
     for marker in [
@@ -2302,6 +2342,7 @@ fn repair_runtime_global_prefix_links(
                 "runtime global prefix repair: failed reading {}: {err}",
                 path.display()
             ))],
+            raw_data: None,
         })?;
         let forms =
             crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
@@ -2310,6 +2351,7 @@ fn repair_runtime_global_prefix_links(
                     "runtime global prefix repair: failed parsing {}: {err:?}",
                     path.display()
                 ))],
+                raw_data: None,
             })?;
         for form in &forms {
             let Expr::List(items) = form else {
@@ -2397,6 +2439,7 @@ fn eval_startup_forms(eval: &mut super::eval::Context, forms_src: &str) -> Resul
         crate::emacs_core::parser::parse_forms(forms_src).map_err(|e| EvalError::Signal {
             symbol: intern("error"),
             data: vec![Value::string(format!("startup parse error: {e}"))],
+            raw_data: None,
         })?;
     for result in eval.eval_forms(&forms) {
         result?;

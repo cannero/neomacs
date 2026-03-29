@@ -978,8 +978,14 @@ fn channel_error_to_signal(err: ChannelError) -> Signal {
 
 fn eval_error_to_task_error(err: EvalError) -> TaskError {
     match err {
-        EvalError::Signal { symbol, data } => {
-            let payload = if data.is_empty() {
+        EvalError::Signal {
+            symbol,
+            data,
+            raw_data,
+        } => {
+            let payload = if let Some(raw) = raw_data {
+                emacs_core::print_value(&raw)
+            } else if data.is_empty() {
                 "nil".to_string()
             } else {
                 let rendered = data

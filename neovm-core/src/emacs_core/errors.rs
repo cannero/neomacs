@@ -16,7 +16,7 @@
 //! signalled error's `error-conditions` list includes the handler's condition
 //! symbol.
 
-use super::error::{EvalResult, Flow, signal};
+use super::error::{EvalResult, Flow, signal, signal_with_data};
 use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
@@ -436,12 +436,6 @@ pub(crate) fn builtin_signal(eval: &mut super::eval::Context, args: Vec<Value>) 
         }
     };
 
-    let data = match &args[1] {
-        Value::Nil => vec![],
-        Value::Cons(_) => list_to_vec(&args[1]).unwrap_or_else(|| vec![args[1]]),
-        other => vec![*other],
-    };
-
     // GNU eval.c:1949-1951: check error-conditions property.
     // If the symbol has no error-conditions (not registered in the
     // error hierarchy), convert to (error "Invalid error symbol" SYM).
@@ -458,7 +452,16 @@ pub(crate) fn builtin_signal(eval: &mut super::eval::Context, args: Vec<Value>) 
         }
     }
 
-    Err(signal(&sym_name, data))
+    let flow = match &args[1] {
+        Value::Nil => signal(&sym_name, vec![]),
+        Value::Cons(_) => match list_to_vec(&args[1]) {
+            Some(data) => signal(&sym_name, data),
+            None => signal_with_data(&sym_name, args[1]),
+        },
+        _ => signal_with_data(&sym_name, args[1]),
+    };
+
+    Err(flow)
 }
 
 /// `(error-message-string ERROR-DATA)` — format an error for display.

@@ -3952,7 +3952,17 @@ impl Context {
     /// Load a file, converting EvalError back to Flow for use in special forms.
     pub fn load_file_internal(&mut self, path: &std::path::Path) -> EvalResult {
         super::load::load_file(self, path).map_err(|e| match e {
-            EvalError::Signal { symbol, data } => signal(resolve_sym(symbol), data),
+            EvalError::Signal {
+                symbol,
+                data,
+                raw_data,
+            } => {
+                if let Some(raw) = raw_data {
+                    signal_with_data(resolve_sym(symbol), raw)
+                } else {
+                    signal(resolve_sym(symbol), data)
+                }
+            }
             EvalError::UncaughtThrow { tag, value } => signal("no-catch", vec![tag, value]),
         })
     }

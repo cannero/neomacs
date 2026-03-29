@@ -19,6 +19,7 @@ fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {
     .map_err(|err| EvalError::Signal {
         symbol: intern("parse-error"),
         data: vec![Value::string(err.to_string())],
+        raw_data: None,
     })?;
     let mut value = Value::Nil;
     for form in &forms {
@@ -49,6 +50,7 @@ fn eval_context_printer_renders_killed_buffer_handles() -> Result<(), EvalError>
     .map_err(|err| EvalError::Signal {
         symbol: intern("parse-error"),
         data: vec![Value::string(err.to_string())],
+        raw_data: None,
     })?;
     let value = eval.eval_expr(&forms[0])?;
 
@@ -71,6 +73,7 @@ fn eval_context_printer_renders_mutex_handles_consistently() -> Result<(), EvalE
         parse_forms("(make-mutex \"error-printer-mutex\")").map_err(|err| EvalError::Signal {
             symbol: intern("parse-error"),
             data: vec![Value::string(err.to_string())],
+            raw_data: None,
         })?;
     let value = eval.eval_expr(&forms[0])?;
     let printed = print_value_with_eval(&eval, &value);
@@ -94,6 +97,7 @@ fn eval_context_printer_renders_condvar_handles_consistently() -> Result<(), Eva
     .map_err(|err| EvalError::Signal {
         symbol: intern("parse-error"),
         data: vec![Value::string(err.to_string())],
+        raw_data: None,
     })?;
     let value = eval.eval_expr(&forms[0])?;
     let printed = print_value_with_eval(&eval, &value);
@@ -114,6 +118,7 @@ fn eval_context_printer_renders_frame_window_handles_consistently() -> Result<()
         EvalError::Signal {
             symbol: intern("parse-error"),
             data: vec![Value::string(err.to_string())],
+            raw_data: None,
         }
     })?;
     let value = eval.eval_expr(&forms[0])?;
@@ -141,6 +146,7 @@ fn eval_context_printer_renders_window_handles_with_buffer_names() -> Result<(),
     .map_err(|err| EvalError::Signal {
         symbol: intern("parse-error"),
         data: vec![Value::string(err.to_string())],
+        raw_data: None,
     })?;
     let value = eval.eval_expr(&forms[0])?;
     let printed = print_value_with_eval(&eval, &value);
@@ -161,6 +167,7 @@ fn eval_context_printer_renders_terminal_thread_handles_consistently() -> Result
         EvalError::Signal {
             symbol: intern("parse-error"),
             data: vec![Value::string(err.to_string())],
+            raw_data: None,
         }
     })?;
     let value = eval.eval_expr(&forms[0])?;
@@ -228,6 +235,26 @@ fn signal_with_data_preserves_raw() {
         }
         _ => panic!("expected Flow::Signal"),
     }
+}
+
+#[test]
+fn make_signal_binding_value_preserves_raw_payload_shape() {
+    use super::{Flow, make_signal_binding_value, signal_with_data};
+
+    let flow = signal_with_data("error", Value::Int(1));
+    let Flow::Signal(sig) = flow else { panic!() };
+    assert_eq!(
+        make_signal_binding_value(&sig),
+        Value::cons(Value::symbol("error"), Value::Int(1))
+    );
+}
+
+#[test]
+fn format_eval_result_preserves_raw_signal_payload_shape() {
+    use super::{format_eval_result, map_flow, signal_with_data};
+
+    let result = Err(map_flow(signal_with_data("error", Value::Int(1))));
+    assert_eq!(format_eval_result(&result), "ERR (error 1)");
 }
 
 #[test]

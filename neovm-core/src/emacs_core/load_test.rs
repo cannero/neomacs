@@ -212,7 +212,7 @@ fn bootstrap_fixture_path(
 
 fn format_eval_error(eval: &Context, err: &EvalError) -> String {
     match err {
-        EvalError::Signal { symbol, data } => {
+        EvalError::Signal { symbol, data, .. } => {
             let mut items = Vec::with_capacity(data.len() + 1);
             items.push(Value::Symbol(*symbol));
             items.extend(data.iter().copied());
@@ -2661,7 +2661,7 @@ fn load_file_single_line_shebang_signals_end_of_file() {
     let mut eval = super::super::eval::Context::new();
     let err = load_file(&mut eval, &file).expect_err("shebang-only source should signal EOF");
     match err {
-        EvalError::Signal { symbol, data } => {
+        EvalError::Signal { symbol, data, .. } => {
             assert_eq!(resolve_sym(symbol), "end-of-file");
             assert!(data.is_empty());
         }
@@ -5151,7 +5151,7 @@ fn macroexpand_all_pcase_terminates() {
             let path = find_file_in_load_path(name, load_path).expect(name);
             load_file(eval, &path).unwrap_or_else(|e| {
                 let msg = match &e {
-                    EvalError::Signal { symbol, data } => {
+                    EvalError::Signal { symbol, data, .. } => {
                         let sym = crate::emacs_core::intern::resolve_sym(*symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
@@ -5392,7 +5392,7 @@ fn pcase_integer_literal_pattern() {
             let path = find_file_in_load_path(name, load_path).expect(name);
             load_file(eval, &path).unwrap_or_else(|e| {
                 let msg = match &e {
-                    EvalError::Signal { symbol, data } => {
+                    EvalError::Signal { symbol, data, .. } => {
                         let sym = crate::emacs_core::intern::resolve_sym(*symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
@@ -5592,7 +5592,7 @@ fn key_parse_modifier_bits() {
             Ok(val) => tracing::debug!("  OK: {desc}: {expr_str} => {val}"),
             Err(e) => {
                 let msg = match &e {
-                    EvalError::Signal { symbol, data } => {
+                    EvalError::Signal { symbol, data, .. } => {
                         let sym = super::super::intern::resolve_sym(*symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
@@ -5611,7 +5611,7 @@ fn key_parse_modifier_bits() {
         super::super::parser::parse_forms("(key-parse \"C-x\")").expect("parse key-parse call");
     let result = eval.eval_expr(&forms[0]);
     match &result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             let sym = super::super::intern::resolve_sym(*symbol);
             let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
             panic!("key-parse \"C-x\" failed: ({sym} {})", data_strs.join(" "));

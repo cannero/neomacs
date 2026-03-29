@@ -106,13 +106,15 @@ pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &s
         if let Some(mexp_fn) = macroexpand_fn {
             let form_value = eval.quote_to_runtime_value(form);
             super::load::eager_expand_eval(eval, form_value, mexp_fn).map_err(|e| match e {
-                super::error::EvalError::Signal { symbol, data } => {
-                    super::error::Flow::Signal(super::error::SignalData {
-                        symbol,
-                        data,
-                        raw_data: None,
-                    })
-                }
+                super::error::EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => super::error::Flow::Signal(super::error::SignalData {
+                    symbol,
+                    data,
+                    raw_data,
+                }),
                 super::error::EvalError::UncaughtThrow { tag, value } => {
                     super::error::Flow::Throw { tag, value }
                 }
@@ -299,11 +301,15 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         match super::load::source_lexical_binding_for_load(eval, &source, Some(buffer_value)) {
             Ok(enabled) => enabled,
             Err(err) => match err {
-                super::error::EvalError::Signal { symbol, data } => {
+                super::error::EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => {
                     return Err(super::error::Flow::Signal(super::error::SignalData {
                         symbol,
                         data,
-                        raw_data: None,
+                        raw_data,
                     }));
                 }
                 super::error::EvalError::UncaughtThrow { tag, value } => {

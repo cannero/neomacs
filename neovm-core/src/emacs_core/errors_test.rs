@@ -419,6 +419,30 @@ fn builtin_signal_with_data() {
 }
 
 #[test]
+fn builtin_signal_atom_preserves_raw_payload() {
+    let mut eval = super::super::eval::Context::new();
+    let result = builtin_signal(&mut eval, vec![Value::symbol("error"), Value::Int(1)]);
+    match result {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(sig.data, vec![Value::Int(1)]);
+            assert_eq!(sig.raw_data, Some(Value::Int(1)));
+        }
+        _ => panic!("expected signal"),
+    }
+}
+
+#[test]
+fn condition_case_preserves_raw_signal_binding_shape() {
+    let mut eval = super::super::eval::Context::new();
+    let forms = parse_forms("(condition-case err (signal 'error 1) (error err))").expect("parse");
+    let value = eval
+        .eval_expr(&forms[0])
+        .expect("condition-case should catch signal");
+    assert_eq!(value, Value::cons(Value::symbol("error"), Value::Int(1)));
+}
+
+#[test]
 fn builtin_signal_wrong_arity() {
     let mut eval = super::super::eval::Context::new();
     let result = builtin_signal(&mut eval, vec![Value::symbol("error")]);

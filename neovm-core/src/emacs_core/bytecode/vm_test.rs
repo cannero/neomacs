@@ -6433,7 +6433,7 @@ fn vm_fillarray_string_writeback() {
 #[test]
 fn vm_aref_aset_error_parity() {
     with_vm_eval("(aref [10 20 30] -1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "args-out-of-range");
             assert_eq!(
                 data,
@@ -6447,7 +6447,7 @@ fn vm_aref_aset_error_parity() {
     });
 
     with_vm_eval("(aset [10 20 30] -1 99)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "args-out-of-range");
             assert_eq!(
                 data,
@@ -6461,7 +6461,7 @@ fn vm_aref_aset_error_parity() {
     });
 
     with_vm_eval("(aset \"abc\" 1 nil)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("characterp"), Value::Nil]);
         }
@@ -6472,7 +6472,7 @@ fn vm_aref_aset_error_parity() {
 #[test]
 fn vm_builtin_wrong_arity_uses_subr_payload() {
     with_vm_eval("(car)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(data, vec![Value::Subr(intern("car")), Value::Int(0)]);
         }
@@ -6480,7 +6480,7 @@ fn vm_builtin_wrong_arity_uses_subr_payload() {
     });
 
     with_vm_eval("(car 1 2)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(data, vec![Value::Subr(intern("car")), Value::Int(2)]);
         }
@@ -6504,7 +6504,7 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
         .execute(&func, vec![Value::Int(1)])
         .expect_err("bytecode arity must be validated at VM entry");
     match map_flow(err) {
-        EvalError::Signal { symbol, data } => {
+        EvalError::Signal { symbol, data, .. } => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(
                 data,
@@ -6518,7 +6518,7 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
 #[test]
 fn vm_string_compare_type_errors_match_oracle() {
     with_vm_eval("(string= \"ab\" 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("stringp"), Value::Int(1)]);
         }
@@ -6526,7 +6526,7 @@ fn vm_string_compare_type_errors_match_oracle() {
     });
 
     with_vm_eval("(string-lessp \"ab\" 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("stringp"), Value::Int(1)]);
         }
@@ -6537,7 +6537,7 @@ fn vm_string_compare_type_errors_match_oracle() {
 #[test]
 fn vm_list_lookup_type_errors_match_oracle() {
     with_vm_eval("(car 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
@@ -6545,7 +6545,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     });
 
     with_vm_eval("(cdr 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
@@ -6562,7 +6562,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     });
 
     with_vm_eval("(nth 'a '(1 2 3))", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("integerp"), Value::symbol("a")]);
         }
@@ -6570,7 +6570,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     });
 
     with_vm_eval("(nth 1 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
@@ -6578,7 +6578,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     });
 
     with_vm_eval("(nthcdr 'a '(1 2 3))", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("integerp"), Value::symbol("a")]);
         }
@@ -6586,7 +6586,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     });
 
     with_vm_eval("(nthcdr 1 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
@@ -6594,7 +6594,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     });
 
     with_vm_eval("(memq 'a 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
@@ -6602,7 +6602,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     });
 
     with_vm_eval("(assq 'a 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
@@ -6613,7 +6613,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
 #[test]
 fn vm_length_and_symbol_access_type_errors_match_oracle() {
     with_vm_eval("(length '(1 . 2))", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(2)]);
         }
@@ -6621,7 +6621,7 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
     });
 
     with_vm_eval("(symbol-value 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
@@ -6629,7 +6629,7 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
     });
 
     with_vm_eval("(symbol-plist 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
@@ -6637,7 +6637,7 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
     });
 
     with_vm_eval("(symbol-function 1)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
@@ -7326,7 +7326,7 @@ fn vm_region_bounds_use_shared_mark_state() {
 #[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
@@ -7334,7 +7334,7 @@ fn vm_symbol_mutator_type_errors_match_oracle() {
     });
 
     with_vm_eval("(fset 1 2)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
@@ -7342,7 +7342,7 @@ fn vm_symbol_mutator_type_errors_match_oracle() {
     });
 
     with_vm_eval("(get 1 'p)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
@@ -7350,7 +7350,7 @@ fn vm_symbol_mutator_type_errors_match_oracle() {
     });
 
     with_vm_eval("(put 1 'p 2)", false, |result| match result {
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }

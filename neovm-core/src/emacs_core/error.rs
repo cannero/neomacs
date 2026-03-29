@@ -11,21 +11,30 @@ use crate::window::WindowId;
 /// Public-facing evaluation error.
 #[derive(Clone, Debug)]
 pub enum EvalError {
-    Signal { symbol: SymId, data: Vec<Value> },
-    UncaughtThrow { tag: Value, value: Value },
+    Signal {
+        symbol: SymId,
+        data: Vec<Value>,
+        raw_data: Option<Value>,
+    },
+    UncaughtThrow {
+        tag: Value,
+        value: Value,
+    },
 }
 
 impl Display for EvalError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Signal { symbol, data } => {
-                write!(
-                    f,
-                    "signal {} {}",
-                    resolve_sym(*symbol),
-                    super::print::print_value(&Value::list(data.clone()))
-                )
-            }
+            Self::Signal {
+                symbol,
+                data,
+                raw_data,
+            } => write!(
+                f,
+                "signal {} {}",
+                resolve_sym(*symbol),
+                format_signal_payload(raw_data.as_ref(), data),
+            ),
             Self::UncaughtThrow { tag, value } => write!(
                 f,
                 "uncaught throw tag={} value={}",
@@ -89,6 +98,7 @@ pub fn map_flow(flow: Flow) -> EvalError {
         Flow::Signal(sig) => EvalError::Signal {
             symbol: sig.symbol,
             data: sig.data,
+            raw_data: sig.raw_data,
         },
         Flow::Throw { tag, value } => EvalError::UncaughtThrow { tag, value },
     }
@@ -122,12 +132,12 @@ pub(crate) fn make_signal_binding_value(sig: &SignalData) -> Value {
 pub fn format_eval_result(result: &Result<Value, EvalError>) -> String {
     match result {
         Ok(value) => format!("OK {}", super::print::print_value(value)),
-        Err(EvalError::Signal { symbol, data }) => {
-            let payload = if data.is_empty() {
-                "nil".to_string()
-            } else {
-                super::print::print_value(&Value::list(data.clone()))
-            };
+        Err(EvalError::Signal {
+            symbol,
+            data,
+            raw_data,
+        }) => {
+            let payload = format_signal_payload(raw_data.as_ref(), data);
             format!("ERR ({} {})", resolve_sym(*symbol), payload)
         }
         Err(EvalError::UncaughtThrow { tag, value }) => {
@@ -137,6 +147,17 @@ pub fn format_eval_result(result: &Result<Value, EvalError>) -> String {
                 super::print::print_value(value),
             )
         }
+    }
+}
+
+fn format_signal_payload(raw_data: Option<&Value>, data: &[Value]) -> String {
+    if let Some(raw) = raw_data {
+        return super::print::print_value(raw);
+    }
+    if data.is_empty() {
+        "nil".to_string()
+    } else {
+        super::print::print_value(&Value::list(data.to_vec()))
     }
 }
 
@@ -650,6 +671,17 @@ fn print_data_payload_with_eval(eval: &super::eval::Context, data: &[Value]) -> 
     }
 }
 
+fn print_signal_payload_with_eval(
+    eval: &super::eval::Context,
+    raw_data: Option<&Value>,
+    data: &[Value],
+) -> String {
+    if let Some(raw) = raw_data {
+        return print_value_with_eval(eval, raw);
+    }
+    print_data_payload_with_eval(eval, data)
+}
+
 fn append_print_value_bytes_with_eval(
     eval: &super::eval::Context,
     value: &Value,
@@ -666,8 +698,12 @@ pub fn format_eval_result_with_eval(
 ) -> String {
     match result {
         Ok(value) => format!("OK {}", print_value_with_eval(eval, value)),
-        Err(EvalError::Signal { symbol, data }) => {
-            let payload = print_data_payload_with_eval(eval, data);
+        Err(EvalError::Signal {
+            symbol,
+            data,
+            raw_data,
+        }) => {
+            let payload = print_signal_payload_with_eval(eval, raw_data.as_ref(), data);
             format!("ERR ({} {})", resolve_sym(*symbol), payload)
         }
         Err(EvalError::UncaughtThrow { tag, value }) => {
@@ -677,6 +713,28 @@ pub fn format_eval_result_with_eval(
                 print_value_with_eval(eval, value),
             )
         }
+    }
+}
+
+fn append_signal_payload_bytes_with_eval(
+    eval: &super::eval::Context,
+    raw_data: Option<&Value>,
+    data: &[Value],
+    out: &mut Vec<u8>,
+) {
+    if let Some(raw) = raw_data {
+        append_print_value_bytes_with_eval(eval, raw, out);
+    } else if data.is_empty() {
+        out.extend_from_slice(b"nil");
+    } else {
+        out.push(b'(');
+        for (idx, item) in data.iter().enumerate() {
+            if idx > 0 {
+                out.push(b' ');
+            }
+            append_print_value_bytes_with_eval(eval, item, out);
+        }
+        out.push(b')');
     }
 }
 
@@ -695,22 +753,15 @@ pub fn format_eval_result_bytes_with_eval(
             out.extend_from_slice(b"OK ");
             append_print_value_bytes_with_eval(eval, value, &mut out);
         }
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal {
+            symbol,
+            data,
+            raw_data,
+        }) => {
             out.extend_from_slice(b"ERR (");
             out.extend_from_slice(resolve_sym(*symbol).as_bytes());
             out.push(b' ');
-            if data.is_empty() {
-                out.extend_from_slice(b"nil");
-            } else {
-                out.push(b'(');
-                for (idx, item) in data.iter().enumerate() {
-                    if idx > 0 {
-                        out.push(b' ');
-                    }
-                    append_print_value_bytes_with_eval(eval, item, &mut out);
-                }
-                out.push(b')');
-            }
+            append_signal_payload_bytes_with_eval(eval, raw_data.as_ref(), data, &mut out);
             out.push(b')');
         }
         Err(EvalError::UncaughtThrow { tag, value }) => {
