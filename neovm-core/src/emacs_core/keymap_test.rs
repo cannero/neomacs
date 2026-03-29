@@ -68,6 +68,8 @@ fn parse_ctrl_x_ctrl_f_sequence() {
             meta: false,
             shift: false,
             super_: false,
+            hyper: false,
+            alt: false,
         }
     );
     assert_eq!(
