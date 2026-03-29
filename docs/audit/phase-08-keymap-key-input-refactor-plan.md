@@ -352,9 +352,15 @@ Current status:
 - completed: suffix translation replay now keeps reading when a translated
   suffix is still only a prefix key sequence, instead of incorrectly bailing
   out early with an undefined binding
+- completed: shift/downcase fallback for uppercase chars and shifted function
+  keys now replays the buffered key sequence inside the keyboard owner instead
+  of reading a fresh event, and it now drives
+  `this-command-keys-shift-translated`
+- completed: `dont-downcase-last` and undefined-sequence restore now run on the
+  keyboard-owned current sequence buffer instead of evaluator-local return-path
+  glue
 - remaining: full GNU replay/rescan, delayed `switch-frame`, real
-  `dont-downcase-last`, `this-command-keys-shift-translated`, and fake mouse
-  prefix handling
+  `switch-frame` deferral/return, and fake mouse prefix handling
 
 ### Slice E: unify modifier canonicalization
 
@@ -505,6 +511,10 @@ Completed on 2026-03-29:
 - Function-valued translation bindings now execute inside the keyboard owner,
   and suffix translation replay now keeps reading through pending translation
   prefixes instead of returning an incomplete undefined sequence.
+- Shift/downcase fallback now lives in the keyboard owner too: uppercase chars
+  and shifted function keys replay the buffered sequence locally, update
+  `this-command-keys-shift-translated`, and honor `dont-downcase-last` /
+  undefined-sequence restoration without bouncing back through evaluator glue.
 
 Still open:
 
@@ -516,9 +526,9 @@ Still open:
   the remaining display-host reach-through and the keyboard-macro ownership
   split.
 - The keyboard owner still applies translation maps with a thin one-pass loop;
-  GNU's replay/rescan state machine, function-valued translation bindings, and
-  delayed frame-switch handling still need to move over as one coherent Slice D
-  rewrite.
+  GNU's remaining replay/rescan behavior, especially delayed frame-switch
+  handling and fake mouse prefix events, still needs to move over as the rest
+  of Slice D.
 - `input-decode-map` and `local-function-key-map` are still mirrored through
   evaluator globals for Lisp visibility; the next step is to make the keyboard
   owner the clearer source of truth for terminal-local translation state.

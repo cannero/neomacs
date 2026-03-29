@@ -794,6 +794,156 @@ fn read_key_sequence_continues_through_pending_suffix_translation_prefix() {
 }
 
 #[test]
+fn read_key_sequence_shift_translates_uppercase_binding() {
+    let mut ev = Context::new();
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    let setup = parse_forms(
+        r#"(fset 'neomacs-test-shift-translation-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::Int('a' as i64)],
+        Value::symbol("neomacs-test-shift-translation-command"),
+    )
+    .expect("define lowercase command");
+
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::Int('A' as i64));
+
+    let (keys, binding) = ev.read_key_sequence().expect("read shifted key");
+
+    assert_eq!(keys, vec![Value::Int('a' as i64)]);
+    assert_eq!(
+        binding,
+        Value::symbol("neomacs-test-shift-translation-command")
+    );
+    assert_eq!(
+        ev.eval_symbol("this-command-keys-shift-translated")
+            .expect("shift translation flag"),
+        Value::True
+    );
+}
+
+#[test]
+fn read_key_sequence_dont_downcase_last_restores_original_event() {
+    let mut ev = Context::new();
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    let setup = parse_forms(
+        r#"(fset 'neomacs-test-shift-translation-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::Int('a' as i64)],
+        Value::symbol("neomacs-test-shift-translation-command"),
+    )
+    .expect("define lowercase command");
+
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::Int('A' as i64));
+
+    let (keys, binding) = ev
+        .read_key_sequence_with_options(crate::keyboard::ReadKeySequenceOptions::new(
+            Value::Nil,
+            true,
+            false,
+        ))
+        .expect("read shifted key without downcasing");
+
+    assert_eq!(keys, vec![Value::Int('A' as i64)]);
+    assert_eq!(
+        binding,
+        Value::symbol("neomacs-test-shift-translation-command")
+    );
+    assert_eq!(
+        ev.eval_symbol("this-command-keys-shift-translated")
+            .expect("shift translation flag"),
+        Value::Nil
+    );
+}
+
+#[test]
+fn read_key_sequence_undefined_shift_translation_restores_original_event() {
+    let mut ev = Context::new();
+    ev.assign(
+        "global-map",
+        crate::emacs_core::keymap::make_sparse_list_keymap(),
+    );
+
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::Int('A' as i64));
+
+    let (keys, binding) = ev.read_key_sequence().expect("read undefined shifted key");
+
+    assert_eq!(keys, vec![Value::Int('A' as i64)]);
+    assert_eq!(binding, Value::symbol("self-insert-command"));
+    assert_eq!(
+        ev.eval_symbol("this-command-keys-shift-translated")
+            .expect("shift translation flag"),
+        Value::Nil
+    );
+}
+
+#[test]
+fn read_key_sequence_shift_translates_shifted_function_key() {
+    let mut ev = Context::new();
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    let setup = parse_forms(
+        r#"(fset 'neomacs-test-shifted-function-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::symbol("f1")],
+        Value::symbol("neomacs-test-shifted-function-command"),
+    )
+    .expect("define function-key command");
+
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::symbol("S-f1"));
+
+    let (keys, binding) = ev
+        .read_key_sequence()
+        .expect("read shifted function-key sequence");
+
+    assert_eq!(keys, vec![Value::symbol("f1")]);
+    assert_eq!(
+        binding,
+        Value::symbol("neomacs-test-shifted-function-command")
+    );
+    assert_eq!(
+        ev.eval_symbol("this-command-keys-shift-translated")
+            .expect("shift translation flag"),
+        Value::True
+    );
+}
+
+#[test]
 fn redisplay_preserves_non_resize_input_for_read_char() {
     let mut ev = Context::new();
     let fid = ev

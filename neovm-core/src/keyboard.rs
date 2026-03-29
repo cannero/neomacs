@@ -441,6 +441,12 @@ struct CurrentKeySequenceTranslation {
     has_pending_translation_prefix: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct KeySequenceShiftTranslation {
+    index: usize,
+    original_event: Value,
+}
+
 // ---------------------------------------------------------------------------
 // Keysym conversion (X11/winit keysyms → neovm-core KeyEvent)
 // ---------------------------------------------------------------------------
@@ -1489,6 +1495,159 @@ impl crate::emacs_core::eval::Context {
         })
     }
 
+    fn translate_upper_case_key_bindings_enabled(&self) -> bool {
+        self.eval_symbol("translate-upper-case-key-bindings")
+            .is_ok_and(|value| !value.is_nil())
+    }
+
+    fn shift_translated_key_sequence_event(event: Value) -> Option<Value> {
+        let key_event = crate::emacs_core::keymap::emacs_event_to_key_event(&event)?;
+
+        match key_event {
+            crate::emacs_core::keymap::KeyEvent::Char {
+                code,
+                ctrl,
+                meta,
+                shift,
+                super_,
+                hyper,
+                alt,
+            } => {
+                if shift {
+                    return Some(crate::emacs_core::keymap::key_event_to_emacs_event(
+                        &crate::emacs_core::keymap::KeyEvent::Char {
+                            code,
+                            ctrl,
+                            meta,
+                            shift: false,
+                            super_,
+                            hyper,
+                            alt,
+                        },
+                    ));
+                }
+
+                if !code.is_uppercase() {
+                    return None;
+                }
+
+                let lowered = code.to_lowercase().next().unwrap_or(code);
+                if lowered == code {
+                    return None;
+                }
+
+                Some(crate::emacs_core::keymap::key_event_to_emacs_event(
+                    &crate::emacs_core::keymap::KeyEvent::Char {
+                        code: lowered,
+                        ctrl,
+                        meta,
+                        shift,
+                        super_,
+                        hyper,
+                        alt,
+                    },
+                ))
+            }
+            crate::emacs_core::keymap::KeyEvent::Function {
+                name,
+                ctrl,
+                meta,
+                shift,
+                super_,
+                hyper,
+                alt,
+            } => {
+                if !shift {
+                    return None;
+                }
+
+                Some(crate::emacs_core::keymap::key_event_to_emacs_event(
+                    &crate::emacs_core::keymap::KeyEvent::Function {
+                        name,
+                        ctrl,
+                        meta,
+                        shift: false,
+                        super_,
+                        hyper,
+                        alt,
+                    },
+                ))
+            }
+        }
+    }
+
+    fn apply_shift_translation_to_current_key_sequence(
+        &mut self,
+    ) -> Option<KeySequenceShiftTranslation> {
+        let translated = self
+            .command_loop
+            .keyboard
+            .kboard
+            .current_key_sequence
+            .translated_events()
+            .to_vec();
+        let (index, original_event) = translated
+            .len()
+            .checked_sub(1)
+            .map(|index| (index, translated[index]))?;
+        let translated_event = Self::shift_translated_key_sequence_event(original_event)?;
+        let mut rewritten = translated;
+        rewritten[index] = translated_event;
+        self.command_loop
+            .keyboard
+            .rewrite_key_sequence_translation(rewritten);
+        Some(KeySequenceShiftTranslation {
+            index,
+            original_event,
+        })
+    }
+
+    fn finalize_shift_translated_key_sequence(
+        &mut self,
+        sequence_is_undefined: bool,
+        options: ReadKeySequenceOptions,
+        shift_translation: Option<KeySequenceShiftTranslation>,
+    ) {
+        let mut shift_translated = false;
+
+        if let Some(shift_translation) = shift_translation {
+            let current_len = self
+                .command_loop
+                .keyboard
+                .kboard
+                .current_key_sequence
+                .translated_events()
+                .len();
+            let restore_original =
+                (options.dont_downcase_last || sequence_is_undefined)
+                    && shift_translation.index + 1 == current_len;
+            if restore_original {
+                let mut translated = self
+                    .command_loop
+                    .keyboard
+                    .kboard
+                    .current_key_sequence
+                    .translated_events()
+                    .to_vec();
+                translated[shift_translation.index] = shift_translation.original_event;
+                self.command_loop
+                    .keyboard
+                    .rewrite_key_sequence_translation(translated);
+            } else {
+                shift_translated = true;
+            }
+        }
+
+        self.assign(
+            "this-command-keys-shift-translated",
+            if shift_translated {
+                Value::True
+            } else {
+                Value::Nil
+            },
+        );
+    }
+
     pub(crate) fn apply_resize_input_event(
         &mut self,
         width: u32,
@@ -1599,19 +1758,27 @@ impl crate::emacs_core::eval::Context {
         };
 
         self.command_loop.reset_key_sequence();
+        self.assign("this-command-keys-shift-translated", Value::Nil);
+        let mut shift_translation: Option<KeySequenceShiftTranslation> = None;
+        let mut replay_current_sequence = false;
 
         loop {
-            let emacs_event = self.read_char()?;
-            self.command_loop
-                .keyboard
-                .push_key_sequence_input_event(emacs_event);
+            if replay_current_sequence {
+                replay_current_sequence = false;
+                tracing::debug!("read_key_sequence: replaying buffered sequence");
+            } else {
+                let emacs_event = self.read_char()?;
+                self.command_loop
+                    .keyboard
+                    .push_key_sequence_input_event(emacs_event);
 
-            self.record_input_event(emacs_event);
+                self.record_input_event(emacs_event);
 
-            tracing::debug!(
-                "read_key_sequence: event={} starting translation",
-                crate::emacs_core::print::print_value(&emacs_event)
-            );
+                tracing::debug!(
+                    "read_key_sequence: event={} starting translation",
+                    crate::emacs_core::print::print_value(&emacs_event)
+                );
+            }
 
             let translation = self.apply_translation_maps_to_current_key_sequence(options)?;
             let translated_events = translation.translated_events;
@@ -1626,22 +1793,43 @@ impl crate::emacs_core::eval::Context {
             let resolved =
                 resolve_active_key_binding(self, &translated_events, false, false, None)?;
             let binding = resolved.binding;
+            let lookup_is_undefined =
+                resolved.lookup.is_nil() || resolved.lookup == Value::symbol("undefined");
+            let binding_is_undefined =
+                binding.is_nil() || binding == Value::symbol("undefined");
+            let sequence_is_undefined = lookup_is_undefined || binding_is_undefined;
             tracing::debug!(
                 "read_key_sequence: binding={}",
                 crate::emacs_core::print::print_value(&binding)
             );
 
-            if binding.is_nil() {
+            if sequence_is_undefined {
                 if translation.has_pending_translation_prefix {
                     tracing::debug!(
                         "read_key_sequence: continuing because translation suffix is still a prefix"
                     );
                     continue;
                 }
+                if self.translate_upper_case_key_bindings_enabled()
+                    && let Some(applied_shift_translation) =
+                        self.apply_shift_translation_to_current_key_sequence()
+                {
+                    shift_translation = Some(applied_shift_translation);
+                    replay_current_sequence = true;
+                    tracing::debug!(
+                        "read_key_sequence: replaying after shift/downcase translation"
+                    );
+                    continue;
+                }
+                self.finalize_shift_translated_key_sequence(
+                    sequence_is_undefined,
+                    options,
+                    shift_translation.take(),
+                );
                 let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
                 self.command_loop
                     .set_command_key_sequences(translated.clone(), raw);
-                return Ok((translated, Value::Nil));
+                return Ok((translated, binding));
             }
 
             let is_prefix =
@@ -1664,6 +1852,11 @@ impl crate::emacs_core::eval::Context {
                 continue;
             }
 
+            self.finalize_shift_translated_key_sequence(
+                sequence_is_undefined,
+                options,
+                shift_translation.take(),
+            );
             let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
             self.command_loop
                 .set_command_key_sequences(translated.clone(), raw);
