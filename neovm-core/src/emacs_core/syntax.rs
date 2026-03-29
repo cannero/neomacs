@@ -529,8 +529,17 @@ impl Default for SyntaxTable {
 /// A "word" is a maximal run of characters with syntax class `Word`.
 /// Between words, non-word characters are skipped.
 pub fn forward_word(buf: &Buffer, table: &SyntaxTable, count: i64) -> usize {
+    forward_word_with_options(buf, table, count, false)
+}
+
+fn forward_word_with_options(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    count: i64,
+    honor_properties: bool,
+) -> usize {
     if count < 0 {
-        return backward_word(buf, table, -count);
+        return backward_word_with_options(buf, table, -count, honor_properties);
     }
 
     let text = buf.buffer_string();
@@ -546,11 +555,35 @@ pub fn forward_word(buf: &Buffer, table: &SyntaxTable, count: i64) -> usize {
 
     for _ in 0..count {
         // Skip non-word characters
-        while idx < accessible_len && !matches!(table.char_syntax(chars[idx]), SyntaxClass::Word) {
+        while idx < accessible_len
+            && !matches!(
+                effective_syntax_entry_for_abs_char(
+                    buf,
+                    table,
+                    chars[idx],
+                    accessible_char_start + idx,
+                    honor_properties,
+                )
+                .class,
+                SyntaxClass::Word
+            )
+        {
             idx += 1;
         }
         // Skip word characters
-        while idx < accessible_len && matches!(table.char_syntax(chars[idx]), SyntaxClass::Word) {
+        while idx < accessible_len
+            && matches!(
+                effective_syntax_entry_for_abs_char(
+                    buf,
+                    table,
+                    chars[idx],
+                    accessible_char_start + idx,
+                    honor_properties,
+                )
+                .class,
+                SyntaxClass::Word
+            )
+        {
             idx += 1;
         }
     }
@@ -562,8 +595,17 @@ pub fn forward_word(buf: &Buffer, table: &SyntaxTable, count: i64) -> usize {
 
 /// Move backward over `count` words.  Returns the resulting byte position.
 pub fn backward_word(buf: &Buffer, table: &SyntaxTable, count: i64) -> usize {
+    backward_word_with_options(buf, table, count, false)
+}
+
+fn backward_word_with_options(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    count: i64,
+    honor_properties: bool,
+) -> usize {
     if count < 0 {
-        return forward_word(buf, table, -count);
+        return forward_word_with_options(buf, table, -count, honor_properties);
     }
 
     let text = buf.buffer_string();
@@ -571,19 +613,43 @@ pub fn backward_word(buf: &Buffer, table: &SyntaxTable, count: i64) -> usize {
     let base = buf.point_min();
     let rel_byte = buf.point().saturating_sub(base);
     let mut idx = buf.text.byte_to_char(base + rel_byte) - buf.text.byte_to_char(base);
+    let accessible_char_start = buf.text.byte_to_char(base);
 
     for _ in 0..count {
         // Skip non-word characters backward
-        while idx > 0 && !matches!(table.char_syntax(chars[idx - 1]), SyntaxClass::Word) {
+        while idx > 0
+            && !matches!(
+                effective_syntax_entry_for_abs_char(
+                    buf,
+                    table,
+                    chars[idx - 1],
+                    accessible_char_start + idx - 1,
+                    honor_properties,
+                )
+                .class,
+                SyntaxClass::Word
+            )
+        {
             idx -= 1;
         }
         // Skip word characters backward
-        while idx > 0 && matches!(table.char_syntax(chars[idx - 1]), SyntaxClass::Word) {
+        while idx > 0
+            && matches!(
+                effective_syntax_entry_for_abs_char(
+                    buf,
+                    table,
+                    chars[idx - 1],
+                    accessible_char_start + idx - 1,
+                    honor_properties,
+                )
+                .class,
+                SyntaxClass::Word
+            )
+        {
             idx -= 1;
         }
     }
 
-    let accessible_char_start = buf.text.byte_to_char(base);
     let abs_char = accessible_char_start + idx;
     buf.text.char_to_byte(abs_char)
 }
@@ -596,6 +662,16 @@ pub fn skip_syntax_forward(
     table: &SyntaxTable,
     syntax_chars: &str,
     limit: Option<usize>,
+) -> usize {
+    skip_syntax_forward_with_options(buf, table, syntax_chars, limit, false)
+}
+
+fn skip_syntax_forward_with_options(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    syntax_chars: &str,
+    limit: Option<usize>,
+    honor_properties: bool,
 ) -> usize {
     let classes: Vec<SyntaxClass> = syntax_chars
         .chars()
@@ -620,7 +696,14 @@ pub fn skip_syntax_forward(
         .unwrap_or(accessible_len);
 
     while idx < char_limit {
-        let syn = table.char_syntax(chars[idx]);
+        let syn = effective_syntax_entry_for_abs_char(
+            buf,
+            table,
+            chars[idx],
+            accessible_char_start + idx,
+            honor_properties,
+        )
+        .class;
         if !classes.contains(&syn) {
             break;
         }
@@ -638,6 +721,16 @@ pub fn skip_syntax_backward(
     table: &SyntaxTable,
     syntax_chars: &str,
     limit: Option<usize>,
+) -> usize {
+    skip_syntax_backward_with_options(buf, table, syntax_chars, limit, false)
+}
+
+fn skip_syntax_backward_with_options(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    syntax_chars: &str,
+    limit: Option<usize>,
+    honor_properties: bool,
 ) -> usize {
     let classes: Vec<SyntaxClass> = syntax_chars
         .chars()
@@ -660,7 +753,14 @@ pub fn skip_syntax_backward(
         .unwrap_or(0);
 
     while idx > char_limit {
-        let syn = table.char_syntax(chars[idx - 1]);
+        let syn = effective_syntax_entry_for_abs_char(
+            buf,
+            table,
+            chars[idx - 1],
+            accessible_char_start + idx - 1,
+            honor_properties,
+        )
+        .class;
         if !classes.contains(&syn) {
             break;
         }
@@ -682,6 +782,16 @@ pub fn scan_sexps(
     from: usize,
     count: i64,
 ) -> Result<usize, String> {
+    scan_sexps_with_options(buf, table, from, count, false)
+}
+
+fn scan_sexps_with_options(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    from: usize,
+    count: i64,
+    honor_properties: bool,
+) -> Result<usize, String> {
     if count == 0 {
         return Ok(from);
     }
@@ -695,11 +805,11 @@ pub fn scan_sexps(
 
     if count > 0 {
         for _ in 0..count {
-            idx = scan_sexp_forward(&chars, total_chars, idx, table)?;
+            idx = scan_sexp_forward(buf, &chars, total_chars, idx, table, honor_properties)?;
         }
     } else {
         for _ in 0..(-count) {
-            idx = scan_sexp_backward(&chars, idx, table)?;
+            idx = scan_sexp_backward(buf, &chars, idx, table, honor_properties)?;
         }
     }
 
@@ -708,18 +818,25 @@ pub fn scan_sexps(
 
 /// Scan one sexp forward from char index `start`.
 fn scan_sexp_forward(
+    buf: &Buffer,
     chars: &[char],
     len: usize,
     start: usize,
     table: &SyntaxTable,
+    honor_properties: bool,
 ) -> Result<usize, String> {
     let mut idx = start;
 
     // Skip whitespace and comments
     while idx < len
         && matches!(
-            table.char_syntax(chars[idx]),
-            SyntaxClass::Whitespace | SyntaxClass::Comment | SyntaxClass::EndComment
+            effective_syntax_entry_for_abs_char(buf, table, chars[idx], idx, honor_properties)
+                .class,
+            SyntaxClass::Whitespace
+                | SyntaxClass::Comment
+                | SyntaxClass::EndComment
+                | SyntaxClass::Punctuation
+                | SyntaxClass::Prefix
         )
     {
         idx += 1;
@@ -730,21 +847,19 @@ fn scan_sexp_forward(
     }
 
     let ch = chars[idx];
-    let syn = table.char_syntax(ch);
+    let syn_entry = effective_syntax_entry_for_abs_char(buf, table, ch, idx, honor_properties);
+    let syn = syn_entry.class;
 
     match syn {
         SyntaxClass::Open => {
             // Find matching close, respecting nesting.
-            let open_char = ch;
-            let close_char = table
-                .get_entry(open_char)
-                .and_then(|e| e.matching_char)
-                .unwrap_or(')');
+            let close_char = syn_entry.matching_char.unwrap_or(')');
             let mut depth = 1i32;
             idx += 1;
             while idx < len && depth > 0 {
                 let c = chars[idx];
-                let s = table.char_syntax(c);
+                let s =
+                    effective_syntax_entry_for_abs_char(buf, table, c, idx, honor_properties).class;
                 match s {
                     SyntaxClass::Open => {
                         depth += 1;
@@ -757,7 +872,14 @@ fn scan_sexp_forward(
                         let delim_class = s;
                         idx += 1;
                         while idx < len {
-                            let sc = table.char_syntax(chars[idx]);
+                            let sc = effective_syntax_entry_for_abs_char(
+                                buf,
+                                table,
+                                chars[idx],
+                                idx,
+                                honor_properties,
+                            )
+                            .class;
                             if sc == delim_class
                                 && (s == SyntaxClass::StringFence || chars[idx] == c)
                             {
@@ -795,7 +917,8 @@ fn scan_sexp_forward(
             idx += 1;
             while idx < len {
                 let c = chars[idx];
-                let s = table.char_syntax(c);
+                let s =
+                    effective_syntax_entry_for_abs_char(buf, table, c, idx, honor_properties).class;
                 if s == delim_class && (syn == SyntaxClass::StringFence || c == ch) {
                     break;
                 }
@@ -813,7 +936,14 @@ fn scan_sexp_forward(
             // Scan over a symbol/word sexp.
             while idx < len
                 && matches!(
-                    table.char_syntax(chars[idx]),
+                    effective_syntax_entry_for_abs_char(
+                        buf,
+                        table,
+                        chars[idx],
+                        idx,
+                        honor_properties,
+                    )
+                    .class,
                     SyntaxClass::Word | SyntaxClass::Symbol
                 )
             {
@@ -849,14 +979,31 @@ fn scan_sexp_forward(
 }
 
 /// Scan one sexp backward from char index `start`.
-fn scan_sexp_backward(chars: &[char], start: usize, table: &SyntaxTable) -> Result<usize, String> {
+fn scan_sexp_backward(
+    buf: &Buffer,
+    chars: &[char],
+    start: usize,
+    table: &SyntaxTable,
+    honor_properties: bool,
+) -> Result<usize, String> {
     let mut idx = start;
 
     // Skip whitespace and comments backward
     while idx > 0
         && matches!(
-            table.char_syntax(chars[idx - 1]),
-            SyntaxClass::Whitespace | SyntaxClass::Comment | SyntaxClass::EndComment
+            effective_syntax_entry_for_abs_char(
+                buf,
+                table,
+                chars[idx - 1],
+                idx - 1,
+                honor_properties
+            )
+            .class,
+            SyntaxClass::Whitespace
+                | SyntaxClass::Comment
+                | SyntaxClass::EndComment
+                | SyntaxClass::Punctuation
+                | SyntaxClass::Prefix
         )
     {
         idx -= 1;
@@ -868,21 +1015,19 @@ fn scan_sexp_backward(chars: &[char], start: usize, table: &SyntaxTable) -> Resu
 
     idx -= 1; // move to the character we're examining
     let ch = chars[idx];
-    let syn = table.char_syntax(ch);
+    let syn_entry = effective_syntax_entry_for_abs_char(buf, table, ch, idx, honor_properties);
+    let syn = syn_entry.class;
 
     match syn {
         SyntaxClass::Close => {
             // Find matching open, respecting nesting.
-            let close_char = ch;
-            let open_char = table
-                .get_entry(close_char)
-                .and_then(|e| e.matching_char)
-                .unwrap_or('(');
+            let open_char = syn_entry.matching_char.unwrap_or('(');
             let mut depth = 1i32;
             while idx > 0 && depth > 0 {
                 idx -= 1;
                 let c = chars[idx];
-                let s = table.char_syntax(c);
+                let s =
+                    effective_syntax_entry_for_abs_char(buf, table, c, idx, honor_properties).class;
                 match s {
                     SyntaxClass::Close => {
                         depth += 1;
@@ -896,7 +1041,14 @@ fn scan_sexp_backward(chars: &[char], start: usize, table: &SyntaxTable) -> Resu
                         if idx > 0 {
                             idx -= 1;
                             while idx > 0 {
-                                let sc = table.char_syntax(chars[idx]);
+                                let sc = effective_syntax_entry_for_abs_char(
+                                    buf,
+                                    table,
+                                    chars[idx],
+                                    idx,
+                                    honor_properties,
+                                )
+                                .class;
                                 if sc == delim_class
                                     && (s == SyntaxClass::StringFence || chars[idx] == c)
                                 {
@@ -930,14 +1082,15 @@ fn scan_sexp_backward(chars: &[char], start: usize, table: &SyntaxTable) -> Resu
             idx -= 1;
             while idx > 0 {
                 let c = chars[idx];
-                let s = table.char_syntax(c);
+                let s =
+                    effective_syntax_entry_for_abs_char(buf, table, c, idx, honor_properties).class;
                 if s == delim_class && (syn == SyntaxClass::StringFence || c == ch) {
                     break;
                 }
                 idx -= 1;
             }
             let c = chars[idx];
-            let s = table.char_syntax(c);
+            let s = effective_syntax_entry_for_abs_char(buf, table, c, idx, honor_properties).class;
             if !(s == delim_class && (syn == SyntaxClass::StringFence || c == ch)) {
                 return Err("Scan error: unterminated string".to_string());
             }
@@ -947,7 +1100,14 @@ fn scan_sexp_backward(chars: &[char], start: usize, table: &SyntaxTable) -> Resu
             // Scan backward over word/symbol chars.
             while idx > 0
                 && matches!(
-                    table.char_syntax(chars[idx - 1]),
+                    effective_syntax_entry_for_abs_char(
+                        buf,
+                        table,
+                        chars[idx - 1],
+                        idx - 1,
+                        honor_properties,
+                    )
+                    .class,
                     SyntaxClass::Word | SyntaxClass::Symbol
                 )
             {
@@ -1289,6 +1449,55 @@ fn syntax_table_from_chartable(table: Value) -> Result<SyntaxTable, Flow> {
     }
 
     Ok(compiled)
+}
+
+fn syntax_entry_from_syntax_property(prop: Value, ch: char) -> Option<SyntaxEntry> {
+    if builtin_syntax_table_p(vec![prop]).ok()?.is_truthy() {
+        let raw =
+            super::chartable::builtin_char_table_range(vec![prop, Value::Int(ch as i64)]).ok()?;
+        syntax_entry_from_chartable_entry(&raw)
+    } else {
+        syntax_entry_from_chartable_entry(&prop)
+    }
+}
+
+fn effective_syntax_entry_for_char_at_byte(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    ch: char,
+    byte_pos: usize,
+    honor_properties: bool,
+) -> SyntaxEntry {
+    if honor_properties
+        && let Some(prop) = buf.text.text_props_get_property(byte_pos, "syntax-table")
+        && let Some(entry) = syntax_entry_from_syntax_property(prop, ch)
+    {
+        return entry;
+    }
+
+    table
+        .get_entry(ch)
+        .cloned()
+        .unwrap_or_else(|| SyntaxEntry::simple(table.char_syntax(ch)))
+}
+
+fn effective_syntax_entry_for_abs_char(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    ch: char,
+    abs_char: usize,
+    honor_properties: bool,
+) -> SyntaxEntry {
+    let byte_pos = buf.text.char_to_byte(abs_char);
+    effective_syntax_entry_for_char_at_byte(buf, table, ch, byte_pos, honor_properties)
+}
+
+fn parse_sexp_lookup_properties_enabled(ctx: &super::eval::Context) -> bool {
+    ctx.obarray
+        .symbol_value("parse-sexp-lookup-properties")
+        .copied()
+        .unwrap_or(Value::Nil)
+        .is_truthy()
 }
 
 /// `(syntax-class-to-char CLASS)` — map syntax class code to descriptor char.
@@ -1666,11 +1875,8 @@ pub(crate) fn builtin_syntax_after_in_buffers(
         return Ok(Value::Nil);
     };
 
-    let entry = buf
-        .syntax_table
-        .get_entry(ch)
-        .cloned()
-        .unwrap_or_else(|| SyntaxEntry::simple(buf.syntax_table.char_syntax(ch)));
+    let entry =
+        effective_syntax_entry_for_char_at_byte(buf, &buf.syntax_table, ch, byte_index, true);
     Ok(syntax_entry_to_value(&entry))
 }
 
@@ -1682,12 +1888,14 @@ pub(crate) fn builtin_forward_comment(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_forward_comment_in_buffers(&mut eval.buffers, args)
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    builtin_forward_comment_in_buffers(&mut eval.buffers, args, honor_properties)
 }
 
 pub(crate) fn builtin_forward_comment_in_buffers(
     buffers: &mut BufferManager,
     args: Vec<Value>,
+    honor_properties: bool,
 ) -> EvalResult {
     if args.len() != 1 {
         return Err(signal(
@@ -1721,17 +1929,17 @@ pub(crate) fn builtin_forward_comment_in_buffers(
     }
 
     if count > 0 {
-        let ok = forward_comment_forward(buf, count as u64);
+        let ok = forward_comment_forward(buf, count as u64, honor_properties);
         return Ok(if ok { Value::True } else { Value::Nil });
     } else {
-        let ok = forward_comment_backward(buf, (-count) as u64);
+        let ok = forward_comment_backward(buf, (-count) as u64, honor_properties);
         return Ok(if ok { Value::True } else { Value::Nil });
     }
 }
 
 /// Skip whitespace and comments forward. Returns true if all `count`
 /// comments were skipped successfully.
-fn forward_comment_forward(buf: &mut Buffer, count: u64) -> bool {
+fn forward_comment_forward(buf: &mut Buffer, count: u64, honor_properties: bool) -> bool {
     let mut remaining = count;
 
     while remaining > 0 {
@@ -1745,9 +1953,14 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64) -> bool {
             let Some(ch) = buf.char_after(pt) else {
                 return false;
             };
-            let entry = buf.syntax_table.get_entry(ch);
-            let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
-            let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+            let entry = effective_syntax_entry_for_char_at_byte(
+                buf,
+                &buf.syntax_table,
+                ch,
+                pt,
+                honor_properties,
+            );
+            let class = entry.class;
 
             if class == SyntaxClass::Whitespace {
                 buf.goto_char(pt + ch.len_utf8());
@@ -1771,16 +1984,22 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64) -> bool {
         let Some(ch) = buf.char_after(pt) else {
             return false;
         };
-        let entry = buf.syntax_table.get_entry(ch);
-        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
-        let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+        let entry = effective_syntax_entry_for_char_at_byte(
+            buf,
+            &buf.syntax_table,
+            ch,
+            pt,
+            honor_properties,
+        );
+        let class = entry.class;
+        let flags = entry.flags;
 
         // Single-char comment start (class `<`).
         if class == SyntaxClass::Comment {
             let style_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
             let nested = flags.contains(SyntaxFlags::COMMENT_NESTABLE);
             buf.goto_char(pt + ch.len_utf8());
-            if !scan_forward_comment_body(buf, style_b, nested) {
+            if !scan_forward_comment_body(buf, style_b, nested, honor_properties) {
                 return false;
             }
             remaining -= 1;
@@ -1791,7 +2010,7 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64) -> bool {
         if class == SyntaxClass::Generic {
             buf.goto_char(pt + ch.len_utf8());
             // Scan forward for matching comment fence.
-            if !scan_forward_comment_fence(buf) {
+            if !scan_forward_comment_fence(buf, honor_properties) {
                 return false;
             }
             remaining -= 1;
@@ -1804,14 +2023,20 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64) -> bool {
             let next_pos = pt + ch.len_utf8();
             if next_pos < max {
                 if let Some(ch2) = buf.char_after(next_pos) {
-                    let entry2 = buf.syntax_table.get_entry(ch2);
-                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    let entry2 = effective_syntax_entry_for_char_at_byte(
+                        buf,
+                        &buf.syntax_table,
+                        ch2,
+                        next_pos,
+                        honor_properties,
+                    );
+                    let flags2 = entry2.flags;
                     if flags2.contains(SyntaxFlags::COMMENT_START_SECOND) {
                         let style_b = flags2.contains(SyntaxFlags::COMMENT_STYLE_B);
                         let nested = flags2.contains(SyntaxFlags::COMMENT_NESTABLE)
                             || flags.contains(SyntaxFlags::COMMENT_NESTABLE);
                         buf.goto_char(next_pos + ch2.len_utf8());
-                        if !scan_forward_comment_body(buf, style_b, nested) {
+                        if !scan_forward_comment_body(buf, style_b, nested, honor_properties) {
                             return false;
                         }
                         remaining -= 1;
@@ -1831,7 +2056,12 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64) -> bool {
 /// Scan forward through comment body until matching comment end.
 /// Point should be positioned right after the comment start.
 /// Returns true if comment end was found.
-fn scan_forward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> bool {
+fn scan_forward_comment_body(
+    buf: &mut Buffer,
+    style_b: bool,
+    nested: bool,
+    honor_properties: bool,
+) -> bool {
     let mut nesting = 1i32;
 
     loop {
@@ -1843,9 +2073,15 @@ fn scan_forward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> b
         let Some(ch) = buf.char_after(pt) else {
             return false;
         };
-        let entry = buf.syntax_table.get_entry(ch);
-        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
-        let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+        let entry = effective_syntax_entry_for_char_at_byte(
+            buf,
+            &buf.syntax_table,
+            ch,
+            pt,
+            honor_properties,
+        );
+        let class = entry.class;
+        let flags = entry.flags;
 
         // Handle escape / charquote.
         if class == SyntaxClass::Escape || class == SyntaxClass::CharQuote {
@@ -1876,8 +2112,14 @@ fn scan_forward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> b
                 let next_pos = pt + ch.len_utf8();
                 if next_pos < buf.point_max() {
                     if let Some(ch2) = buf.char_after(next_pos) {
-                        let entry2 = buf.syntax_table.get_entry(ch2);
-                        let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                        let entry2 = effective_syntax_entry_for_char_at_byte(
+                            buf,
+                            &buf.syntax_table,
+                            ch2,
+                            next_pos,
+                            honor_properties,
+                        );
+                        let flags2 = entry2.flags;
                         if flags2.contains(SyntaxFlags::COMMENT_START_SECOND) {
                             let sf_b = flags2.contains(SyntaxFlags::COMMENT_STYLE_B);
                             if sf_b == style_b {
@@ -1919,8 +2161,14 @@ fn scan_forward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> b
             let next_pos = pt + ch.len_utf8();
             if next_pos < buf.point_max() {
                 if let Some(ch2) = buf.char_after(next_pos) {
-                    let entry2 = buf.syntax_table.get_entry(ch2);
-                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    let entry2 = effective_syntax_entry_for_char_at_byte(
+                        buf,
+                        &buf.syntax_table,
+                        ch2,
+                        next_pos,
+                        honor_properties,
+                    );
+                    let flags2 = entry2.flags;
                     if flags2.contains(SyntaxFlags::COMMENT_END_SECOND) {
                         let se_b = flags2.contains(SyntaxFlags::COMMENT_STYLE_B);
                         if se_b == style_b {
@@ -1941,7 +2189,7 @@ fn scan_forward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> b
 }
 
 /// Scan forward for matching comment fence character.
-fn scan_forward_comment_fence(buf: &mut Buffer) -> bool {
+fn scan_forward_comment_fence(buf: &mut Buffer, honor_properties: bool) -> bool {
     loop {
         let pt = buf.point();
         if pt >= buf.point_max() {
@@ -1950,8 +2198,14 @@ fn scan_forward_comment_fence(buf: &mut Buffer) -> bool {
         let Some(ch) = buf.char_after(pt) else {
             return false;
         };
-        let entry = buf.syntax_table.get_entry(ch);
-        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+        let entry = effective_syntax_entry_for_char_at_byte(
+            buf,
+            &buf.syntax_table,
+            ch,
+            pt,
+            honor_properties,
+        );
+        let class = entry.class;
 
         if class == SyntaxClass::Escape || class == SyntaxClass::CharQuote {
             buf.goto_char(pt + ch.len_utf8());
@@ -1975,7 +2229,7 @@ fn scan_forward_comment_fence(buf: &mut Buffer) -> bool {
 
 /// Skip whitespace and comments backward. Returns true if all `count`
 /// comments were skipped successfully.
-fn forward_comment_backward(buf: &mut Buffer, count: u64) -> bool {
+fn forward_comment_backward(buf: &mut Buffer, count: u64, honor_properties: bool) -> bool {
     let mut remaining = count;
 
     // Outer loop: skip `remaining` comments backward.
@@ -1995,9 +2249,16 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64) -> bool {
             let Some(ch) = buf.char_before(pt) else {
                 return false;
             };
-            let entry = buf.syntax_table.get_entry(ch);
-            let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
-            let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+            let ch_pos = pt - ch.len_utf8();
+            let entry = effective_syntax_entry_for_char_at_byte(
+                buf,
+                &buf.syntax_table,
+                ch,
+                ch_pos,
+                honor_properties,
+            );
+            let class = entry.class;
+            let flags = entry.flags;
 
             let mut code = class;
             let mut comstyle_b = false;
@@ -2013,8 +2274,15 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64) -> bool {
                 let prev_pos = pt - ch.len_utf8();
                 if prev_pos > min {
                     if let Some(ch2) = buf.char_before(prev_pos) {
-                        let entry2 = buf.syntax_table.get_entry(ch2);
-                        let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                        let ch2_pos = prev_pos - ch2.len_utf8();
+                        let entry2 = effective_syntax_entry_for_char_at_byte(
+                            buf,
+                            &buf.syntax_table,
+                            ch2,
+                            ch2_pos,
+                            honor_properties,
+                        );
+                        let flags2 = entry2.flags;
                         if flags2.contains(SyntaxFlags::COMMENT_END_FIRST) {
                             code = SyntaxClass::EndComment;
                             comstyle_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
@@ -2029,7 +2297,7 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64) -> bool {
             // Comment fence backward.
             if code == SyntaxClass::Generic {
                 buf.goto_char(pt - ch.len_utf8());
-                if !scan_backward_comment_fence(buf) {
+                if !scan_backward_comment_fence(buf, honor_properties) {
                     buf.goto_char(pt);
                     return false;
                 }
@@ -2044,7 +2312,7 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64) -> bool {
                     buf.goto_char(pt - ch.len_utf8());
                 }
                 let saved = buf.point();
-                if scan_backward_comment_body(buf, comstyle_b, nested) {
+                if scan_backward_comment_body(buf, comstyle_b, nested, honor_properties) {
                     // Successfully scanned back through the comment body.
                     break;
                 }
@@ -2096,7 +2364,12 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64) -> bool {
 /// finds.  A same-style comment-ender encountered during the scan means
 /// "anything before this belongs to a different comment" and stops the
 /// search.  At the end, point is set to the recorded position.
-fn scan_backward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> bool {
+fn scan_backward_comment_body(
+    buf: &mut Buffer,
+    style_b: bool,
+    nested: bool,
+    honor_properties: bool,
+) -> bool {
     let mut nesting = 1i32;
 
     // For non-nested comments: record the earliest matching comment-start
@@ -2113,9 +2386,16 @@ fn scan_backward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> 
         let Some(ch) = buf.char_before(pt) else {
             break;
         };
-        let entry = buf.syntax_table.get_entry(ch);
-        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
-        let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+        let ch_pos = pt - ch.len_utf8();
+        let entry = effective_syntax_entry_for_char_at_byte(
+            buf,
+            &buf.syntax_table,
+            ch,
+            ch_pos,
+            honor_properties,
+        );
+        let class = entry.class;
+        let flags = entry.flags;
 
         // ── Comment-end (same style) ──────────────────────────────
         // For nested: increases nesting.
@@ -2142,8 +2422,15 @@ fn scan_backward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> 
             let prev_pos = pt - ch.len_utf8();
             if prev_pos > min {
                 if let Some(ch2) = buf.char_before(prev_pos) {
-                    let entry2 = buf.syntax_table.get_entry(ch2);
-                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    let ch2_pos = prev_pos - ch2.len_utf8();
+                    let entry2 = effective_syntax_entry_for_char_at_byte(
+                        buf,
+                        &buf.syntax_table,
+                        ch2,
+                        ch2_pos,
+                        honor_properties,
+                    );
+                    let flags2 = entry2.flags;
                     if flags2.contains(SyntaxFlags::COMMENT_END_FIRST) {
                         let se_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
                         if se_b == style_b {
@@ -2204,8 +2491,15 @@ fn scan_backward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> 
             let prev_pos = pt - ch.len_utf8();
             if prev_pos > min {
                 if let Some(ch2) = buf.char_before(prev_pos) {
-                    let entry2 = buf.syntax_table.get_entry(ch2);
-                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    let ch2_pos = prev_pos - ch2.len_utf8();
+                    let entry2 = effective_syntax_entry_for_char_at_byte(
+                        buf,
+                        &buf.syntax_table,
+                        ch2,
+                        ch2_pos,
+                        honor_properties,
+                    );
+                    let flags2 = entry2.flags;
                     if flags2.contains(SyntaxFlags::COMMENT_START_FIRST) {
                         let sc_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
                         if sc_b == style_b {
@@ -2244,7 +2538,7 @@ fn scan_backward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> 
 }
 
 /// Scan backward for matching comment fence character.
-fn scan_backward_comment_fence(buf: &mut Buffer) -> bool {
+fn scan_backward_comment_fence(buf: &mut Buffer, honor_properties: bool) -> bool {
     loop {
         let pt = buf.point();
         if pt <= buf.point_min() {
@@ -2253,8 +2547,15 @@ fn scan_backward_comment_fence(buf: &mut Buffer) -> bool {
         let Some(ch) = buf.char_before(pt) else {
             return false;
         };
-        let entry = buf.syntax_table.get_entry(ch);
-        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+        let ch_pos = pt - ch.len_utf8();
+        let entry = effective_syntax_entry_for_char_at_byte(
+            buf,
+            &buf.syntax_table,
+            ch,
+            ch_pos,
+            honor_properties,
+        );
+        let class = entry.class;
 
         buf.goto_char(pt - ch.len_utf8());
 
@@ -2269,12 +2570,14 @@ pub(crate) fn builtin_backward_prefix_chars(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_backward_prefix_chars_in_buffers(&mut eval.buffers, args)
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    builtin_backward_prefix_chars_in_buffers(&mut eval.buffers, args, honor_properties)
 }
 
 pub(crate) fn builtin_backward_prefix_chars_in_buffers(
     buffers: &mut BufferManager,
     args: Vec<Value>,
+    honor_properties: bool,
 ) -> EvalResult {
     if !args.is_empty() {
         return Err(signal(
@@ -2301,11 +2604,16 @@ pub(crate) fn builtin_backward_prefix_chars_in_buffers(
         let Some(ch) = buf.char_before(pt) else {
             break;
         };
-        let is_prefix = buf
-            .syntax_table
-            .get_entry(ch)
-            .map(|entry| entry.flags.contains(SyntaxFlags::PREFIX))
-            .unwrap_or(false);
+        let ch_pos = pt - ch.len_utf8();
+        let entry = effective_syntax_entry_for_char_at_byte(
+            buf,
+            &buf.syntax_table,
+            ch,
+            ch_pos,
+            honor_properties,
+        );
+        let is_prefix =
+            entry.class == SyntaxClass::Prefix || entry.flags.contains(SyntaxFlags::PREFIX);
         if !is_prefix {
             break;
         }
@@ -2320,7 +2628,34 @@ pub(crate) fn builtin_forward_word(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_forward_word_in_buffers(&mut eval.buffers, args)
+    let count = if args.is_empty() || args[0].is_nil() {
+        1
+    } else {
+        match &args[0] {
+            Value::Int(n) => *n,
+            other => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("integerp"), *other],
+                ));
+            }
+        }
+    };
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let table = buf.syntax_table.clone();
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    let new_pos = forward_word_with_options(buf, &table, count, honor_properties);
+
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_forward_word_in_buffers(
@@ -2380,7 +2715,8 @@ pub(crate) fn builtin_backward_word(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
-    let new_pos = backward_word(buf, &table, count);
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    let new_pos = backward_word_with_options(buf, &table, count, honor_properties);
 
     let current_id = eval
         .buffers
@@ -2416,7 +2752,8 @@ pub(crate) fn builtin_forward_sexp(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
     let from = buf.point();
-    let new_pos = scan_sexps(buf, &table, from, count)
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    let new_pos = scan_sexps_with_options(buf, &table, from, count, honor_properties)
         .map_err(|msg| signal("scan-error", vec![Value::string(&msg)]))?;
 
     let current_id = eval
@@ -2453,8 +2790,9 @@ pub(crate) fn builtin_backward_sexp(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
     let from = buf.point();
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
     // backward-sexp with positive count => scan_sexps with negative count
-    let new_pos = scan_sexps(buf, &table, from, -count)
+    let new_pos = scan_sexps_with_options(buf, &table, from, -count, honor_properties)
         .map_err(|msg| signal("scan-error", vec![Value::string(&msg)]))?;
 
     let current_id = eval
@@ -2513,7 +2851,8 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
     let from_char = if from > 0 { from as usize - 1 } else { 0 };
     let from_byte = buf.text.char_to_byte(from_char.min(buf.text.char_count()));
 
-    match scan_sexps(buf, &table, from_byte, count) {
+    let honor_properties = parse_sexp_lookup_properties_enabled(ctx);
+    match scan_sexps_with_options(buf, &table, from_byte, count, honor_properties) {
         Ok(new_byte) => Ok(Value::Int(buf.text.byte_to_char(new_byte) as i64 + 1)),
         Err(_) if count < 0 => Ok(Value::Nil),
         Err(msg) => Err(signal("scan-error", vec![Value::string(&msg)])),
@@ -2557,7 +2896,8 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
     let from_char = if from > 0 { from as usize - 1 } else { 0 };
     let from_byte = buf.text.char_to_byte(from_char.min(buf.text.char_count()));
 
-    match scan_sexps(buf, &table, from_byte, count) {
+    let honor_properties = parse_sexp_lookup_properties_enabled(ctx);
+    match scan_sexps_with_options(buf, &table, from_byte, count, honor_properties) {
         Ok(new_byte) => Ok(Value::Int(buf.text.byte_to_char(new_byte) as i64 + 1)),
         Err(_) if count < 0 => Ok(Value::Nil),
         Err(msg) => Err(signal("scan-error", vec![Value::string(&msg)])),
@@ -2739,12 +3079,15 @@ impl PartialParseState {
     }
 }
 
-fn syntax_class_and_flags(table: &SyntaxTable, ch: char) -> (SyntaxClass, SyntaxFlags) {
-    if let Some(entry) = table.get_entry(ch) {
-        (entry.class, entry.flags)
-    } else {
-        (table.char_syntax(ch), SyntaxFlags::empty())
-    }
+fn syntax_class_and_flags(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    ch: char,
+    abs_char: usize,
+    honor_properties: bool,
+) -> (SyntaxClass, SyntaxFlags) {
+    let entry = effective_syntax_entry_for_abs_char(buf, table, ch, abs_char, honor_properties);
+    (entry.class, entry.flags)
 }
 
 fn parse_commentstop_mode(arg: Option<&Value>) -> CommentStopMode {
@@ -2764,8 +3107,10 @@ fn parse_state_from_range_with_options(
     to: i64,
     oldstate: Option<&Value>,
     commentstop: CommentStopMode,
+    honor_properties: bool,
 ) -> (Value, i64) {
     let chars: Vec<char> = buf.buffer_string().chars().collect();
+    let accessible_char_start = buf.text.byte_to_char(buf.point_min());
     let from_idx = if from > 0 { from as usize - 1 } else { 0 }.min(chars.len());
     let to_idx = if to > 0 { to as usize - 1 } else { 0 }.min(chars.len());
 
@@ -2775,7 +3120,13 @@ fn parse_state_from_range_with_options(
     while idx < to_idx {
         let pos1 = (idx + 1) as i64;
         let ch = chars[idx];
-        let (class, flags) = syntax_class_and_flags(table, ch);
+        let (class, flags) = syntax_class_and_flags(
+            buf,
+            table,
+            ch,
+            accessible_char_start + idx,
+            honor_properties,
+        );
 
         if state.quoted {
             state.quoted = false;
@@ -2880,7 +3231,13 @@ fn parse_state_from_range_with_options(
                         }
 
                         if flags.contains(SyntaxFlags::COMMENT_START_FIRST) && idx + 1 < to_idx {
-                            let (_, next_flags) = syntax_class_and_flags(table, chars[idx + 1]);
+                            let (_, next_flags) = syntax_class_and_flags(
+                                buf,
+                                table,
+                                chars[idx + 1],
+                                accessible_char_start + idx + 1,
+                                honor_properties,
+                            );
                             if next_flags.contains(SyntaxFlags::COMMENT_START_SECOND)
                                 && next_flags.contains(SyntaxFlags::COMMENT_STYLE_B) == style_b
                             {
@@ -2917,7 +3274,13 @@ fn parse_state_from_range_with_options(
                     }
 
                     if flags.contains(SyntaxFlags::COMMENT_END_FIRST) && idx + 1 < to_idx {
-                        let (_, next_flags) = syntax_class_and_flags(table, chars[idx + 1]);
+                        let (_, next_flags) = syntax_class_and_flags(
+                            buf,
+                            table,
+                            chars[idx + 1],
+                            accessible_char_start + idx + 1,
+                            honor_properties,
+                        );
                         if next_flags.contains(SyntaxFlags::COMMENT_END_SECOND)
                             && next_flags.contains(SyntaxFlags::COMMENT_STYLE_B) == style_b
                         {
@@ -2947,7 +3310,13 @@ fn parse_state_from_range_with_options(
         }
 
         if flags.contains(SyntaxFlags::COMMENT_START_FIRST) && idx + 1 < to_idx {
-            let (_, next_flags) = syntax_class_and_flags(table, chars[idx + 1]);
+            let (_, next_flags) = syntax_class_and_flags(
+                buf,
+                table,
+                chars[idx + 1],
+                accessible_char_start + idx + 1,
+                honor_properties,
+            );
             if next_flags.contains(SyntaxFlags::COMMENT_START_SECOND) {
                 state.in_comment = Some(ParseCommentState::Syntax {
                     depth: 1,
@@ -3044,7 +3413,7 @@ fn parse_state_from_range_with_options(
 }
 
 fn parse_state_from_range(buf: &Buffer, table: &SyntaxTable, from: i64, to: i64) -> Value {
-    parse_state_from_range_with_options(buf, table, from, to, None, CommentStopMode::None).0
+    parse_state_from_range_with_options(buf, table, from, to, None, CommentStopMode::None, false).0
 }
 
 /// `(parse-partial-sexp FROM TO &optional TARGETDEPTH STOPBEFORE STATE COMMENTSTOP)`
@@ -3096,8 +3465,16 @@ pub(crate) fn builtin_parse_partial_sexp(
     let table = buf.syntax_table.clone();
     let oldstate = args.get(4).filter(|v| !v.is_nil());
     let commentstop = parse_commentstop_mode(args.get(5));
-    let (state, stop_pos) =
-        parse_state_from_range_with_options(buf, &table, from, to, oldstate, commentstop);
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    let (state, stop_pos) = parse_state_from_range_with_options(
+        buf,
+        &table,
+        from,
+        to,
+        oldstate,
+        commentstop,
+        honor_properties,
+    );
     let stop_byte = lisp_pos_to_byte(buf, stop_pos);
     if let Some(buf_mut) = eval.buffers.current_buffer_mut() {
         buf_mut.goto_char(stop_byte);
@@ -3134,7 +3511,17 @@ pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Val
         }
     };
 
-    Ok(parse_state_from_range(buf, &table, 1, pos))
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    Ok(parse_state_from_range_with_options(
+        buf,
+        &table,
+        1,
+        pos,
+        None,
+        CommentStopMode::None,
+        honor_properties,
+    )
+    .0)
 }
 
 /// `(syntax-ppss-flush-cache POS &rest _IGNORED)` — flush parser-state cache.
@@ -3171,12 +3558,14 @@ pub(crate) fn builtin_skip_syntax_forward(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_skip_syntax_forward_in_buffers(&mut eval.buffers, args)
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    builtin_skip_syntax_forward_in_buffers(&mut eval.buffers, args, honor_properties)
 }
 
 pub(crate) fn builtin_skip_syntax_forward_in_buffers(
     buffers: &mut BufferManager,
     args: Vec<Value>,
+    honor_properties: bool,
 ) -> EvalResult {
     if args.is_empty() {
         return Err(signal(
@@ -3212,7 +3601,8 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
     let limit = limit.map(|raw| lisp_pos_to_byte(buf, raw));
-    let new_pos = skip_syntax_forward(buf, &table, &syntax_chars, limit);
+    let new_pos =
+        skip_syntax_forward_with_options(buf, &table, &syntax_chars, limit, honor_properties);
 
     let old_pt = buffers
         .current_buffer()
@@ -3242,12 +3632,14 @@ pub(crate) fn builtin_skip_syntax_backward(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_skip_syntax_backward_in_buffers(&mut eval.buffers, args)
+    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+    builtin_skip_syntax_backward_in_buffers(&mut eval.buffers, args, honor_properties)
 }
 
 pub(crate) fn builtin_skip_syntax_backward_in_buffers(
     buffers: &mut BufferManager,
     args: Vec<Value>,
+    honor_properties: bool,
 ) -> EvalResult {
     if args.is_empty() {
         return Err(signal(
@@ -3283,7 +3675,8 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
     let limit = limit.map(|raw| lisp_pos_to_byte(buf, raw));
-    let new_pos = skip_syntax_backward(buf, &table, &syntax_chars, limit);
+    let new_pos =
+        skip_syntax_backward_with_options(buf, &table, &syntax_chars, limit, honor_properties);
 
     let old_pt = buffers
         .current_buffer()
