@@ -85,10 +85,9 @@ This is not GNU-shaped enough yet.
 
 ### Refreshed audit on latest upstream
 
-Latest upstream re-check on 2026-03-29 at `origin/main` `b7d296abf` still did
-not change the keymap/input owner boundary. The newer upstream work was
-process/PTY support plus missing process builtins, not keyboard/keymap owner
-refactors.
+Latest upstream re-check on 2026-03-29 at `origin/main` `3bf363f32` still did
+not change the keymap/input owner boundary. The newer upstream work was signal
+runtime ownership and condition handling, not keyboard/keymap owner refactors.
 
 So the keymap/input audit remains:
 
@@ -364,8 +363,13 @@ Current status:
   `read_char` emits GNU-shaped `(switch-frame FRAME)` events, and
   `read_key_sequence` now defers them through keyboard-owned
   `unread_switch_frame` state when the current sequence cannot return them yet
+- completed: mouse target-frame identity now survives frontend transport into
+  the keyboard owner, mouse posn synthesis is frame/window aware instead of
+  always falling back to the selected buffer, clicked-window buffer-local maps
+  now participate in active-map lookup, and non-text mouse areas such as the
+  mode line now prefix key lookup through the keyboard-owned sequence path
 - remaining: full GNU replay/rescan around delayed window-selection events and
-  fake mouse prefix handling
+  the remaining non-text mouse-event edge cases
 
 ### Slice E: unify modifier canonicalization
 
@@ -524,6 +528,13 @@ Completed on 2026-03-29:
   and GNU-shaped `(switch-frame FRAME)` events plus keyboard-owned
   `unread_switch_frame` deferral now live under `src/keyboard.rs` instead of
   being dropped as transport-only focus notifications.
+- Frontend mouse transport now preserves target-frame identity too, and the
+  keyboard owner now synthesizes GNU-shaped mouse positions against the clicked
+  frame/window geometry instead of always using the selected window/current
+  buffer.
+- Active-map lookup now uses the clicked window's buffer/local-map context for
+  mouse events, and the keyboard owner prefixes non-text mouse areas such as
+  `mode-line` before calling the keymap owner.
 
 Still open:
 
@@ -536,8 +547,8 @@ Still open:
   split.
 - The keyboard owner still applies translation maps with a thin one-pass loop;
   GNU's remaining replay/rescan behavior, especially delayed window-selection
-  handling and fake mouse prefix events, still needs to move over as the rest
-  of Slice D.
+  handling and the harder mouse-event edge cases, still needs to move over as
+  the rest of Slice D.
 - `input-decode-map` and `local-function-key-map` are still mirrored through
   evaluator globals for Lisp visibility; the next step is to make the keyboard
   owner the clearer source of truth for terminal-local translation state.

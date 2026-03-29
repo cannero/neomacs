@@ -1321,37 +1321,97 @@ pub(crate) fn collect_minor_mode_maps_in_state(
     maps
 }
 
-fn active_map_position_in_current_buffer(
+#[derive(Clone, Copy, Debug)]
+struct ActiveMapPosition {
+    buffer_object: Value,
+    buffer_local_map: Value,
+    char_pos: Option<i64>,
+}
+
+fn active_map_position(
+    frames: &crate::window::FrameManager,
     buffers: &crate::buffer::BufferManager,
     position: Option<&Value>,
-) -> Result<Option<(Value, i64)>, Flow> {
+) -> Result<Option<ActiveMapPosition>, Flow> {
     let Some(buffer) = buffers.current_buffer() else {
         return Ok(None);
     };
 
-    let (char_pos, original_position) = match position {
-        Some(value)
-            if matches!(value, Value::Int(_) | Value::Char(_))
-                || crate::emacs_core::marker::is_marker(value) =>
-        {
-            (expect_integer_or_marker_in_buffers(buffers, value)?, *value)
-        }
-        _ => (
-            buffer.point_char() as i64 + 1,
-            Value::Int(buffer.point_char() as i64 + 1),
-        ),
+    let default_position = ActiveMapPosition {
+        buffer_object: Value::Buffer(buffer.id),
+        buffer_local_map: buffer.local_map(),
+        char_pos: Some(buffer.point_char() as i64 + 1),
     };
 
-    let point_min = buffer.point_min_char() as i64 + 1;
-    let point_max = buffer.point_max_char() as i64 + 1;
-    if char_pos < point_min || char_pos > point_max {
-        return Err(signal(
-            "args-out-of-range",
-            vec![Value::Buffer(buffer.id), original_position],
-        ));
+    let Some(position) = position else {
+        return Ok(Some(default_position));
+    };
+
+    if matches!(position, Value::Int(_) | Value::Char(_))
+        || crate::emacs_core::marker::is_marker(position)
+    {
+        let char_pos = expect_integer_or_marker_in_buffers(buffers, position)?;
+        let point_min = buffer.point_min_char() as i64 + 1;
+        let point_max = buffer.point_max_char() as i64 + 1;
+        if char_pos < point_min || char_pos > point_max {
+            return Err(signal(
+                "args-out-of-range",
+                vec![Value::Buffer(buffer.id), *position],
+            ));
+        }
+
+        return Ok(Some(ActiveMapPosition {
+            buffer_object: Value::Buffer(buffer.id),
+            buffer_local_map: buffer.local_map(),
+            char_pos: Some(char_pos),
+        }));
     }
 
-    Ok(Some((Value::Buffer(buffer.id), char_pos)))
+    let Some(slots) = list_to_vec(position) else {
+        return Ok(Some(default_position));
+    };
+    if slots.len() < 6 {
+        return Ok(Some(default_position));
+    }
+
+    let window_id = match slots[0] {
+        Value::Window(id) => crate::window::WindowId(id),
+        _ => return Ok(Some(default_position)),
+    };
+    let char_pos = slots[5].as_int().or_else(|| slots[1].as_int());
+
+    for frame_id in frames.frame_list() {
+        let Some(frame) = frames.get(frame_id) else {
+            continue;
+        };
+        let Some(window) = frame.find_window(window_id) else {
+            continue;
+        };
+        let Some(buffer_id) = window.buffer_id() else {
+            continue;
+        };
+        let Some(target_buffer) = buffers.get(buffer_id) else {
+            continue;
+        };
+        if let Some(char_pos) = char_pos {
+            let point_min = target_buffer.point_min_char() as i64 + 1;
+            let point_max = target_buffer.point_max_char() as i64 + 1;
+            if char_pos < point_min || char_pos > point_max {
+                return Err(signal(
+                    "args-out-of-range",
+                    vec![Value::Buffer(buffer_id), *position],
+                ));
+            }
+        }
+
+        return Ok(Some(ActiveMapPosition {
+            buffer_object: Value::Buffer(buffer_id),
+            buffer_local_map: target_buffer.local_map(),
+            char_pos,
+        }));
+    }
+
+    Ok(Some(default_position))
 }
 
 fn keymap_property_at_position(
@@ -1381,37 +1441,58 @@ fn keymap_property_at_position(
 
 fn current_local_map_for_position(
     obarray: &Obarray,
+    frames: &crate::window::FrameManager,
     buffers: &crate::buffer::BufferManager,
     fallback_local_map: Value,
     position: Option<&Value>,
 ) -> Result<Value, Flow> {
-    let Some((buffer_object, char_pos)) = active_map_position_in_current_buffer(buffers, position)?
-    else {
+    let Some(active_position) = active_map_position(frames, buffers, position)? else {
         return Ok(fallback_local_map);
     };
 
-    let property =
-        keymap_property_at_position(obarray, buffers, buffer_object, char_pos, "local-map")?;
-    Ok(maybe_keymap_in_obarray(obarray, &property).unwrap_or(fallback_local_map))
+    if let Some(char_pos) = active_position.char_pos {
+        let property = keymap_property_at_position(
+            obarray,
+            buffers,
+            active_position.buffer_object,
+            char_pos,
+            "local-map",
+        )?;
+        return Ok(
+            maybe_keymap_in_obarray(obarray, &property).unwrap_or(active_position.buffer_local_map)
+        );
+    }
+
+    Ok(active_position.buffer_local_map)
 }
 
 fn position_keymap(
     obarray: &Obarray,
+    frames: &crate::window::FrameManager,
     buffers: &crate::buffer::BufferManager,
     position: Option<&Value>,
 ) -> Result<Value, Flow> {
-    let Some((buffer_object, char_pos)) = active_map_position_in_current_buffer(buffers, position)?
-    else {
+    let Some(active_position) = active_map_position(frames, buffers, position)? else {
         return Ok(Value::Nil);
     };
 
-    let property =
-        keymap_property_at_position(obarray, buffers, buffer_object, char_pos, "keymap")?;
+    let Some(char_pos) = active_position.char_pos else {
+        return Ok(Value::Nil);
+    };
+
+    let property = keymap_property_at_position(
+        obarray,
+        buffers,
+        active_position.buffer_object,
+        char_pos,
+        "keymap",
+    )?;
     Ok(maybe_keymap_in_obarray(obarray, &property).unwrap_or(Value::Nil))
 }
 
 fn current_active_maps_from_parts(
     obarray: &Obarray,
+    frames: &crate::window::FrameManager,
     buffers: &crate::buffer::BufferManager,
     current_local_map: Value,
     global_map: Value,
@@ -1436,14 +1517,15 @@ fn current_active_maps_from_parts(
         maps.push(overriding_terminal_local_map);
     }
 
-    let property_keymap = position_keymap(obarray, buffers, position)?;
+    let property_keymap = position_keymap(obarray, frames, buffers, position)?;
     if !property_keymap.is_nil() {
         maps.push(property_keymap);
     }
 
     maps.extend(minor_maps);
 
-    let local_map = current_local_map_for_position(obarray, buffers, current_local_map, position)?;
+    let local_map =
+        current_local_map_for_position(obarray, frames, buffers, current_local_map, position)?;
     if !local_map.is_nil() {
         maps.push(local_map);
     }
@@ -1468,6 +1550,7 @@ pub(crate) fn current_active_maps_for_position(
 
     current_active_maps_from_parts(
         &ctx.obarray,
+        &ctx.frames,
         &ctx.buffers,
         ctx.buffers.current_local_map(),
         global_map,
@@ -1500,6 +1583,7 @@ pub(crate) fn current_active_maps_for_position_read_only(
 
     current_active_maps_from_parts(
         &ctx.obarray,
+        &ctx.frames,
         &ctx.buffers,
         ctx.buffers.current_local_map(),
         global_map,

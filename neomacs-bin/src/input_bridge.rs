@@ -35,6 +35,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             y,
             pressed,
             modifiers,
+            target_frame_id,
             ..
         } => {
             let mb = match button {
@@ -51,17 +52,28 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
                     x,
                     y,
                     modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
+                    target_frame_id,
                 })
             } else {
-                Some(KbInputEvent::MouseRelease { button: mb, x, y })
+                Some(KbInputEvent::MouseRelease {
+                    button: mb,
+                    x,
+                    y,
+                    target_frame_id,
+                })
             }
         }
         DisplayEvent::MouseMove {
-            x, y, modifiers, ..
+            x,
+            y,
+            modifiers,
+            target_frame_id,
+            ..
         } => Some(KbInputEvent::MouseMove {
             x,
             y,
             modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
+            target_frame_id,
         }),
         DisplayEvent::MouseScroll {
             delta_x,
@@ -69,6 +81,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             x,
             y,
             modifiers,
+            target_frame_id,
             ..
         } => Some(KbInputEvent::MouseScroll {
             delta_x,
@@ -76,6 +89,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             x,
             y,
             modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
+            target_frame_id,
         }),
         DisplayEvent::WindowResize {
             width,
@@ -127,15 +141,43 @@ mod tests {
             x: 1.0,
             y: 2.0,
             modifiers: keyboard::RENDER_SHIFT_MASK | keyboard::RENDER_CTRL_MASK,
-            target_frame_id: 0,
+            target_frame_id: 7,
         });
 
         match event {
-            Some(KbInputEvent::MouseMove { modifiers, .. }) => {
+            Some(KbInputEvent::MouseMove {
+                modifiers,
+                target_frame_id,
+                ..
+            }) => {
                 assert!(modifiers.shift);
                 assert!(modifiers.ctrl);
                 assert!(!modifiers.meta);
+                assert_eq!(target_frame_id, 7);
             }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mouse_button_preserves_target_frame_for_keyboard_owner() {
+        let event = convert_display_event(DisplayEvent::MouseButton {
+            button: 1,
+            x: 10.0,
+            y: 20.0,
+            pressed: true,
+            modifiers: 0,
+            target_frame_id: 42,
+            webkit_id: 0,
+            webkit_rel_x: 0,
+            webkit_rel_y: 0,
+        });
+
+        match event {
+            Some(KbInputEvent::MousePress {
+                target_frame_id: 42,
+                ..
+            }) => {}
             other => panic!("unexpected event: {other:?}"),
         }
     }

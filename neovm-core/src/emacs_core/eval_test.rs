@@ -1172,6 +1172,257 @@ fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
 }
 
 #[test]
+fn read_char_mouse_press_uses_clicked_window_geometry() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let fid = ev.frames.selected_frame().expect("selected frame").id;
+    let w1 = ev.frames.get(fid).expect("frame").window_list()[0];
+    let other_buffer = ev.buffers.create_buffer("mouse-click-target");
+    let w2 = ev
+        .frames
+        .split_window(
+            fid,
+            w1,
+            crate::window::SplitDirection::Horizontal,
+            other_buffer,
+            None,
+        )
+        .expect("split window");
+    let _ = ev
+        .buffers
+        .replace_buffer_contents(other_buffer, &"x".repeat(96));
+
+    let (click_x, click_y) = {
+        let frame = ev.frames.get(fid).expect("frame after split");
+        let bounds = *frame.find_window(w2).expect("clicked window").bounds();
+        (bounds.x + 25.0, bounds.y + 10.0)
+    };
+
+    ev.frames
+        .get_mut(fid)
+        .expect("mutable frame")
+        .replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: w2,
+            text_area_left_offset: 5,
+            mode_line_height: 0,
+            header_line_height: 0,
+            tab_line_height: 0,
+            points: vec![crate::window::DisplayPointSnapshot {
+                buffer_pos: 77,
+                x: 20,
+                y: 0,
+                width: 8,
+                height: 16,
+                row: 0,
+                col: 2,
+            }],
+            rows: vec![crate::window::DisplayRowSnapshot {
+                row: 0,
+                y: 0,
+                height: 16,
+                start_buffer_pos: Some(77),
+                end_buffer_pos: Some(77),
+            }],
+        }]);
+
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::MousePress {
+            button: crate::keyboard::MouseButton::Left,
+            x: click_x,
+            y: click_y,
+            modifiers: crate::keyboard::Modifiers::none(),
+            target_frame_id: fid.0,
+        },
+    );
+
+    let event = ev.read_char().expect("read mouse press");
+    let event_slots = crate::emacs_core::value::list_to_vec(&event).expect("event list");
+    let position = event_slots[1];
+    let position_slots = crate::emacs_core::value::list_to_vec(&position).expect("mouse posn list");
+
+    assert_eq!(event_slots[0], Value::symbol("down-mouse-1"));
+    assert_eq!(position_slots[0], Value::Window(w2.0));
+    assert_eq!(position_slots[1], Value::Int(77));
+    assert_eq!(
+        position_slots[2],
+        Value::cons(Value::Int(20), Value::Int(10))
+    );
+    assert_eq!(position_slots[5], Value::Int(77));
+    assert_eq!(position_slots[6], Value::cons(Value::Int(2), Value::Int(0)));
+    assert_eq!(
+        position_slots[9],
+        Value::cons(Value::Int(8), Value::Int(16))
+    );
+}
+
+#[test]
+fn read_key_sequence_uses_clicked_window_local_map_for_mouse_event() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let fid = ev.frames.selected_frame().expect("selected frame").id;
+    let w1 = ev.frames.get(fid).expect("frame").window_list()[0];
+    let other_buffer = ev.buffers.create_buffer("mouse-click-binding");
+    let w2 = ev
+        .frames
+        .split_window(
+            fid,
+            w1,
+            crate::window::SplitDirection::Horizontal,
+            other_buffer,
+            None,
+        )
+        .expect("split window");
+    let _ = ev
+        .buffers
+        .replace_buffer_contents(other_buffer, &"x".repeat(96));
+
+    let setup = parse_forms(
+        r#"(fset 'neomacs-mouse-click-target-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    let local_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.buffers
+        .set_buffer_local_map(other_buffer, local_map)
+        .expect("buffer local map");
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        local_map,
+        &[Value::symbol("mouse-1")],
+        Value::symbol("neomacs-mouse-click-target-command"),
+    )
+    .expect("define mouse binding");
+
+    let (click_x, click_y) = {
+        let frame = ev.frames.get(fid).expect("frame after split");
+        let bounds = *frame.find_window(w2).expect("clicked window").bounds();
+        (bounds.x + 25.0, bounds.y + 10.0)
+    };
+
+    ev.frames
+        .get_mut(fid)
+        .expect("mutable frame")
+        .replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: w2,
+            text_area_left_offset: 5,
+            mode_line_height: 0,
+            header_line_height: 0,
+            tab_line_height: 0,
+            points: vec![crate::window::DisplayPointSnapshot {
+                buffer_pos: 77,
+                x: 20,
+                y: 0,
+                width: 8,
+                height: 16,
+                row: 0,
+                col: 2,
+            }],
+            rows: vec![crate::window::DisplayRowSnapshot {
+                row: 0,
+                y: 0,
+                height: 16,
+                start_buffer_pos: Some(77),
+                end_buffer_pos: Some(77),
+            }],
+        }]);
+
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::MouseRelease {
+            button: crate::keyboard::MouseButton::Left,
+            x: click_x,
+            y: click_y,
+            target_frame_id: fid.0,
+        },
+    );
+
+    let (keys, binding) = ev.read_key_sequence().expect("read mouse sequence");
+    let position = crate::emacs_core::value::list_to_vec(&keys[0]).expect("event list")[1];
+    let position_slots = crate::emacs_core::value::list_to_vec(&position).expect("mouse posn list");
+
+    assert_eq!(binding, Value::symbol("neomacs-mouse-click-target-command"));
+    assert_eq!(position_slots[0], Value::Window(w2.0));
+    assert_eq!(position_slots[5], Value::Int(77));
+}
+
+#[test]
+fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let fid = ev.frames.selected_frame().expect("selected frame").id;
+    let w1 = ev.frames.get(fid).expect("frame").window_list()[0];
+    let other_buffer = ev.buffers.create_buffer("mouse-mode-line-binding");
+    let w2 = ev
+        .frames
+        .split_window(
+            fid,
+            w1,
+            crate::window::SplitDirection::Horizontal,
+            other_buffer,
+            None,
+        )
+        .expect("split window");
+
+    let setup = parse_forms(
+        r#"(fset 'neomacs-mode-line-click-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+
+    let local_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.buffers
+        .set_buffer_local_map(other_buffer, local_map)
+        .expect("buffer local map");
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        local_map,
+        &[Value::symbol("mode-line"), Value::symbol("mouse-1")],
+        Value::symbol("neomacs-mode-line-click-command"),
+    )
+    .expect("define mode-line mouse binding");
+
+    let (click_x, click_y) = {
+        let frame = ev.frames.get(fid).expect("frame after split");
+        let bounds = *frame.find_window(w2).expect("clicked window").bounds();
+        (bounds.x + 25.0, bounds.bottom() - 4.0)
+    };
+
+    ev.frames
+        .get_mut(fid)
+        .expect("mutable frame")
+        .replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: w2,
+            text_area_left_offset: 0,
+            mode_line_height: 18,
+            header_line_height: 0,
+            tab_line_height: 0,
+            points: Vec::new(),
+            rows: Vec::new(),
+        }]);
+
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::MouseRelease {
+            button: crate::keyboard::MouseButton::Left,
+            x: click_x,
+            y: click_y,
+            target_frame_id: fid.0,
+        },
+    );
+
+    let (keys, binding) = ev.read_key_sequence().expect("read mode-line click");
+    let position = crate::emacs_core::value::list_to_vec(&keys[1]).expect("event list")[1];
+    let position_slots = crate::emacs_core::value::list_to_vec(&position).expect("mouse posn list");
+
+    assert_eq!(binding, Value::symbol("neomacs-mode-line-click-command"));
+    assert_eq!(keys[0], Value::symbol("mode-line"));
+    assert_eq!(position_slots[0], Value::Window(w2.0));
+    assert_eq!(position_slots[1], Value::symbol("mode-line"));
+}
+
+#[test]
 fn redisplay_preserves_non_resize_input_for_read_char() {
     let mut ev = Context::new();
     let fid = ev

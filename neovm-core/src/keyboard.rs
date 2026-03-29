@@ -579,14 +579,21 @@ pub enum InputEvent {
         x: f32,
         y: f32,
         modifiers: Modifiers,
+        target_frame_id: u64,
     },
     /// Mouse button release.
-    MouseRelease { button: MouseButton, x: f32, y: f32 },
+    MouseRelease {
+        button: MouseButton,
+        x: f32,
+        y: f32,
+        target_frame_id: u64,
+    },
     /// Mouse movement.
     MouseMove {
         x: f32,
         y: f32,
         modifiers: Modifiers,
+        target_frame_id: u64,
     },
     /// Mouse scroll.
     MouseScroll {
@@ -595,6 +602,7 @@ pub enum InputEvent {
         x: f32,
         y: f32,
         modifiers: Modifiers,
+        target_frame_id: u64,
     },
     /// Window resize.
     Resize {
@@ -1413,6 +1421,24 @@ fn pending_gnu_idle_timer_in_keyboard_runtime(
     })
 }
 
+#[derive(Clone, Copy, Debug)]
+struct MousePosnMetrics {
+    point: Option<i64>,
+    col: Option<i64>,
+    row: Option<i64>,
+    width: Option<i64>,
+    height: Option<i64>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MousePosnDescriptor {
+    window_or_frame: Value,
+    area: Option<&'static str>,
+    x: i64,
+    y: i64,
+    metrics: MousePosnMetrics,
+}
+
 impl crate::emacs_core::eval::Context {
     fn restore_delayed_switch_frame(&mut self, delayed_switch_frame: &mut Option<Value>) {
         if let Some(event) = delayed_switch_frame.take() {
@@ -1850,7 +1876,24 @@ impl crate::emacs_core::eval::Context {
                     return Err(err);
                 }
             };
-            let translated_events = translation.translated_events;
+            let mut translated_events = translation.translated_events;
+
+            if self
+                .command_loop
+                .keyboard
+                .kboard
+                .current_key_sequence
+                .raw_events()
+                .len()
+                == 1
+                && let Some(prefixed) = Self::maybe_prefix_mouse_area(&translated_events)
+            {
+                self.command_loop
+                    .keyboard
+                    .rewrite_key_sequence_translation(prefixed.clone());
+                translated_events = prefixed;
+            }
+            let lookup_position = Self::key_sequence_lookup_position(&translated_events);
 
             tracing::debug!(
                 "read_key_sequence: looking up binding for {:?}",
@@ -1859,14 +1902,19 @@ impl crate::emacs_core::eval::Context {
                     .map(crate::emacs_core::print::print_value)
                     .collect::<Vec<_>>()
             );
-            let resolved =
-                match resolve_active_key_binding(self, &translated_events, false, false, None) {
-                    Ok(resolved) => resolved,
-                    Err(err) => {
-                        self.restore_delayed_switch_frame(&mut delayed_switch_frame);
-                        return Err(err);
-                    }
-                };
+            let resolved = match resolve_active_key_binding(
+                self,
+                &translated_events,
+                false,
+                false,
+                lookup_position.as_ref(),
+            ) {
+                Ok(resolved) => resolved,
+                Err(err) => {
+                    self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+                    return Err(err);
+                }
+            };
             let binding = resolved.binding;
             let lookup_is_undefined =
                 resolved.lookup.is_nil() || resolved.lookup == Value::symbol("undefined");
@@ -2083,16 +2131,36 @@ impl crate::emacs_core::eval::Context {
                     x,
                     y,
                     modifiers,
+                    target_frame_id,
                 } => {
                     self.clear_current_message();
-                    let event =
-                        Self::make_mouse_event(&button, x, y, &modifiers, "down-mouse", self);
+                    let event = Self::make_mouse_event(
+                        &button,
+                        x,
+                        y,
+                        target_frame_id,
+                        &modifiers,
+                        "down-mouse",
+                        self,
+                    );
                     return Ok(event);
                 }
-                InputEvent::MouseRelease { button, x, y } => {
+                InputEvent::MouseRelease {
+                    button,
+                    x,
+                    y,
+                    target_frame_id,
+                } => {
                     self.clear_current_message();
-                    let event =
-                        Self::make_mouse_event(&button, x, y, &Modifiers::none(), "mouse", self);
+                    let event = Self::make_mouse_event(
+                        &button,
+                        x,
+                        y,
+                        target_frame_id,
+                        &Modifiers::none(),
+                        "mouse",
+                        self,
+                    );
                     return Ok(event);
                 }
                 InputEvent::MouseScroll {
@@ -2101,6 +2169,7 @@ impl crate::emacs_core::eval::Context {
                     x,
                     y,
                     modifiers,
+                    target_frame_id,
                 } => {
                     let dir = if delta_y > 0.0 {
                         "wheel-up"
@@ -2110,7 +2179,7 @@ impl crate::emacs_core::eval::Context {
                     let mut sym = String::new();
                     Self::append_modifier_prefix(&modifiers, &mut sym);
                     sym.push_str(dir);
-                    let position = Self::make_mouse_position(x, y, self);
+                    let position = Self::make_mouse_position(x, y, target_frame_id, self);
                     return Ok(Value::list(vec![Value::symbol(&sym), position]));
                 }
                 InputEvent::MouseMove { .. } => {
@@ -2129,6 +2198,7 @@ impl crate::emacs_core::eval::Context {
         button: &MouseButton,
         x: f32,
         y: f32,
+        target_frame_id: u64,
         modifiers: &Modifiers,
         prefix: &str,
         eval: &Self,
@@ -2144,24 +2214,288 @@ impl crate::emacs_core::eval::Context {
         Self::append_modifier_prefix(modifiers, &mut sym);
         sym.push_str(&format!("{}-{}", prefix, button_num));
 
-        let position = Self::make_mouse_position(x, y, eval);
+        let position = Self::make_mouse_position(x, y, target_frame_id, eval);
         Value::list(vec![Value::symbol(&sym), position])
     }
 
-    /// Build an Emacs mouse position value.
-    ///
-    /// Returns `(WINDOW POS (X . Y) TIMESTAMP)` where WINDOW is the
-    /// selected window, POS is the current point, and TIMESTAMP is 0.
-    pub(crate) fn make_mouse_position(x: f32, y: f32, eval: &Self) -> Value {
-        let window = eval.eval_symbol("selected-window").unwrap_or(Value::Nil);
-        let window_val = if window.is_nil() { Value::Nil } else { window };
-        let pos = eval
-            .buffers
-            .current_buffer()
-            .map(|buf| Value::Int(buf.point_char() as i64 + 1))
-            .unwrap_or(Value::Int(1));
-        let xy = Value::cons(Value::Int(x as i64), Value::Int(y as i64));
-        Value::list(vec![Value::list(vec![window_val, pos, xy, Value::Int(0)])])
+    fn event_position(event: &Value) -> Option<Value> {
+        let event_slots = crate::emacs_core::value::list_to_vec(event)?;
+        let position = *event_slots.get(1)?;
+        let position_slots = crate::emacs_core::value::list_to_vec(&position)?;
+        (position_slots.len() >= 4).then_some(position)
+    }
+
+    fn key_sequence_lookup_position(events: &[Value]) -> Option<Value> {
+        events.iter().find_map(Self::event_position)
+    }
+
+    fn event_position_area(position: &Value) -> Option<Value> {
+        let slots = crate::emacs_core::value::list_to_vec(position)?;
+        let area_or_pos = *slots.get(1)?;
+        match area_or_pos {
+            Value::Symbol(_) => Some(area_or_pos),
+            Value::Cons(cell) => {
+                let head = crate::emacs_core::value::read_cons(cell).car;
+                head.as_symbol_name().map(|_| head)
+            }
+            _ => None,
+        }
+    }
+
+    fn maybe_prefix_mouse_area(events: &[Value]) -> Option<Vec<Value>> {
+        let first = events.first()?;
+        let position = Self::event_position(first)?;
+        let area = Self::event_position_area(&position)?;
+        let mut prefixed = Vec::with_capacity(events.len() + 1);
+        prefixed.push(area);
+        prefixed.extend_from_slice(events);
+        Some(prefixed)
+    }
+
+    fn window_point(window: &crate::window::Window) -> Option<i64> {
+        match window {
+            crate::window::Window::Leaf { point, .. } => Some(*point as i64),
+            crate::window::Window::Internal { .. } => None,
+        }
+    }
+
+    fn mouse_posn_descriptor_value(desc: MousePosnDescriptor) -> Value {
+        let area_or_pos = match desc.area {
+            Some(area) => Value::symbol(area),
+            None => desc.metrics.point.map(Value::Int).unwrap_or(Value::Nil),
+        };
+        let pos = desc.metrics.point.map(Value::Int).unwrap_or(Value::Nil);
+        let col_row = match (desc.metrics.col, desc.metrics.row) {
+            (Some(col), Some(row)) => Value::cons(Value::Int(col), Value::Int(row)),
+            _ => Value::Nil,
+        };
+        let width_height = match (desc.metrics.width, desc.metrics.height) {
+            (Some(width), Some(height)) => Value::cons(Value::Int(width), Value::Int(height)),
+            _ => Value::Nil,
+        };
+
+        Value::list(vec![
+            desc.window_or_frame,
+            area_or_pos,
+            Value::cons(Value::Int(desc.x), Value::Int(desc.y)),
+            Value::Int(0),
+            Value::Nil,
+            pos,
+            col_row,
+            Value::Nil,
+            Value::cons(Value::Int(0), Value::Int(0)),
+            width_height,
+        ])
+    }
+
+    fn mouse_window_at(
+        frame: &crate::window::Frame,
+        x: f32,
+        y: f32,
+    ) -> Option<crate::window::WindowId> {
+        if let Some(minibuffer) = frame.minibuffer_leaf.as_ref()
+            && minibuffer.bounds().contains(x, y)
+        {
+            return Some(minibuffer.id());
+        }
+        frame.window_at(x, y)
+    }
+
+    fn make_mouse_position(x: f32, y: f32, target_frame_id: u64, eval: &Self) -> Value {
+        let frame_id = if target_frame_id == 0 {
+            match eval.frames.selected_frame() {
+                Some(frame) => frame.id.0,
+                None => 0,
+            }
+        } else {
+            target_frame_id
+        };
+
+        let Some(frame) = (if frame_id == 0 {
+            eval.frames.selected_frame()
+        } else {
+            eval.frames.get(crate::window::FrameId(frame_id))
+        }) else {
+            return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                window_or_frame: Value::Nil,
+                area: None,
+                x: x.round() as i64,
+                y: y.round() as i64,
+                metrics: MousePosnMetrics {
+                    point: None,
+                    col: None,
+                    row: None,
+                    width: None,
+                    height: None,
+                },
+            });
+        };
+
+        let frame_x = x.round() as i64;
+        let frame_y = y.round() as i64;
+        let frame_height = frame.height as i64;
+        let menu_bar_height = frame.menu_bar_height as i64;
+        let tool_bar_height = frame.tool_bar_height as i64;
+        let tab_bar_height = frame.tab_bar_height as i64;
+
+        if menu_bar_height > 0 && frame_y < menu_bar_height {
+            return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                window_or_frame: Value::Frame(frame.id.0),
+                area: Some("menu-bar"),
+                x: frame_x,
+                y: frame_y,
+                metrics: MousePosnMetrics {
+                    point: None,
+                    col: None,
+                    row: None,
+                    width: None,
+                    height: None,
+                },
+            });
+        }
+        if tool_bar_height > 0 && frame_y < menu_bar_height + tool_bar_height {
+            return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                window_or_frame: Value::Frame(frame.id.0),
+                area: Some("tool-bar"),
+                x: frame_x,
+                y: frame_y - menu_bar_height,
+                metrics: MousePosnMetrics {
+                    point: None,
+                    col: None,
+                    row: None,
+                    width: None,
+                    height: None,
+                },
+            });
+        }
+        if tab_bar_height > 0 && frame_y < menu_bar_height + tool_bar_height + tab_bar_height {
+            return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                window_or_frame: Value::Frame(frame.id.0),
+                area: Some("tab-bar"),
+                x: frame_x,
+                y: frame_y - menu_bar_height - tool_bar_height,
+                metrics: MousePosnMetrics {
+                    point: None,
+                    col: None,
+                    row: None,
+                    width: None,
+                    height: None,
+                },
+            });
+        }
+
+        let Some(window_id) = Self::mouse_window_at(frame, x, y) else {
+            return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                window_or_frame: Value::Frame(frame.id.0),
+                area: None,
+                x: frame_x,
+                y: frame_y.min(frame_height.saturating_sub(1)),
+                metrics: MousePosnMetrics {
+                    point: None,
+                    col: None,
+                    row: None,
+                    width: None,
+                    height: None,
+                },
+            });
+        };
+        let Some(window) = frame.find_window(window_id) else {
+            return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                window_or_frame: Value::Frame(frame.id.0),
+                area: None,
+                x: frame_x,
+                y: frame_y,
+                metrics: MousePosnMetrics {
+                    point: None,
+                    col: None,
+                    row: None,
+                    width: None,
+                    height: None,
+                },
+            });
+        };
+
+        let bounds = window.bounds();
+        let window_x = (x - bounds.x).round() as i64;
+        let window_y = (y - bounds.y).round() as i64;
+        let fallback_metrics = MousePosnMetrics {
+            point: Self::window_point(window),
+            col: None,
+            row: None,
+            width: None,
+            height: None,
+        };
+
+        if let Some(snapshot) = frame.window_display_snapshot(window_id) {
+            let tab_line_bottom = snapshot.tab_line_height.max(0);
+            let header_line_bottom =
+                snapshot.tab_line_height.max(0) + snapshot.header_line_height.max(0);
+            let mode_line_top = (bounds.height.round() as i64 - snapshot.mode_line_height.max(0))
+                .max(header_line_bottom);
+
+            if tab_line_bottom > 0 && window_y < tab_line_bottom {
+                return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                    window_or_frame: Value::Window(window_id.0),
+                    area: Some("tab-line"),
+                    x: window_x,
+                    y: window_y,
+                    metrics: fallback_metrics,
+                });
+            }
+            if snapshot.header_line_height > 0 && window_y < header_line_bottom {
+                return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                    window_or_frame: Value::Window(window_id.0),
+                    area: Some("header-line"),
+                    x: window_x,
+                    y: window_y,
+                    metrics: fallback_metrics,
+                });
+            }
+            if snapshot.mode_line_height > 0 && window_y >= mode_line_top {
+                return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                    window_or_frame: Value::Window(window_id.0),
+                    area: Some("mode-line"),
+                    x: window_x,
+                    y: window_y,
+                    metrics: fallback_metrics,
+                });
+            }
+
+            let text_area_x = window_x - snapshot.text_area_left_offset;
+            if let Some(point) = snapshot.point_at_coords(text_area_x, window_y) {
+                return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                    window_or_frame: Value::Window(window_id.0),
+                    area: None,
+                    x: text_area_x,
+                    y: window_y,
+                    metrics: MousePosnMetrics {
+                        point: Some(point.buffer_pos as i64),
+                        col: Some(point.col),
+                        row: Some(point.row),
+                        width: Some(point.width.max(1)),
+                        height: Some(point.height.max(1)),
+                    },
+                });
+            }
+
+            if text_area_x < 0 {
+                return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+                    window_or_frame: Value::Window(window_id.0),
+                    area: Some("left-margin"),
+                    x: window_x,
+                    y: window_y,
+                    metrics: fallback_metrics,
+                });
+            }
+        }
+
+        Self::mouse_posn_descriptor_value(MousePosnDescriptor {
+            window_or_frame: Value::Window(window_id.0),
+            area: None,
+            x: window_x,
+            y: window_y,
+            metrics: fallback_metrics,
+        })
     }
 
     /// Append modifier prefix characters to a symbol name string.
