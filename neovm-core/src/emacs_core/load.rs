@@ -2372,6 +2372,7 @@ fn finalize_cached_bootstrap_eval(
         "installation-directory",
         Value::string(format!("{}/", project_root.to_string_lossy())),
     );
+    eval.clear_top_level_eval_state();
 
     Ok(())
 }
@@ -2451,6 +2452,7 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<()
     for feature in TRANSIENT_RUNTIME_FEATURES {
         eval.remove_feature(feature);
     }
+    eval.clear_top_level_eval_state();
 
     Ok(())
 }
@@ -2675,6 +2677,7 @@ pub fn create_bootstrap_evaluator_with_features(
         // Modern Emacs (27+) defaults to lexical-binding: t for *scratch*
         // and interactive evaluation. Match this for oracle test parity.
         eval.set_lexical_binding(true);
+        eval.clear_top_level_eval_state();
         let _ = eval.frames.delete_frame(bootstrap_frame_id);
         clear_runtime_loader_state(&mut eval);
 

@@ -4849,6 +4849,35 @@ impl Context {
             .set_symbol_value("lexical-binding", Value::bool(enabled));
     }
 
+    /// Reset transient evaluator state at a completed top-level boundary.
+    ///
+    /// GNU reaches interactive/runtime boundaries by unwinding dynamic state
+    /// back to the top level, not by discarding the binding stack.  NeoVM's
+    /// source bootstrap can transiently accumulate bindings, lexical
+    /// environments, and catch state while loading `loadup.el` and early
+    /// startup Lisp, but those structures must be unwound before the
+    /// evaluator is reused.
+    pub(crate) fn clear_top_level_eval_state(&mut self) {
+        self.unbind_to(0);
+        while let Some(saved) = self.saved_lexenvs.pop() {
+            self.lexenv = saved;
+        }
+        self.lexenv = Value::Nil;
+        self.temp_roots.clear();
+        self.catch_tags.clear();
+        self.depth = 0;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn top_level_eval_state_is_clean(&self) -> bool {
+        self.specpdl.is_empty()
+            && self.lexenv.is_nil()
+            && self.saved_lexenvs.is_empty()
+            && self.temp_roots.is_empty()
+            && self.catch_tags.is_empty()
+            && self.depth == 0
+    }
+
     pub(crate) fn set_interpreted_closure_filter_fn(&mut self, filter_fn: Option<Value>) {
         self.interpreted_closure_filter_fn = filter_fn;
         if filter_fn.is_none() {

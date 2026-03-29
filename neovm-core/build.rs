@@ -146,8 +146,17 @@ fn generate_x11_color_table(project_root: &Path, manifest_dir: &Path) {
 }
 
 fn should_hash_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(OsStr::to_str),
-        Some("rs" | "el" | "elc" | "toml")
-    )
+    let Some(ext) = path.extension().and_then(OsStr::to_str) else {
+        return false;
+    };
+    match ext {
+        "rs" => {
+            let stem = path.file_stem().and_then(OsStr::to_str).unwrap_or_default();
+            // Test-only Rust files don't affect the dumped runtime surface and
+            // should not invalidate bootstrap caches.
+            !stem.ends_with("_test")
+        }
+        "el" | "elc" | "toml" => true,
+        _ => false,
+    }
 }

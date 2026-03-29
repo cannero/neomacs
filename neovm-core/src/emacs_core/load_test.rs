@@ -13,6 +13,27 @@ use std::process::Command;
 use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[test]
+fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
+    let eval =
+        create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
+    assert!(
+        eval.top_level_eval_state_is_clean(),
+        "cached bootstrap evaluator should not retain stale lexenv/specpdl state"
+    );
+}
+
+#[test]
+fn runtime_startup_state_clears_top_level_eval_state() {
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    assert!(
+        eval.top_level_eval_state_is_clean(),
+        "runtime startup state should end at a clean top-level evaluator surface"
+    );
+}
+
 /// Legacy bootstrap load sequence, retained for partial-bootstrap test utilities.
 /// The production code now loads loadup.el directly instead.
 const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
