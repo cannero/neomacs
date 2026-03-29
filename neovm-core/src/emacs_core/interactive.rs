@@ -17,6 +17,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::eval::{Context, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::intern::{intern, resolve_sym};
+use super::keyboard::pure::make_event_array_value;
 use super::keymap::{
     KeyEvent, expand_meta_prefix_char_events_in_obarray, format_key_event, format_key_sequence,
     is_list_keymap, key_event_to_emacs_event, list_keymap_for_each_binding, list_keymap_lookup_one,
@@ -3230,105 +3231,66 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) ->
 
 /// `(this-command-keys)` -> string of keys that invoked current command.
 pub(crate) fn builtin_this_command_keys(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_this_command_keys_impl(eval.read_command_keys(), &eval.interactive, args)
+    builtin_this_command_keys_impl(eval.read_command_keys(), args)
 }
 
 pub(crate) fn builtin_this_command_keys_impl(
     read_command_keys: &[Value],
-    interactive: &InteractiveRegistry,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("this-command-keys", &args, 0)?;
     if !read_command_keys.is_empty() {
-        if let Some(rendered) = command_key_events_to_string(read_command_keys) {
-            return Ok(Value::string(rendered));
-        }
-        return Ok(Value::vector(read_command_keys.to_vec()));
+        return Ok(make_event_array_value(read_command_keys));
     }
-
-    let keys = interactive.this_command_keys();
-    Ok(Value::string(keys.join(" ")))
+    Ok(Value::string(""))
 }
 
 /// `(this-command-keys-vector)` -> vector of keys that invoked current command.
 pub(crate) fn builtin_this_command_keys_vector(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_this_command_keys_vector_impl(eval.read_command_keys(), &eval.interactive, args)
+    builtin_this_command_keys_vector_impl(eval.read_command_keys(), args)
 }
 
 pub(crate) fn builtin_this_command_keys_vector_impl(
     read_command_keys: &[Value],
-    interactive: &InteractiveRegistry,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("this-command-keys-vector", &args, 0)?;
     if !read_command_keys.is_empty() {
         return Ok(Value::vector(read_command_keys.to_vec()));
     }
-
-    let keys = interactive.this_command_keys();
-    let vals: Vec<Value> = keys.iter().map(|k| Value::string(k.clone())).collect();
-    Ok(Value::vector(vals))
+    Ok(Value::vector(Vec::<Value>::new()))
 }
 
-fn single_command_key_vector_in_state(
-    read_command_keys: &[Value],
-    interactive: &InteractiveRegistry,
-) -> Value {
+fn single_command_key_vector_in_state(read_command_keys: &[Value]) -> Value {
     if !read_command_keys.is_empty() {
         return Value::vector(read_command_keys.to_vec());
     }
-
-    let joined = interactive.this_command_keys().join(" ");
-    if joined.is_empty() {
-        return Value::vector(Vec::<Value>::new());
-    }
-
-    match super::kbd::parse_kbd_string(&joined) {
-        Ok(Value::Str(id)) => {
-            let text = super::value::with_heap(|h| h.get_string(id).to_owned());
-            Value::vector(
-                text.chars()
-                    .map(|ch| Value::Int(ch as i64))
-                    .collect::<Vec<_>>(),
-            )
-        }
-        Ok(vector @ Value::Vector(_)) => vector,
-        Ok(other) => Value::vector(vec![other]),
-        Err(_) => Value::vector(Vec::<Value>::new()),
-    }
+    Value::vector(Vec::<Value>::new())
 }
 
 fn single_command_key_vector(eval: &Context) -> Value {
-    single_command_key_vector_in_state(eval.read_command_keys(), &eval.interactive)
+    single_command_key_vector_in_state(eval.read_command_keys())
 }
 
 pub(crate) fn builtin_this_single_command_keys_impl(
-    interactive: &InteractiveRegistry,
     read_command_keys: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("this-single-command-keys", &args, 0)?;
-    Ok(single_command_key_vector_in_state(
-        read_command_keys,
-        interactive,
-    ))
+    Ok(single_command_key_vector_in_state(read_command_keys))
 }
 
 pub(crate) fn builtin_this_single_command_raw_keys_impl(
-    interactive: &InteractiveRegistry,
-    read_command_keys: &[Value],
+    read_raw_command_keys: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("this-single-command-raw-keys", &args, 0)?;
-    Ok(single_command_key_vector_in_state(
-        read_command_keys,
-        interactive,
-    ))
+    Ok(single_command_key_vector_in_state(read_raw_command_keys))
 }
 
 /// `(this-single-command-keys)` -> vector of keys that invoked current command.
 pub(crate) fn builtin_this_single_command_keys(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_this_single_command_keys_impl(&eval.interactive, eval.read_command_keys(), args)
+    builtin_this_single_command_keys_impl(eval.read_command_keys(), args)
 }
 
 /// `(this-single-command-raw-keys)` -> vector of raw keys for current command.
@@ -3336,7 +3298,7 @@ pub(crate) fn builtin_this_single_command_raw_keys(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_this_single_command_raw_keys_impl(&eval.interactive, eval.read_command_keys(), args)
+    builtin_this_single_command_raw_keys_impl(eval.read_raw_command_keys(), args)
 }
 
 /// `(clear-this-command-keys &optional KEEP-RECORD)` -> nil.
@@ -3346,19 +3308,6 @@ pub(crate) fn builtin_this_single_command_raw_keys(
 /// by `recent-keys`.
 pub(crate) fn builtin_clear_this_command_keys(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_clear_this_command_keys_in_runtime(eval, args)
-}
-
-fn command_key_events_to_string(events: &[Value]) -> Option<String> {
-    let mut out = String::new();
-    for event in events {
-        let ch = match event {
-            Value::Char(c) => *c,
-            Value::Int(n) if *n >= 0 => char::from_u32(*n as u32)?,
-            _ => return None,
-        };
-        out.push(ch);
-    }
-    Some(out)
 }
 
 pub(crate) trait CommandKeyRuntime {

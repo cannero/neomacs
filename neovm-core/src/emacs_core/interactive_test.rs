@@ -1337,10 +1337,9 @@ fn this_command_keys_empty() {
 #[test]
 fn this_command_keys_after_set() {
     let mut ev = Context::new();
-    ev.interactive
-        .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
+    ev.set_this_command_keys_from_string("ab").unwrap();
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
-    assert_eq!(result.as_str(), Some("C-x C-f"));
+    assert_eq!(result.as_str(), Some("ab"));
 }
 
 #[test]
@@ -1353,22 +1352,20 @@ fn this_command_keys_vector_empty() {
 #[test]
 fn this_command_keys_vector_after_set() {
     let mut ev = Context::new();
-    ev.interactive
-        .set_this_command_keys(vec!["M-x".to_string()]);
+    ev.set_this_command_keys_from_string("x").unwrap();
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
     if let Value::Vector(v) = result {
         let v = with_heap(|h| h.get_vector(v).clone());
         assert_eq!(v.len(), 1);
+        assert_eq!(v[0], Value::Int('x' as i64));
     } else {
         panic!("expected vector");
     }
 }
 
 #[test]
-fn this_command_keys_prefers_read_command_key_chars() {
+fn this_command_keys_uses_read_command_key_chars() {
     let mut ev = Context::new();
-    ev.interactive
-        .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
     ev.set_read_command_keys(vec![Value::Int(97)]);
 
     let text = builtin_this_command_keys(&mut ev, vec![]).unwrap();
@@ -1416,16 +1413,15 @@ fn this_single_command_keys_prefers_read_command_key_vector() {
 }
 
 #[test]
-fn this_single_command_keys_falls_back_to_interactive_descriptions() {
+fn this_single_command_raw_keys_tracks_raw_sequence() {
     let mut ev = Context::new();
-    ev.interactive
-        .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
+    ev.set_command_key_sequences(vec![Value::Int('b' as i64)], vec![Value::Int('a' as i64)]);
 
-    let result = builtin_this_single_command_keys(&mut ev, vec![]).unwrap();
+    let result = builtin_this_single_command_raw_keys(&mut ev, vec![]).unwrap();
     match result {
         Value::Vector(v) => {
             let items = with_heap(|h| h.get_vector(v).clone());
-            assert_eq!(items.as_slice(), &[Value::Int(24), Value::Int(6)]);
+            assert_eq!(items.as_slice(), &[Value::Int('a' as i64)]);
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -1451,16 +1447,32 @@ fn clear_this_command_keys_clears_read_key_context() {
 }
 
 #[test]
-fn clear_this_command_keys_clears_interactive_fallback_context() {
+fn set_this_command_keys_clears_raw_sequence_history() {
     let mut ev = Context::new();
-    ev.interactive
-        .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
+    ev.set_command_key_sequences(vec![Value::Int('q' as i64)], vec![Value::Int('z' as i64)]);
+    ev.set_this_command_keys_from_string("\u{00f8}foo\r")
+        .unwrap();
 
-    let result = builtin_clear_this_command_keys(&mut ev, vec![Value::Int(1)]).unwrap();
-    assert!(result.is_nil());
-
-    let keys = builtin_this_command_keys(&mut ev, vec![]).unwrap();
-    assert_eq!(keys.as_str(), Some(""));
+    let translated = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
+    let raw = builtin_this_single_command_raw_keys(&mut ev, vec![]).unwrap();
+    match translated {
+        Value::Vector(v) => {
+            let items = with_heap(|h| h.get_vector(v).clone());
+            assert_eq!(items[0], Value::Int(('x' as i64) | ((1u32 << 27) as i64)));
+            assert_eq!(items[1], Value::Int('f' as i64));
+            assert_eq!(items[2], Value::Int('o' as i64));
+            assert_eq!(items[3], Value::Int('o' as i64));
+            assert_eq!(items[4], Value::Int('\r' as i64));
+        }
+        other => panic!("expected vector, got {other:?}"),
+    }
+    match raw {
+        Value::Vector(v) => {
+            let items = with_heap(|h| h.get_vector(v).clone());
+            assert!(items.is_empty());
+        }
+        other => panic!("expected vector, got {other:?}"),
+    }
 }
 
 #[test]

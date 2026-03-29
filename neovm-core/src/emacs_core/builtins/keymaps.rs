@@ -1282,5 +1282,5 @@ pub(crate) fn builtin_recent_keys_impl(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("recent-keys", &args, 1)?;
-    Ok(Value::vector(ctx.recent_input_events.as_slice().to_vec()))
+    Ok(Value::vector(ctx.recent_input_events().to_vec()))
 }

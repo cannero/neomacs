@@ -665,10 +665,6 @@ pub struct Context {
     pub(crate) interactive: InteractiveRegistry,
     /// Minibuffer runtime state — active minibuffer stack, prompt metadata, and history.
     pub(crate) minibuffers: MinibufferManager,
-    /// Input events consumed by read* APIs, used by `recent-keys`.
-    pub(crate) recent_input_events: Vec<Value>,
-    /// Last key sequence captured by read-key/read-key-sequence/read-event paths.
-    read_command_keys: Vec<Value>,
     /// Current echo-area message text, mirroring GNU `current-message`.
     current_message: Option<String>,
     /// Window that was selected when the active minibuffer session began.
@@ -1345,8 +1341,6 @@ impl Context {
         ev.custom = CustomManager::new();
         ev.rectangle = RectangleState::new();
         ev.interactive = InteractiveRegistry::new();
-        ev.recent_input_events.clear();
-        ev.read_command_keys.clear();
         ev.command_loop.pending_input_events.clear();
         ev.input_mode_interrupt = false;
         ev.frames = FrameManager::new();
@@ -2901,8 +2895,6 @@ impl Context {
             rectangle: RectangleState::new(),
             interactive: InteractiveRegistry::new(),
             minibuffers: MinibufferManager::new(),
-            recent_input_events: Vec::new(),
-            read_command_keys: Vec::new(),
             current_message: None,
             minibuffer_selected_window: None,
             active_minibuffer_window: None,
@@ -3029,8 +3021,6 @@ impl Context {
             rectangle,
             interactive,
             minibuffers: MinibufferManager::new(),
-            recent_input_events: Vec::new(),
-            read_command_keys: Vec::new(),
             current_message: None,
             minibuffer_selected_window: None,
             active_minibuffer_window: None,
@@ -3105,8 +3095,6 @@ impl Context {
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
         roots.extend(self.catch_tags.iter().cloned());
-        roots.extend(self.recent_input_events.iter().cloned());
-        roots.extend(self.read_command_keys.iter().cloned());
         // Root old_value entries on the specpdl so GC doesn't collect them.
         for entry in &self.specpdl {
             match entry {
@@ -3169,6 +3157,7 @@ impl Context {
         self.buffers.trace_roots(&mut roots);
         self.threads.trace_roots(&mut roots);
         self.kmacro.trace_roots(&mut roots);
+        crate::gc::GcTrace::trace_roots(&self.command_loop, &mut roots);
         self.modes.trace_roots(&mut roots);
         self.frames.trace_roots(&mut roots);
         self.coding_systems.trace_roots(&mut roots);
@@ -3571,7 +3560,6 @@ impl Context {
             if let Some(last) = keys.last() {
                 self.assign("last-command-event", *last);
             }
-            self.read_command_keys = keys;
             tracing::debug!(
                 "command_loop_1: binding={} current_buffer={:?} active_minibuffer_window={:?}",
                 self.this_command_name_for_log(),
@@ -3847,46 +3835,6 @@ impl Context {
         self.obarray
             .symbol_value("lexical-binding")
             .is_some_and(|v| v.is_truthy())
-    }
-
-    pub(crate) fn record_input_event(&mut self, event: Value) {
-        self.assign("last-input-event", event);
-        self.recent_input_events.push(event);
-        if self.recent_input_events.len() > RECENT_INPUT_EVENT_LIMIT {
-            self.recent_input_events.remove(0);
-        }
-    }
-
-    pub(crate) fn record_nonmenu_input_event(&mut self, event: Value) {
-        self.assign("last-nonmenu-event", event);
-    }
-
-    pub(crate) fn recent_input_events(&self) -> &[Value] {
-        &self.recent_input_events
-    }
-
-    pub(crate) fn clear_recent_input_events(&mut self) {
-        self.recent_input_events.clear();
-    }
-
-    pub(crate) fn set_read_command_keys(&mut self, keys: Vec<Value>) {
-        self.read_command_keys = keys;
-    }
-
-    pub(crate) fn clear_read_command_keys(&mut self) {
-        self.read_command_keys.clear();
-    }
-
-    pub(crate) fn read_command_keys(&self) -> &[Value] {
-        &self.read_command_keys
-    }
-
-    pub(crate) fn clear_command_key_state(&mut self, keep_record: bool) {
-        self.clear_read_command_keys();
-        self.interactive.set_this_command_keys(Vec::new());
-        if !keep_record {
-            self.clear_recent_input_events();
-        }
     }
 
     pub(crate) fn current_input_mode_tuple(&self) -> (bool, bool, bool, i64) {

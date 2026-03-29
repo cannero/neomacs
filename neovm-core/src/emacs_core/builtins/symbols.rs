@@ -2285,9 +2285,13 @@ pub(crate) fn builtin_restore_buffer_modified_p(args: Vec<Value>) -> EvalResult 
     Ok(args[0])
 }
 
-pub(crate) fn builtin_set_this_command_keys(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_this_command_keys(
+    eval: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set--this-command-keys", &args, 1)?;
-    let _ = expect_strict_string(&args[0])?;
+    let keys = expect_strict_string(&args[0])?;
+    eval.set_this_command_keys_from_string(&keys)?;
     Ok(Value::Nil)
 }
 

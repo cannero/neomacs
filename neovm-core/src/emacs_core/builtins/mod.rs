@@ -4830,7 +4830,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set--this-command-keys",
-        |_ctx, args| builtin_set_this_command_keys(args),
+        builtin_set_this_command_keys,
         1,
         Some(1),
     );

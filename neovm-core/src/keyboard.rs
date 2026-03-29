@@ -10,6 +10,8 @@
 //! - Pre/post-command hooks
 //! - Prefix argument handling
 
+use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
+use crate::emacs_core::string_escape::decode_storage_char_codes;
 use crate::emacs_core::value::Value;
 use std::collections::VecDeque;
 
@@ -580,6 +582,13 @@ pub struct CommandLoop {
     pub unread_events: VecDeque<Value>,
     /// Current key sequence being accumulated.
     pub current_key_sequence: KeySequence,
+    /// Last translated key sequence read by the command loop or `read-key*`.
+    pub command_keys: Vec<Value>,
+    /// Raw key sequence before translation maps, for GNU
+    /// `this-single-command-raw-keys`.
+    pub raw_command_keys: Vec<Value>,
+    /// Recent input history published through `recent-keys`.
+    pub recent_input_events: Vec<Value>,
     /// Current prefix argument.
     pub prefix_arg: PrefixArg,
     /// The last command executed (symbol name).
@@ -615,6 +624,9 @@ impl CommandLoop {
             pending_input_events: VecDeque::new(),
             unread_events: VecDeque::new(),
             current_key_sequence: KeySequence::new(),
+            command_keys: Vec::new(),
+            raw_command_keys: Vec::new(),
+            recent_input_events: Vec::new(),
             prefix_arg: PrefixArg::None,
             last_command: None,
             this_command: None,
@@ -685,6 +697,48 @@ impl CommandLoop {
         self.current_key_sequence = KeySequence::new();
     }
 
+    pub fn set_command_key_sequences(&mut self, translated: Vec<Value>, raw: Vec<Value>) {
+        self.command_keys = translated;
+        self.raw_command_keys = raw;
+    }
+
+    pub fn set_translated_command_keys(&mut self, keys: Vec<Value>) {
+        self.command_keys = keys;
+    }
+
+    pub fn set_read_command_keys(&mut self, keys: Vec<Value>) {
+        self.command_keys = keys.clone();
+        self.raw_command_keys = keys;
+    }
+
+    pub fn clear_read_command_keys(&mut self) {
+        self.command_keys.clear();
+        self.raw_command_keys.clear();
+    }
+
+    pub fn read_command_keys(&self) -> &[Value] {
+        &self.command_keys
+    }
+
+    pub fn read_raw_command_keys(&self) -> &[Value] {
+        &self.raw_command_keys
+    }
+
+    pub fn record_input_event(&mut self, event: Value) {
+        self.recent_input_events.push(event);
+        if self.recent_input_events.len() > crate::emacs_core::eval::RECENT_INPUT_EVENT_LIMIT {
+            self.recent_input_events.remove(0);
+        }
+    }
+
+    pub fn recent_input_events(&self) -> &[Value] {
+        &self.recent_input_events
+    }
+
+    pub fn clear_recent_input_events(&mut self) {
+        self.recent_input_events.clear();
+    }
+
     /// Start recording a keyboard macro.
     pub fn start_kbd_macro(&mut self) {
         self.defining_kbd_macro = true;
@@ -722,6 +776,19 @@ impl CommandLoop {
 impl Default for CommandLoop {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl crate::gc::GcTrace for CommandLoop {
+    fn trace_roots(&self, roots: &mut Vec<Value>) {
+        roots.extend(self.unread_events.iter().copied());
+        roots.extend(self.command_keys.iter().copied());
+        roots.extend(self.raw_command_keys.iter().copied());
+        roots.extend(self.recent_input_events.iter().copied());
+        roots.extend(self.kbd_macro_events.iter().copied());
+        if let Some(events) = &self.executing_kbd_macro {
+            roots.extend(events.iter().copied());
+        }
     }
 }
 
@@ -1067,9 +1134,11 @@ impl crate::emacs_core::eval::Context {
         use crate::emacs_core::keymap::{is_list_keymap, list_keymap_lookup_seq};
 
         let mut events: Vec<Value> = Vec::new();
+        let mut raw_events: Vec<Value> = Vec::new();
 
         loop {
             let emacs_event = self.read_char()?;
+            raw_events.push(emacs_event);
             events.push(emacs_event);
 
             self.record_input_event(emacs_event);
@@ -1129,6 +1198,8 @@ impl crate::emacs_core::eval::Context {
             );
 
             if binding.is_nil() {
+                self.command_loop
+                    .set_command_key_sequences(events.clone(), raw_events.clone());
                 return Ok((events, Value::Nil));
             }
 
@@ -1160,6 +1231,8 @@ impl crate::emacs_core::eval::Context {
                 continue;
             }
 
+            self.command_loop
+                .set_command_key_sequences(events.clone(), raw_events.clone());
             return Ok((events, binding));
         }
     }
@@ -1702,6 +1775,71 @@ impl crate::emacs_core::eval::Context {
                 }
             }
         }
+    }
+
+    pub(crate) fn record_input_event(&mut self, event: Value) {
+        self.assign("last-input-event", event);
+        self.command_loop.record_input_event(event);
+    }
+
+    pub(crate) fn record_nonmenu_input_event(&mut self, event: Value) {
+        self.assign("last-nonmenu-event", event);
+    }
+
+    pub(crate) fn recent_input_events(&self) -> &[Value] {
+        self.command_loop.recent_input_events()
+    }
+
+    pub(crate) fn clear_recent_input_events(&mut self) {
+        self.command_loop.clear_recent_input_events();
+    }
+
+    pub(crate) fn set_command_key_sequences(&mut self, translated: Vec<Value>, raw: Vec<Value>) {
+        self.command_loop.set_command_key_sequences(translated, raw);
+    }
+
+    pub(crate) fn set_translated_command_keys(&mut self, keys: Vec<Value>) {
+        self.command_loop.set_translated_command_keys(keys);
+    }
+
+    pub(crate) fn set_read_command_keys(&mut self, keys: Vec<Value>) {
+        self.command_loop.set_read_command_keys(keys);
+    }
+
+    pub(crate) fn clear_read_command_keys(&mut self) {
+        self.command_loop.clear_read_command_keys();
+    }
+
+    pub(crate) fn read_command_keys(&self) -> &[Value] {
+        self.command_loop.read_command_keys()
+    }
+
+    pub(crate) fn read_raw_command_keys(&self) -> &[Value] {
+        self.command_loop.read_raw_command_keys()
+    }
+
+    pub(crate) fn clear_command_key_state(&mut self, keep_record: bool) {
+        self.clear_read_command_keys();
+        if !keep_record {
+            self.clear_recent_input_events();
+        }
+    }
+
+    pub(crate) fn set_this_command_keys_from_string(
+        &mut self,
+        keys: &str,
+    ) -> Result<(), crate::emacs_core::error::Flow> {
+        let mut translated = Vec::with_capacity(keys.chars().count());
+        for (idx, code) in decode_storage_char_codes(keys).into_iter().enumerate() {
+            let event = if idx == 0 && code == 248 {
+                Value::Int(('x' as i64) | KEY_CHAR_META)
+            } else {
+                Value::Int(i64::from(code))
+            };
+            translated.push(event);
+        }
+        self.set_command_key_sequences(translated, Vec::new());
+        Ok(())
     }
 }
 

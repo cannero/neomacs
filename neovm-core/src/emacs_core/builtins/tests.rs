@@ -4479,11 +4479,11 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         .expect("builtin restore-buffer-modified-p should evaluate");
     assert!(restore_modified.is_nil());
 
-    let set_command_keys =
-        dispatch_builtin_pure("set--this-command-keys", vec![Value::string("x")])
-            .expect("builtin set--this-command-keys should resolve")
-            .expect("builtin set--this-command-keys should evaluate");
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let set_command_keys = builtin_set_this_command_keys(&mut eval, vec![Value::string("x")])
+        .expect("builtin set--this-command-keys should evaluate");
     assert!(set_command_keys.is_nil());
+    assert_eq!(eval.read_command_keys(), &[Value::Int('x' as i64)]);
 
     let set_auto_saved = dispatch_builtin_pure("set-buffer-auto-saved", vec![])
         .expect("builtin set-buffer-auto-saved should resolve")

@@ -167,6 +167,10 @@ Completed on 2026-03-29:
 - Timer timeout selection, GNU timer firing, and process-output polling for the
   command loop now live in `src/keyboard.rs` too, so the `read_char` wait path
   is no longer evaluator-owned.
+- Command-key history is now keyboard-owned too: `recent-keys`,
+  translated/raw command-key buffers, `set--this-command-keys`, and GNU-style
+  event-array rendering for `this-command-keys` now go through the keyboard
+  subsystem instead of ad hoc interactive-layer formatting.
 
 Still open:
 
@@ -175,7 +179,8 @@ Still open:
   normalization is now centralized.
 - The moved `read_char` / `read_key_sequence` code still reaches through
   `Context` helper/state surfaces that are evaluator-shaped; the next cleanup is
-  the recent-key bookkeeping and remaining display-host/timer reach-through.
+  the remaining display-host reach-through and the keyboard-macro ownership
+  split.
 - Keymap autoload and parent-cycle semantics are still thinner than GNU.
 
 ### Slice 1: Active maps and `key-binding`

@@ -1,7 +1,7 @@
 use crate::emacs_core::{
     error::{Flow, signal},
     intern::resolve_sym,
-    string_escape::encode_nonunicode_char_for_storage,
+    string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage},
     value::{Value, list_to_vec, with_heap},
 };
 
@@ -14,6 +14,40 @@ pub(crate) const KEY_CHAR_ALT: i64 = 0x0400000;
 pub(crate) const KEY_CHAR_MOD_MASK: i64 =
     KEY_CHAR_META | KEY_CHAR_CTRL | KEY_CHAR_SHIFT | KEY_CHAR_SUPER | KEY_CHAR_HYPER | KEY_CHAR_ALT;
 pub(crate) const KEY_CHAR_CODE_MASK: i64 = 0x3FFFFF;
+
+fn event_char_code(event: &Value) -> Option<i64> {
+    match event {
+        Value::Char(ch) => Some(i64::from(*ch as u32)),
+        Value::Int(code) if *code >= 0 => Some(*code),
+        _ => None,
+    }
+}
+
+fn event_char_fits_in_gnu_event_string(code: i64) -> bool {
+    let string_char_mask = KEY_CHAR_META - 1;
+    (code & string_char_mask) < 0o200
+}
+
+pub(crate) fn make_event_array_value(events: &[Value]) -> Value {
+    let mut bytes = Vec::with_capacity(events.len());
+
+    for event in events {
+        let Some(code) = event_char_code(event) else {
+            return Value::vector(events.to_vec());
+        };
+        if !event_char_fits_in_gnu_event_string(code) {
+            return Value::vector(events.to_vec());
+        }
+
+        let mut byte = (code & (KEY_CHAR_META - 1)) as u8;
+        if (code & KEY_CHAR_META) != 0 {
+            byte |= 0x80;
+        }
+        bytes.push(byte);
+    }
+
+    Value::unibyte_string(bytes_to_unibyte_storage_string(&bytes))
+}
 
 fn invalid_single_key_error() -> Flow {
     signal(
