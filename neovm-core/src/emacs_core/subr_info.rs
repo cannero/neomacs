@@ -253,6 +253,14 @@ pub(crate) fn builtin_subr_arity(ctx: &mut super::eval::Context, args: Vec<Value
 
 /// Look up arity from SubrObject registration first, fall back to hardcoded table.
 fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value {
+    let name = resolve_sym(sym_id);
+
+    // GNU Emacs: special forms (UNEVALLED) return (MIN . unevalled).
+    // The Elisp `special-form-p` checks `(eq (cdr (subr-arity x)) 'unevalled)`.
+    if is_special_form(name) {
+        return arity_unevalled(0);
+    }
+
     if let Some(subr) = ctx.subr_slot(sym_id) {
         // If registration has actual arity (not the default 0/None),
         // use it as the authoritative source.
@@ -262,8 +270,8 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
             return arity_cons(min as usize, max.map(|m| m as usize));
         }
     }
-    // Fall back to hardcoded table for builtins still using (0, None)
-    subr_arity_value(resolve_sym(sym_id))
+    // Fall back for builtins still using (0, None)
+    subr_arity_value(name)
 }
 
 /// `(native-comp-function-p OBJECT)` -- return t if OBJECT is a native-compiled
@@ -292,19 +300,15 @@ pub(crate) fn builtin_interpreted_function_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(matches!(&args[0], Value::Lambda(_))))
 }
 
-/// `(special-form-p OBJECT)` -- return t if OBJECT is a symbol that names a
-/// special form.
+/// `(special-form-p OBJECT)` -- return t if OBJECT is a special form.
 ///
-/// Accepts a symbol (including nil/t) and checks it against the evaluator's
-/// special-form table.
+/// GNU Emacs (eval.c): checks if OBJECT is a symbol whose function cell
+/// contains a subr with max_args == UNEVALLED.  NeoVM checks the symbol
+/// name against the evaluator's special-form table.
 pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
     expect_args("special-form-p", &args, 1)?;
     let result = match &args[0] {
-        Value::Symbol(id) => {
-            let name = resolve_sym(*id);
-            lookup_interned(name).is_some_and(|canonical| canonical == *id)
-                && is_public_special_form_name(name)
-        }
+        Value::Symbol(id) => is_public_special_form_name(resolve_sym(*id)),
         Value::Subr(id) => is_public_special_form_name(resolve_sym(*id)),
         _ => false,
     };
