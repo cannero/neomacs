@@ -466,7 +466,15 @@ fn charset_superset_supports_offsets_membership_and_ranges() {
 
 #[test]
 fn find_charset_region_ascii_default() {
-    let r = builtin_find_charset_region_inner(vec![Value::Int(1), Value::Int(100)]).unwrap();
+    let mut eval = super::super::eval::Context::new();
+    {
+        let buf = eval
+            .buffers
+            .current_buffer_mut()
+            .expect("current buffer must exist");
+        buf.insert(&"a".repeat(100));
+    }
+    let r = builtin_find_charset_region(&mut eval, vec![Value::Int(1), Value::Int(100)]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
     assert!(matches!(&items[0], Value::Symbol(id) if resolve_sym(*id) == "ascii"));
@@ -474,22 +482,30 @@ fn find_charset_region_ascii_default() {
 
 #[test]
 fn find_charset_region_with_table() {
-    let r = builtin_find_charset_region_inner(vec![Value::Int(1), Value::Int(100), Value::Nil])
-        .unwrap();
+    let mut eval = super::super::eval::Context::new();
+    {
+        let buf = eval
+            .buffers
+            .current_buffer_mut()
+            .expect("current buffer must exist");
+        buf.insert(&"a".repeat(100));
+    }
+    let r =
+        builtin_find_charset_region(&mut eval, vec![Value::Int(1), Value::Int(100), Value::Nil])
+            .unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
 }
 
 #[test]
 fn find_charset_region_wrong_arg_count() {
-    assert!(builtin_find_charset_region_inner(vec![Value::Int(1)]).is_err());
+    let mut eval = super::super::eval::Context::new();
+    assert!(builtin_find_charset_region(&mut eval, vec![Value::Int(1)]).is_err());
     assert!(
-        builtin_find_charset_region_inner(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
-        ])
+        builtin_find_charset_region(
+            &mut eval,
+            vec![Value::Int(1), Value::Int(2), Value::Nil, Value::Nil,]
+        )
         .is_err()
     );
 }
@@ -909,19 +925,37 @@ fn clear_charset_maps_wrong_arg_count() {
 
 #[test]
 fn charset_after_default_returns_unicode() {
-    let r = builtin_charset_after_inner(vec![]).unwrap();
+    let mut eval = super::super::eval::Context::new();
+    {
+        let buf = eval
+            .buffers
+            .current_buffer_mut()
+            .expect("current buffer must exist");
+        buf.insert("😀");
+        buf.goto_char(buf.point_min());
+    }
+    let r = builtin_charset_after(&mut eval, vec![]).unwrap();
     assert!(matches!(r, Value::Symbol(id) if resolve_sym(id) == "unicode"));
 }
 
 #[test]
 fn charset_after_with_pos() {
-    let r = builtin_charset_after_inner(vec![Value::Int(42)]).unwrap();
+    let mut eval = super::super::eval::Context::new();
+    {
+        let buf = eval
+            .buffers
+            .current_buffer_mut()
+            .expect("current buffer must exist");
+        buf.insert("😀");
+    }
+    let r = builtin_charset_after(&mut eval, vec![Value::Int(1)]).unwrap();
     assert!(matches!(r, Value::Symbol(id) if resolve_sym(id) == "unicode"));
 }
 
 #[test]
 fn charset_after_wrong_arg_count() {
-    assert!(builtin_charset_after_inner(vec![Value::Int(1), Value::Int(2)]).is_err());
+    let mut eval = super::super::eval::Context::new();
+    assert!(builtin_charset_after(&mut eval, vec![Value::Int(1), Value::Int(2)]).is_err());
 }
 
 #[test]

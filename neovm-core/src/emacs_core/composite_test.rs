@@ -2,46 +2,62 @@ use super::*;
 
 #[test]
 fn compose_region_internal_min_args() {
-    let result = builtin_compose_region_internal_inner(vec![Value::Int(1), Value::Int(10)]);
+    let mut eval = super::super::eval::Context::new();
+    {
+        let buffer = eval.buffers.current_buffer_mut().expect("current buffer");
+        buffer.insert("0123456789");
+    }
+    let result = builtin_compose_region_internal(&mut eval, vec![Value::Int(1), Value::Int(10)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn compose_region_internal_max_args() {
-    let result = builtin_compose_region_internal_inner(vec![
-        Value::Int(1),
-        Value::Int(10),
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let mut eval = super::super::eval::Context::new();
+    {
+        let buffer = eval.buffers.current_buffer_mut().expect("current buffer");
+        buffer.insert("0123456789");
+    }
+    let result = builtin_compose_region_internal(
+        &mut eval,
+        vec![Value::Int(1), Value::Int(10), Value::Nil, Value::Nil],
+    );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn compose_region_internal_too_few_args() {
-    let result = builtin_compose_region_internal_inner(vec![Value::Int(1)]);
+    let mut eval = super::super::eval::Context::new();
+    let result = builtin_compose_region_internal(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn compose_region_internal_too_many_args() {
-    let result = builtin_compose_region_internal_inner(vec![
-        Value::Int(1),
-        Value::Int(10),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let mut eval = super::super::eval::Context::new();
+    let result = builtin_compose_region_internal(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(10),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+        ],
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn compose_region_internal_rejects_non_integer_positions() {
-    let result = builtin_compose_region_internal_inner(vec![Value::symbol("x"), Value::Int(10)]);
+    let mut eval = super::super::eval::Context::new();
+    let result =
+        builtin_compose_region_internal(&mut eval, vec![Value::symbol("x"), Value::Int(10)]);
     assert!(result.is_err());
-    let result = builtin_compose_region_internal_inner(vec![Value::Int(1), Value::symbol("y")]);
+    let result =
+        builtin_compose_region_internal(&mut eval, vec![Value::Int(1), Value::symbol("y")]);
     assert!(result.is_err());
 }
 
