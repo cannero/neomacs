@@ -359,8 +359,13 @@ Current status:
 - completed: `dont-downcase-last` and undefined-sequence restore now run on the
   keyboard-owned current sequence buffer instead of evaluator-local return-path
   glue
-- remaining: full GNU replay/rescan, delayed `switch-frame`, real
-  `switch-frame` deferral/return, and fake mouse prefix handling
+- completed: `switch-frame` event transport and deferral now live in the
+  keyboard owner too: frontend focus events preserve `emacs_frame_id`,
+  `read_char` emits GNU-shaped `(switch-frame FRAME)` events, and
+  `read_key_sequence` now defers them through keyboard-owned
+  `unread_switch_frame` state when the current sequence cannot return them yet
+- remaining: full GNU replay/rescan around delayed window-selection events and
+  fake mouse prefix handling
 
 ### Slice E: unify modifier canonicalization
 
@@ -515,6 +520,10 @@ Completed on 2026-03-29:
   and shifted function keys replay the buffered sequence locally, update
   `this-command-keys-shift-translated`, and honor `dont-downcase-last` /
   undefined-sequence restoration without bouncing back through evaluator glue.
+- Frontend focus events now preserve frame identity into the keyboard owner,
+  and GNU-shaped `(switch-frame FRAME)` events plus keyboard-owned
+  `unread_switch_frame` deferral now live under `src/keyboard.rs` instead of
+  being dropped as transport-only focus notifications.
 
 Still open:
 
@@ -526,7 +535,7 @@ Still open:
   the remaining display-host reach-through and the keyboard-macro ownership
   split.
 - The keyboard owner still applies translation maps with a thin one-pass loop;
-  GNU's remaining replay/rescan behavior, especially delayed frame-switch
+  GNU's remaining replay/rescan behavior, especially delayed window-selection
   handling and fake mouse prefix events, still needs to move over as the rest
   of Slice D.
 - `input-decode-map` and `local-function-key-map` are still mirrored through

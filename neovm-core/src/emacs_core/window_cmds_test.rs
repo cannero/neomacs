@@ -2919,8 +2919,11 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-    tx.send(crate::keyboard::InputEvent::Focus(true))
-        .expect("queue focus");
+    tx.send(crate::keyboard::InputEvent::Focus {
+        focused: true,
+        emacs_frame_id: 0,
+    })
+    .expect("queue focus");
     tx.send(crate::keyboard::InputEvent::Resize {
         width: 1500,
         height: 1900,

@@ -310,7 +310,12 @@ fn gnutls_symmetric_encrypt_accepts_optional_aad_slot() {
 }
 
 #[test]
-fn handle_switch_frame_requires_frame_object() {
+fn handle_switch_frame_accepts_switch_frame_event_and_rejects_nil() {
+    let frame_event = Value::list(vec![Value::symbol("switch-frame"), Value::Frame(1)]);
+    let out = crate::emacs_core::builtins::builtin_handle_switch_frame(vec![frame_event])
+        .expect("switch-frame event should be accepted");
+    assert_eq!(out, Value::Nil);
+
     let err =
         crate::emacs_core::builtins::builtin_handle_switch_frame(vec![Value::Nil]).unwrap_err();
     match err {

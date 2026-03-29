@@ -603,7 +603,7 @@ pub enum InputEvent {
         emacs_frame_id: u64,
     },
     /// Window focus change.
-    Focus(bool),
+    Focus { focused: bool, emacs_frame_id: u64 },
     /// Close request.
     CloseRequested,
 }
@@ -665,6 +665,9 @@ impl PrefixArg {
 /// keyboard-macro playback on `kboard` state. NeoVM still has one active
 /// keyboard, but it now models that owner explicitly.
 pub struct KBoard {
+    /// Deferred switch-frame event that should be delivered before ordinary
+    /// unread input, matching GNU `unread_switch_frame`.
+    pub unread_switch_frame: Option<Value>,
     /// Unread command events in the Lisp-visible Emacs event form.
     pub unread_events: VecDeque<Value>,
     /// Current raw/translated key sequence being accumulated by `read_key_sequence`.
@@ -693,6 +696,7 @@ pub struct KBoard {
 impl KBoard {
     pub fn new() -> Self {
         Self {
+            unread_switch_frame: None,
             unread_events: VecDeque::new(),
             current_key_sequence: ReadKeySequenceState::new(),
             command_keys: Vec::new(),
@@ -734,6 +738,10 @@ impl KBoard {
 
     pub fn unread_event(&mut self, event: Value) {
         self.unread_events.push_back(event);
+    }
+
+    pub fn set_unread_switch_frame(&mut self, event: Value) {
+        self.unread_switch_frame = Some(event);
     }
 
     pub fn unread_key(&mut self, event: KeyEvent) {
@@ -823,6 +831,9 @@ impl Default for KBoard {
 
 impl crate::gc::GcTrace for KBoard {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
+        if let Some(event) = self.unread_switch_frame {
+            roots.push(event);
+        }
         roots.extend(self.unread_events.iter().copied());
         roots.extend(self.current_key_sequence.raw_events().iter().copied());
         roots.extend(
@@ -1193,7 +1204,7 @@ fn sync_pending_resize_events_in_keyboard_runtime(
 
     loop {
         match pending_input_events.front() {
-            Some(InputEvent::Focus(_)) => {
+            Some(InputEvent::Focus { .. }) => {
                 if let Some(event) = pending_input_events.pop_front() {
                     deferred.push_back(event);
                 }
@@ -1236,7 +1247,7 @@ fn sync_pending_resize_events_in_keyboard_runtime(
                 apply_resize_input_event_in_keyboard_runtime(frames, width, height, emacs_frame_id);
                 applied_resize = true;
             }
-            Ok(event @ InputEvent::Focus(_)) => {
+            Ok(event @ InputEvent::Focus { .. }) => {
                 deferred.push_back(event);
             }
             Ok(event) => {
@@ -1403,6 +1414,38 @@ fn pending_gnu_idle_timer_in_keyboard_runtime(
 }
 
 impl crate::emacs_core::eval::Context {
+    fn restore_delayed_switch_frame(&mut self, delayed_switch_frame: &mut Option<Value>) {
+        if let Some(event) = delayed_switch_frame.take() {
+            self.command_loop
+                .keyboard
+                .kboard
+                .set_unread_switch_frame(event);
+        }
+    }
+
+    fn is_switch_frame_event(event: &Value) -> bool {
+        match event {
+            Value::Cons(cell) => {
+                let pair = crate::emacs_core::value::read_cons(*cell);
+                pair.car.as_symbol_name() == Some("switch-frame")
+            }
+            _ => false,
+        }
+    }
+
+    fn make_lispy_switch_frame_event(&self, emacs_frame_id: u64) -> Option<Value> {
+        let frame = if emacs_frame_id == 0 {
+            self.frames
+                .selected_frame()
+                .map(|frame| Value::Frame(frame.id.0))?
+        } else {
+            let fid = crate::window::FrameId(emacs_frame_id);
+            self.frames.get(fid)?;
+            Value::Frame(emacs_frame_id)
+        };
+        Some(Value::list(vec![Value::symbol("switch-frame"), frame]))
+    }
+
     fn current_key_sequence_translation_maps(&self) -> [Value; 3] {
         [
             self.command_loop.keyboard.input_decode_map(),
@@ -1618,9 +1661,8 @@ impl crate::emacs_core::eval::Context {
                 .current_key_sequence
                 .translated_events()
                 .len();
-            let restore_original =
-                (options.dont_downcase_last || sequence_is_undefined)
-                    && shift_translation.index + 1 == current_len;
+            let restore_original = (options.dont_downcase_last || sequence_is_undefined)
+                && shift_translation.index + 1 == current_len;
             if restore_original {
                 let mut translated = self
                     .command_loop
@@ -1760,6 +1802,7 @@ impl crate::emacs_core::eval::Context {
         self.command_loop.reset_key_sequence();
         self.assign("this-command-keys-shift-translated", Value::Nil);
         let mut shift_translation: Option<KeySequenceShiftTranslation> = None;
+        let mut delayed_switch_frame: Option<Value> = None;
         let mut replay_current_sequence = false;
 
         loop {
@@ -1767,7 +1810,27 @@ impl crate::emacs_core::eval::Context {
                 replay_current_sequence = false;
                 tracing::debug!("read_key_sequence: replaying buffered sequence");
             } else {
-                let emacs_event = self.read_char()?;
+                let emacs_event = match self.read_char() {
+                    Ok(event) => event,
+                    Err(err) => {
+                        self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+                        return Err(err);
+                    }
+                };
+                if Self::is_switch_frame_event(&emacs_event)
+                    && (!self
+                        .command_loop
+                        .keyboard
+                        .kboard
+                        .current_key_sequence
+                        .raw_events()
+                        .is_empty()
+                        || !options.can_return_switch_frame)
+                {
+                    delayed_switch_frame = Some(emacs_event);
+                    tracing::debug!("read_key_sequence: deferring switch-frame event");
+                    continue;
+                }
                 self.command_loop
                     .keyboard
                     .push_key_sequence_input_event(emacs_event);
@@ -1780,7 +1843,13 @@ impl crate::emacs_core::eval::Context {
                 );
             }
 
-            let translation = self.apply_translation_maps_to_current_key_sequence(options)?;
+            let translation = match self.apply_translation_maps_to_current_key_sequence(options) {
+                Ok(translation) => translation,
+                Err(err) => {
+                    self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+                    return Err(err);
+                }
+            };
             let translated_events = translation.translated_events;
 
             tracing::debug!(
@@ -1791,12 +1860,17 @@ impl crate::emacs_core::eval::Context {
                     .collect::<Vec<_>>()
             );
             let resolved =
-                resolve_active_key_binding(self, &translated_events, false, false, None)?;
+                match resolve_active_key_binding(self, &translated_events, false, false, None) {
+                    Ok(resolved) => resolved,
+                    Err(err) => {
+                        self.restore_delayed_switch_frame(&mut delayed_switch_frame);
+                        return Err(err);
+                    }
+                };
             let binding = resolved.binding;
             let lookup_is_undefined =
                 resolved.lookup.is_nil() || resolved.lookup == Value::symbol("undefined");
-            let binding_is_undefined =
-                binding.is_nil() || binding == Value::symbol("undefined");
+            let binding_is_undefined = binding.is_nil() || binding == Value::symbol("undefined");
             let sequence_is_undefined = lookup_is_undefined || binding_is_undefined;
             tracing::debug!(
                 "read_key_sequence: binding={}",
@@ -1826,6 +1900,7 @@ impl crate::emacs_core::eval::Context {
                     options,
                     shift_translation.take(),
                 );
+                self.restore_delayed_switch_frame(&mut delayed_switch_frame);
                 let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
                 self.command_loop
                     .set_command_key_sequences(translated.clone(), raw);
@@ -1857,6 +1932,7 @@ impl crate::emacs_core::eval::Context {
                 options,
                 shift_translation.take(),
             );
+            self.restore_delayed_switch_frame(&mut delayed_switch_frame);
             let (translated, raw) = self.command_loop.keyboard.key_sequence_snapshot();
             self.command_loop
                 .set_command_key_sequences(translated.clone(), raw);
@@ -1870,6 +1946,10 @@ impl crate::emacs_core::eval::Context {
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
+        if let Some(event) = self.command_loop.keyboard.kboard.unread_switch_frame.take() {
+            return Ok(event);
+        }
+
         if let Some(event) = self.command_loop.keyboard.kboard.unread_events.pop_front() {
             return Ok(event);
         }
@@ -1973,8 +2053,16 @@ impl crate::emacs_core::eval::Context {
                     self.timer_resume_idle();
                     continue;
                 }
-                InputEvent::Focus(_focused) => {
+                InputEvent::Focus {
+                    focused,
+                    emacs_frame_id,
+                } => {
                     self.timer_resume_idle();
+                    if focused
+                        && let Some(event) = self.make_lispy_switch_frame_event(emacs_frame_id)
+                    {
+                        return Ok(event);
+                    }
                     continue;
                 }
                 InputEvent::KeyPress(ref key) => {

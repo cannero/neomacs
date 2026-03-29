@@ -836,10 +836,42 @@ pub(crate) fn builtin_handle_save_session(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_handle_switch_frame(args: Vec<Value>) -> EvalResult {
     expect_args("handle-switch-frame", &args, 1)?;
-    if !matches!(args[0], Value::Frame(_)) {
+    let frame = match args[0] {
+        Value::Frame(_) => args[0],
+        Value::Cons(cell) => {
+            let pair = read_cons(cell);
+            match pair.car.as_symbol_name() {
+                Some("switch-frame") => {
+                    let cdr = pair.cdr;
+                    match cdr {
+                        Value::Cons(cdr_cell) => read_cons(cdr_cell).car,
+                        _ => {
+                            return Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("framep"), args[0]],
+                            ));
+                        }
+                    }
+                }
+                _ => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("framep"), args[0]],
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("framep"), args[0]],
+            ));
+        }
+    };
+    if !matches!(frame, Value::Frame(_)) {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("framep"), args[0]],
+            vec![Value::symbol("framep"), frame],
         ));
     }
     Ok(Value::Nil)

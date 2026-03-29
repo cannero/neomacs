@@ -832,7 +832,14 @@ fn compose_keymaps(child: &Value, parent: &Value) -> Value {
 
 /// Check if two event values match for keymap lookup purposes.
 fn events_match(a: &Value, b: &Value) -> bool {
-    match (a, b) {
+    let normalize = |value: &Value| match value {
+        Value::Cons(cell) => read_cons(*cell).car,
+        _ => *value,
+    };
+    let a = normalize(a);
+    let b = normalize(b);
+
+    match (&a, &b) {
         (Value::Int(x), Value::Int(y)) => x == y,
         (Value::Char(x), Value::Char(y)) => x == y,
         (Value::Int(x), Value::Char(y)) => *x == *y as i64,

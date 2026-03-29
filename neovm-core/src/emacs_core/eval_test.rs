@@ -550,7 +550,11 @@ fn frame_native_width_syncs_pending_resize_behind_focus_event() {
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-    tx.send(crate::keyboard::InputEvent::Focus(true)).unwrap();
+    tx.send(crate::keyboard::InputEvent::Focus {
+        focused: true,
+        emacs_frame_id: 0,
+    })
+    .unwrap();
     tx.send(crate::keyboard::InputEvent::Resize {
         width: 700,
         height: 800,
@@ -590,7 +594,10 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
     ev.command_loop
         .keyboard
         .pending_input_events
-        .push_back(crate::keyboard::InputEvent::Focus(true));
+        .push_back(crate::keyboard::InputEvent::Focus {
+            focused: true,
+            emacs_frame_id: 0,
+        });
     ev.command_loop
         .keyboard
         .pending_input_events
@@ -605,7 +612,10 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
     assert_eq!(*redisplay_calls.borrow(), vec![(700, 800)]);
     assert!(matches!(
         ev.command_loop.keyboard.pending_input_events.front(),
-        Some(crate::keyboard::InputEvent::Focus(true))
+        Some(crate::keyboard::InputEvent::Focus {
+            focused: true,
+            emacs_frame_id: 0
+        })
     ));
     assert_eq!(ev.command_loop.keyboard.pending_input_events.len(), 1);
 }
@@ -621,7 +631,10 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
     ev.command_loop
         .keyboard
         .pending_input_events
-        .push_back(crate::keyboard::InputEvent::Focus(true));
+        .push_back(crate::keyboard::InputEvent::Focus {
+            focused: true,
+            emacs_frame_id: 0,
+        });
     ev.command_loop
         .keyboard
         .pending_input_events
@@ -941,6 +954,136 @@ fn read_key_sequence_shift_translates_shifted_function_key() {
             .expect("shift translation flag"),
         Value::True
     );
+}
+
+#[test]
+fn read_char_returns_lispy_switch_frame_for_focus_event() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let selected_frame = ev.frames.selected_frame().expect("selected frame").id.0;
+
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::Focus {
+            focused: true,
+            emacs_frame_id: 0,
+        });
+
+    let event = ev
+        .read_char()
+        .expect("read_char should surface switch-frame");
+    assert_eq!(
+        event,
+        Value::list(vec![
+            Value::symbol("switch-frame"),
+            Value::Frame(selected_frame),
+        ])
+    );
+}
+
+#[test]
+fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    let setup = parse_forms(
+        r#"(fset 'neomacs-test-switch-frame-deferred-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("parse");
+    ev.eval_expr(&setup[0]).expect("setup");
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::Int('a' as i64), Value::Int('b' as i64)],
+        Value::symbol("neomacs-test-switch-frame-deferred-command"),
+    )
+    .expect("define command");
+
+    let selected_frame = ev.frames.selected_frame().expect("selected frame").id.0;
+
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char('a'),
+        ));
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::Focus {
+            focused: true,
+            emacs_frame_id: 0,
+        });
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char('b'),
+        ));
+
+    let (keys, binding) = ev.read_key_sequence().expect("read key sequence");
+    assert_eq!(keys, vec![Value::Int('a' as i64), Value::Int('b' as i64)]);
+    assert_eq!(
+        binding,
+        Value::symbol("neomacs-test-switch-frame-deferred-command")
+    );
+
+    let deferred = ev
+        .read_char()
+        .expect("deferred switch-frame should be unread first");
+    assert_eq!(
+        deferred,
+        Value::list(vec![
+            Value::symbol("switch-frame"),
+            Value::Frame(selected_frame),
+        ])
+    );
+}
+
+#[test]
+fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
+    let mut ev = Context::new();
+    ev.frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::symbol("switch-frame")],
+        Value::symbol("handle-switch-frame"),
+    )
+    .expect("define switch-frame binding");
+
+    let selected_frame = ev.frames.selected_frame().expect("selected frame").id.0;
+
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::Focus {
+            focused: true,
+            emacs_frame_id: 0,
+        });
+
+    let (keys, binding) = ev
+        .read_key_sequence_with_options(crate::keyboard::ReadKeySequenceOptions::new(
+            Value::Nil,
+            false,
+            true,
+        ))
+        .expect("read switch-frame sequence");
+
+    assert_eq!(
+        keys,
+        vec![Value::list(vec![
+            Value::symbol("switch-frame"),
+            Value::Frame(selected_frame),
+        ])]
+    );
+    assert_eq!(binding, Value::symbol("handle-switch-frame"));
 }
 
 #[test]

@@ -95,7 +95,13 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             })
         }
         DisplayEvent::WindowClose { .. } => Some(KbInputEvent::CloseRequested),
-        DisplayEvent::WindowFocus { focused, .. } => Some(KbInputEvent::Focus(focused)),
+        DisplayEvent::WindowFocus {
+            focused,
+            emacs_frame_id,
+        } => Some(KbInputEvent::Focus {
+            focused,
+            emacs_frame_id,
+        }),
         // Ignore other events (WebKit title changes, etc.)
         _ => None,
     }
@@ -130,6 +136,22 @@ mod tests {
                 assert!(modifiers.ctrl);
                 assert!(!modifiers.meta);
             }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn window_focus_preserves_frame_id_for_keyboard_owner() {
+        let event = convert_display_event(DisplayEvent::WindowFocus {
+            focused: true,
+            emacs_frame_id: 42,
+        });
+
+        match event {
+            Some(KbInputEvent::Focus {
+                focused: true,
+                emacs_frame_id: 42,
+            }) => {}
             other => panic!("unexpected event: {other:?}"),
         }
     }
