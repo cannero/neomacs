@@ -193,7 +193,16 @@ pub struct MinibufferState {
     pub content: String,
     pub cursor_pos: usize,
     pub completion_table: Option<CompletionTable>,
-    pub require_match: bool,
+    /// The `require-match` argument from `completing-read`.
+    ///
+    /// Possible semantic values:
+    /// - `nil` — no restriction, any input accepted
+    /// - `t` (or any non-nil, non-`confirm`, non-`confirm-after-completion`)
+    ///   — must match exactly
+    /// - symbol `confirm` — may exit with non-match after a second RET
+    /// - symbol `confirm-after-completion` — like `confirm` but only after
+    ///   the user has triggered a completion at least once
+    pub require_match: Value,
     pub default_value: Option<String>,
     pub active: bool,
     /// Recursive minibuffer depth at which this state was entered.
@@ -216,7 +225,7 @@ impl MinibufferState {
             content: initial,
             cursor_pos,
             completion_table: None,
-            require_match: false,
+            require_match: Value::Nil,
             default_value: None,
             active: true,
             depth,
@@ -1428,6 +1437,7 @@ pub(crate) fn builtin_try_completion_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
     ignore_case: bool,
+    regexps: &[String],
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("try-completion", args, 2)?;
@@ -1443,6 +1453,9 @@ pub(crate) fn builtin_try_completion_with_candidates(
     let mut matches = Vec::new();
     for candidate in &candidates {
         if !completion_matches_prefix(&string, &candidate.completion, ignore_case) {
+            continue;
+        }
+        if !regexps.is_empty() && !matches_completion_regexps(&candidate.completion, regexps) {
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
@@ -1466,6 +1479,7 @@ pub(crate) fn builtin_all_completions_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
     ignore_case: bool,
+    regexps: &[String],
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("all-completions", args, 2)?;
@@ -1483,6 +1497,9 @@ pub(crate) fn builtin_all_completions_with_candidates(
         if !completion_matches_prefix(&string, &candidate.completion, ignore_case) {
             continue;
         }
+        if !regexps.is_empty() && !matches_completion_regexps(&candidate.completion, regexps) {
+            continue;
+        }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
             matches.push(Value::string(candidate.completion.clone()));
         }
@@ -1494,6 +1511,7 @@ pub(crate) fn builtin_test_completion_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
     ignore_case: bool,
+    regexps: &[String],
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("test-completion", args, 2)?;
@@ -1519,6 +1537,9 @@ pub(crate) fn builtin_test_completion_with_candidates(
 
     for candidate in &candidates {
         if !matches(&candidate.completion, &string) {
+            continue;
+        }
+        if !regexps.is_empty() && !matches_completion_regexps(&candidate.completion, regexps) {
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
@@ -1590,15 +1611,64 @@ fn completion_ignore_case(obarray: &Obarray) -> bool {
         .is_some_and(|v| v.is_truthy())
 }
 
+/// Read `completion-regexp-list` from the obarray and return the list of
+/// regex pattern strings.  Returns an empty vec when the variable is nil
+/// or unset.
+///
+/// Public alias for use from the bytecode VM.
+pub(crate) fn completion_regexp_list_from_obarray(obarray: &Obarray) -> Vec<String> {
+    completion_regexp_list(obarray)
+}
+
+fn completion_regexp_list(obarray: &Obarray) -> Vec<String> {
+    let Some(val) = obarray.symbol_value("completion-regexp-list").copied() else {
+        return Vec::new();
+    };
+    let Some(items) = super::value::list_to_vec(&val) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| match item {
+            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Return `true` when `candidate` matches **all** regexps in `regexps`.
+///
+/// Uses the Emacs regex engine (`string_match_full_with_case_fold`) so that
+/// Emacs-style `\(...\)` patterns work correctly.
+fn matches_completion_regexps(candidate: &str, regexps: &[String]) -> bool {
+    for re in regexps {
+        let mut md = None;
+        // case-fold = false: GNU Emacs uses case-fold-search for the
+        // individual re_search, but completion-regexp-list traditionally
+        // respects completion-ignore-case only for the prefix test, not
+        // for the regexp filter.  We match GNU behaviour by not folding.
+        match super::regex::string_match_full_with_case_fold(re, candidate, 0, false, &mut md) {
+            Ok(Some(_)) => {}  // matched — continue checking remaining regexps
+            _ => return false, // no match or error — candidate rejected
+        }
+    }
+    true
+}
+
 pub(crate) fn builtin_try_completion(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
     let ignore_case = completion_ignore_case(&eval.obarray);
-    builtin_try_completion_with_candidates(&args, candidates, ignore_case, |function, call_args| {
-        eval.apply(function, call_args)
-    })
+    let regexps = completion_regexp_list(&eval.obarray);
+    builtin_try_completion_with_candidates(
+        &args,
+        candidates,
+        ignore_case,
+        &regexps,
+        |function, call_args| eval.apply(function, call_args),
+    )
 }
 
 pub(crate) fn builtin_all_completions(
@@ -1607,10 +1677,12 @@ pub(crate) fn builtin_all_completions(
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
     let ignore_case = completion_ignore_case(&eval.obarray);
+    let regexps = completion_regexp_list(&eval.obarray);
     builtin_all_completions_with_candidates(
         &args,
         candidates,
         ignore_case,
+        &regexps,
         |function, call_args| eval.apply(function, call_args),
     )
 }
@@ -1621,10 +1693,12 @@ pub(crate) fn builtin_test_completion(
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
     let ignore_case = completion_ignore_case(&eval.obarray);
+    let regexps = completion_regexp_list(&eval.obarray);
     builtin_test_completion_with_candidates(
         &args,
         candidates,
         ignore_case,
+        &regexps,
         |function, call_args| eval.apply(function, call_args),
     )
 }

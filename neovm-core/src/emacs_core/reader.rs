@@ -731,6 +731,20 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     args: &[Value],
     mut run_recursive_edit: impl FnMut() -> EvalResult,
 ) -> EvalResult {
+    // Check inhibit-interaction — GNU Emacs signals an error when any
+    // interactive read is attempted while this variable is non-nil.
+    if obarray
+        .symbol_value("inhibit-interaction")
+        .is_some_and(|v| v.is_truthy())
+    {
+        return Err(signal(
+            "inhibited-interaction",
+            vec![Value::string(
+                "Attempt to interact with user while inhibit-interaction is non-nil",
+            )],
+        ));
+    }
+
     let prompt = expect_string(&args[0])?;
     // Extract optional arguments
     let initial_input = args.get(1).and_then(|v| match v {
@@ -1101,11 +1115,17 @@ pub(crate) fn finish_completing_read_in_eval(
     eval.assign("minibuffer-completion-table", collection);
     let predicate = args.get(2).copied().unwrap_or(Value::Nil);
     eval.assign("minibuffer-completion-predicate", predicate);
+    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+    eval.assign(
+        "minibuffer-completion-confirm",
+        completion_confirm_from_require_match(require_match),
+    );
 
     let result = finish_read_from_minibuffer_in_eval(eval, &minibuffer_args);
 
     eval.assign("minibuffer-completion-table", Value::Nil);
     eval.assign("minibuffer-completion-predicate", Value::Nil);
+    eval.assign("minibuffer-completion-confirm", Value::Nil);
 
     result
 }
@@ -1155,6 +1175,15 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         intern("minibuffer-completion-predicate"),
         args.get(2).copied().unwrap_or(Value::Nil),
     );
+    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+    let _ = crate::emacs_core::eval::set_runtime_binding(
+        obarray,
+        buffers,
+        custom,
+        specpdl,
+        intern("minibuffer-completion-confirm"),
+        completion_confirm_from_require_match(require_match),
+    );
 
     let result = read_from_minibuffer(&minibuffer_args);
 
@@ -1174,6 +1203,14 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         intern("minibuffer-completion-predicate"),
         Value::Nil,
     );
+    let _ = crate::emacs_core::eval::set_runtime_binding(
+        obarray,
+        buffers,
+        custom,
+        specpdl,
+        intern("minibuffer-completion-confirm"),
+        Value::Nil,
+    );
 
     result
 }
@@ -1184,6 +1221,22 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     args: &[Value],
 ) -> EvalResult {
     builtin_read_from_minibuffer_in_runtime(shared, args)?;
+
+    // Check inhibit-interaction — GNU Emacs signals an error when any
+    // interactive read is attempted while this variable is non-nil.
+    if shared
+        .obarray
+        .symbol_value("inhibit-interaction")
+        .is_some_and(|v| v.is_truthy())
+    {
+        return Err(signal(
+            "inhibited-interaction",
+            vec![Value::string(
+                "Attempt to interact with user while inhibit-interaction is non-nil",
+            )],
+        ));
+    }
+
     let prompt = expect_string(&args[0])?;
     let initial_input = args.get(1).and_then(|v| match v {
         Value::Str(id) => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
@@ -1379,6 +1432,15 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         intern("minibuffer-completion-predicate"),
         args.get(2).copied().unwrap_or(Value::Nil),
     );
+    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+    let _ = crate::emacs_core::eval::set_runtime_binding(
+        &mut shared.obarray,
+        &mut shared.buffers,
+        &shared.custom,
+        shared.specpdl.as_slice(),
+        intern("minibuffer-completion-confirm"),
+        completion_confirm_from_require_match(require_match),
+    );
     let result = finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, &minibuffer_args);
     let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
@@ -1396,7 +1458,34 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         intern("minibuffer-completion-predicate"),
         Value::Nil,
     );
+    let _ = crate::emacs_core::eval::set_runtime_binding(
+        &mut shared.obarray,
+        &mut shared.buffers,
+        &shared.custom,
+        shared.specpdl.as_slice(),
+        intern("minibuffer-completion-confirm"),
+        Value::Nil,
+    );
     result
+}
+
+/// Map the `REQUIRE-MATCH` argument of `completing-read` to the value
+/// stored in `minibuffer-completion-confirm`.
+///
+/// GNU semantics:
+///   nil        → nil   (any input accepted)
+///   confirm    → confirm
+///   confirm-after-completion → confirm-after-completion
+///   t / other  → nil   (must-match keymap enforces exact match via
+///                        `minibuffer-complete-and-exit`)
+fn completion_confirm_from_require_match(require_match: Value) -> Value {
+    if require_match.is_symbol_named("confirm")
+        || require_match.is_symbol_named("confirm-after-completion")
+    {
+        require_match
+    } else {
+        Value::Nil
+    }
 }
 
 pub(crate) fn completing_read_minibuffer_args(obarray: &Obarray, args: &[Value]) -> [Value; 7] {

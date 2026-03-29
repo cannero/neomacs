@@ -4091,10 +4091,13 @@ impl<'a> Vm<'a> {
             .obarray
             .symbol_value("completion-ignore-case")
             .is_some_and(|v| v.is_truthy());
+        let regexps =
+            crate::emacs_core::minibuffer::completion_regexp_list_from_obarray(&self.ctx.obarray);
         crate::emacs_core::minibuffer::builtin_try_completion_with_candidates(
             args,
             candidates,
             ignore_case,
+            &regexps,
             |function, call_args| self.call_function_with_roots(function, &call_args),
         )
     }
@@ -4109,10 +4112,13 @@ impl<'a> Vm<'a> {
             .obarray
             .symbol_value("completion-ignore-case")
             .is_some_and(|v| v.is_truthy());
+        let regexps =
+            crate::emacs_core::minibuffer::completion_regexp_list_from_obarray(&self.ctx.obarray);
         crate::emacs_core::minibuffer::builtin_all_completions_with_candidates(
             args,
             candidates,
             ignore_case,
+            &regexps,
             |function, call_args| self.call_function_with_roots(function, &call_args),
         )
     }
@@ -4171,10 +4177,13 @@ impl<'a> Vm<'a> {
             .obarray
             .symbol_value("completion-ignore-case")
             .is_some_and(|v| v.is_truthy());
+        let regexps =
+            crate::emacs_core::minibuffer::completion_regexp_list_from_obarray(&self.ctx.obarray);
         crate::emacs_core::minibuffer::builtin_test_completion_with_candidates(
             args,
             candidates,
             ignore_case,
+            &regexps,
             |function, call_args| self.call_function_with_roots(function, &call_args),
         )
     }
