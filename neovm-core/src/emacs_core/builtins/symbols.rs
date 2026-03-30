@@ -69,15 +69,15 @@ impl MacroexpandRuntime for super::eval::Context {
         function: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
-        let saved_roots = self.save_temp_roots();
-        self.push_temp_root(form);
-        self.push_temp_root(function);
-        for arg in &args {
-            self.push_temp_root(*arg);
-        }
-        let expanded = self.with_macro_expansion_scope(|eval| eval.apply(function, args))?;
-        self.restore_temp_roots(saved_roots);
-        Ok(expanded)
+        self.with_gc_scope_result(|ctx| {
+            ctx.push_temp_root(form);
+            ctx.push_temp_root(function);
+            for arg in &args {
+                ctx.push_temp_root(*arg);
+            }
+            let expanded = ctx.with_macro_expansion_scope(|eval| eval.apply(function, args))?;
+            Ok(expanded)
+        })
     }
 }
 
@@ -3657,7 +3657,7 @@ pub(crate) fn builtin_handler_bind_1(
         ));
     }
 
-    let saved = eval.save_temp_roots();
+    let scope = eval.open_gc_scope();
     for value in &args {
         eval.push_temp_root(*value);
     }
@@ -3679,7 +3679,7 @@ pub(crate) fn builtin_handler_bind_1(
 
     let body_result = eval.apply(bodyfun, vec![]);
     eval.truncate_condition_stack(condition_stack_base);
-    eval.restore_temp_roots(saved);
+    scope.close(eval);
     body_result
 }
 

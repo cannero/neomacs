@@ -1636,7 +1636,7 @@ impl Context {
                         continue;
                     }
 
-                    let saved_roots = self.save_temp_roots();
+                    let scope = self.open_gc_scope();
                     for value in &sig.data {
                         self.push_temp_root(*value);
                     }
@@ -1653,18 +1653,18 @@ impl Context {
                     match handler_result {
                         Ok(_) => {
                             self.pop_condition_frame();
-                            self.restore_temp_roots(saved_roots);
+                            scope.close(self);
                             continue;
                         }
                         Err(Flow::Signal(next_sig)) => {
                             let dispatched = self.dispatch_signal_if_needed(next_sig);
                             self.pop_condition_frame();
-                            self.restore_temp_roots(saved_roots);
+                            scope.close(self);
                             return dispatched;
                         }
                         Err(flow @ Flow::Throw { .. }) => {
                             self.pop_condition_frame();
-                            self.restore_temp_roots(saved_roots);
+                            scope.close(self);
                             return Err(flow);
                         }
                     }
@@ -5262,15 +5262,14 @@ impl Context {
 
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, EvalError> {
         set_current_heap(&mut self.heap);
-        let saved = self.save_temp_roots();
-        let mut opaques = Vec::new();
-        collect_opaque_values(expr, &mut opaques);
-        for v in &opaques {
-            self.push_temp_root(*v);
-        }
-        let result = self.eval(expr).map_err(map_flow);
-        self.restore_temp_roots(saved);
-        result
+        self.with_gc_scope(|ctx| {
+            let mut opaques = Vec::new();
+            collect_opaque_values(expr, &mut opaques);
+            for v in &opaques {
+                ctx.push_temp_root(*v);
+            }
+            ctx.eval(expr).map_err(map_flow)
+        })
     }
 
     /// Evaluate a Value as code (like Elisp's `eval`).
@@ -5278,15 +5277,14 @@ impl Context {
     /// bytecode, etc.) so they survive GC, then evaluates.
     pub fn eval_value(&mut self, value: &Value) -> EvalResult {
         let expr = value_to_expr(value);
-        let saved = self.save_temp_roots();
-        let mut opaques = Vec::new();
-        collect_opaque_values(&expr, &mut opaques);
-        for v in &opaques {
-            self.push_temp_root(*v);
-        }
-        let result = self.eval(&expr);
-        self.restore_temp_roots(saved);
-        result
+        self.with_gc_scope(|ctx| {
+            let mut opaques = Vec::new();
+            collect_opaque_values(&expr, &mut opaques);
+            for v in &opaques {
+                ctx.push_temp_root(*v);
+            }
+            ctx.eval(&expr)
+        })
     }
 
     pub fn eval_forms(&mut self, forms: &[Expr]) -> Vec<Result<Value, EvalError>> {
@@ -5664,13 +5662,13 @@ impl Context {
     /// Evaluate a slice of expressions into a Vec, rooting intermediate results
     /// in `temp_roots` so they survive any GC triggered by later evaluations.
     ///
-    /// Returns `(args, saved_len)`.  The evaluated args remain rooted in
+    /// Returns `(args, scope)`.  The evaluated args remain rooted in
     /// `temp_roots` so that subsequent `apply` / `apply_named_callable`
     /// calls can't have their args freed by GC.  The caller **must** call
-    /// `self.restore_temp_roots(saved_len)` once the args are no longer
-    /// needed (typically after `apply` returns).
-    fn eval_args(&mut self, exprs: &[Expr]) -> Result<(Vec<Value>, usize), Flow> {
-        let saved_len = self.temp_roots.len();
+    /// `scope.close(self)` once the args are no longer needed (typically
+    /// after `apply` returns).
+    fn eval_args(&mut self, exprs: &[Expr]) -> Result<(Vec<Value>, HandleScope), Flow> {
+        let scope = self.open_gc_scope();
         let mut args = Vec::with_capacity(exprs.len());
         // Save depth before evaluating arguments. GNU Emacs does not increment
         // lisp_eval_depth for argument evaluation — only for the function call
@@ -5699,18 +5697,18 @@ impl Context {
                         ) =>
                 {
                     self.depth = saved_depth;
-                    self.temp_roots.truncate(saved_len);
+                    scope.close(self);
                     return Err(signal("invalid-function", vec![quote_to_value(expr)]));
                 }
                 Err(e) => {
                     self.depth = saved_depth;
-                    self.temp_roots.truncate(saved_len);
+                    scope.close(self);
                     return Err(e);
                 }
             }
         }
-        // Do NOT truncate — caller restores after apply.
-        Ok((args, saved_len))
+        // Do NOT truncate — caller closes scope after apply.
+        Ok((args, scope))
     }
 
     fn eval_list(&mut self, items: &[Expr]) -> EvalResult {
@@ -5779,15 +5777,14 @@ impl Context {
                     let expanded = self.expand_macro(func, tail)?;
                     // Root OpaqueValues (closures, bytecode, etc.) embedded
                     // in the expansion so they survive GC during eval.
-                    let saved_opaque = self.save_temp_roots();
-                    let mut opaques = Vec::new();
-                    collect_opaque_values(&expanded, &mut opaques);
-                    for v in &opaques {
-                        self.push_temp_root(*v);
-                    }
-                    let result = self.eval(&expanded);
-                    self.restore_temp_roots(saved_opaque);
-                    return result;
+                    return self.with_gc_scope(|ctx| {
+                        let mut opaques = Vec::new();
+                        collect_opaque_values(&expanded, &mut opaques);
+                        for v in &opaques {
+                            ctx.push_temp_root(*v);
+                        }
+                        ctx.eval(&expanded)
+                    });
                 }
                 // Handle cons-cell macros: (macro . fn) — used by byte-run.el's
                 // (defalias 'defmacro (cons 'macro #'(lambda ...)))
@@ -5807,35 +5804,39 @@ impl Context {
                                 if cached.fingerprint == current_fp {
                                     self.macro_cache_hits += 1;
                                     let expanded = cached.expanded.clone();
-                                    let saved_opaque = self.save_temp_roots();
-                                    for v in &cached.opaque_roots {
-                                        self.push_temp_root(*v);
-                                    }
-                                    let result = self.eval(&expanded);
-                                    self.restore_temp_roots(saved_opaque);
-                                    return result;
+                                    let opaque_roots = cached.opaque_roots.clone();
+                                    return self.with_gc_scope(|ctx| {
+                                        for v in &opaque_roots {
+                                            ctx.push_temp_root(*v);
+                                        }
+                                        ctx.eval(&expanded)
+                                    });
                                 }
                                 // Fingerprint mismatch → ABA detected, fall through to re-expand
                             }
                         }
 
                         let expand_start = std::time::Instant::now();
-                        let saved = self.save_temp_roots();
-                        let macro_fn = func.cons_cdr();
-                        self.push_temp_root(macro_fn);
-                        // Root all arg values during macro expansion to survive GC.
-                        let arg_values: Vec<Value> = tail.iter().map(quote_to_value).collect();
-                        for v in &arg_values {
-                            self.push_temp_root(*v);
-                        }
-                        let expanded_value = self
-                            .with_macro_expansion_scope(|eval| eval.apply(macro_fn, arg_values))?;
-                        // Root expansion result during value_to_expr traversal
-                        // AND during eval of expanded_expr (OpaqueValues reference
-                        // heap objects reachable only through expanded_value).
-                        self.push_temp_root(expanded_value);
-                        let expanded_expr = value_to_expr(&expanded_value);
-                        self.restore_temp_roots(saved);
+                        let expanded_expr = {
+                            let scope = self.open_gc_scope();
+                            let macro_fn = func.cons_cdr();
+                            self.push_temp_root(macro_fn);
+                            // Root all arg values during macro expansion to survive GC.
+                            let arg_values: Vec<Value> = tail.iter().map(quote_to_value).collect();
+                            for v in &arg_values {
+                                self.push_temp_root(*v);
+                            }
+                            let expanded_value = self.with_macro_expansion_scope(|eval| {
+                                eval.apply(macro_fn, arg_values)
+                            })?;
+                            // Root expansion result during value_to_expr traversal
+                            // AND during eval of expanded_expr (OpaqueValues reference
+                            // heap objects reachable only through expanded_value).
+                            self.push_temp_root(expanded_value);
+                            let expr = value_to_expr(&expanded_value);
+                            scope.close(self);
+                            expr
+                        };
 
                         // Cache the expansion as Rc<Expr>.  The Rc keeps the
                         // expansion alive in the cache, ensuring inner Vec
@@ -5854,13 +5855,12 @@ impl Context {
                                 .insert(cache_key, expanded_cache_entry.clone());
                         }
 
-                        let saved_opaque = self.save_temp_roots();
-                        for v in &expanded_cache_entry.opaque_roots {
-                            self.push_temp_root(*v);
-                        }
-                        let result = self.eval(&expanded_rc);
-                        self.restore_temp_roots(saved_opaque);
-                        return result;
+                        return self.with_gc_scope(|ctx| {
+                            for v in &expanded_cache_entry.opaque_roots {
+                                ctx.push_temp_root(*v);
+                            }
+                            ctx.eval(&expanded_rc)
+                        });
                     }
                 }
 
@@ -5873,12 +5873,12 @@ impl Context {
                 }
 
                 // Explicit function-cell bindings override special-form fallback.
-                let (args, args_saved) = self.eval_args(tail)?;
+                let (args, scope) = self.eval_args(tail)?;
                 if super::autoload::is_autoload_value(&func) {
                     let writeback_args = args.clone();
                     let result =
                         self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
-                    self.restore_temp_roots(args_saved);
+                    scope.close(self);
                     if let Ok(value) = &result {
                         self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
                     }
@@ -5887,7 +5887,7 @@ impl Context {
                 let writeback_args = args.clone();
                 let result =
                     self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
-                self.restore_temp_roots(args_saved);
+                scope.close(self);
                 if let Ok(value) = &result {
                     self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
                 }
@@ -5919,11 +5919,11 @@ impl Context {
             // Regular function call — GNU resolves the callee first. A
             // void/invalid function symbol must signal before any argument
             // forms are evaluated.
-            let (args, args_saved) = self.eval_args(tail)?;
+            let (args, scope) = self.eval_args(tail)?;
 
             let writeback_args = args.clone();
             let result = self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
-            self.restore_temp_roots(args_saved);
+            scope.close(self);
             if let Ok(value) = &result {
                 self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
             }
@@ -5936,9 +5936,9 @@ impl Context {
                 if resolve_sym(*id) == "lambda" {
                     let func = self.eval_lambda(&lambda_form[1..])?;
                     self.push_temp_root(func);
-                    let (args, args_saved) = self.eval_args(tail)?;
+                    let (args, scope) = self.eval_args(tail)?;
                     let result = self.apply(func, args);
-                    self.restore_temp_roots(args_saved);
+                    scope.close(self);
                     self.temp_roots.pop();
                     return result;
                 }
@@ -5949,9 +5949,9 @@ impl Context {
         // embedded in code via value_to_expr (e.g., from eval/macro expansion).
         if let Expr::OpaqueValue(func) = head {
             self.push_temp_root(*func);
-            let (args, args_saved) = self.eval_args(tail)?;
+            let (args, scope) = self.eval_args(tail)?;
             let result = self.apply(*func, args);
-            self.restore_temp_roots(args_saved);
+            scope.close(self);
             self.temp_roots.pop();
             return result;
         }
@@ -6593,15 +6593,15 @@ impl Context {
             ));
         }
         let first = self.eval(&tail[0])?;
-        let saved_roots = self.save_temp_roots();
+        let scope = self.open_gc_scope();
         self.push_temp_root(first);
         for form in &tail[1..] {
             if let Err(err) = self.eval(form) {
-                self.restore_temp_roots(saved_roots);
+                scope.close(self);
                 return Err(err);
             }
         }
-        self.restore_temp_roots(saved_roots);
+        scope.close(self);
         Ok(first)
     }
 
@@ -6726,7 +6726,7 @@ impl Context {
         // This includes values inside Flow::Signal / Flow::Throw data,
         // which live only on the Rust stack and are invisible to the GC
         // root scanner.
-        let saved = self.save_temp_roots();
+        let scope = self.open_gc_scope();
         match &primary {
             Ok(val) => {
                 self.push_temp_root(*val);
@@ -6745,7 +6745,7 @@ impl Context {
             }
         }
         let cleanup = self.sf_progn(&tail[1..]);
-        self.restore_temp_roots(saved);
+        scope.close(self);
         match cleanup {
             Ok(_) => primary,
             Err(flow) => Err(flow),
@@ -7538,7 +7538,7 @@ impl Context {
             (None, None) => Value::Nil,
         };
 
-        let saved_roots = self.temp_roots.len();
+        let scope = self.open_gc_scope();
         self.push_temp_root(params_value);
         self.push_temp_root(body_value);
         self.push_temp_root(env_value);
@@ -7603,7 +7603,7 @@ impl Context {
             )
         };
 
-        self.restore_temp_roots(saved_roots);
+        scope.close(self);
         result
     }
 
@@ -7877,7 +7877,7 @@ impl Context {
         };
         let iform_value = Value::Nil;
 
-        let saved = self.save_temp_roots();
+        let scope = self.open_gc_scope();
         self.push_temp_root(function);
         self.push_temp_root(params_value);
         self.push_temp_root(body_value);
@@ -7902,7 +7902,7 @@ impl Context {
                         iform_value,
                     ],
                 );
-                self.restore_temp_roots(saved);
+                scope.close(self);
                 return result;
             }
         }
@@ -7914,7 +7914,7 @@ impl Context {
             Some(&closure_doc_value),
             Some(&iform_value),
         );
-        self.restore_temp_roots(saved);
+        scope.close(self);
         result
     }
 
@@ -8315,7 +8315,7 @@ impl Context {
         // Use cached source-literal materialization so that the same Expr
         // pointer (from a shared Rc<Vec<Expr>> lambda body) produces the same
         // runtime Value object when re-evaluated.
-        let saved = self.save_temp_roots();
+        let scope = self.open_gc_scope();
         let arg_values: Vec<Value> = args
             .iter()
             .map(|e| self.cached_source_literal_to_value(e))
@@ -8332,7 +8332,7 @@ impl Context {
 
         // Convert value back to expr for re-evaluation
         let result = Rc::new(value_to_expr(&expanded_value));
-        self.restore_temp_roots(saved);
+        scope.close(self);
 
         // Cache the expansion as Rc<Expr>.  The Rc keeps the expansion
         // data alive, so inner Vec addresses remain stable for future
@@ -8833,16 +8833,15 @@ impl Context {
         extra_roots: &[Value],
         f: impl FnOnce(&mut Context) -> T,
     ) -> T {
-        let saved_temp_roots = self.save_temp_roots();
-        for root in vm_gc_roots {
-            self.push_temp_root(*root);
-        }
-        for root in extra_roots {
-            self.push_temp_root(*root);
-        }
-        let result = f(self);
-        self.restore_temp_roots(saved_temp_roots);
-        result
+        self.with_gc_scope(|ctx| {
+            for root in vm_gc_roots {
+                ctx.push_temp_root(*root);
+            }
+            for root in extra_roots {
+                ctx.push_temp_root(*root);
+            }
+            f(ctx)
+        })
     }
 
     pub(crate) fn begin_eval_with_lexical_arg(
