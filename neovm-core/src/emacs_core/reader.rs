@@ -1735,7 +1735,9 @@ pub(crate) fn builtin_input_pending_p(
     }
 
     if args.first().is_some_and(Value::is_truthy) {
-        ctx.fire_pending_timers();
+        // GNU `input-pending-p' can run due timers here, but it does not
+        // force a redisplay the way `detect_input_pending_run_timers' does.
+        let _ = ctx.service_pending_timers_with_wait_policy(false);
         ctx.sync_pending_resize_events();
     }
 

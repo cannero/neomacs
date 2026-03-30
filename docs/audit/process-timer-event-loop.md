@@ -4,9 +4,11 @@
 **Status**: Neomacs now has a shared wait/service path, a real `callproc`
 owner, shared callback envelopes for both process callbacks and timer
 callbacks, GNU-shaped merged ordering between ordinary and idle GNU Lisp
-timers, and regression coverage for the mixed GNU-Lisp-timer /
-internal-Rust-timer / process-callback order. Phase 9 risk is now mostly the
-remaining input/redisplay edge cases in that shared wait path.
+timers, regression coverage for the mixed GNU-Lisp-timer /
+internal-Rust-timer / process-callback order, and GNU-compatible
+`sit-for`/`input-pending-p` `NODISP` behavior. Phase 9 risk is now narrower:
+mostly the remaining shared-wait-path redisplay/input competition outside the
+already-covered `sit-for` cases.
 
 ## GNU Emacs Design
 
@@ -225,6 +227,23 @@ first, and only fires timers if no input is already available, in
 [reader.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/reader.rs#L1697).
 That closes the remaining Phase 9 bug where `sit-for` could run timers ahead
 of queued input.
+
+### `input-pending-p t` no longer forces redisplay when it runs timers
+
+GNU `Finput_pending_p` runs due timers through `get_input_pending` with
+`READABLE_EVENTS_DO_TIMERS_NOW`, but it does not take the separate
+`detect_input_pending_run_timers(do_display)` redisplay path. This matters for
+GNU `sit-for`, because `(sit-for 0 t)` must honor `NODISP` even when due
+timers fire before the zero-second fast path returns.
+
+Neomacs previously called `fire_pending_timers()` directly from
+`input-pending-p t`, which forced a redisplay whenever a due timer fired. That
+meant `(sit-for 0 t)` could redisplay even though GNU would not. Neomacs now
+services timers from `input-pending-p` without forcing redisplay, which
+restores GNU `NODISP` behavior for this path. The current ownership lives in
+[reader.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/reader.rs#L1728),
+with regression coverage in
+[timer_test.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/timer_test.rs#L389).
 
 ### Timer ownership is still split between GNU-shaped Lisp timers and a Rust timer manager
 

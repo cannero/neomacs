@@ -78,9 +78,11 @@ Bad:
   The remaining Phase 9 risk is narrower now: Rust `TimerManager` timers are
   still internal scaffolding rather than a published GNU-visible timer API,
   but the mixed GNU-Lisp-timer / internal-Rust-timer / process-callback order
-  in the shared wait path is now regression-covered. The real remaining work
-  is the last `sleep-for` / `sit-for` redisplay/input edge cases, not the
-  older split-owner architecture.
+  in the shared wait path is now regression-covered, and `input-pending-p t`
+  no longer violates GNU `sit-for` `NODISP` behavior by forcing redisplay when
+  it runs due timers. The real remaining work is the last shared-wait-path
+  redisplay/input competition edges outside those covered `sit-for` cases, not
+  the older split-owner architecture.
 
 ## Long-term ideal design
 
@@ -100,8 +102,8 @@ The ideal design is:
 - Audit process filters, sentinels, timer firing, and
   `accept-process-output` ordering against GNU.
 - Keep the Phase 9 follow-up focused on remaining ordering gaps:
-  the remaining `sleep-for` / `sit-for` parity details around
-  redisplay/input competition.
+  the remaining shared-wait-path redisplay/input competition outside the
+  already-covered `sleep-for` / `sit-for` cases.
 - Re-study GNU `thread.c` before changing `threads.rs`; the current simulated
   implementation should be treated as a compatibility placeholder, not as the
   final design.

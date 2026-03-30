@@ -1,9 +1,11 @@
 use super::super::value::next_float_id;
 use super::*;
 use crate::emacs_core::eval::Context;
+use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::rc::Rc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
     let start = source
@@ -53,6 +55,28 @@ fn gnu_subr_sit_for_eval() -> Context {
         "(defun sit-for (seconds &optional nodisp)",
     );
     ev
+}
+
+fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
+    let when = SystemTime::now()
+        .checked_sub(delay)
+        .unwrap_or(UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
+        .expect("timer deadline should not precede unix epoch");
+    let secs = when.as_secs() as i64;
+
+    Value::vector(vec![
+        Value::Nil,
+        Value::Int(secs >> 16),
+        Value::Int(secs & 0xFFFF),
+        Value::Int(when.subsec_micros() as i64),
+        Value::Nil,
+        Value::symbol(callback),
+        Value::Nil,
+        Value::Nil,
+        Value::Int(0),
+        Value::Nil,
+    ])
 }
 
 #[test]
@@ -350,6 +374,99 @@ fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
     );
     let event = ev.read_char().expect("keypress should remain available");
     assert_eq!(event, Value::Int('a' as i64));
+}
+
+#[test]
+fn gnu_sit_for_pending_input_returns_nil_without_redisplay() {
+    let mut ev = gnu_subr_sit_for_eval();
+    ev.set_variable("noninteractive", Value::Nil);
+    let redisplays = Rc::new(RefCell::new(0usize));
+    let redisplays_in_cb = Rc::clone(&redisplays);
+    ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
+        *redisplays_in_cb.borrow_mut() += 1;
+    }));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+    let forms = super::super::parser::parse_forms("(sit-for 0.5)").expect("parse sit-for");
+
+    let result = ev.eval(&forms[0]).expect("eval interactive sit-for");
+
+    assert!(result.is_nil());
+    assert_eq!(*redisplays.borrow(), 0);
+    let event = ev.read_char().expect("keypress should remain available");
+    assert_eq!(event, Value::Int('a' as i64));
+}
+
+#[test]
+fn gnu_sit_for_zero_without_nodisp_redisplays_once() {
+    let mut ev = gnu_subr_sit_for_eval();
+    ev.set_variable("noninteractive", Value::Nil);
+    let redisplays = Rc::new(RefCell::new(0usize));
+    let redisplays_in_cb = Rc::clone(&redisplays);
+    ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
+        *redisplays_in_cb.borrow_mut() += 1;
+    }));
+
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    let forms = super::super::parser::parse_forms("(sit-for 0)").expect("parse sit-for");
+
+    let result = ev.eval(&forms[0]).expect("eval zero-second sit-for");
+
+    assert!(result.is_truthy());
+    assert_eq!(*redisplays.borrow(), 1);
+}
+
+#[test]
+fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
+    let mut ev = gnu_subr_sit_for_eval();
+    ev.set_variable("noninteractive", Value::Nil);
+    let setup = super::super::parser::parse_forms(
+        r#"(progn
+             (setq sit-for-zero-timer-fired nil)
+             (fset 'sit-for-zero-timer-callback
+                   (lambda ()
+                     (setq sit-for-zero-timer-fired 'done)))
+             (fset 'timer-event-handler
+                   (lambda (timer)
+                     (setq timer-list (delq timer timer-list))
+                     (funcall (aref timer 5)))))"#,
+    )
+    .expect("parse zero-second sit-for timer setup");
+    ev.eval_expr(&setup[0])
+        .expect("install zero-second sit-for timer setup");
+    ev.set_variable(
+        "timer-list",
+        Value::list(vec![gnu_timer_before(
+            Duration::from_millis(1),
+            "sit-for-zero-timer-callback",
+        )]),
+    );
+
+    let redisplays = Rc::new(RefCell::new(0usize));
+    let redisplays_in_cb = Rc::clone(&redisplays);
+    ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
+        *redisplays_in_cb.borrow_mut() += 1;
+    }));
+
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    let forms = super::super::parser::parse_forms("(sit-for 0 t)").expect("parse sit-for");
+
+    let result = ev.eval(&forms[0]).expect("eval zero-second sit-for");
+
+    assert!(result.is_truthy());
+    assert_eq!(*redisplays.borrow(), 0);
+    assert_eq!(
+        ev.eval_symbol("sit-for-zero-timer-fired")
+            .expect("zero-second sit-for timer flag"),
+        Value::symbol("done")
+    );
 }
 
 #[test]
