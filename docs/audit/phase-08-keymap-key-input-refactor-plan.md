@@ -114,6 +114,9 @@ boundary into the keyboard runtime:
 - symbol-valued macro events like `[ignore]` now always go through the command
   loop and keymap lookup; the old callable-symbol direct-execution fallback is
   gone
+- `execute-kbd-macro` now follows GNU-style symbol function indirection and
+  only accepts a final string or vector, instead of treating direct lists as
+  macros
 
 That means the remaining kmacro gaps are narrower:
 

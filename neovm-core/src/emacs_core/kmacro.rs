@@ -17,6 +17,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::*;
 use crate::gc::GcTrace;
+use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies, matching builtins.rs convention)
@@ -261,12 +262,15 @@ pub(crate) fn plan_call_last_kbd_macro(
     Ok((macro_keys, repeat, loopfunc))
 }
 
-pub(crate) fn plan_execute_kbd_macro(args: &[Value]) -> Result<(Vec<Value>, i64, Value), Flow> {
+pub(crate) fn plan_execute_kbd_macro(
+    eval: &super::eval::Context,
+    args: &[Value],
+) -> Result<(Vec<Value>, i64, Value), Flow> {
     expect_min_args("execute-kbd-macro", args, 1)?;
     expect_max_args("execute-kbd-macro", args, 3)?;
     let count = args.get(1).map_or(1, prefix_numeric_value);
     let loopfunc = args.get(2).copied().unwrap_or(Value::Nil);
-    Ok((resolve_macro_events(&args[0])?, count, loopfunc))
+    Ok((resolve_macro_events(eval, &args[0])?, count, loopfunc))
 }
 
 /// (start-kbd-macro &optional APPEND NO-EXEC) -> nil
@@ -346,7 +350,7 @@ pub(crate) fn builtin_execute_kbd_macro(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (macro_events, count, loopfunc) = plan_execute_kbd_macro(&args)?;
+    let (macro_events, count, loopfunc) = plan_execute_kbd_macro(eval, &args)?;
     execute_kbd_macro_events_with_runtime_state(eval, &macro_events, count, loopfunc)
 }
 
@@ -523,31 +527,48 @@ pub(crate) fn builtin_store_kbd_macro_event(
 // Internal helpers
 // ===========================================================================
 
-/// Resolve a macro value (vector, string, list, or symbol) into a Vec of events.
-fn resolve_macro_events(value: &Value) -> Result<Vec<Value>, Flow> {
-    match value {
+fn indirect_macro_function(eval: &super::eval::Context, value: &Value) -> Value {
+    let mut current = *value;
+    let mut seen = HashSet::new();
+
+    loop {
+        let Some(symbol_id) = (match current {
+            Value::Symbol(id) | Value::Keyword(id) => Some(id),
+            Value::True => Some(super::intern::intern("t")),
+            Value::Nil => None,
+            _ => None,
+        }) else {
+            return current;
+        };
+
+        if !seen.insert(symbol_id) {
+            return current;
+        }
+
+        current = eval
+            .obarray()
+            .symbol_function_id(symbol_id)
+            .copied()
+            .unwrap_or(Value::Nil);
+    }
+}
+
+/// Resolve a macro value the GNU `execute-kbd-macro` way:
+/// follow symbol function indirections, then require a final string or vector.
+fn resolve_macro_events(eval: &super::eval::Context, value: &Value) -> Result<Vec<Value>, Flow> {
+    match indirect_macro_function(eval, value) {
         Value::Vector(v) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = with_heap(|h| h.get_vector(v).clone());
             Ok(items.clone())
         }
         Value::Str(id) => {
             // Each character in the string becomes a Char event.
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = with_heap(|h| h.get_string(id).to_owned());
             Ok(s.chars().map(Value::Char).collect())
         }
-        Value::Cons(_) | Value::Nil => {
-            // Try to interpret as a proper list.
-            match list_to_vec(value) {
-                Some(v) => Ok(v),
-                None => Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("arrayp"), *value],
-                )),
-            }
-        }
         _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("arrayp"), *value],
+            "error",
+            vec![Value::string("Keyboard macros must be strings or vectors")],
         )),
     }
 }

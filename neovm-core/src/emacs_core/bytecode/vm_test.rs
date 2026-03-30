@@ -905,6 +905,29 @@ fn vm_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
 }
 
 #[test]
+fn vm_execute_kbd_macro_named_symbol_uses_function_indirection_chain() {
+    let result = with_vm_eval_full_context_state(
+        "(progn
+           (setq vm-kmacro-named-symbol-count 0)
+           (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+           (let ((g (make-sparse-keymap)))
+             (use-global-map g)
+             (define-key g \"a\"
+               (lambda ()
+                 (interactive)
+                 (setq vm-kmacro-named-symbol-count
+                       (1+ vm-kmacro-named-symbol-count)))))
+           (fset 'vm-kmacro-target \"a\")
+           (fset 'vm-kmacro-alias 'vm-kmacro-target)
+           (execute-kbd-macro 'vm-kmacro-alias)
+           vm-kmacro-named-symbol-count)",
+        false,
+        |result, _| crate::emacs_core::error::format_eval_result(&result),
+    );
+    assert_eq!(result, "OK 1");
+}
+
+#[test]
 fn vm_execute_kbd_macro_zero_count_uses_loopfunc() {
     let result = with_vm_eval_full_context_state(
         "(progn

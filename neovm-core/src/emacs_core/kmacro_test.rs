@@ -510,6 +510,30 @@ fn test_execute_kbd_macro_symbol_events_use_command_loop_dispatch() {
 }
 
 #[test]
+fn test_execute_kbd_macro_named_symbol_uses_function_indirection_chain() {
+    let mut eval = Context::new();
+    let forms = parse_forms(
+        r#"(progn
+             (setq kmacro-named-symbol-count 0)
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g "a"
+                 (lambda ()
+                   (interactive)
+                   (setq kmacro-named-symbol-count (1+ kmacro-named-symbol-count)))))
+             (fset 'kmacro-target "a")
+             (fset 'kmacro-alias 'kmacro-target)
+             (execute-kbd-macro 'kmacro-alias)
+             kmacro-named-symbol-count)"#,
+    )
+    .expect("parse");
+    let results = eval.eval_forms(&forms);
+    assert_eq!(results.len(), 1);
+    assert_eq!(format_eval_result(&results[0]), "OK 1");
+}
+
+#[test]
 fn test_call_last_kbd_macro_raw_prefix_repeats_real_key_macro() {
     use super::super::eval::Context;
 
@@ -994,15 +1018,17 @@ fn test_kbd_macro_query_loaded_arity_matches_gnu() {
 
 #[test]
 fn test_resolve_macro_events_vector() {
+    let eval = Context::new();
     let v = Value::vector(vec![Value::Char('a'), Value::Char('b')]);
-    let events = resolve_macro_events(&v).unwrap();
+    let events = resolve_macro_events(&eval, &v).unwrap();
     assert_eq!(events.len(), 2);
 }
 
 #[test]
 fn test_resolve_macro_events_string() {
+    let eval = Context::new();
     let s = Value::string("hello");
-    let events = resolve_macro_events(&s).unwrap();
+    let events = resolve_macro_events(&eval, &s).unwrap();
     assert_eq!(events.len(), 5);
     match &events[0] {
         Value::Char('h') => {}
@@ -1011,16 +1037,46 @@ fn test_resolve_macro_events_string() {
 }
 
 #[test]
-fn test_resolve_macro_events_list() {
-    let list = Value::list(vec![Value::Char('x'), Value::Char('y')]);
-    let events = resolve_macro_events(&list).unwrap();
+fn test_resolve_macro_events_symbol_function_chain() {
+    let mut eval = Context::new();
+    eval.obarray_mut().set_symbol_function(
+        "kmacro-target",
+        Value::vector(vec![Value::Char('x'), Value::Char('y')]),
+    );
+    eval.obarray_mut()
+        .set_symbol_function("kmacro-alias", Value::symbol("kmacro-target"));
+
+    let events = resolve_macro_events(&eval, &Value::symbol("kmacro-alias")).unwrap();
     assert_eq!(events.len(), 2);
 }
 
 #[test]
+fn test_resolve_macro_events_list_errors_like_gnu() {
+    let eval = Context::new();
+    let list = Value::list(vec![Value::Char('x'), Value::Char('y')]);
+    let result = resolve_macro_events(&eval, &list);
+    let Err(Flow::Signal(sig)) = result else {
+        panic!("expected signal for list macro");
+    };
+    assert_eq!(sig.symbol_name(), "error");
+    assert_eq!(
+        sig.data,
+        vec![Value::string("Keyboard macros must be strings or vectors")]
+    );
+}
+
+#[test]
 fn test_resolve_macro_events_wrong_type() {
-    let result = resolve_macro_events(&Value::Int(42));
-    assert!(result.is_err());
+    let eval = Context::new();
+    let result = resolve_macro_events(&eval, &Value::Int(42));
+    let Err(Flow::Signal(sig)) = result else {
+        panic!("expected signal for non-macro value");
+    };
+    assert_eq!(sig.symbol_name(), "error");
+    assert_eq!(
+        sig.data,
+        vec![Value::string("Keyboard macros must be strings or vectors")]
+    );
 }
 
 #[test]
