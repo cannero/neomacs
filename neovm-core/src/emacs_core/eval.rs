@@ -4496,6 +4496,11 @@ impl Context {
     /// Perform a full mark-and-sweep garbage collection.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect(&mut self) {
+        // Clear source_literal_cache before GC — it uses *const Expr raw
+        // pointers as keys which can alias after Rc<Vec<Expr>> bodies are
+        // freed, causing ABA: a new lambda body at the same address gets
+        // a stale cached Value from a collected lambda's expression.
+        self.source_literal_cache.clear();
         let roots = self.collect_roots();
         self.heap.collect(roots.into_iter());
         self.gc_pending = false;
@@ -4543,9 +4548,10 @@ impl Context {
             // Continue incremental marking
             let done = self.heap.mark_some(Self::MARK_WORK_LIMIT);
             if done {
-                // Re-scan roots before sweeping: mutations to obarray,
-                // dynamic stack, or temp_roots during the marking phase
-                // may have introduced new live references.
+                // Clear source_literal_cache — uses raw *const Expr pointers
+                // that can alias after lambda body Rc is freed (ABA problem).
+                self.source_literal_cache.clear();
+                // Re-scan roots before sweeping
                 let roots = self.collect_roots();
                 self.heap.rescan_roots(roots.into_iter());
                 self.heap.finish_collection();
