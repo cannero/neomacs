@@ -510,7 +510,7 @@ fn read_char_prefers_ready_keypress_over_due_timer_callback() {
     );
 
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char('a'),
     ))
     .expect("queue ready keypress");
@@ -565,7 +565,7 @@ fn read_char_prefers_ready_keypress_over_process_filter_callback() {
     std::thread::sleep(Duration::from_millis(20));
 
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char('a'),
     ))
     .expect("queue ready keypress");
