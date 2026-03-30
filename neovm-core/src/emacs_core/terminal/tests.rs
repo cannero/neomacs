@@ -252,7 +252,8 @@ fn resume_tty_runs_hook_after_terminal_host_resume() {
 #[test]
 fn delete_terminal_nil_signals_sole_terminal_error() {
     reset_terminal_thread_locals();
-    match builtin_delete_terminal(vec![]) {
+    let mut eval = Context::new();
+    match builtin_delete_terminal(&mut eval, vec![]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -264,6 +265,71 @@ fn delete_terminal_nil_signals_sole_terminal_error() {
         }
         other => panic!("expected error signal, got {other:?}"),
     }
+}
+
+#[test]
+fn delete_terminal_force_marks_terminal_dead_and_clears_terminal_list() {
+    reset_terminal_thread_locals();
+    let mut eval = Context::new();
+    let handle = terminal_handle_value();
+
+    assert_eq!(
+        builtin_delete_terminal(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
+        Value::Nil
+    );
+    assert!(
+        builtin_terminal_live_p(&mut eval, vec![handle])
+            .unwrap()
+            .is_nil(),
+        "deleted terminal should no longer be live"
+    );
+    let terminals = builtin_terminal_list(vec![]).unwrap();
+    assert!(
+        crate::emacs_core::value::list_to_vec(&terminals)
+            .expect("terminal-list result")
+            .is_empty(),
+        "deleted terminal should be removed from terminal-list"
+    );
+}
+
+#[test]
+fn delete_terminal_force_runs_hook_and_deletes_frames_on_terminal() {
+    reset_terminal_thread_locals();
+    let mut eval = Context::new();
+    let scratch = eval.buffer_manager_mut().create_buffer("*scratch*");
+    let _ = eval
+        .frame_manager_mut()
+        .create_frame_on_terminal("F1", TERMINAL_ID, 80, 25, scratch);
+    let handle = terminal_handle_value();
+    let forms = crate::emacs_core::parse_forms(
+        r#"
+(setq deleted-terminal-log nil)
+(setq delete-terminal-functions
+      (list (lambda (term) (setq deleted-terminal-log term))))
+"#,
+    )
+    .expect("parse delete-terminal hook setup");
+    for form in &forms {
+        eval.eval_expr(form)
+            .expect("install delete-terminal hook setup");
+    }
+
+    assert_eq!(
+        builtin_delete_terminal(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
+        Value::Nil
+    );
+    assert!(
+        eval.frame_manager().frame_list().is_empty(),
+        "delete-terminal should remove frames on the terminal"
+    );
+    assert_eq!(
+        eval.eval_expr(
+            &crate::emacs_core::parse_forms("deleted-terminal-log")
+                .expect("parse deleted-terminal-log")[0]
+        )
+        .expect("deleted-terminal-log value"),
+        handle
+    );
 }
 
 #[test]

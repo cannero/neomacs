@@ -251,10 +251,18 @@ infrastructure only. It should not represent a second Lisp hook architecture.
 
 ## Next
 
-- Terminal deletion still needs its own owner refactor. GNU runs
-  `delete-terminal-functions` from `terminal.c`, but Neomacs still has a
-  single-terminal model and does not yet own truthful delete-terminal
-  semantics for the sole active display/TTY.
+- Terminal owner refactor landed: terminal builtins now go through a real
+  terminal manager instead of a singleton handle/param/runtime stub. Frames
+  now carry a terminal id, `terminal-list` / `frame-terminal` /
+  `terminal-live-p` consult live terminal state, and `delete-terminal` now
+  runs `delete-terminal-functions`, deletes frames on that terminal, and marks
+  the terminal dead in the runtime owner.
+
+- Remaining GNU gap in this area is no longer the hook call itself; it is the
+  deeper multi-terminal model from `terminal.c` / `frame.c` / `keyboard.c`:
+  multiple live terminals, per-terminal `kboard`, device-specific
+  `delete_terminal_hook`, and the deferred `Qnoelisp` delete path when the
+  last frame on a terminal disappears.
 
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented

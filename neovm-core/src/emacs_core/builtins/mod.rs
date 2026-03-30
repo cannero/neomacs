@@ -8178,7 +8178,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "delete-terminal",
-        |_ctx, args| super::terminal::pure::builtin_delete_terminal(args),
+        |ctx, args| super::terminal::pure::builtin_delete_terminal(ctx, args),
         0,
         Some(2),
     );

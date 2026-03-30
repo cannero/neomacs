@@ -752,6 +752,8 @@ pub struct FrameWindowHookRecord {
 pub struct Frame {
     pub id: FrameId,
     pub name: String,
+    /// Terminal owner id for GNU `frame-terminal` / terminal lifecycle.
+    pub terminal_id: u64,
     /// Root of the window tree.
     pub root_window: Window,
     /// The selected (active) window.
@@ -798,7 +800,14 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn new(id: FrameId, name: String, width: u32, height: u32, root_window: Window) -> Self {
+    pub fn new(
+        id: FrameId,
+        name: String,
+        terminal_id: u64,
+        width: u32,
+        height: u32,
+        root_window: Window,
+    ) -> Self {
         let minibuffer_window = WindowId(MINIBUFFER_WINDOW_ID_BASE + id.0);
         let minibuffer_buffer_id = root_window.buffer_id().unwrap_or(BufferId(0));
         let mut minibuffer_leaf = Window::new_leaf(
@@ -823,6 +832,7 @@ impl Frame {
         Self {
             id,
             name,
+            terminal_id,
             root_window,
             selected_window: selected,
             minibuffer_window: Some(minibuffer_window),
@@ -1121,6 +1131,17 @@ impl FrameManager {
         height: u32,
         buffer_id: BufferId,
     ) -> FrameId {
+        self.create_frame_on_terminal(name, 0, width, height, buffer_id)
+    }
+
+    pub fn create_frame_on_terminal(
+        &mut self,
+        name: &str,
+        terminal_id: u64,
+        width: u32,
+        height: u32,
+        buffer_id: BufferId,
+    ) -> FrameId {
         let frame_id = FrameId(self.next_frame_id);
         self.next_frame_id += 1;
 
@@ -1128,7 +1149,7 @@ impl FrameManager {
         let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
         let root = Window::new_leaf(window_id, buffer_id, bounds);
 
-        let frame = Frame::new(frame_id, name.to_string(), width, height, root);
+        let frame = Frame::new(frame_id, name.to_string(), terminal_id, width, height, root);
         let selected_wid = frame.selected_window;
         self.frames.insert(frame_id, frame);
         self.note_window_selected(selected_wid);

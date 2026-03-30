@@ -1,8 +1,7 @@
 //! Terminal/TTY builtins extracted from display.rs and builtins.rs.
 //!
-//! Provides the singleton terminal handle, terminal parameter storage,
-//! and all terminal/tty query builtins.  Neomacs is always a GUI
-//! application so terminal-related queries return sensible defaults.
+//! Provides the terminal runtime owner, terminal parameter storage,
+//! and all terminal/tty query builtins.
 
 use crate::emacs_core::error::{EvalResult, Flow, signal};
 use crate::emacs_core::value::*;
@@ -13,10 +12,7 @@ use std::cell::RefCell;
 // ---------------------------------------------------------------------------
 
 thread_local! {
-    static TERMINAL_PARAMS: RefCell<Vec<(Value, Value)>> = const { RefCell::new(Vec::new()) };
-    static TERMINAL_HANDLE: RefCell<Option<Value>> = const { RefCell::new(None) };
-    static TERMINAL_RUNTIME: RefCell<TerminalRuntime> = const { RefCell::new(TerminalRuntime::inactive()) };
-    static TERMINAL_HOST: RefCell<Option<Box<dyn TerminalHost>>> = RefCell::new(None);
+    static TERMINAL_MANAGER: RefCell<TerminalManager> = RefCell::new(TerminalManager::new());
 }
 
 pub(crate) const TERMINAL_NAME: &str = "initial_terminal";
@@ -59,6 +55,113 @@ pub trait TerminalHost {
     fn resume_tty(&mut self) -> Result<(), String>;
 }
 
+struct TerminalRecord {
+    id: u64,
+    name: String,
+    handle: Value,
+    params: Vec<(Value, Value)>,
+    runtime: TerminalRuntime,
+    deleted: bool,
+    host: Option<Box<dyn TerminalHost>>,
+}
+
+impl TerminalRecord {
+    fn new(id: u64, name: String) -> Self {
+        Self {
+            id,
+            name,
+            handle: terminal_handle_for_id(id),
+            params: Vec::new(),
+            runtime: TerminalRuntime::inactive(),
+            deleted: false,
+            host: None,
+        }
+    }
+
+    fn is_live(&self) -> bool {
+        !self.deleted
+    }
+
+    fn is_active(&self) -> bool {
+        if !self.is_live() {
+            return false;
+        }
+        if self.runtime.controlling_tty || self.runtime.tty_type.is_some() {
+            self.runtime.active && !self.runtime.suspended
+        } else {
+            true
+        }
+    }
+}
+
+struct TerminalManager {
+    terminals: Vec<TerminalRecord>,
+}
+
+impl TerminalManager {
+    fn new() -> Self {
+        let mut this = Self {
+            terminals: Vec::new(),
+        };
+        this.ensure_initial_terminal();
+        this
+    }
+
+    fn ensure_initial_terminal(&mut self) -> &mut TerminalRecord {
+        if let Some(idx) = self
+            .terminals
+            .iter()
+            .position(|terminal| terminal.id == TERMINAL_ID)
+        {
+            if self.terminals[idx].deleted {
+                self.terminals[idx].deleted = false;
+                self.terminals[idx].runtime = TerminalRuntime::inactive();
+                self.terminals[idx].host = None;
+            }
+            return &mut self.terminals[idx];
+        }
+        self.terminals
+            .push(TerminalRecord::new(TERMINAL_ID, TERMINAL_NAME.to_string()));
+        self.terminals.last_mut().expect("initial terminal present")
+    }
+
+    fn reset_handles(&mut self) {
+        for terminal in &mut self.terminals {
+            terminal.handle = terminal_handle_for_id(terminal.id);
+        }
+    }
+
+    fn get(&self, id: u64) -> Option<&TerminalRecord> {
+        self.terminals.iter().find(|terminal| terminal.id == id)
+    }
+
+    fn get_mut(&mut self, id: u64) -> Option<&mut TerminalRecord> {
+        self.terminals.iter_mut().find(|terminal| terminal.id == id)
+    }
+
+    fn find_by_handle(&self, value: &Value) -> Option<&TerminalRecord> {
+        self.terminals
+            .iter()
+            .find(|terminal| eq_value(&terminal.handle, value))
+    }
+
+    fn find_by_handle_mut(&mut self, value: &Value) -> Option<&mut TerminalRecord> {
+        self.terminals
+            .iter_mut()
+            .find(|terminal| eq_value(&terminal.handle, value))
+    }
+
+    fn live_terminals(&self) -> impl Iterator<Item = &TerminalRecord> {
+        self.terminals.iter().filter(|terminal| terminal.is_live())
+    }
+
+    fn active_live_terminal_count(&self) -> usize {
+        self.live_terminals()
+            .filter(|terminal| terminal.is_active())
+            .count()
+    }
+}
+
 impl TerminalRuntimeConfig {
     pub fn inactive() -> Self {
         Self {
@@ -78,8 +181,10 @@ impl TerminalRuntimeConfig {
 }
 
 pub fn configure_terminal_runtime(config: TerminalRuntimeConfig) {
-    TERMINAL_RUNTIME.with(|slot| {
-        *slot.borrow_mut() = TerminalRuntime {
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        let terminal = manager.ensure_initial_terminal();
+        terminal.runtime = TerminalRuntime {
             active: config.controlling_tty || config.tty_type.is_some() || config.color_cells > 0,
             tty_type: config.tty_type,
             color_cells: config.color_cells.max(0),
@@ -90,19 +195,33 @@ pub fn configure_terminal_runtime(config: TerminalRuntimeConfig) {
 }
 
 pub fn reset_terminal_runtime() {
-    TERMINAL_RUNTIME.with(|slot| *slot.borrow_mut() = TerminalRuntime::inactive());
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        manager.ensure_initial_terminal().runtime = TerminalRuntime::inactive();
+    });
 }
 
 pub fn set_terminal_host(host: Box<dyn TerminalHost>) {
-    TERMINAL_HOST.with(|slot| *slot.borrow_mut() = Some(host));
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        manager.ensure_initial_terminal().host = Some(host);
+    });
 }
 
 pub fn reset_terminal_host() {
-    TERMINAL_HOST.with(|slot| *slot.borrow_mut() = None);
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        manager.ensure_initial_terminal().host = None;
+    });
 }
 
 fn terminal_runtime() -> TerminalRuntime {
-    TERMINAL_RUNTIME.with(|slot| slot.borrow().clone())
+    TERMINAL_MANAGER.with(|slot| {
+        slot.borrow()
+            .get(TERMINAL_ID)
+            .map(|terminal| terminal.runtime.clone())
+            .unwrap_or_else(TerminalRuntime::inactive)
+    })
 }
 
 pub(crate) fn terminal_runtime_active() -> bool {
@@ -122,15 +241,20 @@ fn terminal_runtime_suspended() -> bool {
 }
 
 fn set_terminal_runtime_suspended(suspended: bool) {
-    TERMINAL_RUNTIME.with(|slot| slot.borrow_mut().suspended = suspended);
+    TERMINAL_MANAGER.with(|slot| {
+        slot.borrow_mut()
+            .ensure_initial_terminal()
+            .runtime
+            .suspended = suspended;
+    });
 }
 
 fn with_terminal_host<R>(
     f: impl FnOnce(&mut dyn TerminalHost) -> Result<R, String>,
 ) -> Result<R, Flow> {
-    TERMINAL_HOST.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        let Some(host) = slot.as_deref_mut() else {
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        let Some(host) = manager.ensure_initial_terminal().host.as_deref_mut() else {
             return Err(signal(
                 "error",
                 vec![Value::string("TTY terminal host unavailable")],
@@ -142,29 +266,24 @@ fn with_terminal_host<R>(
 
 /// Clear cached terminal thread-locals (called from `reset_display_thread_locals`).
 pub(crate) fn reset_terminal_thread_locals() {
-    TERMINAL_PARAMS.with(|slot| slot.borrow_mut().clear());
-    TERMINAL_HANDLE.with(|slot| *slot.borrow_mut() = None);
-    reset_terminal_host();
-    reset_terminal_runtime();
+    TERMINAL_MANAGER.with(|slot| *slot.borrow_mut() = TerminalManager::new());
 }
 
 /// Reset only the terminal handle (stale ObjId safety on heap reset).
 /// Does NOT reset terminal params or runtime config.
 pub(crate) fn reset_terminal_handle() {
-    TERMINAL_HANDLE.with(|slot| *slot.borrow_mut() = None);
+    TERMINAL_MANAGER.with(|slot| slot.borrow_mut().reset_handles());
 }
 
 /// Collect GC roots from terminal thread-locals.
 pub(crate) fn collect_terminal_gc_roots(roots: &mut Vec<Value>) {
-    TERMINAL_PARAMS.with(|slot| {
-        for (k, v) in slot.borrow().iter() {
-            roots.push(*k);
-            roots.push(*v);
-        }
-    });
-    TERMINAL_HANDLE.with(|slot| {
-        if let Some(v) = *slot.borrow() {
-            roots.push(v);
+    TERMINAL_MANAGER.with(|slot| {
+        for terminal in &slot.borrow().terminals {
+            roots.push(terminal.handle);
+            for (k, v) in &terminal.params {
+                roots.push(*k);
+                roots.push(*v);
+            }
         }
     });
 }
@@ -173,39 +292,39 @@ pub(crate) fn collect_terminal_gc_roots(roots: &mut Vec<Value>) {
 // Terminal handle helpers
 // ---------------------------------------------------------------------------
 
+fn terminal_handle_for_id(id: u64) -> Value {
+    Value::vector(vec![
+        Value::symbol("--neovm-terminal--"),
+        Value::Int(id as i64),
+    ])
+}
+
 pub(crate) fn terminal_handle_value() -> Value {
-    TERMINAL_HANDLE.with(|slot| {
-        let mut borrow = slot.borrow_mut();
-        if borrow.is_none() {
-            *borrow = Some(Value::vector(vec![Value::symbol("--neovm-terminal--")]));
-        }
-        (*borrow).unwrap()
-    })
+    terminal_handle_value_for_id(TERMINAL_ID).unwrap_or_else(|| terminal_handle_for_id(TERMINAL_ID))
+}
+
+pub(crate) fn terminal_handle_value_for_id(id: u64) -> Option<Value> {
+    TERMINAL_MANAGER.with(|slot| slot.borrow().get(id).map(|terminal| terminal.handle))
 }
 
 pub(crate) fn is_terminal_handle(value: &Value) -> bool {
-    match value {
-        Value::Vector(v) => TERMINAL_HANDLE.with(|slot| {
-            if let Some(Value::Vector(handle_id)) = slot.borrow().as_ref() {
-                v == handle_id
-            } else {
-                false
-            }
-        }),
-        _ => false,
-    }
+    terminal_handle_id(value).is_some()
 }
 
 pub(crate) fn terminal_handle_id(value: &Value) -> Option<u64> {
-    if is_terminal_handle(value) {
-        Some(TERMINAL_ID)
-    } else {
-        None
-    }
+    TERMINAL_MANAGER.with(|slot| {
+        slot.borrow()
+            .find_by_handle(value)
+            .map(|terminal| terminal.id)
+    })
 }
 
 pub(crate) fn print_terminal_handle(value: &Value) -> Option<String> {
-    terminal_handle_id(value).map(|id| format!("#<terminal {id} on {TERMINAL_NAME}>"))
+    TERMINAL_MANAGER.with(|slot| {
+        slot.borrow()
+            .find_by_handle(value)
+            .map(|terminal| format!("#<terminal {} on {}>", terminal.id, terminal.name))
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -216,19 +335,78 @@ pub(crate) fn terminal_designator_p(value: &Value) -> bool {
     value.is_nil() || is_terminal_handle(value)
 }
 
+fn live_terminal_id_by_handle(value: &Value) -> Option<u64> {
+    TERMINAL_MANAGER.with(|slot| {
+        slot.borrow()
+            .find_by_handle(value)
+            .filter(|terminal| terminal.is_live())
+            .map(|terminal| terminal.id)
+    })
+}
+
+fn selected_terminal_id(eval: &crate::emacs_core::eval::Context) -> Option<u64> {
+    eval.frames
+        .selected_frame()
+        .map(|frame| frame.terminal_id)
+        .or_else(|| {
+            TERMINAL_MANAGER.with(|slot| {
+                slot.borrow()
+                    .get(TERMINAL_ID)
+                    .filter(|terminal| terminal.is_live())
+                    .map(|terminal| terminal.id)
+            })
+        })
+}
+
+fn decode_terminal_id_eval(eval: &crate::emacs_core::eval::Context, value: &Value) -> Option<u64> {
+    if value.is_nil() {
+        return selected_terminal_id(eval);
+    }
+    if let Some(id) = live_terminal_id_by_handle(value) {
+        return Some(id);
+    }
+    match value {
+        Value::Frame(fid) => eval
+            .frames
+            .get(crate::window::FrameId(*fid as u64))
+            .and_then(|frame| {
+                TERMINAL_MANAGER.with(|slot| {
+                    slot.borrow()
+                        .get(frame.terminal_id)
+                        .filter(|terminal| terminal.is_live())
+                        .map(|terminal| terminal.id)
+                })
+            }),
+        _ => None,
+    }
+}
+
 pub(crate) fn terminal_designator_eval_p(
     eval: &mut crate::emacs_core::eval::Context,
     value: &Value,
 ) -> bool {
-    terminal_designator_p(value) || crate::emacs_core::display::live_frame_designator_p(eval, value)
+    decode_terminal_id_eval(eval, value).is_some()
 }
 
 pub(crate) fn terminal_designator_in_state_p(
     frames: &crate::window::FrameManager,
     value: &Value,
 ) -> bool {
-    terminal_designator_p(value)
-        || crate::emacs_core::display::live_frame_designator_p_in_state(frames, value)
+    if value.is_nil() {
+        return frames.selected_frame().is_some()
+            || terminal_handle_value_for_id(TERMINAL_ID).is_some();
+    }
+    if let Some(id) = terminal_handle_id(value) {
+        return TERMINAL_MANAGER.with(|slot| {
+            slot.borrow()
+                .get(id)
+                .is_some_and(|terminal| terminal.is_live())
+        });
+    }
+    match value {
+        Value::Frame(fid) => frames.get(crate::window::FrameId(*fid as u64)).is_some(),
+        _ => false,
+    }
 }
 
 pub(crate) fn expect_terminal_designator(value: &Value) -> Result<(), Flow> {
@@ -331,6 +509,79 @@ fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
     }
 }
 
+fn terminal_name_for_id(id: u64) -> Option<String> {
+    TERMINAL_MANAGER.with(|slot| slot.borrow().get(id).map(|terminal| terminal.name.clone()))
+}
+
+fn terminal_runtime_for_id(id: u64) -> TerminalRuntime {
+    TERMINAL_MANAGER.with(|slot| {
+        slot.borrow()
+            .get(id)
+            .map(|terminal| terminal.runtime.clone())
+            .unwrap_or_else(TerminalRuntime::inactive)
+    })
+}
+
+fn terminal_params_for_id(id: u64) -> Vec<(Value, Value)> {
+    TERMINAL_MANAGER.with(|slot| {
+        slot.borrow()
+            .get(id)
+            .map(|terminal| terminal.params.clone())
+            .unwrap_or_default()
+    })
+}
+
+fn update_terminal_param(id: u64, key: Value, value: Value) -> Value {
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        let Some(terminal) = manager.get_mut(id) else {
+            return Value::Nil;
+        };
+        if let Some((_, stored_value)) = terminal
+            .params
+            .iter_mut()
+            .find(|(stored_key, _)| eq_value(stored_key, &key))
+        {
+            let previous = *stored_value;
+            *stored_value = value;
+            return previous;
+        }
+        let previous = terminal_parameter_default_value(&key).unwrap_or(Value::Nil);
+        terminal.params.push((key, value));
+        previous
+    })
+}
+
+fn with_terminal_host_for_id<R>(
+    id: u64,
+    f: impl FnOnce(&mut dyn TerminalHost) -> Result<R, String>,
+) -> Result<R, Flow> {
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        let Some(host) = manager
+            .get_mut(id)
+            .and_then(|terminal| terminal.host.as_deref_mut())
+        else {
+            return Err(signal(
+                "error",
+                vec![Value::string("TTY terminal host unavailable")],
+            ));
+        };
+        f(host).map_err(|message| signal("error", vec![Value::string(message)]))
+    })
+}
+
+fn delete_terminal_record(id: u64) {
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        if let Some(terminal) = manager.get_mut(id) {
+            terminal.deleted = true;
+            terminal.runtime = TerminalRuntime::inactive();
+            terminal.host = None;
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Alist helper
 // ---------------------------------------------------------------------------
@@ -389,18 +640,28 @@ pub(crate) fn builtin_terminal_name(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("terminal-name", &args, 1)?;
-    if let Some(term) = args.first() {
-        if !term.is_nil() {
-            expect_terminal_designator_eval(eval, term)?;
-        }
-    }
-    Ok(Value::string(TERMINAL_NAME))
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    Ok(Value::string(
+        terminal_name_for_id(terminal_id).unwrap_or_else(|| TERMINAL_NAME.to_string()),
+    ))
 }
 
-/// (terminal-list) -> list containing one opaque terminal handle.
+/// (terminal-list) -> list of live terminal handles.
 pub(crate) fn builtin_terminal_list(args: Vec<Value>) -> EvalResult {
     expect_max_args("terminal-list", &args, 0)?;
-    Ok(Value::list(vec![terminal_handle_value()]))
+    let terminals = TERMINAL_MANAGER.with(|slot| {
+        slot.borrow()
+            .live_terminals()
+            .map(|terminal| terminal.handle)
+            .collect::<Vec<_>>()
+    });
+    Ok(Value::list(terminals))
 }
 
 /// (selected-terminal) -> currently selected terminal handle.
@@ -418,15 +679,29 @@ pub(crate) fn builtin_frame_terminal(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("frame-terminal", &args, 1)?;
-    if let Some(frame) = args.first() {
-        if !frame.is_nil() && !crate::emacs_core::display::live_frame_designator_p(eval, frame) {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *frame],
-            ));
+    let terminal_id = if let Some(frame) = args.first() {
+        if frame.is_nil() {
+            selected_terminal_id(eval)
+        } else {
+            match frame {
+                Value::Frame(fid) => eval
+                    .frames
+                    .get(crate::window::FrameId(*fid as u64))
+                    .map(|frame| frame.terminal_id),
+                _ => None,
+            }
         }
-    }
-    Ok(terminal_handle_value())
+    } else {
+        selected_terminal_id(eval)
+    };
+    let Some(terminal_id) = terminal_id else {
+        let bad = args.first().copied().unwrap_or(Value::Nil);
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), bad],
+        ));
+    };
+    Ok(terminal_handle_value_for_id(terminal_id).unwrap_or_else(terminal_handle_value))
 }
 
 /// (terminal-live-p TERMINAL) -> t
@@ -439,11 +714,14 @@ pub(crate) fn builtin_terminal_live_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("terminal-live-p", &args, 1, 1)?;
-    if !terminal_designator_eval_p(eval, &args[0]) {
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &args[0]) else {
         return Ok(Value::Nil);
-    }
+    };
+    let runtime = terminal_runtime_for_id(terminal_id);
     // Return the window system type so framep-on-display works correctly.
-    if crate::emacs_core::display::x_window_system_active(eval) {
+    if runtime.controlling_tty || runtime.tty_type.is_some() {
+        Ok(Value::True)
+    } else if crate::emacs_core::display::x_window_system_active(eval) {
         Ok(Value::symbol(
             crate::emacs_core::display::gui_window_system_symbol(),
         ))
@@ -460,9 +738,17 @@ pub(crate) fn builtin_terminal_parameter(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("terminal-parameter", &args, 2)?;
-    expect_terminal_designator_eval(eval, &args[0])?;
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &args[0]) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), args[0]],
+        ));
+    };
     let key = expect_symbol_key(&args[1])?;
-    TERMINAL_PARAMS.with(|slot| Ok(lookup_terminal_parameter_value(&slot.borrow(), &key)))
+    Ok(lookup_terminal_parameter_value(
+        &terminal_params_for_id(terminal_id),
+        &key,
+    ))
 }
 
 /// (terminal-parameters &optional TERMINAL) -> alist of terminal parameters
@@ -473,15 +759,15 @@ pub(crate) fn builtin_terminal_parameters(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("terminal-parameters", &args, 1)?;
-    if let Some(term) = args.first() {
-        if !term.is_nil() {
-            expect_terminal_designator_eval(eval, term)?;
-        }
-    }
-    TERMINAL_PARAMS.with(|slot| {
-        let merged = terminal_parameters_with_defaults(&slot.borrow());
-        Ok(make_alist(merged))
-    })
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    let merged = terminal_parameters_with_defaults(&terminal_params_for_id(terminal_id));
+    Ok(make_alist(merged))
 }
 
 /// (set-terminal-parameter TERMINAL PARAMETER VALUE) -> previous value
@@ -492,26 +778,17 @@ pub(crate) fn builtin_set_terminal_parameter(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-terminal-parameter", &args, 3)?;
-    expect_terminal_designator_eval(eval, &args[0])?;
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &args[0]) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), args[0]],
+        ));
+    };
     if matches!(args[1], Value::Str(_)) {
         return Ok(Value::Nil);
     }
     let key = args[1];
-    TERMINAL_PARAMS.with(|slot| {
-        let mut params = slot.borrow_mut();
-        if let Some((_, stored_value)) = params
-            .iter_mut()
-            .find(|(stored_key, _)| eq_value(stored_key, &key))
-        {
-            let previous = *stored_value;
-            *stored_value = args[2];
-            return Ok(previous);
-        }
-
-        let previous = terminal_parameter_default_value(&key).unwrap_or(Value::Nil);
-        params.push((key, args[2]));
-        Ok(previous)
-    })
+    Ok(update_terminal_param(terminal_id, key, args[2]))
 }
 
 // ---------------------------------------------------------------------------
@@ -524,10 +801,14 @@ pub(crate) fn builtin_tty_type(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-type", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_eval(eval, terminal)?;
-    }
-    Ok(terminal_runtime()
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    Ok(terminal_runtime_for_id(terminal_id)
         .tty_type
         .map(Value::string)
         .unwrap_or(Value::Nil))
@@ -539,17 +820,29 @@ pub(crate) fn builtin_tty_top_frame(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-top-frame", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_eval(eval, terminal)?;
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    let runtime = terminal_runtime_for_id(terminal_id);
+    if !runtime.active {
+        return Ok(Value::Nil);
     }
-    Ok(if terminal_runtime().active {
-        eval.frames
-            .selected_frame()
-            .map(|frame| Value::Frame(frame.id.0))
-            .unwrap_or(Value::Nil)
-    } else {
-        Value::Nil
-    })
+    let top = eval
+        .frames
+        .frame_list()
+        .into_iter()
+        .find_map(|frame_id| {
+            eval.frames
+                .get(frame_id)
+                .filter(|frame| frame.terminal_id == terminal_id)
+                .map(|frame| Value::Frame(frame.id.0))
+        })
+        .unwrap_or(Value::Nil);
+    Ok(top)
 }
 
 /// (tty-display-color-p &optional TERMINAL) -> nil
@@ -558,10 +851,16 @@ pub(crate) fn builtin_tty_display_color_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-display-color-p", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_eval(eval, terminal)?;
-    }
-    Ok(Value::bool(terminal_runtime().supports_color()))
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    Ok(Value::bool(
+        terminal_runtime_for_id(terminal_id).supports_color(),
+    ))
 }
 
 /// (tty-display-color-cells &optional TERMINAL) -> 0
@@ -570,10 +869,14 @@ pub(crate) fn builtin_tty_display_color_cells(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-display-color-cells", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_eval(eval, terminal)?;
-    }
-    Ok(Value::Int(terminal_runtime().color_cells))
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    Ok(Value::Int(terminal_runtime_for_id(terminal_id).color_cells))
 }
 
 /// (tty-no-underline &optional TERMINAL) -> nil
@@ -582,8 +885,13 @@ pub(crate) fn builtin_tty_no_underline(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-no-underline", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_eval(eval, terminal)?;
+    if let Some(terminal) = args.first()
+        && decode_terminal_id_eval(eval, terminal).is_none()
+    {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), *terminal],
+        ));
     }
     Ok(Value::Nil)
 }
@@ -594,10 +902,16 @@ pub(crate) fn builtin_controlling_tty_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("controlling-tty-p", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_eval(eval, terminal)?;
-    }
-    Ok(Value::bool(terminal_runtime().controlling_tty))
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    Ok(Value::bool(
+        terminal_runtime_for_id(terminal_id).controlling_tty,
+    ))
 }
 
 /// (suspend-tty &optional TTY) -> error in GUI/non-text terminal context.
@@ -606,10 +920,15 @@ pub(crate) fn builtin_suspend_tty(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("suspend-tty", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_eval(eval, terminal)?;
-    }
-    if !terminal_runtime_active() {
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    let runtime = terminal_runtime_for_id(terminal_id);
+    if !runtime.active {
         return Err(signal(
             "error",
             vec![Value::string(
@@ -618,16 +937,21 @@ pub(crate) fn builtin_suspend_tty(
         ));
     }
 
-    if terminal_runtime_suspended() {
+    if runtime.suspended {
         return Ok(Value::Nil);
     }
 
-    let terminal = terminal_handle_value();
+    let terminal = terminal_handle_value_for_id(terminal_id).unwrap_or_else(terminal_handle_value);
     let hook_sym =
         crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "suspend-tty-functions");
     let _ = crate::emacs_core::hook_runtime::run_named_hook(eval, hook_sym, &[terminal])?;
-    with_terminal_host(|host| host.suspend_tty())?;
-    set_terminal_runtime_suspended(true);
+    with_terminal_host_for_id(terminal_id, |host| host.suspend_tty())?;
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        if let Some(terminal) = manager.get_mut(terminal_id) {
+            terminal.runtime.suspended = true;
+        }
+    });
     Ok(Value::Nil)
 }
 
@@ -637,10 +961,15 @@ pub(crate) fn builtin_resume_tty(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("resume-tty", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_eval(eval, terminal)?;
-    }
-    if !terminal_runtime_active() {
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), designator],
+        ));
+    };
+    let runtime = terminal_runtime_for_id(terminal_id);
+    if !runtime.active {
         return Err(signal(
             "error",
             vec![Value::string(
@@ -649,13 +978,18 @@ pub(crate) fn builtin_resume_tty(
         ));
     }
 
-    if !terminal_runtime_suspended() {
+    if !runtime.suspended {
         return Ok(Value::Nil);
     }
 
-    with_terminal_host(|host| host.resume_tty())?;
-    set_terminal_runtime_suspended(false);
-    let terminal = terminal_handle_value();
+    with_terminal_host_for_id(terminal_id, |host| host.resume_tty())?;
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        if let Some(terminal) = manager.get_mut(terminal_id) {
+            terminal.runtime.suspended = false;
+        }
+    });
+    let terminal = terminal_handle_value_for_id(terminal_id).unwrap_or_else(terminal_handle_value);
     let hook_sym =
         crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "resume-tty-functions");
     let _ = crate::emacs_core::hook_runtime::run_named_hook(eval, hook_sym, &[terminal])?;
@@ -667,17 +1001,51 @@ pub(crate) fn builtin_resume_tty(
 // ---------------------------------------------------------------------------
 
 /// (delete-terminal &optional TERMINAL FORCE) -> nil or error
-pub(crate) fn builtin_delete_terminal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_delete_terminal(
+    eval: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("delete-terminal", &args, 0, 2)?;
-    if args.first().is_some_and(|term| !term.is_nil()) {
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Ok(Value::Nil);
+    };
+    let force = args.get(1).copied().unwrap_or(Value::Nil);
+    let active_live_count =
+        TERMINAL_MANAGER.with(|slot| slot.borrow().active_live_terminal_count());
+    if force.is_nil() && active_live_count <= 1 {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Attempt to delete the sole active display terminal",
+            )],
+        ));
     }
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Attempt to delete the sole active display terminal",
-        )],
-    ))
+    let terminal = terminal_handle_value_for_id(terminal_id).unwrap_or_else(terminal_handle_value);
+    let hook_sym =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "delete-terminal-functions");
+    let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(eval, hook_sym, &[terminal])?;
+
+    let frames_to_delete = eval
+        .frames
+        .frame_list()
+        .into_iter()
+        .filter(|frame_id| {
+            eval.frames
+                .get(*frame_id)
+                .is_some_and(|frame| frame.terminal_id == terminal_id)
+        })
+        .collect::<Vec<_>>();
+    for frame_id in frames_to_delete {
+        let _ = eval.frames.delete_frame(frame_id);
+    }
+    delete_terminal_record(terminal_id);
+    if eval.frames.selected_frame().is_none() {
+        if let Some(next_selected) = eval.frames.frame_list().into_iter().next() {
+            let _ = eval.frames.select_frame(next_selected);
+        }
+    }
+    Ok(Value::Nil)
 }
 
 /// (make-terminal-frame PARMS) -> error (no TTY support)
