@@ -13,7 +13,6 @@ pub(crate) struct MakeIndirectBufferPlan {
     pub(crate) id: BufferId,
     pub(crate) saved_current: Option<BufferId>,
     pub(crate) run_clone_hook: bool,
-    pub(crate) run_buffer_list_update_hook: bool,
 }
 
 pub(super) fn expect_buffer_id(value: &Value) -> Result<BufferId, Flow> {
@@ -90,18 +89,27 @@ fn canonicalize_or_self(path: &str) -> String {
         .unwrap_or_else(|_| path.to_string())
 }
 
+pub(crate) fn run_buffer_list_update_hook(eval: &mut super::eval::Context) -> EvalResult {
+    builtin_run_hooks(eval, vec![Value::symbol("buffer-list-update-hook")])
+}
+
 pub(crate) fn builtin_get_buffer_create(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let buffers = &mut eval.buffers;
     expect_min_args("get-buffer-create", &args, 1)?;
     expect_max_args("get-buffer-create", &args, 2)?;
     let name = expect_string(&args[0])?;
-    if let Some(id) = buffers.find_buffer_by_name(&name) {
+    if let Some(id) = eval.buffers.find_buffer_by_name(&name) {
         Ok(Value::Buffer(id))
     } else {
-        let id = buffers.create_buffer(&name);
+        let inhibit_buffer_hooks = args.get(1).is_some_and(|value| !value.is_nil());
+        let id = eval
+            .buffers
+            .create_buffer_with_hook_inhibition(&name, inhibit_buffer_hooks);
+        if !inhibit_buffer_hooks {
+            run_buffer_list_update_hook(eval)?;
+        }
         Ok(Value::Buffer(id))
     }
 }
@@ -165,7 +173,7 @@ pub(crate) fn prepare_make_indirect_buffer_in_manager(
     let clone = args.get(2).is_some_and(|value| !value.is_nil());
     let inhibit_buffer_hooks = args.get(3).is_some_and(|value| !value.is_nil());
     let id = buffers
-        .create_indirect_buffer(base_id, &name, clone)
+        .create_indirect_buffer_with_hook_inhibition(base_id, &name, clone, inhibit_buffer_hooks)
         .ok_or_else(|| {
             signal(
                 "error",
@@ -177,7 +185,6 @@ pub(crate) fn prepare_make_indirect_buffer_in_manager(
         id,
         saved_current: buffers.current_buffer_id(),
         run_clone_hook: clone,
-        run_buffer_list_update_hook: !inhibit_buffer_hooks,
     })
 }
 
@@ -194,8 +201,8 @@ pub(crate) fn finish_make_indirect_buffer_hooks(
         }
         clone_result?;
     }
-    if plan.run_buffer_list_update_hook {
-        builtin_run_hooks(eval, vec![Value::symbol("buffer-list-update-hook")])?;
+    if !eval.buffers.buffer_hooks_inhibited(plan.id) {
+        run_buffer_list_update_hook(eval)?;
     }
     Ok(Value::Buffer(plan.id))
 }
@@ -368,18 +375,25 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
     };
 
     let saved_current = eval.buffers.current_buffer_id();
+    let inhibit_buffer_hooks = eval.buffers.buffer_hooks_inhibited(id);
     let _ = eval.buffers.switch_current(id);
-    let query_sym =
-        crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "kill-buffer-query-functions");
-    let query_value =
-        crate::emacs_core::hook_runtime::hook_value_by_id(eval, query_sym).unwrap_or(Value::Nil);
-    let query_result = crate::emacs_core::hook_runtime::run_hook_value_until_failure(
-        eval,
-        query_sym,
-        query_value,
-        &[],
-        true,
-    )?;
+    let query_result = if inhibit_buffer_hooks {
+        Value::True
+    } else {
+        let query_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+            eval,
+            "kill-buffer-query-functions",
+        );
+        let query_value = crate::emacs_core::hook_runtime::hook_value_by_id(eval, query_sym)
+            .unwrap_or(Value::Nil);
+        crate::emacs_core::hook_runtime::run_hook_value_until_failure(
+            eval,
+            query_sym,
+            query_value,
+            &[],
+            true,
+        )?
+    };
     if let Some(buffer_id) = saved_current {
         eval.restore_current_buffer_if_live(buffer_id);
     }
@@ -391,10 +405,13 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
     }
 
     let _ = eval.buffers.switch_current(id);
-    let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "kill-buffer-hook");
-    let hook_value =
-        crate::emacs_core::hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
-    crate::emacs_core::hook_runtime::run_hook_value(eval, hook_sym, hook_value, &[], true)?;
+    if !inhibit_buffer_hooks {
+        let hook_sym =
+            crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "kill-buffer-hook");
+        let hook_value =
+            crate::emacs_core::hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
+        crate::emacs_core::hook_runtime::run_hook_value(eval, hook_sym, hook_value, &[], true)?;
+    }
     if let Some(buffer_id) = saved_current {
         eval.restore_current_buffer_if_live(buffer_id);
     }
@@ -452,6 +469,10 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
                 eval.buffers.switch_current(scratch);
             }
         }
+    }
+
+    if !inhibit_buffer_hooks {
+        run_buffer_list_update_hook(eval)?;
     }
 
     Ok(Value::True)

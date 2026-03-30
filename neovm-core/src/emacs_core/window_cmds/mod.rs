@@ -3531,10 +3531,8 @@ pub(crate) fn builtin_select_window(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("select-window", &args, 1)?;
     expect_max_args("select-window", &args, 2)?;
-    let fid = ensure_selected_frame_id_in_state(frames, buffers);
     let wid = match args.first().and_then(window_id_from_designator) {
         Some(wid) => wid,
         None => {
@@ -3544,24 +3542,35 @@ pub(crate) fn builtin_select_window(
             ));
         }
     };
-    let record_selection = args.get(1).is_none_or(Value::is_nil);
-    remember_selected_window_point_in_state(frames, buffers, fid);
-    {
-        let frame = frames
-            .get_mut(fid)
-            .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
-        if !frame.select_window(wid) {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("window-live-p"), args[0]],
-            ));
+    let (record_selection, run_buffer_list_hook) = {
+        let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+        let fid = ensure_selected_frame_id_in_state(frames, buffers);
+        let record_selection = args.get(1).is_none_or(Value::is_nil);
+        remember_selected_window_point_in_state(frames, buffers, fid);
+        {
+            let frame = frames
+                .get_mut(fid)
+                .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+            if !frame.select_window(wid) {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("window-live-p"), args[0]],
+                ));
+            }
         }
+        if record_selection {
+            let _ = frames.note_window_selected(wid);
+        }
+        sync_selected_window_buffer_in_state(frames, buffers, fid);
+        note_selected_window_buffer_in_state(frames, buffers, fid);
+        let run_buffer_list_hook = record_selection
+            && selected_window_buffer_state_in_frame(frames, fid)
+                .is_some_and(|(_, buffer_id)| !buffers.buffer_hooks_inhibited(buffer_id));
+        (record_selection, run_buffer_list_hook)
+    };
+    if record_selection && run_buffer_list_hook {
+        super::builtins::run_buffer_list_update_hook(eval)?;
     }
-    if record_selection {
-        let _ = frames.note_window_selected(wid);
-    }
-    sync_selected_window_buffer_in_state(frames, buffers, fid);
-    note_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(window_value(wid))
 }
 /// `(other-window COUNT &optional ALL-FRAMES)` -> nil.
@@ -3571,38 +3580,44 @@ pub(crate) fn builtin_other_window(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("other-window", &args, 1)?;
     expect_max_args("other-window", &args, 3)?;
     let count = expect_number_or_marker_count(&args[0])?;
-    let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let Some(fid) = frames.selected_frame().map(|f| f.id) else {
-        return Ok(Value::Nil);
+    let run_buffer_list_hook = {
+        let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+        let _ = ensure_selected_frame_id_in_state(frames, buffers);
+        let Some(fid) = frames.selected_frame().map(|f| f.id) else {
+            return Ok(Value::Nil);
+        };
+        let Some(frame) = frames.get(fid) else {
+            return Ok(Value::Nil);
+        };
+        let list = frame.window_list();
+        if list.is_empty() {
+            return Ok(Value::Nil);
+        }
+        let cur = frame.selected_window;
+        let cur_idx = list.iter().position(|w| *w == cur).unwrap_or(0);
+        let len = list.len() as i64;
+        let new_idx = ((cur_idx as i64 + count) % len + len) % len;
+        let new_wid = list[new_idx as usize];
+        remember_selected_window_point_in_state(frames, buffers, fid);
+        let switched = if let Some(frame) = frames.get_mut(fid) {
+            frame.select_window(new_wid)
+        } else {
+            false
+        };
+        if switched {
+            let _ = frames.note_window_selected(new_wid);
+        };
+        sync_selected_window_buffer_in_state(frames, buffers, fid);
+        note_selected_window_buffer_in_state(frames, buffers, fid);
+        selected_window_buffer_state_in_frame(frames, fid)
+            .is_some_and(|(_, buffer_id)| !buffers.buffer_hooks_inhibited(buffer_id))
     };
-    let Some(frame) = frames.get(fid) else {
-        return Ok(Value::Nil);
-    };
-    let list = frame.window_list();
-    if list.is_empty() {
-        return Ok(Value::Nil);
+    if run_buffer_list_hook {
+        super::builtins::run_buffer_list_update_hook(eval)?;
     }
-    let cur = frame.selected_window;
-    let cur_idx = list.iter().position(|w| *w == cur).unwrap_or(0);
-    let len = list.len() as i64;
-    let new_idx = ((cur_idx as i64 + count) % len + len) % len;
-    let new_wid = list[new_idx as usize];
-    remember_selected_window_point_in_state(frames, buffers, fid);
-    let switched = if let Some(frame) = frames.get_mut(fid) {
-        let switched = frame.select_window(new_wid);
-        switched
-    } else {
-        false
-    };
-    if switched {
-        let _ = frames.note_window_selected(new_wid);
-    };
-    sync_selected_window_buffer_in_state(frames, buffers, fid);
-    note_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Nil)
 }
 /// `(other-window-for-scrolling)` -> window object used for scrolling.
@@ -3670,204 +3685,215 @@ pub(crate) fn builtin_set_window_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers, minibuffers) = (&mut eval.frames, &mut eval.buffers, &eval.minibuffers);
     expect_min_args("set-window-buffer", &args, 2)?;
     expect_max_args("set-window-buffer", &args, 3)?;
-    let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
-    let buf_id = match &args[1] {
-        Value::Buffer(id) => {
-            if buffers.get(*id).is_none() {
-                return Err(signal(
-                    "error",
-                    vec![Value::string("Attempt to display deleted buffer")],
-                ));
-            }
-            *id
-        }
-        Value::Str(_) => {
-            let name_s = args[1].as_str().unwrap();
-            match buffers.find_buffer_by_name(name_s) {
-                Some(id) => id,
-                None => {
+    let run_buffer_list_hook = {
+        let (frames, buffers, minibuffers) =
+            (&mut eval.frames, &mut eval.buffers, &eval.minibuffers);
+        let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
+        let buf_id = match &args[1] {
+            Value::Buffer(id) => {
+                if buffers.get(*id).is_none() {
                     return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("bufferp"), Value::Nil],
+                        "error",
+                        vec![Value::string("Attempt to display deleted buffer")],
                     ));
                 }
+                *id
             }
-        }
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
-            ));
-        }
-    };
+            Value::Str(_) => {
+                let name_s = args[1].as_str().unwrap();
+                match buffers.find_buffer_by_name(name_s) {
+                    Some(id) => id,
+                    None => {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("bufferp"), Value::Nil],
+                        ));
+                    }
+                }
+            }
+            other => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("stringp"), *other],
+                ));
+            }
+        };
 
-    let keep_margins = args.get(2).is_some_and(|arg| !arg.is_nil());
-    let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
-    let next_margins = if keep_margins {
-        None
-    } else {
-        Some((
-            buffer_margin_width(buffers, buf_id, "left-margin-width")?,
-            buffer_margin_width(buffers, buf_id, "right-margin-width")?,
-        ))
-    };
-    let next_fringes = if keep_margins {
-        None
-    } else {
-        Some((
-            buffer_local_optional_dimension(buffers, buf_id, "left-fringe-width")?,
-            buffer_local_optional_dimension(buffers, buf_id, "right-fringe-width")?,
-            buffer_local_value(buffers, buf_id, "fringes-outside-margins").is_truthy(),
-        ))
-    };
-    let next_scroll_bars = if keep_margins {
-        None
-    } else {
-        let vertical_type = buffer_local_value(buffers, buf_id, "vertical-scroll-bar");
-        if !valid_vertical_scroll_bar_type(vertical_type) {
-            return Err(signal(
-                "error",
-                vec![Value::string("Invalid type of vertical scroll bar")],
-            ));
-        }
-        let horizontal_type = buffer_local_value(buffers, buf_id, "horizontal-scroll-bar");
-        if !valid_horizontal_scroll_bar_type(horizontal_type) {
-            return Err(signal(
-                "error",
-                vec![Value::string("Invalid type of horizontal scroll bar")],
-            ));
-        }
-        Some((
-            buffer_local_optional_dimension(buffers, buf_id, "scroll-bar-width")?,
-            vertical_type,
-            buffer_local_optional_dimension(buffers, buf_id, "scroll-bar-height")?,
-            horizontal_type,
-        ))
-    };
-    let mut old_state = None;
-    if let Some(Window::Leaf {
-        buffer_id,
-        window_start,
-        point,
-        dedicated,
-        ..
-    }) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid))
-    {
-        old_state = Some((*buffer_id, *window_start, *point, *dedicated));
-    }
-    if let Some((old_buffer_id, old_window_start, old_point, dedicated)) = old_state {
-        if dedicated && old_buffer_id != buf_id {
-            let old_buffer_name = buffers
-                .get(old_buffer_id)
-                .map(|buffer| buffer.name.clone())
-                .unwrap_or_else(|| "*deleted*".to_string());
-            return Err(signal(
-                "error",
-                vec![Value::string(format!(
-                    "Window is dedicated to ‘{old_buffer_name}’"
-                ))],
-            ));
-        }
-        if let Some(buffer) = buffers.get_mut(old_buffer_id) {
-            buffer.last_window_start = old_window_start.max(1);
-        }
-        let selected_buffer_id = frames
-            .get(selected_fid)
-            .and_then(|frame| frame.find_window(frame.selected_window))
-            .and_then(Window::buffer_id);
-        let old_buffer_last_selected_window = buffers
-            .get(old_buffer_id)
-            .and_then(|buffer| buffer.last_selected_window);
-        let preserve_old_buffer_point = selected_buffer_id == Some(old_buffer_id)
-            || old_buffer_last_selected_window.is_some_and(|last_selected_window| {
-                last_selected_window != wid
-                    && window_displays_buffer(frames, last_selected_window, old_buffer_id)
-            });
-        if !preserve_old_buffer_point && let Some(buffer) = buffers.get_mut(old_buffer_id) {
-            buffer.goto_char(old_point.saturating_sub(1));
-        }
-        if old_buffer_id != buf_id
-            && let Some(buffer) = buffers.get_mut(old_buffer_id)
-            && buffer.last_selected_window == Some(wid)
-        {
-            buffer.last_selected_window = None;
-        }
-        if old_buffer_id != buf_id {
-            let old_buffer_value = Value::Buffer(old_buffer_id);
-            let new_buffer_value = Value::Buffer(buf_id);
-            let old_window_start_pos = old_window_start.max(1) as i64;
-            let old_point_pos = old_point.max(1) as i64;
-            let history_entry = Value::list(vec![
-                old_buffer_value,
-                super::marker::make_marker_value(
-                    Some(old_buffer_id),
-                    Some(old_window_start_pos),
-                    false,
-                ),
-                super::marker::make_marker_value(Some(old_buffer_id), Some(old_point_pos), false),
-            ]);
-            let filtered_prev = filtered_window_prev_buffers(
-                frames.window_prev_buffers(wid),
-                &[old_buffer_value, new_buffer_value],
-            )?;
-            frames.set_window_next_buffers(wid, Value::Nil);
-            if should_record_window_history_buffer(
-                frames,
-                minibuffers,
-                buffers,
-                fid,
-                wid,
-                old_buffer_id,
-            ) {
-                let mut next_prev = Vec::with_capacity(filtered_prev.len() + 1);
-                next_prev.push(history_entry);
-                next_prev.extend(filtered_prev);
-                frames.set_window_prev_buffers(wid, Value::list(next_prev));
-            } else {
-                frames.set_window_prev_buffers(wid, Value::list(filtered_prev));
-            }
+        let keep_margins = args.get(2).is_some_and(|arg| !arg.is_nil());
+        let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
+        let next_margins = if keep_margins {
+            None
         } else {
-            discard_buffers_from_window_history(frames, wid, &[Value::Buffer(buf_id)])?;
+            Some((
+                buffer_margin_width(buffers, buf_id, "left-margin-width")?,
+                buffer_margin_width(buffers, buf_id, "right-margin-width")?,
+            ))
+        };
+        let next_fringes = if keep_margins {
+            None
+        } else {
+            Some((
+                buffer_local_optional_dimension(buffers, buf_id, "left-fringe-width")?,
+                buffer_local_optional_dimension(buffers, buf_id, "right-fringe-width")?,
+                buffer_local_value(buffers, buf_id, "fringes-outside-margins").is_truthy(),
+            ))
+        };
+        let next_scroll_bars = if keep_margins {
+            None
+        } else {
+            let vertical_type = buffer_local_value(buffers, buf_id, "vertical-scroll-bar");
+            if !valid_vertical_scroll_bar_type(vertical_type) {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Invalid type of vertical scroll bar")],
+                ));
+            }
+            let horizontal_type = buffer_local_value(buffers, buf_id, "horizontal-scroll-bar");
+            if !valid_horizontal_scroll_bar_type(horizontal_type) {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Invalid type of horizontal scroll bar")],
+                ));
+            }
+            Some((
+                buffer_local_optional_dimension(buffers, buf_id, "scroll-bar-width")?,
+                vertical_type,
+                buffer_local_optional_dimension(buffers, buf_id, "scroll-bar-height")?,
+                horizontal_type,
+            ))
+        };
+        let mut old_state = None;
+        if let Some(Window::Leaf {
+            buffer_id,
+            window_start,
+            point,
+            dedicated,
+            ..
+        }) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid))
+        {
+            old_state = Some((*buffer_id, *window_start, *point, *dedicated));
         }
-    }
+        if let Some((old_buffer_id, old_window_start, old_point, dedicated)) = old_state {
+            if dedicated && old_buffer_id != buf_id {
+                let old_buffer_name = buffers
+                    .get(old_buffer_id)
+                    .map(|buffer| buffer.name.clone())
+                    .unwrap_or_else(|| "*deleted*".to_string());
+                return Err(signal(
+                    "error",
+                    vec![Value::string(format!(
+                        "Window is dedicated to ‘{old_buffer_name}’"
+                    ))],
+                ));
+            }
+            if let Some(buffer) = buffers.get_mut(old_buffer_id) {
+                buffer.last_window_start = old_window_start.max(1);
+            }
+            let selected_buffer_id = frames
+                .get(selected_fid)
+                .and_then(|frame| frame.find_window(frame.selected_window))
+                .and_then(Window::buffer_id);
+            let old_buffer_last_selected_window = buffers
+                .get(old_buffer_id)
+                .and_then(|buffer| buffer.last_selected_window);
+            let preserve_old_buffer_point = selected_buffer_id == Some(old_buffer_id)
+                || old_buffer_last_selected_window.is_some_and(|last_selected_window| {
+                    last_selected_window != wid
+                        && window_displays_buffer(frames, last_selected_window, old_buffer_id)
+                });
+            if !preserve_old_buffer_point && let Some(buffer) = buffers.get_mut(old_buffer_id) {
+                buffer.goto_char(old_point.saturating_sub(1));
+            }
+            if old_buffer_id != buf_id
+                && let Some(buffer) = buffers.get_mut(old_buffer_id)
+                && buffer.last_selected_window == Some(wid)
+            {
+                buffer.last_selected_window = None;
+            }
+            if old_buffer_id != buf_id {
+                let old_buffer_value = Value::Buffer(old_buffer_id);
+                let new_buffer_value = Value::Buffer(buf_id);
+                let old_window_start_pos = old_window_start.max(1) as i64;
+                let old_point_pos = old_point.max(1) as i64;
+                let history_entry = Value::list(vec![
+                    old_buffer_value,
+                    super::marker::make_marker_value(
+                        Some(old_buffer_id),
+                        Some(old_window_start_pos),
+                        false,
+                    ),
+                    super::marker::make_marker_value(
+                        Some(old_buffer_id),
+                        Some(old_point_pos),
+                        false,
+                    ),
+                ]);
+                let filtered_prev = filtered_window_prev_buffers(
+                    frames.window_prev_buffers(wid),
+                    &[old_buffer_value, new_buffer_value],
+                )?;
+                frames.set_window_next_buffers(wid, Value::Nil);
+                if should_record_window_history_buffer(
+                    frames,
+                    minibuffers,
+                    buffers,
+                    fid,
+                    wid,
+                    old_buffer_id,
+                ) {
+                    let mut next_prev = Vec::with_capacity(filtered_prev.len() + 1);
+                    next_prev.push(history_entry);
+                    next_prev.extend(filtered_prev);
+                    frames.set_window_prev_buffers(wid, Value::list(next_prev));
+                } else {
+                    frames.set_window_prev_buffers(wid, Value::list(filtered_prev));
+                }
+            } else {
+                discard_buffers_from_window_history(frames, wid, &[Value::Buffer(buf_id)])?;
+            }
+        }
 
-    let selected_window = frames.get(fid).map(|frame| frame.selected_window);
-    let same_buffer = old_state.is_some_and(|(old_buffer_id, _, _, _)| old_buffer_id == buf_id);
-    let (next_window_start, next_point) = if same_buffer && keep_margins {
-        old_state
-            .map(|(_, window_start, point, _)| (window_start.max(1), point.max(1)))
-            .unwrap_or((1, 1))
-    } else {
-        buffers
-            .get(buf_id)
-            .map(|buf| {
-                (
-                    buf.last_window_start.max(1),
-                    buf.point_char().saturating_add(1).max(1),
-                )
-            })
-            .unwrap_or((1, 1))
+        let selected_window = frames.get(fid).map(|frame| frame.selected_window);
+        let same_buffer = old_state.is_some_and(|(old_buffer_id, _, _, _)| old_buffer_id == buf_id);
+        let (next_window_start, next_point) = if same_buffer && keep_margins {
+            old_state
+                .map(|(_, window_start, point, _)| (window_start.max(1), point.max(1)))
+                .unwrap_or((1, 1))
+        } else {
+            buffers
+                .get(buf_id)
+                .map(|buf| {
+                    (
+                        buf.last_window_start.max(1),
+                        buf.point_char().saturating_add(1).max(1),
+                    )
+                })
+                .unwrap_or((1, 1))
+        };
+        frames.apply_set_window_buffer_state(
+            wid,
+            buf_id,
+            next_window_start,
+            next_point,
+            same_buffer && keep_margins,
+            WindowBufferDisplayDefaults {
+                margins: next_margins,
+                fringes: next_fringes,
+                scroll_bars: next_scroll_bars,
+            },
+        );
+        record_buffer_display_in_state(buffers, buf_id)?;
+        if selected_window == Some(wid)
+            && let Some(buffer) = buffers.get_mut(buf_id)
+        {
+            buffer.last_selected_window = Some(wid);
+        }
+        !is_minibuffer_window(frames, fid, wid) && !buffers.buffer_hooks_inhibited(buf_id)
     };
-    frames.apply_set_window_buffer_state(
-        wid,
-        buf_id,
-        next_window_start,
-        next_point,
-        same_buffer && keep_margins,
-        WindowBufferDisplayDefaults {
-            margins: next_margins,
-            fringes: next_fringes,
-            scroll_bars: next_scroll_bars,
-        },
-    );
-    record_buffer_display_in_state(buffers, buf_id)?;
-    if selected_window == Some(wid)
-        && let Some(buffer) = buffers.get_mut(buf_id)
-    {
-        buffer.last_selected_window = Some(wid);
+    if run_buffer_list_hook {
+        super::builtins::run_buffer_list_update_hook(eval)?;
     }
     Ok(Value::Nil)
 }
@@ -3879,47 +3905,60 @@ pub(crate) fn builtin_switch_to_buffer(
 ) -> EvalResult {
     expect_min_args("switch-to-buffer", &args, 1)?;
     expect_max_args("switch-to-buffer", &args, 3)?;
-    let buf_id = match &args[0] {
-        Value::Buffer(id) => {
-            if eval.buffers.get(*id).is_none() {
+    let record_selection = args.get(1).is_none_or(Value::is_nil);
+    let (buf_id, run_buffer_list_hook) = {
+        let buf_id = match &args[0] {
+            Value::Buffer(id) => {
+                if eval.buffers.get(*id).is_none() {
+                    return Err(signal(
+                        "error",
+                        vec![Value::string("Attempt to display deleted buffer")],
+                    ));
+                }
+                *id
+            }
+            Value::Str(_) => {
+                let name_s = args[0].as_str().unwrap();
+                match eval.buffers.find_buffer_by_name(name_s) {
+                    Some(id) => id,
+                    None => eval.buffers.create_buffer(name_s),
+                }
+            }
+            other => {
                 return Err(signal(
-                    "error",
-                    vec![Value::string("Attempt to display deleted buffer")],
+                    "wrong-type-argument",
+                    vec![Value::symbol("stringp"), *other],
                 ));
             }
-            *id
-        }
-        Value::Str(_) => {
-            let name_s = args[0].as_str().unwrap();
-            match eval.buffers.find_buffer_by_name(name_s) {
-                Some(id) => id,
-                None => eval.buffers.create_buffer(name_s),
-            }
-        }
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
-            ));
-        }
-    };
+        };
 
-    // Set the selected window's buffer.
-    let fid = ensure_selected_frame_id(eval);
-    let sel_wid = eval
-        .frames
-        .get(fid)
-        .map(|f| f.selected_window)
-        .ok_or_else(|| signal("error", vec![Value::string("No selected window")]))?;
-    if let Some(w) = eval
-        .frames
-        .get_mut(fid)
-        .and_then(|f| f.find_window_mut(sel_wid))
-    {
-        w.set_buffer(buf_id);
+        let fid = ensure_selected_frame_id(eval);
+        let sel_wid = eval
+            .frames
+            .get(fid)
+            .map(|f| f.selected_window)
+            .ok_or_else(|| signal("error", vec![Value::string("No selected window")]))?;
+        if let Some(w) = eval
+            .frames
+            .get_mut(fid)
+            .and_then(|f| f.find_window_mut(sel_wid))
+        {
+            w.set_buffer(buf_id);
+        }
+        eval.switch_current_buffer(buf_id)?;
+        if let Some(buffer) = eval.buffers.get_mut(buf_id) {
+            buffer.last_selected_window = Some(sel_wid);
+        }
+        (
+            buf_id,
+            record_selection
+                && !is_minibuffer_window(&eval.frames, fid, sel_wid)
+                && !eval.buffers.buffer_hooks_inhibited(buf_id),
+        )
+    };
+    if run_buffer_list_hook {
+        super::builtins::run_buffer_list_update_hook(eval)?;
     }
-    // Also switch the buffer manager's current buffer.
-    eval.switch_current_buffer(buf_id)?;
     Ok(Value::Buffer(buf_id))
 }
 

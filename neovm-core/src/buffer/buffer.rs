@@ -152,6 +152,9 @@ pub struct Buffer {
     /// GNU `last_selected_window`: most recently selected live window showing
     /// this buffer, when known.
     pub last_selected_window: Option<WindowId>,
+    /// GNU `inhibit_buffer_hooks`: suppress buffer lifecycle hooks for
+    /// temporary/internal buffers.
+    pub inhibit_buffer_hooks: bool,
     /// If true, insertions/deletions are forbidden.
     pub read_only: bool,
     /// Multi-byte encoding flag.  Always `true` for now.
@@ -198,6 +201,7 @@ impl Buffer {
             autosave_modified_tick: 1,
             last_window_start: 1,
             last_selected_window: None,
+            inhibit_buffer_hooks: false,
             read_only: false,
             multibyte: true,
             file_name: None,
@@ -1003,9 +1007,19 @@ impl BufferManager {
 
     /// Allocate a new buffer with the given name and return its id.
     pub fn create_buffer(&mut self, name: &str) -> BufferId {
+        self.create_buffer_with_hook_inhibition(name, false)
+    }
+
+    /// Allocate a new buffer with the given name and hook-inhibition state.
+    pub fn create_buffer_with_hook_inhibition(
+        &mut self,
+        name: &str,
+        inhibit_buffer_hooks: bool,
+    ) -> BufferId {
         let id = BufferId(self.next_id);
         self.next_id += 1;
         let mut buf = Buffer::new(id, name.to_string());
+        buf.inhibit_buffer_hooks = inhibit_buffer_hooks;
         if let Some(default_directory) = self
             .current
             .and_then(|current| self.buffers.get(&current))
@@ -1032,6 +1046,16 @@ impl BufferManager {
         base_id: BufferId,
         name: &str,
         clone: bool,
+    ) -> Option<BufferId> {
+        self.create_indirect_buffer_with_hook_inhibition(base_id, name, clone, false)
+    }
+
+    pub fn create_indirect_buffer_with_hook_inhibition(
+        &mut self,
+        base_id: BufferId,
+        name: &str,
+        clone: bool,
+        inhibit_buffer_hooks: bool,
     ) -> Option<BufferId> {
         if name.is_empty() || self.find_buffer_by_name(name).is_some() {
             return None;
@@ -1062,6 +1086,7 @@ impl BufferManager {
         };
 
         indirect.base_buffer = Some(root_id);
+        indirect.inhibit_buffer_hooks = inhibit_buffer_hooks;
         indirect.text = shared_text;
         indirect.undo_state = root.undo_state.clone();
         indirect.narrow_to_byte_region(root.begv, root.zv);
@@ -1108,6 +1133,12 @@ impl BufferManager {
     /// Return the current buffer id.
     pub fn current_buffer_id(&self) -> Option<BufferId> {
         self.current
+    }
+
+    pub fn buffer_hooks_inhibited(&self, id: BufferId) -> bool {
+        self.buffers
+            .get(&id)
+            .is_some_and(|buffer| buffer.inhibit_buffer_hooks)
     }
 
     fn buffer_has_state_markers(&self, id: BufferId) -> bool {

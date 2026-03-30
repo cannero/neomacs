@@ -2831,7 +2831,7 @@ impl<'a> Vm<'a> {
             }
             clone_result?;
         }
-        if plan.run_buffer_list_update_hook {
+        if !self.ctx.buffers.buffer_hooks_inhibited(plan.id) {
             let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
                 &self.ctx,
                 "buffer-list-update-hook",

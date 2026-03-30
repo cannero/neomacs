@@ -195,6 +195,14 @@ infrastructure only. It should not represent a second Lisp hook architecture.
 - Slice D landed: point-motion hook dispatch now follows GNU interval-boundary
   ownership and duplicate suppression order for `point-left` /
   `point-entered`.
+- GC owner follow-up landed: `post-gc-hook` now runs from the real GC
+  collection/safe-point boundary with GC explicitly inhibited while the hook
+  runs, matching GNU `alloc.c` ownership.
+- Buffer lifecycle follow-up landed: buffers now carry GNU-style
+  `inhibit_buffer_hooks` state, `get-buffer-create` / `make-indirect-buffer`
+  honor it, `kill-buffer` skips lifecycle hooks when inhibited, and
+  `buffer-list-update-hook` is now run from real buffer/window owners instead
+  of only the indirect-buffer path.
 - Shared variable-runtime fix landed: `set-default` no longer overwrites the
   current buffer's local value just because a local binding exists; it now
   updates the default/toplevel cell, which matches GNU's hook-variable owner

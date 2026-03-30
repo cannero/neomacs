@@ -815,6 +815,8 @@ pub struct Context {
     pub(crate) gc_pending: bool,
     /// Total number of GC collections performed.
     pub(crate) gc_count: u64,
+    /// Nested depth of explicit GC inhibition scopes.
+    pub(crate) gc_inhibit_depth: usize,
     /// Stress-test mode: force GC at every safe point regardless of threshold.
     pub(crate) gc_stress: bool,
     /// Temporary GC roots — Values that must survive collection but aren't
@@ -3340,6 +3342,7 @@ impl Context {
             max_depth: 2400, // Matches GNU Emacs default (max-lisp-eval-depth)
             gc_pending: false,
             gc_count: 0,
+            gc_inhibit_depth: 0,
             gc_stress: false,
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
@@ -3468,6 +3471,7 @@ impl Context {
             max_depth: 2400,
             gc_pending: false,
             gc_count: 0,
+            gc_inhibit_depth: 0,
             gc_stress: false,
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
@@ -4249,6 +4253,21 @@ impl Context {
         self.heap.collect(roots.into_iter());
         self.gc_pending = false;
         self.gc_count += 1;
+        self.run_post_gc_hook();
+    }
+
+    fn with_gc_inhibited<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.gc_inhibit_depth += 1;
+        let result = f(self);
+        self.gc_inhibit_depth -= 1;
+        result
+    }
+
+    fn run_post_gc_hook(&mut self) {
+        let hook = crate::emacs_core::hook_runtime::hook_symbol_by_name(self, "post-gc-hook");
+        let _ = self.with_gc_inhibited(|eval| {
+            crate::emacs_core::hook_runtime::safe_run_named_hook(eval, hook, &[])
+        });
     }
 
     /// Number of gray objects to process per incremental marking step.
@@ -4262,6 +4281,9 @@ impl Context {
     ///   Idle → (threshold?) → begin_marking → Marking
     ///   Marking → mark_some(LIMIT) → (done?) → sweep → Idle
     pub fn gc_safe_point(&mut self) {
+        if self.gc_inhibit_depth > 0 {
+            return;
+        }
         // Stress mode: full collection at every safe point.
         if self.gc_stress {
             if self.gc_pending || self.heap.should_collect() || self.gc_stress {
@@ -4281,6 +4303,7 @@ impl Context {
                 self.heap.rescan_roots(roots.into_iter());
                 self.heap.finish_collection();
                 self.gc_count += 1;
+                self.run_post_gc_hook();
             }
         } else if self.gc_pending || self.heap.should_collect() {
             // Start a new incremental collection cycle
@@ -4292,6 +4315,7 @@ impl Context {
             if done {
                 self.heap.finish_collection();
                 self.gc_count += 1;
+                self.run_post_gc_hook();
             }
         }
     }

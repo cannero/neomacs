@@ -4814,6 +4814,44 @@ fn run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
 }
 
 #[test]
+fn get_buffer_create_runs_buffer_list_update_hook_when_enabled() {
+    let result = eval_one(
+        "(progn
+           (setq hook-log nil)
+           (setq buffer-list-update-hook
+                 (list (lambda ()
+                         (setq hook-log (cons 'ran hook-log)))))
+           (get-buffer-create \"gbc-hook\")
+           hook-log)",
+    );
+    assert_eq!(result, "OK (ran)");
+}
+
+#[test]
+fn get_buffer_create_inhibit_buffer_hooks_suppresses_buffer_and_kill_hooks() {
+    let result = eval_one(
+        "(progn
+           (setq hook-log nil)
+           (setq buffer-list-update-hook
+                 (list (lambda ()
+                         (setq hook-log (cons 'buffer-list hook-log)))))
+           (let ((buf (get-buffer-create \"gbc-inhibit\" t)))
+             (save-current-buffer
+               (set-buffer buf)
+               (setq kill-buffer-query-functions
+                     (list (lambda ()
+                             (setq hook-log (cons 'query hook-log))
+                             t)))
+               (setq kill-buffer-hook
+                     (list (lambda ()
+                             (setq hook-log (cons 'kill hook-log))))))
+             (kill-buffer buf)
+             hook-log))",
+    );
+    assert_eq!(result, "OK nil");
+}
+
+#[test]
 fn kill_buffer_runs_query_functions_and_hook_in_target_buffer_context() {
     let result = eval_one(
         "(progn
@@ -6372,7 +6410,10 @@ fn gc_safe_point_collects_when_threshold_reached() {
     )
     .unwrap();
     ev.eval_forms(&forms);
-    assert!(ev.heap.should_collect());
+    assert!(
+        ev.gc_count > 0 || ev.gc_pending || ev.heap.is_marking() || ev.heap.should_collect(),
+        "incremental GC should be pending, active, or already finished"
+    );
     // With incremental GC, safe point may need multiple calls to finish.
     while ev.gc_count == 0 {
         ev.gc_safe_point();
@@ -6400,6 +6441,48 @@ fn gc_threshold_adapts_after_collection() {
     assert!(
         threshold >= 8192,
         "threshold should be at least 8192, got {threshold}"
+    );
+}
+
+#[test]
+fn gc_collect_runs_post_gc_hook() {
+    let result = eval_one(
+        "(progn
+           (setq gc-hook-log nil)
+           (setq post-gc-hook
+                 (list (lambda ()
+                         (setq gc-hook-log (cons 'ran gc-hook-log)))))
+           (garbage-collect)
+           gc-hook-log)",
+    );
+    assert_eq!(result, "OK (ran)");
+}
+
+#[test]
+fn gc_safe_point_runs_post_gc_hook_when_incremental_collection_finishes() {
+    let mut ev = Context::new();
+    let setup = crate::emacs_core::parse_forms(
+        "(progn
+           (setq gc-hook-log nil)
+           (setq post-gc-hook
+                 (list (lambda ()
+                         (setq gc-hook-log (cons 'ran gc-hook-log))))))",
+    )
+    .expect("parse");
+    ev.eval_forms(&setup);
+    ev.heap.set_gc_threshold(5);
+    let forms = crate::emacs_core::parse_forms(
+        "(progn (cons 1 2) (cons 3 4) (cons 5 6) (cons 7 8) (cons 9 10) nil)",
+    )
+    .expect("parse");
+    ev.eval_forms(&forms);
+    while ev.gc_count == 0 {
+        ev.gc_safe_point();
+    }
+    assert_eq!(ev.gc_count, 1);
+    assert_eq!(
+        ev.obarray().symbol_value("gc-hook-log").copied(),
+        Some(Value::list(vec![Value::symbol("ran")]))
     );
 }
 

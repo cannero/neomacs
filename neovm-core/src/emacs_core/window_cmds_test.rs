@@ -1324,6 +1324,26 @@ fn select_window_updates_current_buffer_to_selected_window_buffer() {
 }
 
 #[test]
+fn select_window_runs_buffer_list_update_hook_unless_norecord() {
+    let result = eval_one_with_frame(
+        "(let* ((w1 (selected-window))
+                (b2 (get-buffer-create \"sw-hook-buf\"))
+                (w2 (split-window-internal w1 nil nil nil))
+                (sw-log nil))
+           (set-window-buffer w2 b2)
+           (setq buffer-list-update-hook
+                 (list (lambda ()
+                         (setq sw-log (cons (buffer-name) sw-log)))))
+           (let ((norecord (progn (select-window w2 t) sw-log)))
+             (select-window w1 t)
+             (setq sw-log nil)
+             (let ((recorded (progn (select-window w2) sw-log)))
+               (list norecord recorded (buffer-name)))))",
+    );
+    assert_eq!(result, "OK (nil (\"sw-hook-buf\") \"sw-hook-buf\")");
+}
+
+#[test]
 fn select_window_swaps_buffer_point_between_windows() {
     let result = eval_one_with_frame(
         "(let ((w1 (selected-window)))
@@ -3254,6 +3274,25 @@ fn switch_to_buffer_changes_window() {
 }
 
 #[test]
+fn switch_to_buffer_runs_buffer_list_update_hook_unless_norecord() {
+    let result = eval_one_with_frame(
+        "(let ((stb-log nil))
+           (setq buffer-list-update-hook
+                 (list (lambda ()
+                         (setq stb-log (cons (buffer-name) stb-log)))))
+           (let ((norecord (progn (switch-to-buffer \"stb-hook\" t) stb-log)))
+             (switch-to-buffer \"*scratch*\" t)
+             (setq stb-log nil)
+             (let ((recorded (progn (switch-to-buffer \"stb-hook\") stb-log)))
+               (list norecord
+                     recorded
+                     (buffer-name)
+                     (buffer-name (window-buffer))))))",
+    );
+    assert_eq!(result, "OK (nil (\"stb-hook\") \"stb-hook\" \"stb-hook\")");
+}
+
+#[test]
 fn set_window_buffer_works() {
     let results = eval_with_frame(
         "(get-buffer-create \"buf2\")
@@ -3262,6 +3301,23 @@ fn set_window_buffer_works() {
     );
     assert_eq!(results[1], "OK nil"); // set-window-buffer returns nil
     assert_eq!(results[2], "OK t");
+}
+
+#[test]
+fn set_window_buffer_runs_buffer_list_update_hook_for_normal_windows() {
+    let result = eval_one_with_frame(
+        "(let ((swb-log nil)
+               (w (selected-window))
+               (b (get-buffer-create \"swb-hook-target\")))
+           (setq buffer-list-update-hook
+                 (list (lambda ()
+                         (setq swb-log (cons (buffer-name) swb-log)))))
+           (set-window-buffer w b)
+           (list (length swb-log)
+                 (buffer-name)
+                 (buffer-name (window-buffer w))))",
+    );
+    assert_eq!(result, "OK (1 \"*scratch*\" \"swb-hook-target\")");
 }
 
 #[test]
