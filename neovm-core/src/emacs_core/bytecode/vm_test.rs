@@ -4682,6 +4682,26 @@ fn vm_make_thread_runs_body_on_shared_runtime() {
 }
 
 #[test]
+fn vm_make_thread_restores_caller_current_buffer() {
+    let result = vm_eval_with_init_str(
+        r#"(let* ((orig (current-buffer))
+                  (worker (make-thread
+                           (lambda ()
+                             (set-buffer vm-thread-target-buffer)
+                             (current-buffer))
+                           "vm-worker")))
+             (list
+              (eq (thread-join worker) vm-thread-target-buffer)
+              (eq (current-buffer) orig)))"#,
+        |eval| {
+            let target = eval.buffers.create_buffer("vm-thread-target-buffer");
+            eval.set_variable("vm-thread-target-buffer", Value::Buffer(target));
+        },
+    );
+    assert_eq!(result, "OK (t t)");
+}
+
+#[test]
 fn vm_make_thread_records_join_error_on_shared_runtime() {
     assert_eq!(
         vm_eval_str(

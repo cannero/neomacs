@@ -2544,11 +2544,6 @@ pub(crate) fn builtin_subr_type(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_thread_blocker(args: Vec<Value>) -> EvalResult {
-    expect_args("thread--blocker", &args, 1)?;
-    Ok(Value::Nil)
-}
-
 pub(crate) fn builtin_tool_bar_get_system_style(args: Vec<Value>) -> EvalResult {
     expect_args("tool-bar-get-system-style", &args, 0)?;
     Ok(Value::Nil)

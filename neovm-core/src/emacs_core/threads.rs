@@ -60,6 +60,14 @@ pub struct ThreadState {
     pub joined: bool,
     /// What should happen if this thread's current buffer is killed.
     pub buffer_disposition: Value,
+    /// Current buffer owned by this thread.
+    pub current_buffer: Option<crate::buffer::BufferId>,
+    /// Object this thread is currently blocked on.
+    pub event_object: Value,
+    /// Pending or terminal signal symbol for this thread.
+    pub error_symbol: Value,
+    /// Pending or terminal signal data for this thread.
+    pub error_data: Value,
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +135,10 @@ impl ThreadManager {
                 last_error: None,
                 joined: false,
                 buffer_disposition: Value::Nil,
+                current_buffer: None,
+                event_object: Value::Nil,
+                error_symbol: Value::Nil,
+                error_data: Value::Nil,
             },
         );
         let mut thread_handles = HashMap::new();
@@ -163,6 +175,10 @@ impl ThreadManager {
                 last_error: None,
                 joined: false,
                 buffer_disposition: Value::Nil,
+                current_buffer: None,
+                event_object: Value::Nil,
+                error_symbol: Value::Nil,
+                error_data: Value::Nil,
             },
         );
         self.thread_handles
@@ -202,6 +218,13 @@ impl ThreadManager {
         if let Some(t) = self.threads.get_mut(&id) {
             t.status = ThreadStatus::Signaled;
             t.last_error = Some(error);
+            if let Some((symbol, data)) = split_signal_binding_value(error) {
+                t.error_symbol = symbol;
+                t.error_data = data;
+            } else {
+                t.error_symbol = Value::Nil;
+                t.error_data = Value::Nil;
+            }
         }
     }
 
@@ -291,6 +314,40 @@ impl ThreadManager {
         };
         thread.buffer_disposition = value;
         true
+    }
+
+    pub fn thread_current_buffer(&self, id: u64) -> Option<crate::buffer::BufferId> {
+        self.threads
+            .get(&id)
+            .and_then(|thread| thread.current_buffer)
+    }
+
+    pub fn set_thread_current_buffer(
+        &mut self,
+        id: u64,
+        buffer_id: Option<crate::buffer::BufferId>,
+    ) -> bool {
+        let Some(thread) = self.threads.get_mut(&id) else {
+            return false;
+        };
+        thread.current_buffer = buffer_id;
+        true
+    }
+
+    pub fn thread_blocker(&self, id: u64) -> Option<Value> {
+        self.threads.get(&id).map(|thread| thread.event_object)
+    }
+
+    pub fn set_thread_blocker(&mut self, id: u64, blocker: Value) -> bool {
+        let Some(thread) = self.threads.get_mut(&id) else {
+            return false;
+        };
+        thread.event_object = blocker;
+        true
+    }
+
+    pub fn clear_thread_blocker(&mut self, id: u64) -> bool {
+        self.set_thread_blocker(id, Value::Nil)
     }
 
     // -- Mutex operations ---------------------------------------------------
@@ -450,6 +507,12 @@ impl GcTrace for ThreadManager {
             roots.push(thread.function);
             roots.push(thread.result);
             roots.push(thread.buffer_disposition);
+            roots.push(thread.event_object);
+            roots.push(thread.error_symbol);
+            roots.push(thread.error_data);
+            if let Some(buffer_id) = thread.current_buffer {
+                roots.push(Value::Buffer(buffer_id));
+            }
             if let Some(ref err) = thread.last_error {
                 roots.push(*err);
             }
@@ -534,6 +597,15 @@ fn canonical_handle_id(handles: &HashMap<u64, Value>, value: &Value, tag: &str) 
     }
 }
 
+fn split_signal_binding_value(value: Value) -> Option<(Value, Value)> {
+    let Value::Cons(cell) = value else {
+        return None;
+    };
+    let pair = read_cons(cell);
+    pair.car.as_symbol_name()?;
+    Some((pair.car, pair.cdr))
+}
+
 /// Extract a thread id from a canonical thread handle object.
 fn expect_thread_id(manager: &ThreadManager, value: &Value) -> Result<u64, Flow> {
     match manager.thread_id_from_handle(value) {
@@ -577,9 +649,11 @@ fn expect_cv_id(manager: &ThreadManager, value: &Value) -> Result<u64, Flow> {
 /// Returns a `(thread . ID)` object.
 pub(crate) fn builtin_make_thread(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (thread_id, function) = prepare_make_thread(&mut eval.threads, &args)?;
-    let saved_current = eval.threads.enter_thread(thread_id);
+    eval.threads
+        .set_thread_current_buffer(thread_id, eval.buffers.current_buffer_id());
+    let runtime_state = enter_thread_runtime(eval, thread_id)?;
     let result = eval.apply(function, vec![]);
-    eval.threads.restore_thread(saved_current);
+    exit_thread_runtime(eval, thread_id, runtime_state);
     finish_make_thread_result(&mut eval.threads, thread_id, result)
 }
 
@@ -617,10 +691,57 @@ pub(crate) fn finish_make_thread_in_eval(
     thread_id: u64,
     function: Value,
 ) -> EvalResult {
-    let saved_current = eval.threads.enter_thread(thread_id);
+    eval.threads
+        .set_thread_current_buffer(thread_id, eval.buffers.current_buffer_id());
+    let runtime_state = enter_thread_runtime(eval, thread_id)?;
     let result = eval.apply(function, vec![]);
-    eval.threads.restore_thread(saved_current);
+    exit_thread_runtime(eval, thread_id, runtime_state);
     finish_make_thread_result(&mut eval.threads, thread_id, result)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ThreadRuntimeState {
+    previous_thread_id: u64,
+    previous_buffer_id: Option<crate::buffer::BufferId>,
+}
+
+pub(crate) fn enter_thread_runtime(
+    eval: &mut super::eval::Context,
+    thread_id: u64,
+) -> Result<ThreadRuntimeState, Flow> {
+    let previous_thread_id = eval.threads.enter_thread(thread_id);
+    let previous_buffer_id = eval
+        .threads
+        .thread_current_buffer(previous_thread_id)
+        .or_else(|| eval.buffers.current_buffer_id());
+    if let Some(thread_buffer_id) = eval.threads.thread_current_buffer(thread_id) {
+        if eval.buffers.current_buffer_id() != Some(thread_buffer_id) {
+            eval.switch_current_buffer(thread_buffer_id)?;
+        } else {
+            eval.sync_current_thread_buffer_state();
+        }
+    } else {
+        eval.sync_current_thread_buffer_state();
+    }
+    Ok(ThreadRuntimeState {
+        previous_thread_id,
+        previous_buffer_id,
+    })
+}
+
+pub(crate) fn exit_thread_runtime(
+    eval: &mut super::eval::Context,
+    thread_id: u64,
+    runtime_state: ThreadRuntimeState,
+) {
+    eval.threads
+        .set_thread_current_buffer(thread_id, eval.buffers.current_buffer_id());
+    eval.threads
+        .restore_thread(runtime_state.previous_thread_id);
+    if let Some(previous_buffer_id) = runtime_state.previous_buffer_id {
+        eval.restore_current_buffer_if_live(previous_buffer_id);
+    }
+    eval.sync_current_thread_buffer_state();
 }
 
 pub(crate) fn finish_make_thread_result(
@@ -822,6 +943,16 @@ pub(crate) fn builtin_thread_last_error(
     }
     let cleanup = args.first().is_some_and(|v| v.is_truthy());
     Ok(ctx.threads.last_error(cleanup))
+}
+
+/// `(thread--blocker THREAD)` -- return the object THREAD is waiting on.
+pub(crate) fn builtin_thread_blocker(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("thread--blocker", &args, 1)?;
+    let id = expect_thread_id(&ctx.threads, &args[0])?;
+    Ok(ctx.threads.thread_blocker(id).unwrap_or(Value::Nil))
 }
 
 /// `(thread-buffer-disposition THREAD)` -- return THREAD's buffer disposition.

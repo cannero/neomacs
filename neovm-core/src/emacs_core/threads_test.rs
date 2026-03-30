@@ -88,6 +88,19 @@ fn thread_buffer_disposition_round_trips() {
 }
 
 #[test]
+fn thread_manager_tracks_current_buffer_and_blocker_state() {
+    let mut mgr = ThreadManager::new();
+    let id = mgr.create_thread(Value::Nil, None);
+    let buffer_id = crate::buffer::BufferId(99);
+    assert!(mgr.set_thread_current_buffer(id, Some(buffer_id)));
+    assert_eq!(mgr.thread_current_buffer(id), Some(buffer_id));
+    assert!(mgr.set_thread_blocker(id, Value::symbol("test-blocker")));
+    assert_eq!(mgr.thread_blocker(id), Some(Value::symbol("test-blocker")));
+    assert!(mgr.clear_thread_blocker(id));
+    assert_eq!(mgr.thread_blocker(id), Some(Value::Nil));
+}
+
+#[test]
 fn last_error_get_and_cleanup() {
     let mut mgr = ThreadManager::new();
     mgr.record_last_error(Value::symbol("oops"));
@@ -295,6 +308,17 @@ fn test_main_thread_variable_matches_current_thread() {
 }
 
 #[test]
+fn test_main_thread_tracks_current_buffer() {
+    let mut eval = Context::new();
+    let original = eval.buffers.current_buffer_id().expect("current buffer");
+    assert_eq!(eval.threads.thread_current_buffer(0), Some(original));
+    let other = eval.buffers.create_buffer("thread-main-other");
+    eval.switch_current_buffer(other)
+        .expect("switch current buffer");
+    assert_eq!(eval.threads.thread_current_buffer(0), Some(other));
+}
+
+#[test]
 fn test_builtin_thread_yield() {
     let mut eval = Context::new();
     let result = builtin_thread_yield(&mut eval, vec![]);
@@ -454,6 +478,23 @@ fn test_builtin_thread_last_error_cleanup() {
 }
 
 #[test]
+fn test_builtin_thread_blocker_reads_runtime_state() {
+    let mut eval = Context::new();
+    let current = builtin_current_thread(&mut eval, vec![]).unwrap();
+    eval.threads
+        .set_thread_blocker(0, Value::symbol("vm-blocked"));
+    assert_eq!(
+        builtin_thread_blocker(&mut eval, vec![current]).unwrap(),
+        Value::symbol("vm-blocked")
+    );
+    eval.threads.clear_thread_blocker(0);
+    assert_eq!(
+        builtin_thread_blocker(&mut eval, vec![current]).unwrap(),
+        Value::Nil
+    );
+}
+
+#[test]
 fn test_builtin_thread_buffer_disposition_round_trips() {
     let mut eval = Context::new();
     let worker = builtin_make_thread(
@@ -494,6 +535,47 @@ fn test_builtin_thread_set_buffer_disposition_rejects_non_nil_main_thread_value(
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
+}
+
+#[test]
+fn test_builtin_make_thread_preserves_caller_current_buffer() {
+    use super::super::expr::Expr;
+
+    let mut eval = Context::new();
+    let main_buffer = eval.buffers.current_buffer_id().expect("current buffer");
+    let worker_buffer = eval.buffers.create_buffer("thread-worker-buffer");
+
+    eval.set_function(
+        "thread-switch-buffer",
+        Value::make_lambda(super::super::value::LambdaData {
+            params: super::super::value::LambdaParams::simple(vec![]),
+            body: vec![
+                Expr::List(vec![
+                    Expr::Symbol(intern("set-buffer")),
+                    Expr::OpaqueValue(Value::Buffer(worker_buffer)),
+                ]),
+                Expr::List(vec![Expr::Symbol(intern("current-buffer"))]),
+            ]
+            .into(),
+            env: None,
+            docstring: None,
+            doc_form: None,
+            interactive: None,
+        }),
+    );
+
+    let thread = builtin_make_thread(&mut eval, vec![Value::symbol("thread-switch-buffer")])
+        .expect("make-thread");
+    let thread_id = tagged_object_id(&thread, "thread").expect("thread id");
+    let joined = builtin_thread_join(&mut eval, vec![thread]).expect("thread-join");
+
+    assert_eq!(joined, Value::Buffer(worker_buffer));
+    assert_eq!(eval.buffers.current_buffer_id(), Some(main_buffer));
+    assert_eq!(
+        eval.threads.thread_current_buffer(thread_id),
+        Some(worker_buffer)
+    );
+    assert_eq!(eval.threads.thread_current_buffer(0), Some(main_buffer));
 }
 
 // -- Mutex builtin tests ------------------------------------------------

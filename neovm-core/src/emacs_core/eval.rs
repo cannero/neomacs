@@ -1490,6 +1490,7 @@ impl Context {
         ev.interpreted_closure_trim_cache.clear();
         ev.materialize_public_evaluator_function_cells();
         ev.sync_thread_runtime_bindings();
+        ev.sync_current_thread_buffer_state();
         ev
     }
 
@@ -3393,6 +3394,7 @@ impl Context {
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
         super::category::restore_standard_category_table_object(ev.standard_category_table);
         ev.sync_thread_runtime_bindings();
+        ev.sync_current_thread_buffer_state();
         ev
     }
 
@@ -3539,6 +3541,7 @@ impl Context {
 
         ev.sync_keyboard_runtime_from_obarray();
         ev.sync_thread_runtime_bindings();
+        ev.sync_current_thread_buffer_state();
 
         ev
     }
@@ -3677,7 +3680,15 @@ impl Context {
         super::category::restore_standard_category_table_object(self.standard_category_table);
     }
 
+    pub(crate) fn sync_current_thread_buffer_state(&mut self) {
+        let current_thread_id = self.threads.current_thread_id();
+        let current_buffer_id = self.buffers.current_buffer_id();
+        self.threads
+            .set_thread_current_buffer(current_thread_id, current_buffer_id);
+    }
+
     fn sync_current_buffer_runtime_state(&mut self) -> Result<(), Flow> {
+        self.sync_current_thread_buffer_state();
         super::casetab::sync_current_buffer_case_table_state(self)?;
         super::syntax::sync_current_buffer_syntax_table_state(self)?;
         Ok(())

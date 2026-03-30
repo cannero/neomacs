@@ -4089,9 +4089,13 @@ impl<'a> Vm<'a> {
     fn builtin_make_thread_shared(&mut self, args: &[Value]) -> EvalResult {
         let (thread_id, function) =
             crate::emacs_core::threads::prepare_make_thread(&mut self.ctx.threads, args)?;
-        let saved_current = self.ctx.threads.enter_thread(thread_id);
+        self.ctx
+            .threads
+            .set_thread_current_buffer(thread_id, self.ctx.buffers.current_buffer_id());
+        let runtime_state =
+            crate::emacs_core::threads::enter_thread_runtime(&mut *self.ctx, thread_id)?;
         let result = self.call_function_with_roots(function, &[]);
-        self.ctx.threads.restore_thread(saved_current);
+        crate::emacs_core::threads::exit_thread_runtime(&mut *self.ctx, thread_id, runtime_state);
         crate::emacs_core::threads::finish_make_thread_result(
             &mut self.ctx.threads,
             thread_id,

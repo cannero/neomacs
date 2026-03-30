@@ -164,6 +164,9 @@ The correct direction is to follow GNU ownership more closely:
 6. Integrate buffer-kill behavior with per-thread `buffer_disposition` instead
    of keeping the value as a disconnected accessor.
 
+The concrete implementation plan for that refactor now lives in
+[2026-03-30-thread-c-runtime-refactor.md](/home/exec/Projects/github.com/eval-exec/neomacs/docs/plans/2026-03-30-thread-c-runtime-refactor.md).
+
 The important constraint is: do not fake GNU by making accessors lie. If
 Neomacs remains synchronous internally for a while, the runtime should at least
 report that honestly instead of exposing dead threads as live ones.

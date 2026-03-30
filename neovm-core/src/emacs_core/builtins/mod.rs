@@ -5090,7 +5090,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "thread--blocker",
-        |_ctx, args| builtin_thread_blocker(args),
+        super::threads::builtin_thread_blocker,
         1,
         Some(1),
     );
