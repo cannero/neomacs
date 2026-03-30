@@ -3616,6 +3616,13 @@ impl Context {
         self.frames.trace_roots(&mut roots);
         self.coding_systems.trace_roots(&mut roots);
 
+        // Match data — SearchedString::Heap holds a live ObjId
+        if let Some(ref md) = self.match_data {
+            if let Some(crate::emacs_core::regex::SearchedString::Heap(id)) = &md.searched_string {
+                roots.push(Value::Str(*id));
+            }
+        }
+
         roots
     }
 
