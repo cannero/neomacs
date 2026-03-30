@@ -189,6 +189,15 @@ impl TerminalManager {
             .count()
     }
 
+    fn live_terminal_ids_in_keyboard_poll_order(&self) -> Vec<u64> {
+        self.terminals
+            .iter()
+            .rev()
+            .filter(|terminal| terminal.is_live())
+            .map(|terminal| terminal.id)
+            .collect()
+    }
+
     fn ensure_terminal(
         &mut self,
         id: u64,
@@ -651,6 +660,10 @@ fn delete_terminal_record(id: u64) {
             terminal.host = None;
         }
     });
+}
+
+pub(crate) fn live_terminal_ids_in_keyboard_poll_order() -> Vec<u64> {
+    TERMINAL_MANAGER.with(|slot| slot.borrow().live_terminal_ids_in_keyboard_poll_order())
 }
 
 // ---------------------------------------------------------------------------

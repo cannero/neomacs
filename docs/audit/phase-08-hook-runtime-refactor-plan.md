@@ -333,6 +333,13 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   behavior: delete the terminal through the internal owner, queue the pending
   safe hook calls, and then unwind the command loop.
 
+- Keyboard owner follow-up broadened again: parked `kboard` polling no longer
+  invents its own terminal-id sort order. It now asks the terminal owner for
+  GNU-shaped keyboard polling order, which follows live terminal-list order
+  instead of numeric ids. That moves NeoVM closer to GNU `read_avail_input`
+  ownership where terminals are polled by terminal-list order and only then
+  by per-terminal unread state.
+
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented
 - keep broadening subsystem-owned caller coverage instead of adding hook logic

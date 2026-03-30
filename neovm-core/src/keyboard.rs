@@ -1046,8 +1046,18 @@ impl KeyboardRuntime {
     }
 
     fn parked_terminal_ids(&self) -> Vec<u64> {
-        let mut ids = self.parked_kboards.keys().copied().collect::<Vec<_>>();
-        ids.sort_unstable();
+        let mut ids = crate::emacs_core::terminal::pure::live_terminal_ids_in_keyboard_poll_order()
+            .into_iter()
+            .filter(|terminal_id| self.parked_kboards.contains_key(terminal_id))
+            .collect::<Vec<_>>();
+        let mut unknown_ids = self
+            .parked_kboards
+            .keys()
+            .copied()
+            .filter(|terminal_id| !ids.contains(terminal_id))
+            .collect::<Vec<_>>();
+        unknown_ids.sort_unstable();
+        ids.extend(unknown_ids);
         ids
     }
 
@@ -3759,6 +3769,21 @@ fn key_sequence_translation_events(translation: Value) -> Option<Vec<Value>> {
 mod tests {
     use super::*;
 
+    fn reset_keyboard_test_terminals() {
+        crate::emacs_core::terminal::pure::reset_terminal_thread_locals();
+    }
+
+    fn ensure_keyboard_test_terminal(id: u64) {
+        crate::emacs_core::terminal::pure::ensure_terminal_runtime_owner(
+            id,
+            format!("tty-{id}"),
+            crate::emacs_core::terminal::pure::TerminalRuntimeConfig::interactive(
+                Some("xterm-256color".to_string()),
+                256,
+            ),
+        );
+    }
+
     #[test]
     fn key_event_description() {
         let e = KeyEvent::char('x');
@@ -3838,6 +3863,8 @@ mod tests {
 
     #[test]
     fn keyboard_runtime_preserves_kboard_state_per_terminal() {
+        reset_keyboard_test_terminals();
+        ensure_keyboard_test_terminal(7);
         let mut runtime = KeyboardRuntime::new();
         runtime.set_input_decode_map(Value::symbol("primary-map"));
         runtime.unread_event(Value::Int(1));
@@ -3872,23 +3899,35 @@ mod tests {
 
     #[test]
     fn keyboard_runtime_polls_parked_kboards_after_active_one() {
+        reset_keyboard_test_terminals();
+        ensure_keyboard_test_terminal(7);
+        ensure_keyboard_test_terminal(9);
         let mut runtime = KeyboardRuntime::new();
         runtime.unread_event(Value::Int(1));
         runtime.select_terminal(7);
         runtime.unread_event(Value::Int(2));
+        runtime.select_terminal(9);
+        runtime.unread_event(Value::Int(3));
         runtime.select_terminal(crate::emacs_core::terminal::pure::TERMINAL_ID);
 
         assert_eq!(runtime.read_key_event(), Some(Value::Int(1)));
         assert_eq!(
             runtime.read_key_event(),
+            Some(Value::Int(3)),
+            "after the active kboard drains, parked terminal input should be read in GNU terminal-list order"
+        );
+        assert_eq!(
+            runtime.read_key_event(),
             Some(Value::Int(2)),
-            "after the active kboard drains, parked terminal input should be read"
+            "older parked terminal input should be read after newer terminals"
         );
         assert_eq!(runtime.active_terminal_id(), 7);
     }
 
     #[test]
     fn keyboard_runtime_reports_pending_input_across_parked_kboards() {
+        reset_keyboard_test_terminals();
+        ensure_keyboard_test_terminal(9);
         let mut runtime = KeyboardRuntime::new();
         runtime.select_terminal(9);
         runtime.unread_event(Value::Int(99));
