@@ -3885,18 +3885,24 @@ impl Context {
             .copied()
             .unwrap_or(Value::Nil);
 
+        eprintln!("command_loop_top_level_1: top-level={}", top_level);
+
         if top_level.is_nil() {
+            eprintln!("command_loop_top_level_1: top-level is nil, skipping");
             self.log_startup_state("top-level-nil");
             return Ok(Value::Nil);
         }
 
+        eprintln!("command_loop_top_level_1: evaluating top-level form");
         self.log_startup_state("top-level-before");
         match self.eval_value(&top_level) {
             Ok(_) => {
+                eprintln!("command_loop_top_level_1: top-level completed OK");
                 self.log_startup_state("top-level-after");
                 Ok(Value::Nil)
             }
             Err(Flow::Signal(sig)) => {
+                eprintln!("command_loop_top_level_1: top-level SIGNALED: {} {:?}", sig.symbol_name(), sig.data);
                 let data_str = sig
                     .data
                     .iter()
