@@ -62,8 +62,11 @@ Bad:
 - The focused follow-up in
   [process-timer-event-loop.md](process-timer-event-loop.md)
   confirms that `accept-process-output` is currently not GNU's single shared
-  event-loop entry point, that `sleep-for` still uses a private polling loop,
-  and that synchronous subprocess ownership is not yet `callproc.c`-shaped.
+  event-loop entry point and that `sleep-for` still uses a private polling
+  loop. The `callproc` boundary has improved since this audit started: sync
+  subprocess ownership now lives primarily in `callproc/mod.rs`, though the
+  remaining low-level helper split is still not as self-contained as GNU
+  `callproc.c`.
 
 ## Long-term ideal design
 

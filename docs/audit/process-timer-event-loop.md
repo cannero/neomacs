@@ -173,7 +173,7 @@ This split may be acceptable as a migration step, but it is not yet GNU-like
 ownership. Event-loop semantics are only GNU-compatible if both timer surfaces
 are serviced from the same wait path with the same ordering rules.
 
-### Synchronous subprocess ownership is still not `callproc.c`-shaped
+### Synchronous subprocess ownership is now mostly `callproc.c`-shaped
 
 GNU keeps synchronous subprocess invocation in `src/callproc.c`, separate from
 `process.c` but still part of the same process/timer/input boundary. It also
@@ -182,17 +182,20 @@ honors `DISPLAY` by redisplaying while output is inserted. See
 and
 [callproc.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/callproc.c#L510).
 
-Neomacs still has only a placeholder `callproc` module:
+Neomacs now has a real synchronous subprocess owner in:
 
 - [callproc/mod.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/callproc/mod.rs#L1)
 
-and the real implementations live in
-[process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L4079),
-where `call-process`, `process-file`, and related entry points dispatch through
-direct `Command::output()` / `spawn()` helpers and explicitly ignore `DISPLAY`.
+`call-process`, `process-file`, `process-lines`, `call-process-region`, and the
+shell-command variants now execute through that module, while
+[process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L4002)
+has been reduced to builtin delegation plus asynchronous-process ownership.
+GNU-style `DISPLAY` redisplay is now also requested after synchronous output is
+routed into a buffer destination.
 
-That is a confirmed GNU mismatch for `DISPLAY`, and it is also an ownership
-problem: the dedicated synchronous-process owner does not exist yet.
+The remaining gap is narrower than before: `callproc` still reuses some generic
+string/region/process-I/O helpers from `process.rs`, so the file split is not
+yet as self-contained as GNU `callproc.c` versus `process.c`.
 
 ## Coverage Gaps
 
@@ -244,9 +247,9 @@ The next concrete source-level audit order should be:
 1. `accept-process-output` policy and callback timing
 2. filter/sentinel dynamic-state preservation
 3. `sleep-for` / input wait integration through the same owner
-4. `call-process` / `process-file` extraction into a real `callproc` owner
-   with GNU `DISPLAY` behavior
-5. timer ordering when both GNU Lisp timers and Rust timers are due
+4. timer ordering when both GNU Lisp timers and Rust timers are due
+5. chunked synchronous subprocess insertion/redisplay fidelity versus GNU
+   `callproc.c`
 6. focused differential coverage for the shared wait-path cases listed above
 
 ## Conclusion
