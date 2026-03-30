@@ -998,6 +998,33 @@ impl LispHeap {
         }
     }
 
+    /// Extract ObjIds from a HashKey and push them onto the worklist.
+    /// HashKey can contain ObjIds in Str, ObjId, EqualCons, and EqualVec variants.
+    fn push_hash_key_ids(key: &crate::emacs_core::value::HashKey, worklist: &mut Vec<ObjId>) {
+        use crate::emacs_core::value::HashKey;
+        match key {
+            HashKey::Str(id) => worklist.push(*id),
+            HashKey::ObjId(index, generation) => {
+                worklist.push(ObjId {
+                    index: *index,
+                    generation: *generation,
+                });
+            }
+            HashKey::EqualCons(car, cdr) => {
+                Self::push_hash_key_ids(car, worklist);
+                Self::push_hash_key_ids(cdr, worklist);
+            }
+            HashKey::EqualVec(items) => {
+                for item in items.iter() {
+                    Self::push_hash_key_ids(item, worklist);
+                }
+            }
+            // Nil, True, Int, Float, FloatEq, Symbol, Keyword, Char,
+            // Window, Frame, Ptr — no heap references
+            _ => {}
+        }
+    }
+
     /// Trace all Value children inside a HeapObject, pushing their ObjIds onto
     /// the worklist.  Used by both `mark_all()` and `mark_some()`.
     fn trace_heap_object(obj: &HeapObject, children: &mut Vec<ObjId>) {
@@ -1012,10 +1039,14 @@ impl LispHeap {
                 }
             }
             HeapObject::HashTable(ht) => {
-                for v in ht.data.values() {
+                // Trace both keys AND values — HashKey can contain ObjIds
+                // (e.g. HashKey::Str(ObjId), HashKey::ObjId(index, gen))
+                for (k, v) in &ht.data {
+                    Self::push_hash_key_ids(k, children);
                     Self::push_value_ids(v, children);
                 }
-                for v in ht.key_snapshots.values() {
+                for (k, v) in &ht.key_snapshots {
+                    Self::push_hash_key_ids(k, children);
                     Self::push_value_ids(v, children);
                 }
             }
