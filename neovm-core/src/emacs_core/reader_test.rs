@@ -1555,6 +1555,32 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
 }
 
 #[test]
+fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
+    let mut ev = Context::new();
+    let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
+
+    let forms = parse_forms(
+        r#"(fset 'mouse-fixup-help-message
+                  (lambda (msg) (concat "fixed:" msg)))"#,
+    )
+    .expect("parse mouse-fixup-help-message");
+    ev.eval_expr(&forms[0])
+        .expect("install mouse-fixup-help-message");
+
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::Int(12), Value::Int(4)],
+    )
+    .expect("display update should succeed");
+
+    let result = ev
+        .read_char_with_timeout(Some(Duration::ZERO))
+        .expect("read-char should consume help-echo");
+    assert!(result.is_none());
+    assert_eq!(ev.current_message_text(), Some("fixed:tip"));
+}
+
+#[test]
 fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function() {
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");

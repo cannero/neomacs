@@ -1972,6 +1972,19 @@ fn bootstrap_neomacs_gui_runtime_prefers_neo_term_layer_over_x_term() {
 }
 
 #[test]
+fn loadup_source_preloads_mouse_help_fixup_runtime_surface() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let loadup = project_root.join("lisp/loadup.el");
+    let source = fs::read_to_string(&loadup).expect("read loadup.el");
+
+    assert!(
+        source.contains("(load \"mouse\")"),
+        "loadup.el should preload mouse.el so mouse-fixup-help-message is on the normal runtime surface"
+    );
+}
+
+#[test]
 fn bootstrap_help_fns_loads_and_preserves_hook_depth_metadata() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");

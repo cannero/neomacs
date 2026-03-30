@@ -108,10 +108,11 @@ Bad:
   them, direct `read-char` consumes them before returning user input, and
   `help-echo-inhibit-substitution` is honored on help strings without trying
   to autoload `help.el` from the low-level reader path. And when
-  `mouse-fixup-help-message` is actually loaded, Neomacs now runs that fixup
-  before either echo-area display or `show-help-function`, matching GNU's
-  low-level help ordering more closely without forcing an autoload of
-  `mouse.el`. Window-close transport
+  `mouse-fixup-help-message` is present on the normal startup-loaded runtime
+  surface, Neomacs now runs that fixup before either echo-area display or
+  `show-help-function`, matching GNU's low-level help ordering more closely.
+  That low-level path no longer incorrectly depends on there being a live host
+  input receiver. Window-close transport
   events now route through the same
   delete-frame special-event handling as direct `read_char`,
   instead of quitting immediately on the shared wait path. The real remaining

@@ -3157,7 +3157,10 @@ impl crate::emacs_core::eval::Context {
         &mut self,
         help: Value,
     ) -> Result<Value, crate::emacs_core::error::Flow> {
-        if help.as_str().is_none() || !self.has_input_receiver() {
+        // GNU `show_help_echo` applies `mouse-fixup-help-message` whenever the
+        // resolved help text is a string; it is not conditional on whether the
+        // current runtime is actively polling host input.
+        if help.as_str().is_none() {
             return Ok(help);
         }
 

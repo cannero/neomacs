@@ -129,10 +129,12 @@ them before returning user input, and `help-echo-inhibit-substitution` is now
 honored on help strings. Neomacs also avoids trying to autoload `help.el`
 from this low-level path when `substitute-command-keys` is still only present
 as a startup autoload; it falls back to the core substitution implementation
-instead. And when `mouse-fixup-help-message` is actually loaded, the low-level
-help path now runs that fixup before either echo-area display or
-`show-help-function`, which matches GNU's `show_help_echo` ordering more
-closely without forcing an autoload of `mouse.el` from the reader path.
+instead. And when `mouse-fixup-help-message` is loaded on the normal runtime
+surface, the low-level help path now runs that fixup before either echo-area
+display or `show-help-function`, which matches GNU's `show_help_echo`
+ordering more closely. That boundary is also now less host-runtime-specific:
+the fixup no longer depends on there being a live input receiver, only on the
+help string and the function being present, which is closer to GNU's C path.
 
 ### The shared wait path now services non-user-visible host input before polling timers/processes
 
