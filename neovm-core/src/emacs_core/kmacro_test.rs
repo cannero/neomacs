@@ -305,6 +305,50 @@ fn test_start_with_append_reexecutes_last_macro_when_no_exec_is_nil() {
 }
 
 #[test]
+fn test_start_with_append_real_key_macro_reexecutes_via_command_loop_and_marks_append() {
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq kmacro-append-real-count 0)
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g "a"
+                 (lambda ()
+                   (interactive)
+                   (setq kmacro-append-real-count (1+ kmacro-append-real-count))))))"#,
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('a')]).expect("store a");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-append-real-count")
+            .expect("kmacro-append-real-count"),
+        Value::Int(0)
+    );
+
+    builtin_start_kbd_macro(&mut eval, vec![Value::True, Value::Nil]).expect("append");
+    assert_eq!(
+        eval.eval_symbol("kmacro-append-real-count")
+            .expect("kmacro-append-real-count"),
+        Value::Int(1)
+    );
+    assert_eq!(
+        eval.eval_symbol("defining-kbd-macro")
+            .expect("defining-kbd-macro"),
+        Value::symbol("append")
+    );
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end append");
+}
+
+#[test]
 fn test_start_with_append_no_exec_skips_reexecution() {
     use super::super::eval::Context;
 
@@ -371,7 +415,7 @@ fn test_defining_executing_kbd_macro_p_builtins() {
         Value::Nil
     );
 
-    eval.start_kbd_macro_runtime(None).unwrap();
+    eval.start_kbd_macro_runtime(None, false).unwrap();
     assert_eq!(
         builtin_defining_kbd_macro_p(&mut eval, vec![]).unwrap(),
         Value::True
@@ -464,6 +508,121 @@ fn test_execute_kbd_macro_callable_symbol_events_keep_legacy_direct_path() {
         eval.eval_symbol("kmacro-direct-count")
             .expect("kmacro-direct-count"),
         Value::Int(1)
+    );
+}
+
+#[test]
+fn test_call_last_kbd_macro_raw_prefix_repeats_real_key_macro() {
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq kmacro-call-last-count 0)
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g "a"
+                 (lambda ()
+                   (interactive)
+                   (setq kmacro-call-last-count (1+ kmacro-call-last-count))))))"#,
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('a')]).expect("store a");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
+
+    builtin_call_last_kbd_macro(&mut eval, vec![Value::list(vec![Value::Int(4)])])
+        .expect("call-last with raw prefix");
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-call-last-count")
+            .expect("kmacro-call-last-count"),
+        Value::Int(4)
+    );
+}
+
+#[test]
+fn test_execute_kbd_macro_zero_count_uses_loopfunc_for_real_key_macro() {
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq kmacro-loop-count 0)
+             (setq kmacro-loopfunc-count 0)
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (fset 'kmacro-loopfunc
+               (lambda ()
+                 (setq kmacro-loopfunc-count (1+ kmacro-loopfunc-count))
+                 (< kmacro-loopfunc-count 3)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g "a"
+                 (lambda ()
+                   (interactive)
+                   (setq kmacro-loop-count (1+ kmacro-loop-count))))))"#,
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    builtin_execute_kbd_macro(
+        &mut eval,
+        vec![
+            Value::string("a"),
+            Value::Int(0),
+            Value::symbol("kmacro-loopfunc"),
+        ],
+    )
+    .expect("execute with loopfunc");
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-loop-count")
+            .expect("kmacro-loop-count"),
+        Value::Int(2)
+    );
+    assert_eq!(
+        eval.eval_symbol("kmacro-loopfunc-count")
+            .expect("kmacro-loopfunc-count"),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn test_end_kbd_macro_repeat_executes_remaining_iterations() {
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq kmacro-end-repeat-count 0)
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g "a"
+                 (lambda ()
+                   (interactive)
+                   (setq kmacro-end-repeat-count (1+ kmacro-end-repeat-count))))))"#,
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('a')]).expect("store a");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![Value::Int(3)]).expect("end with repeat");
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-end-repeat-count")
+            .expect("kmacro-end-repeat-count"),
+        Value::Int(2)
+    );
+    assert_eq!(
+        eval.command_loop.last_kbd_macro(),
+        Some([Value::Char('a')].as_slice())
     );
 }
 

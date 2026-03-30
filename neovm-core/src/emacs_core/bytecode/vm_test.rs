@@ -850,6 +850,31 @@ fn vm_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
 }
 
 #[test]
+fn vm_execute_kbd_macro_zero_count_uses_loopfunc() {
+    let result = with_vm_eval_full_context_state(
+        "(progn
+           (setq vm-kmacro-loop-count 0)
+           (setq vm-kmacro-loopfunc-count 0)
+           (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+           (fset 'vm-kmacro-loopfunc
+             (lambda ()
+               (setq vm-kmacro-loopfunc-count (1+ vm-kmacro-loopfunc-count))
+               (< vm-kmacro-loopfunc-count 3)))
+           (let ((g (make-sparse-keymap)))
+             (use-global-map g)
+             (define-key g \"a\"
+               (lambda ()
+                 (interactive)
+                 (setq vm-kmacro-loop-count (1+ vm-kmacro-loop-count))))
+             (execute-kbd-macro \"a\" 0 'vm-kmacro-loopfunc)
+             (list vm-kmacro-loop-count vm-kmacro-loopfunc-count)))",
+        false,
+        |result, _| crate::emacs_core::error::format_eval_result(&result),
+    );
+    assert_eq!(result, "OK (2 3)");
+}
+
+#[test]
 fn vm_varset_triggers_variable_watcher_callbacks() {
     assert_eq!(
         vm_eval_str(

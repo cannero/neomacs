@@ -66,6 +66,17 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
     }
 }
 
+fn prefix_numeric_value(value: &Value) -> i64 {
+    match value {
+        Value::Nil => 1,
+        Value::Symbol(id) if resolve_sym(*id) == "-" => -1,
+        Value::Int(n) => *n,
+        Value::Char(c) => *c as i64,
+        Value::Cons(cell) => read_cons(*cell).car.as_int().unwrap_or(1),
+        _ => 1,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // KmacroManager
 // ---------------------------------------------------------------------------
@@ -169,23 +180,41 @@ fn last_kbd_macro_or_array_error(eval: &super::eval::Context) -> Result<Vec<Valu
         })
 }
 
+fn execute_kbd_macro_iteration(
+    eval: &mut super::eval::Context,
+    macro_events: &[Value],
+) -> EvalResult {
+    if macro_events_require_legacy_direct_execution(eval, macro_events) {
+        return execute_kbd_macro_events_with_legacy_direct_runtime_state(eval, macro_events);
+    }
+
+    eval.execute_kbd_macro_iteration_via_command_loop(macro_events.to_vec())
+}
+
 fn execute_kbd_macro_events_with_runtime_state(
     eval: &mut super::eval::Context,
     macro_events: &[Value],
     count: i64,
-    call: impl FnMut(&mut super::eval::Context, Value, Vec<Value>) -> EvalResult,
+    loopfunc: Value,
 ) -> EvalResult {
-    if macro_events_require_legacy_direct_execution(eval, macro_events) {
-        return execute_kbd_macro_events_with_legacy_direct_runtime_state(
-            eval,
-            macro_events,
-            count,
-            call,
-        );
-    }
+    let mut repeat = count;
+    loop {
+        if !loopfunc.is_nil() {
+            let cont = eval.apply(loopfunc, vec![])?;
+            if !cont.is_truthy() {
+                break;
+            }
+        }
 
-    for _ in 0..count {
-        eval.execute_kbd_macro_iteration_via_command_loop(macro_events.to_vec())?;
+        execute_kbd_macro_iteration(eval, macro_events)?;
+
+        if repeat == 0 {
+            continue;
+        }
+        repeat -= 1;
+        if repeat == 0 {
+            break;
+        }
     }
 
     Ok(Value::Nil)
@@ -207,16 +236,14 @@ fn macro_events_require_legacy_direct_execution(
 fn execute_kbd_macro_events_with_legacy_direct_runtime_state(
     eval: &mut super::eval::Context,
     macro_events: &[Value],
-    count: i64,
-    mut call: impl FnMut(&mut super::eval::Context, Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     let saved_state = eval.snapshot_executing_kbd_macro_runtime();
     eval.begin_executing_kbd_macro_runtime(macro_events.to_vec());
     let result = execute_kbd_macro_events(
         eval.obarray.symbol_function("self-insert-command").cloned(),
         macro_events,
-        count,
-        |func, call_args| call(eval, func, call_args),
+        1,
+        |func, call_args| eval.apply(func, call_args),
     );
     eval.restore_executing_kbd_macro_runtime(saved_state.0, saved_state.1);
     result
@@ -236,28 +263,20 @@ fn start_kbd_macro_impl(
     if let Some(ref initial_events) = initial_events
         && !no_exec
     {
-        execute_kbd_macro_events_with_legacy_direct_runtime_state(
-            eval,
-            initial_events,
-            1,
-            |eval, func, args| eval.apply(func, args),
-        )?;
+        execute_kbd_macro_events_with_runtime_state(eval, initial_events, 1, Value::Nil)?;
     }
 
-    eval.start_kbd_macro_runtime(initial_events.as_deref())?;
+    eval.start_kbd_macro_runtime(initial_events.as_deref(), append)?;
     Ok(Value::Nil)
 }
 
 pub(crate) fn plan_call_last_kbd_macro(
     last_kbd_macro: Option<&[Value]>,
     args: &[Value],
-) -> Result<(Vec<Value>, i64), Flow> {
+) -> Result<(Vec<Value>, i64, Value), Flow> {
     expect_max_args("call-last-kbd-macro", args, 2)?;
-    let repeat = if args.is_empty() {
-        1i64
-    } else {
-        expect_int(&args[0]).unwrap_or(1)
-    };
+    let repeat = args.first().map_or(1i64, prefix_numeric_value);
+    let loopfunc = args.get(1).copied().unwrap_or(Value::Nil);
 
     let macro_keys = last_kbd_macro
         .map(|events| events.to_vec())
@@ -268,18 +287,15 @@ pub(crate) fn plan_call_last_kbd_macro(
             )
         })?;
 
-    Ok((macro_keys, repeat))
+    Ok((macro_keys, repeat, loopfunc))
 }
 
-pub(crate) fn plan_execute_kbd_macro(args: &[Value]) -> Result<(Vec<Value>, i64), Flow> {
+pub(crate) fn plan_execute_kbd_macro(args: &[Value]) -> Result<(Vec<Value>, i64, Value), Flow> {
     expect_min_args("execute-kbd-macro", args, 1)?;
     expect_max_args("execute-kbd-macro", args, 3)?;
-    let count = if args.len() >= 2 {
-        expect_int(&args[1]).unwrap_or(1)
-    } else {
-        1
-    };
-    Ok((resolve_macro_events(&args[0])?, count))
+    let count = args.get(1).map_or(1, prefix_numeric_value);
+    let loopfunc = args.get(2).copied().unwrap_or(Value::Nil);
+    Ok((resolve_macro_events(&args[0])?, count, loopfunc))
 }
 
 pub(crate) fn execute_kbd_macro_events(
@@ -333,7 +349,18 @@ pub(crate) fn builtin_end_kbd_macro(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("end-kbd-macro", &args, 2)?;
-    let _ = eval.end_kbd_macro_runtime()?;
+    let repeat = if let Some(value) = args.first() {
+        expect_int(value).unwrap_or(1)
+    } else {
+        1
+    };
+    let loopfunc = args.get(1).copied().unwrap_or(Value::Nil);
+    let recorded = eval.end_kbd_macro_runtime()?;
+    if repeat == 0 {
+        execute_kbd_macro_events_with_runtime_state(eval, &recorded, repeat, loopfunc)?;
+    } else if repeat > 1 {
+        execute_kbd_macro_events_with_runtime_state(eval, &recorded, repeat - 1, loopfunc)?;
+    }
     Ok(Value::Nil)
 }
 
@@ -346,10 +373,26 @@ pub(crate) fn builtin_call_last_kbd_macro(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (macro_keys, repeat) = plan_call_last_kbd_macro(eval.command_loop.last_kbd_macro(), &args)?;
-    execute_kbd_macro_events_with_runtime_state(eval, &macro_keys, repeat, |eval, func, args| {
-        eval.apply(func, args)
-    })
+    if eval.command_loop.keyboard.kboard.defining_kbd_macro {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Can't execute anonymous macro while defining one",
+            )],
+        ));
+    }
+
+    let (macro_keys, repeat, loopfunc) =
+        plan_call_last_kbd_macro(eval.command_loop.last_kbd_macro(), &args)?;
+    let previous_last_command = eval.eval_symbol("last-command").unwrap_or(Value::Nil);
+    let macro_value = Value::vector(macro_keys.clone());
+    eval.assign("this-command", previous_last_command);
+    eval.assign("real-this-command", macro_value);
+    let result = execute_kbd_macro_events_with_runtime_state(eval, &macro_keys, repeat, loopfunc);
+    if let Ok(last_command) = eval.eval_symbol("last-command") {
+        eval.assign("this-command", last_command);
+    }
+    result
 }
 
 /// (execute-kbd-macro MACRO &optional COUNT LOOPFUNC) -> nil
@@ -360,10 +403,8 @@ pub(crate) fn builtin_execute_kbd_macro(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (macro_events, count) = plan_execute_kbd_macro(&args)?;
-    execute_kbd_macro_events_with_runtime_state(eval, &macro_events, count, |eval, func, args| {
-        eval.apply(func, args)
-    })
+    let (macro_events, count, loopfunc) = plan_execute_kbd_macro(&args)?;
+    execute_kbd_macro_events_with_runtime_state(eval, &macro_events, count, loopfunc)
 }
 
 /// (name-last-kbd-macro SYMBOL) -> nil

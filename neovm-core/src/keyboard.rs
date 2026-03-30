@@ -713,6 +713,8 @@ pub struct KBoard {
     local_function_key_map: Value,
     /// Defining keyboard macro (if any).
     pub defining_kbd_macro: bool,
+    /// Whether the current definition is appending to the prior macro.
+    pub appending_kbd_macro: bool,
     /// Keyboard macro buffer being defined, as Lisp-visible Emacs events.
     pub kbd_macro_events: Vec<Value>,
     /// Finalized prefix of `kbd_macro_events` that belongs to completed commands.
@@ -737,6 +739,7 @@ impl KBoard {
             input_decode_map: Value::Nil,
             local_function_key_map: Value::Nil,
             defining_kbd_macro: false,
+            appending_kbd_macro: false,
             kbd_macro_events: Vec::new(),
             kbd_macro_end: 0,
             last_kbd_macro: None,
@@ -841,11 +844,12 @@ impl KBoard {
     }
 
     pub fn start_kbd_macro(&mut self) {
-        self.start_kbd_macro_with_initial(None);
+        self.start_kbd_macro_with_initial(None, false);
     }
 
-    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>) {
+    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>, append: bool) {
         self.defining_kbd_macro = true;
+        self.appending_kbd_macro = append;
         self.kbd_macro_events.clear();
         if let Some(initial_events) = initial_events {
             self.kbd_macro_events.extend_from_slice(initial_events);
@@ -869,6 +873,7 @@ impl KBoard {
 
     pub fn end_kbd_macro(&mut self) -> Vec<Value> {
         self.defining_kbd_macro = false;
+        self.appending_kbd_macro = false;
         let finalized = self.kbd_macro_events[..self.kbd_macro_end].to_vec();
         self.last_kbd_macro = Some(finalized.clone());
         finalized
@@ -1072,8 +1077,9 @@ impl KeyboardRuntime {
         self.kboard.start_kbd_macro();
     }
 
-    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>) {
-        self.kboard.start_kbd_macro_with_initial(initial_events);
+    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>, append: bool) {
+        self.kboard
+            .start_kbd_macro_with_initial(initial_events, append);
     }
 
     pub fn store_kbd_macro_event(&mut self, event: Value) {
@@ -1224,8 +1230,9 @@ impl CommandLoop {
         self.keyboard.start_kbd_macro();
     }
 
-    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>) {
-        self.keyboard.start_kbd_macro_with_initial(initial_events);
+    pub fn start_kbd_macro_with_initial(&mut self, initial_events: Option<&[Value]>, append: bool) {
+        self.keyboard
+            .start_kbd_macro_with_initial(initial_events, append);
     }
 
     pub fn store_kbd_macro_event(&mut self, event: Value) {
@@ -3323,7 +3330,15 @@ impl crate::emacs_core::eval::Context {
     pub(crate) fn sync_keyboard_macro_runtime_vars(&mut self) {
         self.assign(
             "defining-kbd-macro",
-            Value::bool(self.command_loop.keyboard.kboard.defining_kbd_macro),
+            if self.command_loop.keyboard.kboard.defining_kbd_macro {
+                if self.command_loop.keyboard.kboard.appending_kbd_macro {
+                    Value::symbol("append")
+                } else {
+                    Value::True
+                }
+            } else {
+                Value::Nil
+            },
         );
         let last_kbd_macro = self
             .command_loop
@@ -3349,6 +3364,7 @@ impl crate::emacs_core::eval::Context {
     pub(crate) fn start_kbd_macro_runtime(
         &mut self,
         initial_events: Option<&[Value]>,
+        append: bool,
     ) -> Result<(), crate::emacs_core::error::Flow> {
         if self.command_loop.keyboard.kboard.defining_kbd_macro {
             return Err(crate::emacs_core::error::signal(
@@ -3357,7 +3373,7 @@ impl crate::emacs_core::eval::Context {
             ));
         }
         self.command_loop
-            .start_kbd_macro_with_initial(initial_events);
+            .start_kbd_macro_with_initial(initial_events, append);
         self.sync_keyboard_macro_runtime_vars();
         Ok(())
     }

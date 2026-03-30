@@ -2910,44 +2910,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_call_last_kbd_macro_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (macro_events, count) = crate::emacs_core::kmacro::plan_call_last_kbd_macro(
-            self.ctx.command_loop.last_kbd_macro(),
-            args,
-        )?;
-        let saved_state = self.ctx.snapshot_executing_kbd_macro_runtime();
-        self.ctx
-            .begin_executing_kbd_macro_runtime(macro_events.clone());
-        let result = crate::emacs_core::kmacro::execute_kbd_macro_events(
-            self.ctx
-                .obarray
-                .symbol_function("self-insert-command")
-                .cloned(),
-            &macro_events,
-            count,
-            |func, call_args| self.call_function_with_roots(func, &call_args),
-        );
-        self.ctx
-            .restore_executing_kbd_macro_runtime(saved_state.0, saved_state.1);
-        result
+        crate::emacs_core::kmacro::builtin_call_last_kbd_macro(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_execute_kbd_macro_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (macro_events, count) = crate::emacs_core::kmacro::plan_execute_kbd_macro(args)?;
-        let saved_state = self.ctx.snapshot_executing_kbd_macro_runtime();
-        self.ctx
-            .begin_executing_kbd_macro_runtime(macro_events.clone());
-        let result = crate::emacs_core::kmacro::execute_kbd_macro_events(
-            self.ctx
-                .obarray
-                .symbol_function("self-insert-command")
-                .cloned(),
-            &macro_events,
-            count,
-            |func, call_args| self.call_function_with_roots(func, &call_args),
-        );
-        self.ctx
-            .restore_executing_kbd_macro_runtime(saved_state.0, saved_state.1);
-        result
+        crate::emacs_core::kmacro::builtin_execute_kbd_macro(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_command_remapping_shared(&mut self, args: &[Value]) -> EvalResult {
