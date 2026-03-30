@@ -223,6 +223,11 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   now flow through GNU's `special-event-map` ownership boundary into Lisp
   `handle-focus-in` / `handle-focus-out` handlers, leaving frame-focus hook
   semantics in `frame.el` instead of reimplementing them in Rust.
+- Frame-close owner follow-up landed: window-manager close requests now keep
+  source frame identity through transport, bootstrap `special-event-map`
+  with GNU's `delete-frame -> handle-delete-frame` binding, and route the
+  resulting `(delete-frame (FRAME))` special event through Lisp `frame.el`
+  ownership instead of treating close as a raw `quit`.
 - Display/selection owner follow-up landed: `echo-area-clear-hook` now runs
   from the real echo-area clear owner, active-region selection updates now
   flow through the GNU command-loop owner into `gui-set-selection` plus

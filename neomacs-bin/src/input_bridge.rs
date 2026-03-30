@@ -133,7 +133,9 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
                 emacs_frame_id,
             })
         }
-        DisplayEvent::WindowClose { .. } => Some(KbInputEvent::CloseRequested),
+        DisplayEvent::WindowClose { emacs_frame_id } => {
+            Some(KbInputEvent::WindowClose { emacs_frame_id })
+        }
         DisplayEvent::WindowFocus {
             focused,
             emacs_frame_id,
@@ -247,6 +249,16 @@ mod tests {
                 focused: true,
                 emacs_frame_id: 42,
             }) => {}
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn window_close_preserves_frame_id_for_keyboard_owner() {
+        let event = convert_display_event(DisplayEvent::WindowClose { emacs_frame_id: 42 });
+
+        match event {
+            Some(KbInputEvent::WindowClose { emacs_frame_id: 42 }) => {}
             other => panic!("unexpected event: {other:?}"),
         }
     }

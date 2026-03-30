@@ -636,8 +636,8 @@ pub enum InputEvent {
     },
     /// Window-selection change.
     SelectWindow { window_id: crate::window::WindowId },
-    /// Close request.
-    CloseRequested,
+    /// Window-manager close request.
+    WindowClose { emacs_frame_id: u64 },
 }
 
 impl InputEvent {
@@ -1782,32 +1782,36 @@ impl crate::emacs_core::eval::Context {
         }
     }
 
-    fn make_lispy_switch_frame_event(&self, emacs_frame_id: u64) -> Option<Value> {
-        let frame = if emacs_frame_id == 0 {
+    fn lispy_frame_event_target(&self, emacs_frame_id: u64) -> Option<Value> {
+        if emacs_frame_id == 0 {
             self.frames
                 .selected_frame()
-                .map(|frame| Value::Frame(frame.id.0))?
+                .map(|frame| Value::Frame(frame.id.0))
         } else {
             let fid = crate::window::FrameId(emacs_frame_id);
             self.frames.get(fid)?;
-            Value::Frame(emacs_frame_id)
-        };
+            Some(Value::Frame(emacs_frame_id))
+        }
+    }
+
+    fn make_lispy_switch_frame_event(&self, emacs_frame_id: u64) -> Option<Value> {
+        let frame = self.lispy_frame_event_target(emacs_frame_id)?;
         Some(Value::list(vec![Value::symbol("switch-frame"), frame]))
     }
 
     fn make_lispy_focus_event(&self, focused: bool, emacs_frame_id: u64) -> Option<Value> {
-        let frame = if emacs_frame_id == 0 {
-            self.frames
-                .selected_frame()
-                .map(|frame| Value::Frame(frame.id.0))?
-        } else {
-            let fid = crate::window::FrameId(emacs_frame_id);
-            self.frames.get(fid)?;
-            Value::Frame(emacs_frame_id)
-        };
+        let frame = self.lispy_frame_event_target(emacs_frame_id)?;
         Some(Value::list(vec![
             Value::symbol(if focused { "focus-in" } else { "focus-out" }),
             frame,
+        ]))
+    }
+
+    fn make_lispy_delete_frame_event(&self, emacs_frame_id: u64) -> Option<Value> {
+        let frame = self.lispy_frame_event_target(emacs_frame_id)?;
+        Some(Value::list(vec![
+            Value::symbol("delete-frame"),
+            Value::list(vec![frame]),
         ]))
     }
 
@@ -1857,6 +1861,9 @@ impl crate::emacs_core::eval::Context {
         let Some(binding) = self.special_event_binding(&event) else {
             return Ok(false);
         };
+        if !self.function_value_is_callable(&binding) {
+            return Ok(false);
+        }
 
         self.assign("last-input-event", event);
         let keys = Value::vector(vec![event]);
@@ -2583,7 +2590,13 @@ impl crate::emacs_core::eval::Context {
         }
 
         match event {
-            InputEvent::CloseRequested => {
+            InputEvent::WindowClose { emacs_frame_id } => {
+                self.timer_resume_idle();
+                if let Some(event) = self.make_lispy_delete_frame_event(emacs_frame_id) {
+                    if self.execute_special_event_if_bound(event)? {
+                        return Ok(None);
+                    }
+                }
                 self.command_loop.running = false;
                 Err(crate::emacs_core::error::signal("quit", vec![]))
             }

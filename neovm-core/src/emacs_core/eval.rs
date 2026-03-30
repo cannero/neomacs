@@ -1918,8 +1918,13 @@ impl Context {
         // (keyboard.c:13097). Without this, bindings in function-key-map
         // (like [backspace] → [?\C-?]) are not found during key translation.
         list_keymap_set_parent(local_function_key_map, function_key_map);
-        // GNU keyboard.c seeds special-event-map with focus handlers at C
-        // bootstrap time and leaves hook semantics to frame.el.
+        // GNU keyboard.c seeds special-event-map with delete-frame and focus
+        // handlers at C bootstrap time and leaves hook semantics to frame.el.
+        list_keymap_define(
+            special_event_map,
+            Value::symbol("delete-frame"),
+            Value::symbol("handle-delete-frame"),
+        );
         list_keymap_define(
             special_event_map,
             Value::symbol("focus-in"),

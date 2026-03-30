@@ -1269,8 +1269,10 @@ fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input()
     configure_gnu_startup_state(&mut eval, frame_id, &startup);
 
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(neovm_core::keyboard::InputEvent::CloseRequested)
-        .expect("queue close request");
+    tx.send(neovm_core::keyboard::InputEvent::WindowClose {
+        emacs_frame_id: u64::MAX,
+    })
+    .expect("queue close request");
     drop(tx);
     let mut wake_pipe = [0; 2];
     let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
@@ -1765,8 +1767,10 @@ fn gnu_startup_clears_terminal_frame_without_deselecting_opening_gui_frame() {
     let frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(neovm_core::keyboard::InputEvent::CloseRequested)
-        .expect("queue close request");
+    tx.send(neovm_core::keyboard::InputEvent::WindowClose {
+        emacs_frame_id: u64::MAX,
+    })
+    .expect("queue close request");
     drop(tx);
     let mut wake_pipe = [0; 2];
     let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };

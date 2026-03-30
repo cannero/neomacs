@@ -64,6 +64,10 @@ fn install_minimal_special_event_command_runtime(ev: &mut Context) {
 (fset 'command-execute
       (lambda (cmd &optional _record keys _special)
         (funcall cmd (aref keys 0))))
+(fset 'handle-delete-frame
+      (lambda (event)
+        (setq neo-last-delete-frame-event event)
+        nil))
 (fset 'handle-focus-in
       (lambda (event)
         (internal-handle-focus-in event)))
@@ -784,7 +788,7 @@ fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
     let _ = ev.eval_forms(&setup);
 
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::CloseRequested)
+    tx.send(crate::keyboard::InputEvent::WindowClose { emacs_frame_id: 0 })
         .expect("queue close request");
     drop(tx);
 
@@ -829,10 +833,10 @@ fn read_char_requeues_keypress_and_throws_on_input() {
 }
 
 #[test]
-fn read_char_close_requested_honors_throw_on_input_before_quit() {
+fn read_char_window_close_honors_throw_on_input_before_quit() {
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::CloseRequested)
+    tx.send(crate::keyboard::InputEvent::WindowClose { emacs_frame_id: 0 })
         .expect("queue close request");
     ev.input_rx = Some(rx);
     ev.obarray
@@ -849,8 +853,45 @@ fn read_char_close_requested_honors_throw_on_input_before_quit() {
     ev.obarray.set_symbol_value("throw-on-input", Value::Nil);
     let flow = ev
         .read_char()
-        .expect_err("close request should still quit afterwards");
+        .expect_err("window close should still quit afterwards");
     assert!(matches!(flow, Flow::Signal(ref sig) if sig.symbol_name() == "quit"));
+}
+
+#[test]
+fn read_char_window_close_uses_special_event_map_handler_when_loaded() {
+    let mut ev = Context::new();
+    let scratch = ev.buffer_manager_mut().create_buffer("*scratch*");
+    ev.buffer_manager_mut().set_current(scratch);
+    let frame = ev.frames.create_frame("F1", 80, 24, scratch);
+    install_minimal_special_event_command_runtime(&mut ev);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::WindowClose {
+        emacs_frame_id: frame.0,
+    })
+    .expect("queue window close");
+    ev.input_rx = Some(rx);
+    ev.command_loop.running = true;
+
+    let event = match ev.read_char_with_timeout(Some(Duration::from_millis(0))) {
+        Ok(event) => event,
+        Err(flow) => panic!(
+            "window close should be consumed without error, got flow={flow:?} logged={:?}",
+            ev.eval_symbol("neo-last-delete-frame-event")
+        ),
+    };
+    assert_eq!(event, None);
+    drop(tx);
+    let logged = ev
+        .eval_symbol("neo-last-delete-frame-event")
+        .expect("delete-frame event should be logged");
+    assert_eq!(
+        logged,
+        Value::list(vec![
+            Value::symbol("delete-frame"),
+            Value::list(vec![Value::Frame(frame.0)]),
+        ]),
+    );
 }
 
 #[test]
@@ -1529,12 +1570,18 @@ fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
 }
 
 #[test]
-fn special_event_map_bootstraps_focus_handlers() {
+fn special_event_map_bootstraps_delete_frame_and_focus_handlers() {
     let ev = Context::new();
     let special_event_map = ev
         .eval_symbol("special-event-map")
         .expect("special-event-map should be bound");
 
+    let delete_frame = crate::emacs_core::keymap::lookup_key_in_keymaps_in_obarray(
+        ev.obarray(),
+        &[special_event_map],
+        &[Value::symbol("delete-frame")],
+        true,
+    );
     let focus_in = crate::emacs_core::keymap::lookup_key_in_keymaps_in_obarray(
         ev.obarray(),
         &[special_event_map],
@@ -1548,6 +1595,7 @@ fn special_event_map_bootstraps_focus_handlers() {
         true,
     );
 
+    assert_eq!(delete_frame, Value::symbol("handle-delete-frame"));
     assert_eq!(focus_in, Value::symbol("handle-focus-in"));
     assert_eq!(focus_out, Value::symbol("handle-focus-out"));
 }

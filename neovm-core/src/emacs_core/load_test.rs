@@ -1227,6 +1227,13 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
     init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*m-x-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime command-loop test should have a selected frame"
+    );
 
     let setup = parse_forms(
         r#"(progn
@@ -1254,8 +1261,6 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
         crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
     ))
     .expect("queue RET");
-    tx.send(crate::keyboard::InputEvent::CloseRequested)
-        .expect("queue close request");
     drop(tx);
 
     eval.input_rx = Some(rx);
@@ -1270,6 +1275,63 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
             .expect("probe var should exist")
             .is_truthy(),
         "expected M-x command RET path to run the command before shutdown fallback"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_window_close_routes_through_handle_delete_frame() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = parse_forms(
+        r#"(progn
+             (setq neo-delete-frame-log nil)
+             (defun neo--log-delete-frame-advice (event)
+               (setq neo-delete-frame-log
+                     (list (car event)
+                           (framep (car (cadr event))))))
+             (advice-add 'handle-delete-frame :before
+                         #'neo--log-delete-frame-advice))"#,
+    )
+    .expect("parse window-close runtime probe");
+    let _ = eval.eval_forms(&setup);
+
+    let scratch = eval.buffers.create_buffer("*close-frame-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "new runtime frame should become selectable"
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::WindowClose {
+        emacs_frame_id: frame_id.0,
+    })
+    .expect("queue window close");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("window close should exit command loop normally");
+    assert_eq!(result, Value::Nil);
+
+    let forms = parse_forms(
+        r#"(prog1 neo-delete-frame-log
+              (advice-remove 'handle-delete-frame
+                             #'neo--log-delete-frame-advice)
+              (fmakunbound 'neo--log-delete-frame-advice)
+              (makunbound 'neo-delete-frame-log))"#,
+    )
+    .expect("parse window-close runtime cleanup");
+    assert_eq!(
+        format_eval_result(&eval.eval_expr(&forms[0])),
+        "OK (delete-frame t)",
+        "expected WM close to route through GNU handle-delete-frame"
     );
 }
 

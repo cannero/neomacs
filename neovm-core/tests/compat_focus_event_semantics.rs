@@ -32,6 +32,16 @@ fn compat_special_event_map_bootstraps_focus_handlers_matches_gnu_emacs() {
 }
 
 #[test]
+fn compat_special_event_map_bootstraps_delete_frame_handler_matches_gnu_emacs() {
+    run_case(
+        "special_event_map_bootstraps_delete_frame_handler",
+        r#"
+(lookup-key special-event-map [delete-frame])
+"#,
+    );
+}
+
+#[test]
 fn compat_handle_focus_events_match_gnu_emacs() {
     run_case(
         "handle_focus_events",
