@@ -894,6 +894,7 @@ pub(crate) struct WaitServiceOutcome {
 
 impl super::eval::Context {
     pub(crate) fn service_pending_timers_with_wait_policy(&mut self, redisplay: bool) -> bool {
+        self.flush_pending_safe_funcalls();
         let mut fired_any = false;
 
         while let Some(timer) = self.next_due_gnu_timer_snapshot() {

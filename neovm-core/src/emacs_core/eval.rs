@@ -86,6 +86,12 @@ pub(crate) struct RuntimeBacktraceFrame {
     pub(crate) debug_on_exit: bool,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct PendingSafeFuncall {
+    pub(crate) function: Value,
+    pub(crate) args: Vec<Value>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct GnuTimerTimestamp {
     pub(crate) high_seconds: i64,
@@ -868,6 +874,8 @@ pub struct Context {
     /// Stable identity source for VM resume targets stored in the shared
     /// condition runtime.
     next_resume_id: u64,
+    /// GNU `pending_funcalls` equivalent for internal no-Lisp teardown paths.
+    pub(crate) pending_safe_funcalls: Vec<PendingSafeFuncall>,
     /// Saved lexical environments stack — when apply_lambda replaces
     /// self.lexenv with a closure's captured env, the old lexenv is pushed
     /// here so GC can still scan it.  Popped when apply_lambda restores.
@@ -3425,6 +3433,7 @@ impl Context {
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
+            pending_safe_funcalls: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             source_literal_cache: HashMap::new(),
@@ -3558,6 +3567,7 @@ impl Context {
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
+            pending_safe_funcalls: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             source_literal_cache: HashMap::new(),
@@ -3669,6 +3679,10 @@ impl Context {
         for frame in &self.runtime_backtrace {
             roots.push(frame.function);
             roots.extend(frame.args.iter().copied());
+        }
+        for funcall in &self.pending_safe_funcalls {
+            roots.push(funcall.function);
+            roots.extend(funcall.args.iter().copied());
         }
         // Thread-local statics holding Values
         collect_thread_local_gc_roots(&mut roots);
@@ -4111,6 +4125,8 @@ impl Context {
                 return Ok(Value::Nil);
             }
 
+            self.flush_pending_safe_funcalls();
+
             if self.executing_kbd_macro_iteration_complete_for_command_loop() {
                 self.assign("this-command", Value::Nil);
                 return Ok(Value::Nil);
@@ -4330,6 +4346,26 @@ impl Context {
                     .unwrap_or(Ok(Value::Nil))
             }
             _ => Ok(Value::Nil),
+        }
+    }
+
+    pub(crate) fn queue_pending_safe_funcall(&mut self, function: Value, args: Vec<Value>) {
+        self.pending_safe_funcalls
+            .push(PendingSafeFuncall { function, args });
+    }
+
+    pub(crate) fn queue_pending_safe_hook(&mut self, hook_name: &str, args: &[Value]) {
+        self.queue_pending_safe_funcall(
+            Value::symbol("run-hook-with-args"),
+            std::iter::once(Value::symbol(hook_name))
+                .chain(args.iter().copied())
+                .collect(),
+        );
+    }
+
+    pub(crate) fn flush_pending_safe_funcalls(&mut self) {
+        while let Some(funcall) = self.pending_safe_funcalls.pop() {
+            let _ = self.apply(funcall.function, funcall.args);
         }
     }
 

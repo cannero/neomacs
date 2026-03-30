@@ -338,6 +338,72 @@ fn delete_terminal_force_runs_hook_and_deletes_frames_on_terminal() {
 }
 
 #[test]
+fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() {
+    reset_terminal_thread_locals();
+    let mut eval = Context::new();
+    let scratch = eval.buffer_manager_mut().create_buffer("*scratch*");
+    let _keep =
+        eval.frame_manager_mut()
+            .create_frame_on_terminal("F1", TERMINAL_ID, 80, 25, scratch);
+    let terminal = ensure_terminal_runtime_owner(1, "secondary", TerminalRuntimeConfig::inactive());
+    let doomed = eval
+        .frame_manager_mut()
+        .create_frame_on_terminal("F2", 1, 80, 25, scratch);
+    let forms = crate::emacs_core::parse_forms(
+        r#"
+(setq hook-log nil)
+(setq delete-terminal-functions
+      (list (lambda (term)
+              (setq hook-log
+                    (cons (list 'terminal (terminal-live-p term)) hook-log)))))
+(setq delete-frame-functions
+      (list (lambda (frame)
+              (setq hook-log
+                    (cons (list 'before (frame-live-p frame)) hook-log)))))
+(setq after-delete-frame-functions
+      (list (lambda (frame)
+              (setq hook-log
+                    (cons (list 'after (frame-live-p frame)) hook-log)))))
+"#,
+    )
+    .expect("parse delete-terminal deferred hook setup");
+    for form in &forms {
+        eval.eval_expr(form)
+            .expect("install delete-terminal deferred hook setup");
+    }
+
+    assert_eq!(
+        builtin_delete_terminal(&mut eval, vec![terminal, Value::True]).unwrap(),
+        Value::Nil
+    );
+    assert!(
+        eval.frames.get(doomed).is_none(),
+        "delete-terminal should remove frames on that terminal immediately"
+    );
+    assert_eq!(
+        eval.eval_expr(&crate::emacs_core::parse_forms("hook-log").expect("parse hook-log")[0])
+            .expect("hook-log after delete-terminal"),
+        Value::list(vec![Value::list(vec![
+            Value::symbol("terminal"),
+            Value::True
+        ])])
+    );
+
+    eval.flush_pending_safe_funcalls();
+
+    let post_flush = eval
+        .eval_expr(
+            &crate::emacs_core::parse_forms("(nreverse hook-log)")
+                .expect("parse nreverse hook-log")[0],
+        )
+        .expect("hook-log after flush");
+    assert_eq!(
+        format!("{}", post_flush),
+        "((terminal t) (after nil) (before nil))"
+    );
+}
+
+#[test]
 fn delete_terminal_force_invokes_terminal_host_delete_hook() {
     reset_terminal_thread_locals();
     configure_terminal_runtime(TerminalRuntimeConfig::interactive(

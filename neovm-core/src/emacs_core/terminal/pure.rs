@@ -1094,7 +1094,12 @@ pub(crate) fn builtin_delete_terminal(
         })
         .collect::<Vec<_>>();
     for frame_id in frames_to_delete {
-        let _ = eval.frames.delete_frame(frame_id);
+        let _ = crate::emacs_core::window_cmds::delete_frame_owned(
+            eval,
+            frame_id,
+            crate::emacs_core::window_cmds::DeleteFrameHookMode::DeferSafe,
+            false,
+        )?;
     }
     delete_terminal_record(terminal_id);
     eval.command_loop

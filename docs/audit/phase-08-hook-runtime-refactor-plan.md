@@ -290,9 +290,24 @@ infrastructure only. It should not represent a second Lisp hook architecture.
 - Terminal owner follow-up broadened again: when the last frame on a terminal
   disappears and other frames still exist elsewhere, `delete-frame` now tears
   down that terminal instead of leaving a terminal object with no frames. That
-  matches GNU's normal multi-terminal owner path more closely. The remaining
-  gap is now thinner `keyboard.c` side-queue behavior plus the fully deferred
-  `Qnoelisp` / "last frame overall" terminal teardown path.
+  matches GNU's normal multi-terminal owner path more closely.
+
+- Terminal/frame teardown follow-up landed: terminal-driven frame deletion now
+  uses an internal GNU-shaped deferred hook path instead of running frame
+  hooks inline from `delete-terminal`. NeoVM now mirrors GNU's split more
+  closely:
+  - public `delete-terminal` runs `delete-terminal-functions` immediately
+  - cascaded frame deletions queue `delete-frame-functions` and
+    `after-delete-frame-functions` onto a runtime-owned pending-funcall stack
+  - those deferred calls are drained only at safe points, matching GNU's
+    `pending_funcalls` ownership model rather than making terminal teardown a
+    second eager hook-dispatch path
+
+- The remaining gap is narrower now:
+  - thinner `keyboard.c` side-queue behavior across multiple live `kboard`s
+  - the fully deferred GNU `Qnoelisp` / "last frame overall" terminal teardown
+    path when terminal disappearance is driven from inside the device delete
+    owner rather than from public Lisp
 
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented
