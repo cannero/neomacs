@@ -1572,6 +1572,16 @@ fn input_event_triggers_throw_on_input(event: &InputEvent) -> bool {
     )
 }
 
+fn input_event_is_wait_path_special(event: &InputEvent) -> bool {
+    matches!(
+        event,
+        InputEvent::Resize { .. }
+            | InputEvent::MonitorsChanged { .. }
+            | InputEvent::MouseMove { .. }
+            | InputEvent::CloseRequested
+    )
+}
+
 fn sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
     frames: &mut crate::window::FrameManager,
     display_host: Option<&dyn crate::emacs_core::eval::DisplayHost>,
@@ -2168,6 +2178,95 @@ impl crate::emacs_core::eval::Context {
         applied_resize
     }
 
+    fn take_next_wait_path_special_input_event(
+        &mut self,
+    ) -> Result<Option<InputEvent>, crate::emacs_core::error::Flow> {
+        if let Some(event) = self
+            .command_loop
+            .keyboard
+            .pending_input_events
+            .front()
+            .cloned()
+        {
+            if input_event_is_wait_path_special(&event) {
+                self.command_loop.keyboard.pending_input_events.pop_front();
+                self.timer_stop_idle();
+                return Ok(Some(event));
+            }
+            return Ok(None);
+        }
+
+        let Some(ref rx) = self.input_rx else {
+            return Ok(None);
+        };
+        match rx.try_recv() {
+            Ok(event) if input_event_is_wait_path_special(&event) => {
+                self.timer_stop_idle();
+                Ok(Some(event))
+            }
+            Ok(event) => {
+                self.command_loop
+                    .keyboard
+                    .pending_input_events
+                    .push_back(event);
+                Ok(None)
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => Ok(None),
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                self.handle_display_terminal_disconnect();
+                Err(crate::emacs_core::error::signal("quit", vec![]))
+            }
+        }
+    }
+
+    pub(crate) fn service_wait_path_special_input_events(
+        &mut self,
+    ) -> Result<bool, crate::emacs_core::error::Flow> {
+        let mut serviced = false;
+
+        if self.sync_pending_resize_events() {
+            serviced = true;
+        }
+
+        while let Some(event) = self.take_next_wait_path_special_input_event()? {
+            match event {
+                InputEvent::Resize {
+                    width,
+                    height,
+                    emacs_frame_id,
+                } => {
+                    self.apply_resize_input_event(width, height, emacs_frame_id, false);
+                    serviced = true;
+                }
+                InputEvent::MonitorsChanged { monitors } => {
+                    crate::emacs_core::builtins::set_neomacs_monitor_info(monitors);
+                    let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+                        self,
+                        "display-monitors-changed-functions",
+                    );
+                    let terminal = crate::emacs_core::terminal::pure::terminal_handle_value();
+                    let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
+                        self,
+                        hook_sym,
+                        &[terminal],
+                    )?;
+                    serviced = true;
+                }
+                InputEvent::MouseMove { .. } => {
+                    self.timer_resume_idle();
+                    serviced = true;
+                }
+                InputEvent::CloseRequested => {
+                    self.command_loop.running = false;
+                    return Err(crate::emacs_core::error::signal("quit", vec![]));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(serviced)
+    }
+
     /// Read a complete key sequence through keymaps.
     ///
     /// Mirrors GNU Emacs `read_key_sequence()` (keyboard.c:10098).
@@ -2653,7 +2752,7 @@ impl crate::emacs_core::eval::Context {
             }
 
             self.redisplay();
-            let _ = self.service_wait_path_once(None, false, true, true);
+            let _ = self.service_wait_path_once(None, false, true, true)?;
 
             tracing::debug!(
                 "read_char: blocking on input (input_rx={})...",
@@ -2716,7 +2815,7 @@ impl crate::emacs_core::eval::Context {
                         self.timer_stop_idle();
                         return Ok(None);
                     }
-                    let _ = self.service_wait_path_once(None, false, true, true);
+                    let _ = self.service_wait_path_once(None, false, true, true)?;
                     continue;
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {

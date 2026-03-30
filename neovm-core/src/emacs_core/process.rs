@@ -1147,8 +1147,9 @@ impl super::eval::Context {
         just_this_one: bool,
         allow_timers: bool,
         redisplay_timers: bool,
-    ) -> WaitServiceOutcome {
+    ) -> Result<WaitServiceOutcome, Flow> {
         let mut outcome = WaitServiceOutcome::default();
+        let _ = self.service_wait_path_special_input_events()?;
         if allow_timers {
             outcome.timers_fired = self.service_pending_timers_with_wait_policy(redisplay_timers);
         }
@@ -1156,7 +1157,7 @@ impl super::eval::Context {
             self.poll_process_output_with_wait_policy(target_process, just_this_one);
         outcome.any_process_activity = process_outcome.any_process_activity;
         outcome.target_process_activity = process_outcome.target_process_activity;
-        outcome
+        Ok(outcome)
     }
 
     pub(crate) fn next_wait_path_timeout(
@@ -5498,7 +5499,7 @@ pub(crate) fn builtin_accept_process_output(
             request.just_this_one,
             request.allow_timers,
             false,
-        );
+        )?;
 
         let got_output = if request.target_id.is_some() {
             outcome.target_process_activity

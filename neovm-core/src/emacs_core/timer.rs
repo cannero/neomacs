@@ -637,7 +637,7 @@ pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value
         let start = Instant::now();
         let deadline = start + total;
         loop {
-            let _ = eval.service_wait_path_once(None, false, true, false);
+            let _ = eval.service_wait_path_once(None, false, true, false)?;
             let now = Instant::now();
             if now >= deadline {
                 break;

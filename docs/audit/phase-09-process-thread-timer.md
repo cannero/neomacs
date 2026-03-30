@@ -81,9 +81,12 @@ Bad:
   but the mixed GNU-Lisp-timer / internal-Rust-timer / process-callback order
   in the shared wait path is now regression-covered, and `input-pending-p t`
   no longer violates GNU `sit-for` `NODISP` behavior by forcing redisplay when
-  it runs due timers. The real remaining work is the last shared-wait-path
-  redisplay/input competition edges outside those covered `sit-for` cases, not
-  the older split-owner architecture.
+  it runs due timers. The shared wait path now also services pending
+  non-user-visible host input such as resize events before polling timers and
+  processes, which closes the earlier starvation case for
+  `accept-process-output` / `sleep-for`. The real remaining work is now the
+  last finer-grained redisplay/input competition edges outside those covered
+  wait-path cases, not the older split-owner architecture.
 
 ## Long-term ideal design
 

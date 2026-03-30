@@ -97,6 +97,26 @@ The remaining GNU risk is narrower now: keyboard/input break semantics and
 redisplay/input competition across the shared wait path are not yet as tightly
 locked down as the timer/process ordering itself.
 
+### The shared wait path now services non-user-visible host input before polling timers/processes
+
+GNU `wait_reading_process_output` calls `swallow_events` when it notices
+window-system input while `read_kbd` is zero, so non-user-visible input-side
+state such as resize handling is not starved behind `accept-process-output`
+or `sleep-for`. See
+[process.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/process.c#L5926)
+and
+[keyboard.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/keyboard.c#L4642).
+
+Neomacs previously had no equivalent on the shared wait path: it polled only
+timers and processes, so pending resize events could remain unapplied until a
+later explicit keyboard read or a direct frame-size query. The shared
+wait/service owner now services wait-path-safe host input before timers and
+process callbacks, which closes that starvation case for `accept-process-output`
+and `sleep-for`. The current ownership lives in
+[keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L2179)
+and
+[process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L1144).
+
 ### GNU ordinary and idle timer ordering now follows `timer_check_2` more closely
 
 GNU does not fire all ordinary timers and then all idle timers. `timer_check_2`
