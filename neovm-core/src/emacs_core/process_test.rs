@@ -1459,6 +1459,145 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
 }
 
 #[test]
+fn accept_process_output_preserves_process_callback_runtime_state() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let result = eval_one_in_context(
+        &mut ev,
+        &format!(
+            r#"(progn
+                 (fset 'apio-state-filter
+                       (lambda (_proc string)
+                         (setq apio-state-filter-observed
+                               (list (current-buffer)
+                                     (match-data)
+                                     deactivate-mark
+                                     last-nonmenu-event))
+                         (set-buffer (get-buffer-create "*apio-state-other*"))
+                         (string-match "bb" "abba")
+                         (setq deactivate-mark nil)
+                         (setq last-nonmenu-event 'changed)
+                         (setq apio-state-filter-string string)))
+                 (fset 'apio-state-sentinel
+                       (lambda (_proc msg)
+                         (setq apio-state-sentinel-observed
+                               (list (current-buffer)
+                                     (match-data)
+                                     deactivate-mark
+                                     last-nonmenu-event))
+                         (set-buffer (get-buffer-create "*apio-state-other*"))
+                         (string-match "cc" "acca")
+                         (setq deactivate-mark nil)
+                         (setq last-nonmenu-event 'changed)
+                         (setq apio-state-sentinel-msg msg)))
+                 (setq apio-state-filter-observed nil
+                       apio-state-sentinel-observed nil
+                       apio-state-filter-string nil
+                       apio-state-sentinel-msg nil
+                       last-nonmenu-event 'before
+                       deactivate-mark 'keep)
+                 (let ((home (get-buffer-create "*apio-state-home*")))
+                   (set-buffer home)
+                   (string-match "yz" "xyz")
+                   (let ((before-buffer (current-buffer))
+                         (before-match (match-data))
+                         (p (make-process :name "apio-state"
+                                          :buffer nil
+                                          :command (list "{echo}" "out")
+                                          :connection-type 'pipe)))
+                     (unwind-protect
+                         (progn
+                           (set-process-filter p 'apio-state-filter)
+                           (set-process-sentinel p 'apio-state-sentinel)
+                           (accept-process-output p 0.1)
+                           (accept-process-output p 0.1)
+                           (list apio-state-filter-string
+                                 apio-state-sentinel-msg
+                                 (eq (current-buffer) before-buffer)
+                                 (equal (match-data) before-match)
+                                 deactivate-mark
+                                 last-nonmenu-event
+                                 (eq (nth 0 apio-state-filter-observed) before-buffer)
+                                 (equal (nth 1 apio-state-filter-observed) before-match)
+                                 (nth 2 apio-state-filter-observed)
+                                 (nth 3 apio-state-filter-observed)
+                                 (eq (nth 0 apio-state-sentinel-observed) before-buffer)
+                                 (equal (nth 1 apio-state-sentinel-observed) before-match)
+                                 (nth 2 apio-state-sentinel-observed)
+                                 (nth 3 apio-state-sentinel-observed)))
+                       (condition-case nil
+                           (delete-process p)
+                         (error nil))))))"#,
+        ),
+    );
+    assert_eq!(
+        result,
+        r#"OK ("out
+" "finished
+" t t keep before t t keep t t t keep t)"#
+    );
+}
+
+#[test]
+fn make_network_process_open_sentinel_uses_shared_callback_runtime_state() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+    let port = listener.local_addr().expect("listener local addr").port();
+    let accept_thread = std::thread::spawn(move || {
+        let _ = listener.accept();
+    });
+    let mut ev = Context::new();
+    let result = eval_one_in_context(
+        &mut ev,
+        &format!(
+            r#"(progn
+             (fset 'apio-net-open-sentinel
+                   (lambda (_proc msg)
+                     (setq apio-net-open-state
+                           (list msg
+                                 (eq (current-buffer) apio-net-before-buffer)
+                                 (equal (match-data) apio-net-before-match)
+                                 deactivate-mark
+                                 last-nonmenu-event))
+                     (set-buffer (get-buffer-create "*apio-net-other*"))
+                     (string-match "bb" "abba")
+                     (setq deactivate-mark nil)
+                     (setq last-nonmenu-event 'changed)))
+             (setq last-nonmenu-event 'before
+                   deactivate-mark 'keep
+                   apio-net-open-state nil)
+             (let ((home (get-buffer-create "*apio-net-home*")))
+               (set-buffer home)
+               (string-match "yz" "xyz")
+               (setq apio-net-before-buffer (current-buffer)
+                     apio-net-before-match (match-data))
+               (let ((p (make-network-process :name "apio-net-open"
+                                               :host "127.0.0.1"
+                                               :service {port}
+                                               :sentinel 'apio-net-open-sentinel)))
+                 (unwind-protect
+                     (list (car apio-net-open-state)
+                           (nth 1 apio-net-open-state)
+                           (nth 2 apio-net-open-state)
+                           (nth 3 apio-net-open-state)
+                           (nth 4 apio-net-open-state)
+                           (eq (current-buffer) apio-net-before-buffer)
+                           (equal (match-data) apio-net-before-match)
+                           deactivate-mark
+                           last-nonmenu-event)
+                   (condition-case nil
+                       (delete-process p)
+                     (error nil))))))"#,
+        ),
+    );
+    let _ = accept_thread.join();
+    assert_eq!(
+        result,
+        r#"OK ("open
+" t t keep t t t keep before)"#
+    );
+}
+
+#[test]
 fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
     let echo = find_bin("echo");
     let mut ev = Context::new();

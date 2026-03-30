@@ -1,9 +1,9 @@
 # Process / Timer / Event Loop Audit
 
 **Date**: 2026-03-30
-**Status**: GNU ownership is unified around one wait path. Neomacs still
-splits process/timer/event-loop semantics across `process.rs`, `keyboard.rs`,
-and `timer.rs`, and the split currently causes confirmed GNU mismatches.
+**Status**: Neomacs now has a shared wait/service path and a real `callproc`
+owner, but Phase 9 still has GNU-compatibility risk in exact ordering and
+callback semantics across timers, process output, and input waits.
 
 ## GNU Emacs Design
 
@@ -94,7 +94,7 @@ That is a real GNU incompatibility: `accept-process-output` with a target
 process should still allow unrelated process filters/sentinels to run unless
 the caller explicitly asked to suspend them.
 
-### `accept-process-output` never services timers
+### `accept-process-output` and `sleep-for` now share the wait path, but ordering still needs audit
 
 GNU runs timers from the shared wait path unless `just_wait_proc < 0`, i.e.
 unless the caller used integer `JUST-THIS-ONE`. See
@@ -102,17 +102,20 @@ unless the caller used integer `JUST-THIS-ONE`. See
 [keyboard.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/keyboard.c#L4718),
 and [atimer.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/atimer.c#L453).
 
-Neomacs `accept-process-output` does not call any timer service path at all.
-The only timer servicing around waits is currently in the keyboard path and the
-ad hoc `sleep-for` loop:
+Neomacs no longer has the earlier split where `accept-process-output` and
+`sleep-for` each owned a separate polling loop. Both now route through the
+shared wait/service path in
+[process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L1120)
+and
+[timer.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/timer.rs#L611).
+That closed the earlier starvation bug and the older `PROCESS` /
+`JUST-THIS-ONE` mismatch.
 
-- [keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L3143)
-- [timer.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/timer.rs#L613)
+The remaining GNU risk is narrower now: exact ordering when GNU Lisp timers,
+Rust timers, process filters, sentinels, and input wakeups are all due in the
+same wait cycle is not yet locked down by differential coverage.
 
-This means timer callbacks can starve during `accept-process-output`, which is
-not GNU behavior.
-
-### `accept-process-output` callbacks bypass the GNU async callback envelope
+### Process callbacks now share one async callback envelope, but it is still a translated design
 
 GNU process filters and sentinels preserve important dynamic state when they
 run:
@@ -121,43 +124,25 @@ run:
 - match data is preserved/restored
 - `waiting_for_user_input_p` is restored
 - quit is inhibited while the callback runs
+- `last_nonmenu_event` is rebound
+- `deactivate-mark` is restored afterwards
 
 See
 [process.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/process.c#L6518)
 and [process.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/process.c#L7789).
 
-Neomacs keyboard-driven process callbacks already partially mirror this by
-saving/restoring match data and current buffer in
-[keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L3219).
-But the `accept-process-output` path directly accumulates callbacks and later
-invokes them through plain `eval.apply` in
-[process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L5867),
-with only temporary rooting support.
+Neomacs now routes process filters, sentinels, and client network `"open\n"`
+sentinel delivery through one shared helper in
+[process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L950).
+That helper now preserves current buffer, match data, `waiting-for-user-input-p`,
+`inhibit-quit`, `last-nonmenu-event`, and `deactivate-mark` across both
+`accept-process-output` and other process callback entry points.
 
-So the same callback can observe different dynamic behavior depending on
-whether it was reached through keyboard waiting or through
-`accept-process-output`. GNU has one behavior here, not two.
-
-### `sleep-for` is still a private polling loop
-
-GNU `sleep-for` in `dispnew.c` does not implement a second ad hoc event loop.
-It loops on `wait_reading_process_output`, which means subprocess wakeups,
-timer checks, and the ordinary wait-path bookkeeping stay unified. See
-[dispnew.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/dispnew.c#L6894)
-and
-[process.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/process.c#L5332).
-
-Neomacs `sleep-for` instead uses `std::thread::sleep` in 50ms chunks, then
-manually calls `eval.poll_process_output()` and `eval.fire_pending_timers()`
-after each chunk in
-[timer.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/timer.rs#L608).
-
-That is closer than a plain blocking sleep, but it is still not GNU’s design:
-
-- `sleep-for` has its own private wait loop
-- callback ordering is inherited from manual call order, not one shared owner
-- input/waiting-state semantics are not obviously the same as the keyboard or
-  `accept-process-output` paths
+So the earlier “plain `eval.apply` on one path, protected callback on another”
+mismatch is closed. The remaining difference from GNU is not split behavior;
+it is that Neomacs still expresses this as a Rust-side translated helper rather
+than GNU’s exact `read_process_output_call` / `internal_condition_case_1` /
+`record_unwind_current_buffer` control flow.
 
 ### Timer ownership is still split between GNU-shaped Lisp timers and a Rust timer manager
 
@@ -203,13 +188,11 @@ Current neomacs coverage in `process_test.rs` is mostly argument contract and
 rooting coverage. It does not yet lock down the high-risk shared-wait-path
 semantics, especially:
 
-- `accept-process-output PROCESS` still servicing unrelated processes when
-  `JUST-THIS-ONE` is `nil`
-- integer `JUST-THIS-ONE` suppressing timers
-- timer firing during `accept-process-output`
-- identical filter/sentinel dynamic-state preservation across keyboard waits
-  and `accept-process-output`
-- `sleep-for` sharing the same wake/service behavior as the main wait path
+- timer ordering when GNU Lisp timers and Rust timers are simultaneously due
+- exact ordering between process filters, sentinels, and timers in one wait cycle
+- `sleep-for` / `sit-for` parity once input and redisplay are involved
+- chunked synchronous subprocess insertion and redisplay fidelity versus GNU
+  `callproc.c`
 
 ## Refactor Direction
 
@@ -232,29 +215,22 @@ The GNU-shaped direction is:
    - match data
    - waiting/input state
    - quit/debug policy as needed
-5. Route `sleep-for` through that same wait/service owner instead of keeping a
-   second private polling loop in `timer.rs`.
-6. Extract synchronous subprocess invocation into `callproc/mod.rs` only after
-   the wait-path ownership is clear, and carry over GNU `DISPLAY` semantics
-   while output is inserted.
-7. Keep `neovm-core` as the semantic owner. Pollers, worker/runtime tasks, and
+5. Keep `neovm-core` as the semantic owner. Pollers, worker/runtime tasks, and
    frontend wakeups should remain transport mechanisms only.
 
 ## What To Audit Next Inside Phase 9
 
 The next concrete source-level audit order should be:
 
-1. `accept-process-output` policy and callback timing
-2. filter/sentinel dynamic-state preservation
-3. `sleep-for` / input wait integration through the same owner
-4. timer ordering when both GNU Lisp timers and Rust timers are due
-5. chunked synchronous subprocess insertion/redisplay fidelity versus GNU
+1. timer ordering when both GNU Lisp timers and Rust timers are due
+2. filter/sentinel ordering relative to timer firing in one wait cycle
+3. `sleep-for` / `sit-for` parity once input and redisplay are involved
+4. chunked synchronous subprocess insertion/redisplay fidelity versus GNU
    `callproc.c`
-6. focused differential coverage for the shared wait-path cases listed above
+5. focused differential coverage for the shared wait-path cases listed above
 
 ## Conclusion
 
-The highest-priority Phase 9 problem is no longer “threads”. It is that
-Neomacs still lacks GNU’s single semantic wait path for processes, timers, and
-input. Until that is unified, individual APIs can look plausible while still
-firing callbacks in the wrong order or under the wrong dynamic state.
+The highest-priority Phase 9 problem is no longer ownership. Neomacs now has a
+shared wait path and a real `callproc` boundary. The remaining work is exact
+GNU ordering and callback behavior within that shared runtime.

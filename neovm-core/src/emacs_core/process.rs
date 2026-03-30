@@ -956,6 +956,7 @@ impl super::eval::Context {
         let saved_match_data = self.match_data.clone();
         let saved_current_buffer = self.buffers.current_buffer_id();
         let saved_waiting_for_input = self.waiting_for_user_input();
+        let saved_deactivate_mark = self.eval_symbol("deactivate-mark").unwrap_or(Value::Nil);
         let specpdl_count = self.specpdl.len();
         let saved_roots = self.save_temp_roots();
 
@@ -965,6 +966,7 @@ impl super::eval::Context {
         }
 
         self.specbind(intern("inhibit-quit"), Value::True);
+        self.specbind(intern("last-nonmenu-event"), Value::True);
 
         let result = self.apply(callback, args);
 
@@ -974,6 +976,7 @@ impl super::eval::Context {
         }
         self.set_waiting_for_user_input(saved_waiting_for_input);
         self.unbind_to(specpdl_count);
+        self.assign("deactivate-mark", saved_deactivate_mark);
         self.restore_temp_roots(saved_roots);
 
         if let Err(err) = result {
@@ -3578,16 +3581,7 @@ pub(crate) fn builtin_make_network_process(
         .get(id)
         .map(|p| p.sentinel)
         .unwrap_or(Value::Nil);
-    if !sentinel.is_nil()
-        && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
-        && sentinel.is_truthy()
-    {
-        let proc_val = Value::Int(id as i64);
-        let msg_val = Value::string("open\n");
-        if let Err(e) = eval.apply(sentinel, vec![proc_val, msg_val]) {
-            tracing::warn!("Network sentinel open error for pid {}: {:?}", id, e);
-        }
-    }
+    eval.run_process_sentinel_callback(id, sentinel, "open\n");
 
     Ok(Value::Int(id as i64))
 }
