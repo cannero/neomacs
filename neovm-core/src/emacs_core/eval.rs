@@ -4192,8 +4192,11 @@ impl Context {
         if let Some(mut f) = self.redisplay_fn.take() {
             let saved = self.buffers.reset_outermost_restrictions();
             f(self);
+            let _ = super::builtins::run_redisplay_window_change_hooks(self);
             self.buffers.restore_outermost_restrictions(saved);
             self.redisplay_fn = Some(f);
+        } else {
+            let _ = super::builtins::run_redisplay_window_change_hooks(self);
         }
     }
 

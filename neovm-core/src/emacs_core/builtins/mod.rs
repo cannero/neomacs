@@ -4174,7 +4174,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "frame-window-state-change",
-        |_ctx, args| builtin_frame_window_state_change(args),
+        super::window_cmds::builtin_frame_window_state_change,
         0,
         None,
     );
@@ -4932,7 +4932,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set-frame-window-state-change",
-        |_ctx, args| builtin_set_frame_window_state_change(args),
+        super::window_cmds::builtin_set_frame_window_state_change,
         0,
         Some(2),
     );

@@ -724,6 +724,26 @@ impl Default for WindowDisplaySnapshot {
     }
 }
 
+/// Redisplay-owned runtime state used to decide which GNU window hooks fire.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowHookSnapshot {
+    /// Buffer currently shown in the window.
+    pub buffer_id: BufferId,
+    /// Last known live bounds of the window.
+    pub bounds: Rect,
+}
+
+/// Per-frame redisplay record for GNU window change hook ownership.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FrameWindowHookRecord {
+    /// Last known live windows on the frame.
+    pub windows: HashMap<WindowId, WindowHookSnapshot>,
+    /// Selected window the last time window change hooks were recorded.
+    pub selected_window: Option<WindowId>,
+    /// Whether this frame was the selected frame at last record time.
+    pub was_selected_frame: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Frame
 // ---------------------------------------------------------------------------
@@ -766,6 +786,10 @@ pub struct Frame {
     pub char_height: f32,
     /// Authoritative last-redisplay geometry keyed by live leaf window.
     pub display_snapshots: HashMap<WindowId, WindowDisplaySnapshot>,
+    /// Last recorded redisplay state for GNU window change hooks.
+    pub(crate) window_hook_record: FrameWindowHookRecord,
+    /// GNU `frame-window-state-change` flag.
+    pub(crate) window_state_change: bool,
     /// Real frame-local Lisp face hash table, mirroring GNU `frame->face_hash_table`.
     pub face_hash_table: Value,
     /// Per-frame realized Lisp faces, mirroring GNU's `frame->face_hash_table`
@@ -816,6 +840,8 @@ impl Frame {
             char_width: 8.0,
             char_height: 16.0,
             display_snapshots: HashMap::new(),
+            window_hook_record: FrameWindowHookRecord::default(),
+            window_state_change: false,
             face_hash_table: Value::hash_table(HashTableTest::Eq),
             realized_faces: HashMap::new(),
         }

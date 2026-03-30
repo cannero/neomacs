@@ -407,6 +407,79 @@ fn read_from_minibuffer_rejects_more_than_seven_args() {
 }
 
 #[test]
+fn shared_read_from_minibuffer_runtime_runs_setup_and_exit_hooks_around_edit() {
+    let mut ev = Context::new();
+    let order = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let order_in_setup = std::rc::Rc::clone(&order);
+    let order_in_exit = std::rc::Rc::clone(&order);
+    let order_in_edit = std::rc::Rc::clone(&order);
+    let args = vec![Value::string("Prompt: ")];
+
+    let result = finish_read_from_minibuffer_in_state_with_recursive_edit(
+        &mut ev.obarray,
+        &mut ev.buffers,
+        &mut ev.frames,
+        &mut ev.minibuffers,
+        &mut ev.minibuffer_selected_window,
+        &mut ev.active_minibuffer_window,
+        ev.command_loop.recursive_depth,
+        &args,
+        move || {
+            order_in_setup.borrow_mut().push("setup");
+            Ok(Value::Nil)
+        },
+        move || {
+            order_in_exit.borrow_mut().push("exit");
+            Ok(Value::Nil)
+        },
+        move || {
+            order_in_edit.borrow_mut().push("edit");
+            Err(Flow::Throw {
+                tag: Value::symbol("exit"),
+                value: Value::Nil,
+            })
+        },
+    )
+    .expect("shared read-from-minibuffer should exit normally");
+
+    let Value::Str(result_id) = result else {
+        panic!("expected string result, got {result:?}");
+    };
+    assert_eq!(
+        crate::emacs_core::value::with_heap(|heap| heap.get_string(result_id).to_owned()),
+        ""
+    );
+    assert_eq!(*order.borrow(), vec!["setup", "edit", "exit"]);
+}
+
+#[test]
+fn shared_read_from_minibuffer_runtime_swallows_exit_hook_signals() {
+    let mut ev = Context::new();
+    let args = vec![Value::string("Prompt: ")];
+
+    let result = finish_read_from_minibuffer_in_state_with_recursive_edit(
+        &mut ev.obarray,
+        &mut ev.buffers,
+        &mut ev.frames,
+        &mut ev.minibuffers,
+        &mut ev.minibuffer_selected_window,
+        &mut ev.active_minibuffer_window,
+        ev.command_loop.recursive_depth,
+        &args,
+        || Ok(Value::Nil),
+        || Err(signal("error", vec![Value::string("ignored")])),
+        || {
+            Err(Flow::Throw {
+                tag: Value::symbol("exit"),
+                value: Value::Nil,
+            })
+        },
+    );
+
+    assert!(result.is_ok(), "result={result:?}");
+}
+
+#[test]
 fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
     let mut ev = Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut ev);

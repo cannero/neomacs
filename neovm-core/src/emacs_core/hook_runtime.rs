@@ -104,6 +104,20 @@ pub(crate) fn run_hook_value<R: HookRuntime>(
     Ok(Value::Nil)
 }
 
+pub(crate) fn safe_run_hook_value<R: HookRuntime>(
+    runtime: &mut R,
+    hook_sym: SymId,
+    hook_value: Value,
+    hook_args: &[Value],
+    inherit_global: bool,
+) -> EvalResult {
+    match run_hook_value(runtime, hook_sym, hook_value, hook_args, inherit_global) {
+        Ok(value) => Ok(value),
+        Err(Flow::Signal(_)) => Ok(Value::Nil),
+        Err(flow) => Err(flow),
+    }
+}
+
 pub(crate) fn run_hook_value_until_success<R: HookRuntime>(
     runtime: &mut R,
     hook_sym: SymId,
@@ -196,6 +210,15 @@ pub(crate) fn run_named_hook<R: HookRuntime>(
 ) -> EvalResult {
     let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::Nil);
     run_hook_value(runtime, hook_sym, hook_value, hook_args, true)
+}
+
+pub(crate) fn safe_run_named_hook<R: HookRuntime>(
+    runtime: &mut R,
+    hook_sym: SymId,
+    hook_args: &[Value],
+) -> EvalResult {
+    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::Nil);
+    safe_run_hook_value(runtime, hook_sym, hook_value, hook_args, true)
 }
 
 pub(crate) fn run_named_hooks<R: HookRuntime>(

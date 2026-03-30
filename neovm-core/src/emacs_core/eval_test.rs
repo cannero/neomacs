@@ -4814,6 +4814,35 @@ fn run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
 }
 
 #[test]
+fn kill_buffer_runs_query_functions_and_hook_in_target_buffer_context() {
+    let result = eval_one(
+        "(progn
+           (setq hook-log nil)
+           (let ((buf (get-buffer-create \"kill-hook\"))
+                 (other (get-buffer-create \"kill-other\")))
+             (set-buffer buf)
+             (setq kill-buffer-query-functions
+                   (list (lambda ()
+                           (setq hook-log
+                                 (cons (list 'query (buffer-name)) hook-log))
+                           t)))
+             (setq kill-buffer-hook
+                   (list (lambda ()
+                           (setq hook-log
+                                 (cons (list 'hook (buffer-name)) hook-log)))))
+             (set-buffer other)
+             (list (kill-buffer buf)
+                   (get-buffer \"kill-hook\")
+                   (nreverse hook-log)
+                   (buffer-name))))",
+    );
+    assert_eq!(
+        result,
+        "OK (t nil ((query \"kill-hook\") (hook \"kill-hook\")) \"kill-other\")"
+    );
+}
+
+#[test]
 fn run_window_scroll_functions_uses_scrolled_window_buffer_context() {
     let result = eval_one(
         "(progn
@@ -4833,6 +4862,40 @@ fn run_window_scroll_functions_uses_scrolled_window_buffer_context() {
                (list hook-log (buffer-name)))))",
     );
     assert_eq!(result, "OK (\"scroll-b\" \"scroll-a\")");
+}
+
+#[test]
+fn point_motion_hooks_follow_gnu_interval_boundary_order() {
+    let result = eval_one(
+        "(progn
+           (erase-buffer)
+           (insert \"abcd\")
+           (setq hook-log nil)
+           (setq inhibit-point-motion-hooks nil)
+           (defalias 'pm-leave-before
+             #'(lambda (old new)
+                 (setq hook-log (append hook-log (list (list 'leave-before old new))))))
+           (defalias 'pm-leave-after
+             #'(lambda (old new)
+                 (setq hook-log (append hook-log (list (list 'leave-after old new))))))
+           (defalias 'pm-enter-before
+             #'(lambda (old new)
+                 (setq hook-log (append hook-log (list (list 'enter-before old new))))))
+           (defalias 'pm-enter-after
+             #'(lambda (old new)
+                 (setq hook-log (append hook-log (list (list 'enter-after old new))))))
+           (put-text-property 1 2 'point-left 'pm-leave-before)
+           (put-text-property 2 3 'point-left 'pm-leave-after)
+           (put-text-property 3 4 'point-entered 'pm-enter-before)
+           (put-text-property 4 5 'point-entered 'pm-enter-after)
+           (goto-char 2)
+           (goto-char 4)
+           hook-log)",
+    );
+    assert_eq!(
+        result,
+        "OK ((leave-before 2 4) (leave-after 2 4) (enter-before 2 4) (enter-after 2 4))"
+    );
 }
 
 #[test]
@@ -4939,6 +5002,85 @@ fn run_window_configuration_change_hook_uses_window_buffer_context() {
         ev.buffers.current_buffer().expect("current buffer").name,
         "wcch-a"
     );
+}
+
+#[test]
+fn redisplay_runs_window_change_functions_with_selected_frame_context() {
+    let result = eval_one(
+        "(progn
+           (setq hook-log nil)
+           (let* ((buf1 (get-buffer-create \"wcf-a\"))
+                  (buf2 (get-buffer-create \"wcf-b\")))
+             (set-window-buffer (selected-window) buf1)
+             (let ((w2 (split-window-internal (selected-window) nil nil nil)))
+               (set-window-buffer w2 buf2)
+               (setq window-size-change-functions
+                     (list (lambda (frame)
+                             (setq hook-log
+                                   (cons (list 'size (eq frame (selected-frame))
+                                               (buffer-name))
+                                         hook-log)))))
+               (setq window-selection-change-functions
+                     (list (lambda (frame)
+                             (setq hook-log
+                                   (cons (list 'selection (eq frame (selected-frame))
+                                               (buffer-name))
+                                         hook-log)))))
+               (setq window-state-change-functions
+                     (list (lambda (frame)
+                             (setq hook-log
+                                   (cons (list 'state (eq frame (selected-frame))
+                                               (buffer-name))
+                                         hook-log)))))
+               (setq window-state-change-hook
+                     (list (lambda ()
+                             (setq hook-log (cons 'state-hook hook-log)))))
+               (select-window w2)
+               (redisplay)
+               (nreverse hook-log))))",
+    );
+    assert_eq!(
+        result,
+        "OK ((size t \"wcf-b\") (selection t \"wcf-b\") (state t \"wcf-b\") state-hook)"
+    );
+}
+
+#[test]
+fn set_frame_window_state_change_forces_state_hooks_on_redisplay() {
+    let result = eval_one(
+        "(progn
+           (setq hook-log nil)
+           (setq window-state-change-functions
+                 (list (lambda (_frame)
+                         (setq hook-log (cons 'state hook-log)))))
+           (setq window-state-change-hook
+                 (list (lambda ()
+                         (setq hook-log (cons 'state-hook hook-log)))))
+           (set-frame-window-state-change nil t)
+           (redisplay)
+           (nreverse hook-log))",
+    );
+    assert_eq!(result, "OK (state state-hook)");
+}
+
+#[test]
+fn delete_frame_runs_before_and_after_delete_hooks() {
+    let result = eval_one(
+        "(progn
+           (setq hook-log nil)
+           (let ((f2 (make-frame)))
+             (setq delete-frame-functions
+                   (list (lambda (frame)
+                           (setq hook-log
+                                 (cons (list 'before (frame-live-p frame)) hook-log)))))
+             (setq after-delete-frame-functions
+                   (list (lambda (frame)
+                           (setq hook-log
+                                 (cons (list 'after (frame-live-p frame)) hook-log)))))
+             (delete-frame f2)
+             (nreverse hook-log)))",
+    );
+    assert_eq!(result, "OK ((before t) (after nil))");
 }
 
 #[test]

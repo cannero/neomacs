@@ -5583,13 +5583,63 @@ pub(crate) fn builtin_delete_frame(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("delete-frame", &args, 2)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    if !frames.delete_frame(fid) {
+    let fid = {
+        let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+        resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?
+    };
+    let frame_value = Value::Frame(fid.0);
+    let delete_hook =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "delete-frame-functions");
+    let _ =
+        crate::emacs_core::hook_runtime::safe_run_named_hook(eval, delete_hook, &[frame_value])?;
+    if eval.frames.get(fid).is_none() {
+        return Ok(Value::Nil);
+    }
+    if !eval.frames.delete_frame(fid) {
         return Err(signal("error", vec![Value::string("Cannot delete frame")]));
     }
+    let after_delete_hook =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "after-delete-frame-functions");
+    let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
+        eval,
+        after_delete_hook,
+        &[frame_value],
+    )?;
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_frame_window_state_change(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("frame-window-state-change", &args, 1)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    Ok(Value::bool(
+        eval.frames
+            .get(fid)
+            .is_some_and(|frame| frame.window_state_change),
+    ))
+}
+
+pub(crate) fn builtin_set_frame_window_state_change(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("set-frame-window-state-change", &args, 2)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let state = args.get(1).copied().unwrap_or(Value::Nil).is_truthy();
+    let frame = eval.frames.get_mut(fid).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![
+                Value::symbol("frame-live-p"),
+                args.first().copied().unwrap_or(Value::Nil),
+            ],
+        )
+    })?;
+    frame.window_state_change = state;
+    Ok(Value::bool(state))
 }
 
 /// `(frame-parameter FRAME PARAMETER)` -> value or nil.
@@ -5840,6 +5890,13 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("recenter-redisplay", Value::symbol("tty"));
     obarray.set_symbol_value("window-combination-resize", Value::Nil);
     obarray.set_symbol_value("window-combination-limit", Value::Nil);
+    obarray.set_symbol_value("delete-frame-functions", Value::Nil);
+    obarray.set_symbol_value("after-delete-frame-functions", Value::Nil);
+    obarray.set_symbol_value("window-buffer-change-functions", Value::Nil);
+    obarray.set_symbol_value("window-size-change-functions", Value::Nil);
+    obarray.set_symbol_value("window-selection-change-functions", Value::Nil);
+    obarray.set_symbol_value("window-state-change-functions", Value::Nil);
+    obarray.set_symbol_value("window-state-change-hook", Value::Nil);
     obarray.set_symbol_value("window-sides-vertical", Value::Nil);
     obarray.set_symbol_value("window-sides-slots", Value::Nil);
     obarray.set_symbol_value("window-resize-pixelwise", Value::Nil);

@@ -335,23 +335,21 @@ pub(crate) fn builtin_get_file_buffer(
 }
 
 pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let buffers = &mut eval.buffers;
-    let frames = &mut eval.frames;
     expect_max_args("kill-buffer", &args, 1)?;
     let id = match args.first() {
-        None | Some(Value::Nil) => match buffers.current_buffer() {
+        None | Some(Value::Nil) => match eval.buffers.current_buffer() {
             Some(buf) => buf.id,
             None => return Ok(Value::Nil),
         },
         Some(Value::Buffer(id)) => {
-            if buffers.get(*id).is_none() {
+            if eval.buffers.get(*id).is_none() {
                 return Ok(Value::Nil);
             }
             *id
         }
         Some(Value::Str(name_id)) => {
             let name = with_heap(|h| h.get_string(*name_id).to_owned());
-            match buffers.find_buffer_by_name(&name) {
+            match eval.buffers.find_buffer_by_name(&name) {
                 Some(id) => id,
                 None => {
                     return Err(signal(
@@ -369,8 +367,44 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
         }
     };
 
-    let current_before = buffers.current_buffer().map(|buf| buf.id);
-    let killed_ids = buffers
+    let saved_current = eval.buffers.current_buffer_id();
+    let _ = eval.buffers.switch_current(id);
+    let query_sym =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "kill-buffer-query-functions");
+    let query_value =
+        crate::emacs_core::hook_runtime::hook_value_by_id(eval, query_sym).unwrap_or(Value::Nil);
+    let query_result = crate::emacs_core::hook_runtime::run_hook_value_until_failure(
+        eval,
+        query_sym,
+        query_value,
+        &[],
+        true,
+    )?;
+    if let Some(buffer_id) = saved_current {
+        eval.restore_current_buffer_if_live(buffer_id);
+    }
+    if query_result.is_nil() {
+        return Ok(Value::Nil);
+    }
+    if eval.buffers.get(id).is_none() {
+        return Ok(Value::True);
+    }
+
+    let _ = eval.buffers.switch_current(id);
+    let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "kill-buffer-hook");
+    let hook_value =
+        crate::emacs_core::hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
+    crate::emacs_core::hook_runtime::run_hook_value(eval, hook_sym, hook_value, &[], true)?;
+    if let Some(buffer_id) = saved_current {
+        eval.restore_current_buffer_if_live(buffer_id);
+    }
+    if eval.buffers.get(id).is_none() {
+        return Ok(Value::True);
+    }
+
+    let current_before = eval.buffers.current_buffer().map(|buf| buf.id);
+    let killed_ids = eval
+        .buffers
         .collect_killed_buffer_ids(id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
     let killed_set = killed_ids
@@ -380,7 +414,7 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
     let current_will_die = current_before.is_some_and(|current| killed_set.contains(&current));
     let replacement = if current_will_die {
         match other_buffer_impl(
-            buffers,
+            &mut eval.buffers,
             vec![Value::Buffer(current_before.expect("current buffer"))],
         )? {
             Value::Buffer(next) if next != id => Some(next),
@@ -390,29 +424,32 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
         None
     };
 
-    let killed_ids = buffers
+    let killed_ids = eval
+        .buffers
         .kill_buffer_collect(id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     // Ensure dead-buffer windows continue to point at a live fallback buffer.
-    let scratch = buffers
-        .find_buffer_by_name("*scratch*")
-        .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
+    let scratch = if let Some(scratch) = eval.buffers.find_buffer_by_name("*scratch*") {
+        scratch
+    } else {
+        eval.buffers.create_buffer("*scratch*")
+    };
     for killed_id in &killed_ids {
-        frames.replace_buffer_in_windows(*killed_id, scratch);
+        eval.frames.replace_buffer_in_windows(*killed_id, scratch);
     }
 
     if current_will_die {
         if let Some(next) = replacement {
-            if buffers.get(next).is_some() {
-                buffers.switch_current(next);
+            if eval.buffers.get(next).is_some() {
+                eval.buffers.switch_current(next);
             }
         }
-        if buffers.current_buffer().is_none() {
-            if let Some(next) = buffers.buffer_list().into_iter().next() {
-                buffers.switch_current(next);
+        if eval.buffers.current_buffer().is_none() {
+            if let Some(next) = eval.buffers.buffer_list().into_iter().next() {
+                eval.buffers.switch_current(next);
             } else {
-                buffers.switch_current(scratch);
+                eval.buffers.switch_current(scratch);
             }
         }
     }

@@ -222,34 +222,94 @@ pub(crate) fn check_point_motion_hooks(
         Some(id) => id,
         None => return Ok(()),
     };
-    let (old_lisp, new_lisp, point_left, point_entered) = {
+    let (old_lisp, new_lisp, leave_before, leave_after, enter_before, enter_after) = {
         let buf = match eval.buffers.get(current_id) {
             Some(b) => b,
             None => return Ok(()),
         };
         let ol = buf.text.byte_to_char(old_byte) as i64 + 1;
         let nl = buf.text.byte_to_char(new_byte) as i64 + 1;
-        let pl =
-            lookup_buffer_text_property(&eval.obarray, &eval.buffers, buf, old_byte, "point-left");
-        let pe = lookup_buffer_text_property(
+        let leave_before = point_motion_property(
+            &eval.obarray,
+            &eval.buffers,
+            buf,
+            old_byte,
+            false,
+            "point-left",
+        );
+        let leave_after = point_motion_property(
+            &eval.obarray,
+            &eval.buffers,
+            buf,
+            old_byte,
+            true,
+            "point-left",
+        );
+        let enter_before = point_motion_property(
             &eval.obarray,
             &eval.buffers,
             buf,
             new_byte,
+            false,
             "point-entered",
         );
-        (ol, nl, pl, pe)
+        let enter_after = point_motion_property(
+            &eval.obarray,
+            &eval.buffers,
+            buf,
+            new_byte,
+            true,
+            "point-entered",
+        );
+        (ol, nl, leave_before, leave_after, enter_before, enter_after)
     };
-    if point_left.is_truthy() {
-        eval.apply(point_left, vec![Value::Int(old_lisp), Value::Int(new_lisp)])?;
-    }
-    if point_entered.is_truthy() {
+
+    if leave_before != enter_before && leave_before.is_truthy() {
         eval.apply(
-            point_entered,
+            leave_before,
+            vec![Value::Int(old_lisp), Value::Int(new_lisp)],
+        )?;
+    }
+    if leave_after != enter_after && leave_after.is_truthy() {
+        eval.apply(
+            leave_after,
+            vec![Value::Int(old_lisp), Value::Int(new_lisp)],
+        )?;
+    }
+    if enter_before != leave_before && enter_before.is_truthy() {
+        eval.apply(
+            enter_before,
+            vec![Value::Int(old_lisp), Value::Int(new_lisp)],
+        )?;
+    }
+    if enter_after != leave_after && enter_after.is_truthy() {
+        eval.apply(
+            enter_after,
             vec![Value::Int(old_lisp), Value::Int(new_lisp)],
         )?;
     }
     Ok(())
+}
+
+fn point_motion_property(
+    obarray: &super::symbol::Obarray,
+    buffers: &BufferManager,
+    buf: &crate::buffer::Buffer,
+    point_byte: usize,
+    after_point: bool,
+    property: &str,
+) -> Value {
+    if after_point {
+        if point_byte >= buf.zv {
+            return Value::Nil;
+        }
+        lookup_buffer_text_property(obarray, buffers, buf, point_byte, property)
+    } else {
+        if point_byte <= buf.begv {
+            return Value::Nil;
+        }
+        lookup_buffer_text_property(obarray, buffers, buf, point_byte - 1, property)
+    }
 }
 
 pub(crate) fn adjust_for_intangible(

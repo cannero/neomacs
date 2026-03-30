@@ -691,6 +691,25 @@ pub(crate) fn finish_read_from_minibuffer_in_eval(
                 .as_ptr()
                 .as_mut()
                 .unwrap()
+                .run_hook_if_bound("minibuffer-setup-hook")
+        },
+        move || unsafe {
+            match eval_ptr
+                .as_ptr()
+                .as_mut()
+                .unwrap()
+                .run_hook_if_bound("minibuffer-exit-hook")
+            {
+                Ok(value) => Ok(value),
+                Err(Flow::Signal(_)) => Ok(Value::Nil),
+                Err(flow) => Err(flow),
+            }
+        },
+        move || unsafe {
+            eval_ptr
+                .as_ptr()
+                .as_mut()
+                .unwrap()
                 .minibuffer_command_loop_inner()
         },
     )
@@ -729,6 +748,8 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     active_minibuffer_window: &mut Option<crate::window::WindowId>,
     recursive_depth: usize,
     args: &[Value],
+    mut run_setup_hook: impl FnMut() -> EvalResult,
+    mut run_exit_hook: impl FnMut() -> EvalResult,
     mut run_recursive_edit: impl FnMut() -> EvalResult,
 ) -> EvalResult {
     // Check inhibit-interaction — GNU Emacs signals an error when any
@@ -834,6 +855,8 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     obarray.set_symbol_value("minibuffer-prompt", Value::string(prompt));
     obarray.set_symbol_value("minibuffer-depth", Value::Int(minibuf_depth as i64));
 
+    run_setup_hook()?;
+
     // Enter recursive edit — the command loop runs until exit-minibuffer throws 'exit.
     let edit_result = run_recursive_edit();
 
@@ -847,6 +870,12 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         }
     } else {
         String::new()
+    };
+
+    let _ = buffers.switch_current(minibuf_id);
+    let exit_hook_result = match run_exit_hook() {
+        Err(Flow::Signal(_)) => Ok(Value::Nil),
+        other => other,
     };
 
     match &edit_result {
@@ -884,6 +913,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         frames.selected_frame().map(|frame| frame.selected_window)
     );
     obarray.set_symbol_value("minibuffer-depth", Value::Int(minibuffers.depth() as i64));
+    exit_hook_result?;
 
     // Handle the recursive edit result
     match edit_result {
@@ -1329,6 +1359,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     shared
         .obarray
         .set_symbol_value("minibuffer-depth", Value::Int(minibuf_depth as i64));
+    shared.run_hook_if_bound("minibuffer-setup-hook")?;
 
     let extra_roots = args.to_vec();
     let edit_result = shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, |eval| {
@@ -1344,6 +1375,13 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         }
     } else {
         String::new()
+    };
+
+    let _ = shared.buffers.switch_current(minibuf_id);
+    let exit_hook_result = match shared.run_hook_if_bound("minibuffer-exit-hook") {
+        Ok(value) => Ok(value),
+        Err(Flow::Signal(_)) => Ok(Value::Nil),
+        Err(flow) => Err(flow),
     };
 
     match &edit_result {
@@ -1386,6 +1424,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         "minibuffer-depth",
         Value::Int(shared.minibuffers.depth() as i64),
     );
+    exit_hook_result?;
 
     match edit_result {
         Ok(_) | Err(Flow::Throw { .. }) => {

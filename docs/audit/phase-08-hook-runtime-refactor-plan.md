@@ -171,21 +171,42 @@ infrastructure only. It should not represent a second Lisp hook architecture.
 - Slice B follow-up landed: `window-configuration-change-hook` now walks frame
   windows with their own caller context without losing the selected window's
   local hook through an incorrect `set-default` write path.
+- Slice B broadened: GNU C-owned caller hooks now run from their subsystem
+  owners instead of being mere declared variables. This includes:
+  - `kill-buffer-query-functions`
+  - `kill-buffer-hook`
+  - `minibuffer-setup-hook`
+  - `minibuffer-exit-hook`
+  - `delete-frame-functions`
+  - `after-delete-frame-functions`
+  - redisplay-owned `window-buffer-change-functions`
+  - `window-size-change-functions`
+  - `window-selection-change-functions`
+  - `window-state-change-functions`
+  - `window-state-change-hook`
+  - `frame-window-state-change`
+  - `set-frame-window-state-change`
 - Slice C core landed: modification hooks now run with
   `inhibit-modification-hooks` rebound, `first-change-hook` runs on the initial
   transition to modified, and change-hook OLD-LEN is now character-based.
+- Slice C follow-up landed: shared minibuffer teardown now safely swallows
+  exit-hook signals at the runtime owner boundary instead of only in one caller
+  path.
+- Slice D landed: point-motion hook dispatch now follows GNU interval-boundary
+  ownership and duplicate suppression order for `point-left` /
+  `point-entered`.
 - Shared variable-runtime fix landed: `set-default` no longer overwrites the
   current buffer's local value just because a local binding exists; it now
   updates the default/toplevel cell, which matches GNU's hook-variable owner
   model and unblocks buffer-local window hooks.
-- The dead parallel Rust hook framework is now quarantined from the public
-  crate surface by removing `pub mod hooks;`.
+- Slice E landed: the dead parallel Rust hook framework was deleted outright by
+  removing `neovm-core/src/hooks.rs`.
 
 ## Next
 
-- finish Slice B edge cases around any remaining window/frame caller-context
-  mismatches beyond `window-configuration-change-hook` and
-  `window-scroll-functions`
-- finish Slice C error-cleanup parity wherever GNU resets more edit-owned state
-- decide whether `neovm-core/src/hooks.rs` should be deleted outright after one
-  more repo-wide confirmation pass
+- audit the remaining declared-but-unwired GNU C-owned hook variables and either
+  add real owner call sites or explicitly document them as not yet implemented
+- keep broadening subsystem-owned caller coverage instead of adding hook logic
+  to the generic runtime owner
+- preserve the GNU split where Lisp-owned hooks such as save/frame focus
+  behavior stay in Lisp rather than migrating into Rust
