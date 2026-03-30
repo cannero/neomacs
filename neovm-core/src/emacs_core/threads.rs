@@ -58,6 +58,8 @@ pub struct ThreadState {
     pub last_error: Option<Value>,
     /// Whether this thread has already been joined at least once.
     pub joined: bool,
+    /// What should happen if this thread's current buffer is killed.
+    pub buffer_disposition: Value,
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +126,7 @@ impl ThreadManager {
                 result: Value::Nil,
                 last_error: None,
                 joined: false,
+                buffer_disposition: Value::Nil,
             },
         );
         let mut thread_handles = HashMap::new();
@@ -159,6 +162,7 @@ impl ThreadManager {
                 result: Value::Nil,
                 last_error: None,
                 joined: false,
+                buffer_disposition: Value::Nil,
             },
         );
         self.thread_handles
@@ -247,7 +251,7 @@ impl ThreadManager {
     pub fn all_thread_ids(&self) -> Vec<u64> {
         self.threads
             .iter()
-            .filter_map(|(id, thread)| (!thread.joined).then_some(*id))
+            .filter_map(|(id, thread)| self.thread_alive_p(*id).then_some(*id))
             .collect()
     }
 
@@ -273,6 +277,20 @@ impl ThreadManager {
             self.last_error = None;
         }
         val
+    }
+
+    pub fn thread_buffer_disposition(&self, id: u64) -> Option<Value> {
+        self.threads
+            .get(&id)
+            .map(|thread| thread.buffer_disposition)
+    }
+
+    pub fn set_thread_buffer_disposition(&mut self, id: u64, value: Value) -> bool {
+        let Some(thread) = self.threads.get_mut(&id) else {
+            return false;
+        };
+        thread.buffer_disposition = value;
+        true
     }
 
     // -- Mutex operations ---------------------------------------------------
@@ -431,6 +449,7 @@ impl GcTrace for ThreadManager {
         for thread in self.threads.values() {
             roots.push(thread.function);
             roots.push(thread.result);
+            roots.push(thread.buffer_disposition);
             if let Some(ref err) = thread.last_error {
                 roots.push(*err);
             }
@@ -585,8 +604,10 @@ pub(crate) fn prepare_make_thread(
     } else {
         None
     };
+    let buffer_disposition = args.get(2).copied().unwrap_or(Value::Nil);
 
     let thread_id = threads.create_thread(function, name);
+    threads.set_thread_buffer_disposition(thread_id, buffer_disposition);
     threads.start_thread(thread_id);
     Ok((thread_id, function))
 }
@@ -769,7 +790,7 @@ pub(crate) fn builtin_all_threads(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("all-ctx.threads", &args, 0)?;
+    expect_args("all-threads", &args, 0)?;
     let mut ids = ctx.threads.all_thread_ids();
     ids.sort_unstable();
     let objects: Vec<Value> = ids
@@ -801,6 +822,37 @@ pub(crate) fn builtin_thread_last_error(
     }
     let cleanup = args.first().is_some_and(|v| v.is_truthy());
     Ok(ctx.threads.last_error(cleanup))
+}
+
+/// `(thread-buffer-disposition THREAD)` -- return THREAD's buffer disposition.
+pub(crate) fn builtin_thread_buffer_disposition(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("thread-buffer-disposition", &args, 1)?;
+    let id = expect_thread_id(&ctx.threads, &args[0])?;
+    Ok(ctx
+        .threads
+        .thread_buffer_disposition(id)
+        .unwrap_or(Value::Nil))
+}
+
+/// `(thread-set-buffer-disposition THREAD VALUE)` -- set THREAD's buffer disposition.
+pub(crate) fn builtin_thread_set_buffer_disposition(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("thread-set-buffer-disposition", &args, 2)?;
+    let id = expect_thread_id(&ctx.threads, &args[0])?;
+    let value = args[1];
+    if id == 0 && !value.is_nil() {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("null"), value],
+        ));
+    }
+    ctx.threads.set_thread_buffer_disposition(id, value);
+    Ok(value)
 }
 
 // ===========================================================================

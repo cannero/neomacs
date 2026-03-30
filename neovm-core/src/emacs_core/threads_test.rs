@@ -11,6 +11,7 @@ fn thread_manager_new_has_main_thread() {
     assert_eq!(mgr.current_thread_id(), 0);
     assert!(mgr.thread_alive_p(0));
     assert_eq!(mgr.thread_name(0), None);
+    assert_eq!(mgr.thread_buffer_disposition(0), Some(Value::Nil));
 }
 
 #[test]
@@ -62,16 +63,28 @@ fn all_thread_ids_includes_main_and_created() {
 }
 
 #[test]
-fn all_thread_ids_excludes_joined_thread() {
+fn all_thread_ids_excludes_finished_thread() {
     let mut mgr = ThreadManager::new();
     let id = mgr.create_thread(Value::Nil, None);
     let before_join = mgr.all_thread_ids();
     assert!(before_join.contains(&id));
 
-    let _ = mgr.join_thread(id);
+    mgr.finish_thread(id, Value::Int(1));
     let after_join = mgr.all_thread_ids();
     assert!(!after_join.contains(&id));
     assert!(after_join.contains(&0));
+}
+
+#[test]
+fn thread_buffer_disposition_round_trips() {
+    let mut mgr = ThreadManager::new();
+    let id = mgr.create_thread(Value::Nil, None);
+    assert_eq!(mgr.thread_buffer_disposition(id), Some(Value::Nil));
+    assert!(mgr.set_thread_buffer_disposition(id, Value::symbol("silently")));
+    assert_eq!(
+        mgr.thread_buffer_disposition(id),
+        Some(Value::symbol("silently"))
+    );
 }
 
 #[test]
@@ -195,7 +208,13 @@ fn test_builtin_make_thread_accepts_buffer_disposition_arg() {
         ],
     );
     assert!(result.is_ok());
-    assert_eq!(tagged_object_id(&result.unwrap(), "thread"), Some(1));
+    let thread = result.unwrap();
+    let thread_id = tagged_object_id(&thread, "thread").unwrap();
+    assert_eq!(thread_id, 1);
+    assert_eq!(
+        eval.threads.thread_buffer_disposition(thread_id),
+        Some(Value::symbol("silently"))
+    );
 }
 
 #[test]
@@ -268,6 +287,14 @@ fn test_builtin_current_thread_returns_stable_handle_identity() {
 }
 
 #[test]
+fn test_main_thread_variable_matches_current_thread() {
+    let mut eval = Context::new();
+    let current = builtin_current_thread(&mut eval, vec![]).unwrap();
+    let main_thread = eval.obarray.symbol_value("main-thread").copied().unwrap();
+    assert!(eq_value(&current, &main_thread));
+}
+
+#[test]
 fn test_builtin_thread_yield() {
     let mut eval = Context::new();
     let result = builtin_thread_yield(&mut eval, vec![]);
@@ -304,6 +331,26 @@ fn test_builtin_all_threads_includes_main() {
         list.iter()
             .any(|v| tagged_object_id(v, "thread") == Some(0))
     );
+}
+
+#[test]
+fn test_builtin_all_threads_excludes_finished_worker() {
+    let mut eval = Context::new();
+    let worker = builtin_make_thread(
+        &mut eval,
+        vec![Value::make_lambda(super::super::value::LambdaData {
+            params: super::super::value::LambdaParams::simple(vec![]),
+            body: vec![].into(),
+            env: None,
+            docstring: None,
+            doc_form: None,
+            interactive: None,
+        })],
+    )
+    .unwrap();
+    let result = builtin_all_threads(&mut eval, vec![]).unwrap();
+    let list = super::super::value::list_to_vec(&result).unwrap();
+    assert!(!list.iter().any(|value| eq_value(value, &worker)));
 }
 
 #[test]
@@ -404,6 +451,49 @@ fn test_builtin_thread_last_error_cleanup() {
     // Should be gone now
     let e3 = builtin_thread_last_error(&mut eval, vec![]).unwrap();
     assert!(e3.is_nil());
+}
+
+#[test]
+fn test_builtin_thread_buffer_disposition_round_trips() {
+    let mut eval = Context::new();
+    let worker = builtin_make_thread(
+        &mut eval,
+        vec![Value::make_lambda(super::super::value::LambdaData {
+            params: super::super::value::LambdaParams::simple(vec![]),
+            body: vec![].into(),
+            env: None,
+            docstring: None,
+            doc_form: None,
+            interactive: None,
+        })],
+    )
+    .unwrap();
+
+    assert_eq!(
+        builtin_thread_buffer_disposition(&mut eval, vec![worker]).unwrap(),
+        Value::Nil
+    );
+    assert_eq!(
+        builtin_thread_set_buffer_disposition(&mut eval, vec![worker, Value::True]).unwrap(),
+        Value::True
+    );
+    assert_eq!(
+        builtin_thread_buffer_disposition(&mut eval, vec![worker]).unwrap(),
+        Value::True
+    );
+}
+
+#[test]
+fn test_builtin_thread_set_buffer_disposition_rejects_non_nil_main_thread_value() {
+    let mut eval = Context::new();
+    let main_thread = builtin_current_thread(&mut eval, vec![]).unwrap();
+    match builtin_thread_set_buffer_disposition(&mut eval, vec![main_thread, Value::True]) {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data, vec![Value::symbol("null"), Value::True]);
+        }
+        other => panic!("expected wrong-type-argument signal, got {other:?}"),
+    }
 }
 
 // -- Mutex builtin tests ------------------------------------------------

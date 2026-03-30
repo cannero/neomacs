@@ -41,6 +41,8 @@ Good:
 
 - There is a real Rust process manager and timer layer.
 - The code is concentrated enough to audit.
+- There is now a focused thread-specific follow-up in
+  [thread-model-vs-gnu-emacs.md](thread-model-vs-gnu-emacs.md).
 
 Bad:
 

@@ -6096,15 +6096,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "thread-buffer-disposition",
-        |_ctx, args| builtin_thread_buffer_disposition(args),
-        0,
-        None,
+        super::threads::builtin_thread_buffer_disposition,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "thread-set-buffer-disposition",
-        |_ctx, args| builtin_thread_set_buffer_disposition(args),
-        0,
-        None,
+        super::threads::builtin_thread_set_buffer_disposition,
+        2,
+        Some(2),
     );
     ctx.defsubr(
         "window-discard-buffer-from-window",

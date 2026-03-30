@@ -1473,6 +1473,7 @@ impl Context {
         ev.interpreted_closure_filter_fn = None;
         ev.interpreted_closure_trim_cache.clear();
         ev.materialize_public_evaluator_function_cells();
+        ev.sync_thread_runtime_bindings();
         ev
     }
 
@@ -3374,6 +3375,7 @@ impl Context {
         set_current_heap(&mut ev.heap);
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
         super::category::restore_standard_category_table_object(ev.standard_category_table);
+        ev.sync_thread_runtime_bindings();
         ev
     }
 
@@ -3518,6 +3520,7 @@ impl Context {
         }
 
         ev.sync_keyboard_runtime_from_obarray();
+        ev.sync_thread_runtime_bindings();
 
         ev
     }
@@ -4951,6 +4954,12 @@ impl Context {
     /// Set a global variable.
     pub fn set_variable(&mut self, name: &str, value: Value) {
         self.obarray.set_symbol_value(name, value);
+    }
+
+    pub(crate) fn sync_thread_runtime_bindings(&mut self) {
+        if let Some(main_thread) = self.threads.thread_handle(0) {
+            self.obarray.set_symbol_value("main-thread", main_thread);
+        }
     }
 
     /// Set a function binding.

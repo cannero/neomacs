@@ -4628,13 +4628,22 @@ fn vm_thread_mutex_and_condition_builtins_use_shared_runtime() {
                   (equal (thread-name worker) "vm-worker")
                   (null (thread-live-p worker))
                   (consp (memq main threads-before))
-                  (consp (memq worker threads-before))
+                  (null (memq worker threads-before))
                   (null (thread-yield))
                   (null (thread-signal worker 'error '("oops")))
                   (condition-case err
                       (thread-join worker)
                     (error (car err)))
                   (null (thread-last-error))
+                  (eq main-thread main)
+                  (null (thread-buffer-disposition main))
+                  (eq (thread-set-buffer-disposition worker 'silently) 'silently)
+                  (eq (thread-buffer-disposition worker) 'silently)
+                  (condition-case err
+                      (progn
+                        (thread-set-buffer-disposition main t)
+                        nil)
+                    (wrong-type-argument (car err)))
                   (mutexp mx)
                   (equal (mutex-name mx) "vm-mutex")
                   (null (mutex-lock mx))
@@ -4645,7 +4654,7 @@ fn vm_thread_mutex_and_condition_builtins_use_shared_runtime() {
                   (null (condition-wait cv))
                   (null (mutex-unlock mx))))"#
         ),
-        "OK (t t t t t t t t error t t t t t t t t t t)"
+        "OK (t t t t t t t t error t t t t t wrong-type-argument t t t t t t t t t)"
     );
 }
 
