@@ -236,6 +236,41 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     expect_args("cl-type-of", &args, 1)?;
+    // Debug: detect stale ObjId BEFORE accessing heap — return safe value
+    let stale = match &args[0] {
+        Value::Vector(id)
+        | Value::Record(id)
+        | Value::Cons(id)
+        | Value::HashTable(id)
+        | Value::Str(id)
+        | Value::Lambda(id)
+        | Value::Macro(id)
+        | Value::ByteCode(id)
+        | Value::Overlay(id)
+        | Value::Marker(id) => crate::emacs_core::value::with_heap(|h| {
+            let i = id.index as usize;
+            i < h.generations().len() && h.generations()[i] != id.generation
+        }),
+        _ => false,
+    };
+    if stale {
+        let variant = match &args[0] {
+            Value::Vector(_) => "vector",
+            Value::Record(_) => "record",
+            Value::Cons(_) => "cons",
+            Value::HashTable(_) => "hash-table",
+            Value::Str(_) => "string",
+            Value::Lambda(_) => "interpreted-function",
+            Value::Macro(_) => "macro",
+            Value::ByteCode(_) => "byte-code-function",
+            _ => "unknown",
+        };
+        eprintln!(
+            "STALE-DETECT: cl-type-of got stale {} — returning symbol instead of crashing",
+            variant
+        );
+        return Ok(Value::symbol(variant));
+    }
     // Records: return the type tag (slot 0).
     // GNU data.c:269-277: if slot 0 is itself a record with len > 1,
     // return slot 1 of that inner record (the class name symbol).
