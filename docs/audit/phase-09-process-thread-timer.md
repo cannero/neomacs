@@ -64,7 +64,9 @@ Bad:
   now shows a better ownership story than when this audit started:
   `accept-process-output` and `sleep-for` both route through a shared
   wait/service path, sync subprocess ownership lives primarily in
-  `callproc/mod.rs`, and process callbacks use one shared runtime envelope.
+  `callproc/mod.rs`, process callbacks use one shared runtime envelope, timer
+  callbacks now preserve GNU-visible state like `deactivate-mark`, and
+  short-lived children now deliver filter+sentinel in the same wait cycle.
   The remaining Phase 9 risk is exact GNU ordering, not the older split-owner
   architecture.
 
@@ -85,6 +87,9 @@ The ideal design is:
 
 - Audit process filters, sentinels, timer firing, and
   `accept-process-output` ordering against GNU.
+- Keep the Phase 9 follow-up focused on remaining ordering gaps:
+  input wakeups versus timer/process servicing, GNU-vs-Rust timer ordering,
+  and `sleep-for` / `sit-for` parity.
 - Re-study GNU `thread.c` before changing `threads.rs`; the current simulated
   implementation should be treated as a compatibility placeholder, not as the
   final design.

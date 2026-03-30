@@ -903,9 +903,11 @@ impl super::eval::Context {
                     heap.get_vector_mut(timer_id)[0] = Value::True
                 });
             }
-            if let Err(err) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
-                tracing::warn!("GNU Lisp timer callback error: {:?}", err);
-            }
+            self.run_timer_callback_preserving_state(
+                Value::symbol("timer-event-handler"),
+                vec![timer],
+                "GNU Lisp timer",
+            );
         }
 
         for timer in self.due_gnu_idle_timers_snapshot() {
@@ -918,9 +920,12 @@ impl super::eval::Context {
             if cfg!(test) {
                 eprintln!("fire_pending_timers idle timer={:?}", timer);
             }
-            if let Err(err) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
-                tracing::warn!("GNU Lisp idle timer callback error: {:?}", err);
-            } else if cfg!(test) {
+            self.run_timer_callback_preserving_state(
+                Value::symbol("timer-event-handler"),
+                vec![timer],
+                "GNU Lisp idle timer",
+            );
+            if cfg!(test) {
                 eprintln!("fire_pending_timers idle callback returned");
             }
         }
@@ -930,14 +935,7 @@ impl super::eval::Context {
         let fired = self.timers.fire_pending_timers(now, idle_dur);
         for (callback, args) in fired {
             fired_any = true;
-            let mut call_args = vec![callback];
-            call_args.extend(args);
-            if let Err(err) =
-                crate::emacs_core::builtins::dispatch_builtin(self, "funcall", call_args)
-                    .unwrap_or(Ok(Value::Nil))
-            {
-                tracing::warn!("Rust timer callback error: {:?}", err);
-            }
+            self.run_timer_callback_preserving_state(callback, args, "Rust timer");
         }
 
         if fired_any && redisplay {
@@ -975,6 +973,38 @@ impl super::eval::Context {
             self.restore_current_buffer_if_live(buffer_id);
         }
         self.set_waiting_for_user_input(saved_waiting_for_input);
+        self.unbind_to(specpdl_count);
+        self.assign("deactivate-mark", saved_deactivate_mark);
+        self.restore_temp_roots(saved_roots);
+
+        if let Err(err) = result {
+            tracing::warn!("{label} callback error: {:?}", err);
+        }
+    }
+
+    fn run_timer_callback_preserving_state(
+        &mut self,
+        callback: Value,
+        args: Vec<Value>,
+        label: &str,
+    ) {
+        let saved_current_buffer = self.buffers.current_buffer_id();
+        let saved_deactivate_mark = self.eval_symbol("deactivate-mark").unwrap_or(Value::Nil);
+        let specpdl_count = self.specpdl.len();
+        let saved_roots = self.save_temp_roots();
+
+        self.push_temp_root(callback);
+        for arg in &args {
+            self.push_temp_root(*arg);
+        }
+
+        self.specbind(intern("inhibit-quit"), Value::True);
+
+        let result = self.apply(callback, args);
+
+        if let Some(buffer_id) = saved_current_buffer {
+            self.restore_current_buffer_if_live(buffer_id);
+        }
         self.unbind_to(specpdl_count);
         self.assign("deactivate-mark", saved_deactivate_mark);
         self.restore_temp_roots(saved_roots);
@@ -1040,7 +1070,7 @@ impl super::eval::Context {
 
         for pid in proc_ids {
             let is_target = target_process.map_or(true, |target| target == pid);
-            let exited = self.processes.check_child_exit(pid);
+            let mut exited = self.processes.check_child_exit(pid);
 
             let read_result = self.processes.read_process_output(pid);
             let is_network = self
@@ -1085,6 +1115,14 @@ impl super::eval::Context {
                     continue;
                 }
                 _ => {}
+            }
+
+            // GNU's wait path can observe process output and terminal status
+            // in the same wake cycle. Re-check after reading so short-lived
+            // children that exit immediately after flushing output do not
+            // defer their sentinel to a second accept-process-output call.
+            if !exited {
+                exited = self.processes.check_child_exit(pid);
             }
 
             if exited {

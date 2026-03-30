@@ -1366,6 +1366,117 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
 }
 
 #[test]
+fn accept_process_output_timer_preserves_deactivate_mark_like_gnu() {
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (fset 'apio-timer-deactivate
+                   (lambda () (setq deactivate-mark nil)))
+             (setq deactivate-mark 'keep))"#,
+    )
+    .expect("parse timer deactivate setup");
+    ev.eval_expr(&setup[0])
+        .expect("install timer deactivate setup");
+    ev.timers.add_timer(
+        0.0,
+        0.0,
+        Value::symbol("apio-timer-deactivate"),
+        vec![],
+        false,
+    );
+
+    builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Nil, Value::Float(0.05, next_float_id())],
+    )
+    .expect("accept-process-output should service timer");
+
+    assert_eq!(
+        ev.eval_symbol("deactivate-mark")
+            .expect("deactivate-mark after timer callback"),
+        Value::symbol("keep")
+    );
+}
+
+#[test]
+fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq apio-order-events nil)
+             (fset 'apio-order-timer
+                   (lambda ()
+                     (setq apio-order-events
+                           (append apio-order-events '(timer)))))
+             (fset 'apio-order-filter
+                   (lambda (_proc string)
+                     (setq apio-order-events
+                           (append apio-order-events
+                                   (list (list 'filter string))))))
+             (fset 'apio-order-sentinel
+                   (lambda (_proc msg)
+                     (setq apio-order-events
+                           (append apio-order-events
+                                   (list (list 'sentinel msg)))))))"#,
+    )
+    .expect("parse timer/filter/sentinel order setup");
+    ev.eval_expr(&setup[0])
+        .expect("install timer/filter/sentinel order setup");
+    ev.timers
+        .add_timer(0.0, 0.0, Value::symbol("apio-order-timer"), vec![], false);
+
+    let pid = ev
+        .processes
+        .create_process("apio-order".into(), None, echo, vec!["out".into()]);
+    ev.processes
+        .spawn_child(pid, false)
+        .expect("spawn ordering process");
+    builtin_set_process_filter(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::symbol("apio-order-filter")],
+    )
+    .expect("install ordering filter");
+    builtin_set_process_sentinel(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::symbol("apio-order-sentinel")],
+    )
+    .expect("install ordering sentinel");
+
+    let first = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+    )
+    .expect("first accept-process-output");
+    let events_after_first = ev
+        .eval_symbol("apio-order-events")
+        .expect("ordering event list after first wait");
+    let second = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+    )
+    .expect("second accept-process-output");
+    let events_after_second = ev
+        .eval_symbol("apio-order-events")
+        .expect("ordering event list");
+
+    assert_eq!(first, Value::True);
+    assert_eq!(second, Value::Nil);
+    assert_eq!(
+        format!("{}", events_after_first),
+        r#"(timer (filter "out
+") (sentinel "finished
+"))"#
+    );
+    assert_eq!(
+        format!("{}", events_after_second),
+        r#"(timer (filter "out
+") (sentinel "finished
+"))"#
+    );
+}
+
+#[test]
 fn accept_process_output_runs_default_process_filter() {
     let echo = find_bin("echo");
     let mut ev = Context::new();
