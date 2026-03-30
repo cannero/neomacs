@@ -17,7 +17,10 @@
 
 use std::collections::HashMap;
 
-use super::error::{EvalResult, Flow, make_signal_binding_value, signal, signal_with_data};
+use super::error::{
+    EvalResult, Flow, make_signal_binding_value, signal, signal_from_binding_value,
+    signal_with_data,
+};
 use super::value::{Value, eq_value, read_cons};
 use crate::gc::GcTrace;
 
@@ -256,12 +259,9 @@ impl ThreadManager {
             .unwrap_or(Value::Nil)
     }
 
-    /// Mark a thread as joined. Returns its terminal error only on first join.
+    /// Mark a thread as joined and return its terminal error, if any.
     pub fn join_thread(&mut self, id: u64) -> Option<Value> {
         let thread = self.threads.get_mut(&id)?;
-        if thread.joined {
-            return None;
-        }
         thread.joined = true;
         thread.last_error
     }
@@ -614,14 +614,14 @@ pub(crate) fn finish_make_thread_result(
         Err(Flow::Signal(ref sig)) => {
             let error_val = make_signal_binding_value(sig);
             threads.signal_thread(thread_id, error_val);
-            // Don't record_last_error here — in GNU, thread errors are
-            // published asynchronously when the thread exits.  Since neomacs
-            // runs threads synchronously, defer to thread-join to match
-            // the expected timing (thread-last-error is nil before join).
+            // GNU publishes thread-last-error when the thread dies, not when
+            // another thread joins it later.
+            threads.record_last_error(error_val);
         }
         Err(Flow::Throw { ref tag, ref value }) => {
             let error_val = Value::list(vec![Value::symbol("no-catch"), *tag, *value]);
             threads.signal_thread(thread_id, error_val);
+            threads.record_last_error(error_val);
         }
     }
 
@@ -633,7 +633,8 @@ pub(crate) fn finish_make_thread_result(
 /// `(thread-join THREAD)` -- wait for thread completion.
 ///
 /// Since all threads run synchronously at creation time, they are already
-/// finished by the time anyone can call join.  Returns the thread's result.
+/// finished by the time anyone can call join. Returns the thread's result, or
+/// re-signals the thread's terminal error the GNU way.
 pub(crate) fn builtin_thread_join(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
@@ -652,9 +653,10 @@ pub(crate) fn builtin_thread_join(
             vec![Value::string("Cannot join current thread")],
         ));
     }
-    if let Some(error) = ctx.threads.join_thread(id) {
-        // Emacs publishes joined-thread terminal errors through thread-last-error.
-        ctx.threads.record_last_error(error);
+    if let Some(error) = ctx.threads.join_thread(id)
+        && let Some(flow) = signal_from_binding_value(error)
+    {
+        return Err(flow);
     }
     Ok(ctx.threads.thread_result(id))
 }
@@ -720,7 +722,7 @@ pub(crate) fn builtin_threadp(
 
 /// `(thread-signal THREAD ERROR-SYMBOL DATA)` -- send a signal to a thread.
 ///
-/// In our simulation this simply records the error on the target thread.
+/// In our simulation this records the pending error on the target thread.
 pub(crate) fn builtin_thread_signal(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
@@ -744,6 +746,8 @@ pub(crate) fn builtin_thread_signal(
     if id == ctx.threads.current_thread_id() {
         return Err(signal_with_data(error_name, data));
     }
+    ctx.threads
+        .signal_thread(id, Value::cons(error_symbol, data));
     Ok(Value::Nil)
 }
 

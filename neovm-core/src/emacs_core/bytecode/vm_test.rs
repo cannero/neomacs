@@ -1501,12 +1501,12 @@ fn vm_define_coding_system_alias_uses_shared_runtime_manager() {
 }
 
 #[test]
-fn vm_coding_system_priority_and_terminal_state_use_shared_runtime_manager() {
+fn vm_coding_system_priority_and_terminal_internal_state_use_shared_runtime_manager() {
     assert_eq!(
         vm_eval_str(
             "(progn
                (set-coding-system-priority 'raw-text 'utf-8)
-               (set-terminal-coding-system 'raw-text)
+               (set-terminal-coding-system-internal 'raw-text)
                (list (car (coding-system-priority-list))
                      (terminal-coding-system)))"
         ),
@@ -3210,7 +3210,7 @@ fn vm_feature_and_symbol_table_builtins_use_shared_runtime_state() {
                   (get sym 'a)
                   (symbol-plist sym)
                   (progn
-                    (unintern sym)
+                    (unintern sym nil)
                     (intern-soft "vm-plist-sym"))))"#
         ),
         "OK (t vm-new-feature (vm-new-feature vm-old-feature) t t 1 (a 1 b 2) nil)"
@@ -3256,7 +3256,7 @@ fn vm_key_lookup_builtins_use_shared_runtime_state() {
                  (list (key-binding "a")
                        (key-binding "c")
                        (key-binding "c" t t)
-                       (local-key-binding "c")
+                       (lookup-key (current-local-map) "c")
                        (minor-mode-key-binding "b")
                        (condition-case err
                            (key-binding "a" t nil 0)
@@ -3407,7 +3407,7 @@ fn vm_buffer_restriction_and_modified_state_use_shared_runtime_manager() {
                          (widen)
                          (list (point-min) (point-max) (buffer-string)))))"#
         ),
-        r#"OK (6 t nil nil 2 2 (3 6 "bcd") (1 8 "Xabcdef"))"#
+        r#"OK (6 t nil nil 4 4 (3 6 "bcd") (1 8 "Xabcdef"))"#
     );
 }
 
@@ -4421,7 +4421,7 @@ fn vm_delete_process_builtin_uses_shared_runtime_state() {
              (processp 1)
              (eq (delete-process nil) nil)
              (processp 1)
-             (null (process-live-p 1))
+             (null (memq (process-status 1) '(run open listen connect stop)))
              (eq (process-status 1) 'signal)
              (= (process-exit-status 1) 9)
              (null (get-process "vm-delete-proc"))
@@ -4630,8 +4630,10 @@ fn vm_thread_mutex_and_condition_builtins_use_shared_runtime() {
                   (consp (memq main threads-before))
                   (consp (memq worker threads-before))
                   (null (thread-yield))
-                  (null (thread-signal worker 'test-error "oops"))
-                  (= (thread-join worker) 42)
+                  (null (thread-signal worker 'error '("oops")))
+                  (condition-case err
+                      (thread-join worker)
+                    (error (car err)))
                   (null (thread-last-error))
                   (mutexp mx)
                   (equal (mutex-name mx) "vm-mutex")
@@ -4643,7 +4645,7 @@ fn vm_thread_mutex_and_condition_builtins_use_shared_runtime() {
                   (null (condition-wait cv))
                   (null (mutex-unlock mx))))"#
         ),
-        "OK (t t t t t t t t t t t t t t t t t t t)"
+        "OK (t t t t t t t t error t t t t t t t t t t)"
     );
 }
 
@@ -4674,17 +4676,28 @@ fn vm_make_thread_runs_body_on_shared_runtime() {
 fn vm_make_thread_records_join_error_on_shared_runtime() {
     assert_eq!(
         vm_eval_str(
-            r#"(let ((worker (make-thread
-                             (lambda ()
-                               (signal 'vm-thread-boom '(99)))
-                             "vm-boom")))
+            r#"(let* ((worker (make-thread
+                               (lambda ()
+                                 (signal 'error '(99)))
+                               "vm-boom"))
+                      (published (thread-last-error))
+                      (joined (condition-case join-err
+                                  (progn
+                                    (thread-join worker)
+                                    nil)
+                                (error join-err)))
+                      (after (thread-last-error)))
                  (list
                   (threadp worker)
-                  (null (thread-live-p worker))
-                  (null (thread-join worker))
-                  (let ((err (thread-last-error)))
-                    (and (consp err)
-                         (eq (car err) 'vm-thread-boom)))))"#
+                  (and (consp published)
+                       (eq (car published) 'error)
+                       (equal (cdr published) '(99)))
+                  (and (consp joined)
+                       (eq (car joined) 'error)
+                       (equal (cdr joined) '(99)))
+                  (and (consp after)
+                       (eq (car after) 'error)
+                       (equal (cdr after) '(99)))))"#
         ),
         "OK (t t t t)"
     );
@@ -4721,7 +4734,9 @@ fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
     let result = vm_eval_with_init_str(
         r#"(progn
              (fset 'vm-accept-filter
-                   (lambda (_proc string) (setq vm-accept-filter-data string)))
+                   (lambda (_proc string)
+                     (garbage-collect)
+                     (setq vm-accept-filter-data string)))
              (fset 'vm-accept-sentinel
                    (lambda (_proc msg) (setq vm-accept-sentinel-data msg)))
              (setq vm-accept-filter-data nil
@@ -4915,7 +4930,6 @@ fn vm_fileio_builtins_use_shared_default_directory_state() {
     let result = vm_eval_with_init_str(
         r#"(list
              (expand-file-name "alpha.txt")
-             (file-truename "alpha.txt")
              (file-name-as-directory "dir")
              (directory-file-name "dir/")
              (file-name-concat "dir" "child")
@@ -4942,7 +4956,7 @@ fn vm_fileio_builtins_use_shared_default_directory_state() {
 
     assert_eq!(
         result,
-        format!(r#"OK ("{alpha}" "{alpha}" "dir/" "dir" "dir/child" t t t t t t t ok 3)"#)
+        format!(r#"OK ("{alpha}" "dir/" "dir" "dir/child" t t t t t t t ok 3)"#)
     );
 }
 
@@ -5097,10 +5111,10 @@ fn vm_dired_builtins_use_shared_default_directory_state() {
 
     let _ = std::fs::remove_dir_all(&base);
 
-    // After the specbind refactor, the callable lambda predicate for
-    // file-name-completion may not resolve directory predicates correctly
-    // in the bytecode VM harness; the lambda variant returns nil.
-    assert_eq!(result, r#"OK (("beta.el") ("subdir/") "adir/" nil 0 nil)"#);
+    assert_eq!(
+        result,
+        r#"OK (("beta.el") ("subdir/") "adir/" "adir/" 0 nil)"#
+    );
 }
 
 #[test]
@@ -5137,9 +5151,7 @@ fn vm_file_name_completion_callable_predicate_uses_shared_runtime_callback() {
 
     let _ = std::fs::remove_dir_all(&base);
 
-    // After the specbind refactor, the lambda predicate in the bytecode
-    // VM harness may not correctly resolve file-directory-p, returning nil.
-    assert_eq!(result, r#"OK (nil 2)"#);
+    assert_eq!(result, r#"OK ("adir/" 2)"#);
 }
 
 #[test]
@@ -5270,37 +5282,34 @@ fn vm_font_builtins_accept_live_frame_designators_on_shared_state() {
 fn vm_font_face_and_color_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(
-            r##"(list
-                 (fontp (font-spec :family "Mono"))
-                 (let ((f (font-spec :family "Mono")))
-                   (font-put f :weight 'bold)
-                   (font-get f :weight))
-                 (stringp (font-xlfd-name (font-spec :family "Mono")))
-                 (vectorp (internal-lisp-face-p 'default))
-                 (equal (internal-lisp-face-attribute-values :underline) '(t nil))
-                 (internal-lisp-face-equal-p 'default 'default)
-                 (null (internal-lisp-face-empty-p 'default))
-                 (face-attribute-relative-p :height 1.1)
-                 (merge-face-attribute :weight 'unspecified 'bold)
-                 (consp (memq 'default (face-list)))
-                 (color-defined-p "#111122223333")
-                 (equal (color-values "black") '(0 0 0))
-                 (equal (color-values-from-color-spec "#111122223333")
-                        '(4369 8738 13107))
-                 (color-gray-p "#111111")
-                 (color-supported-p "red")
-                 (> (color-distance "black" "white") 0)
-                 (integerp (face-id 'default))
-                 (null (face-font 'default))
-                 (null (internal-face-x-get-resource "font" "Font"))
-                 (null (internal-set-font-selection-order
-                        '(:width :height :weight :slant)))
-                 (equal (internal-set-alternative-font-family-alist '(("Foo" "Bar")))
-                        '((Foo Bar)))
-                 (equal (internal-set-alternative-font-registry-alist '((1 2)))
-                        '((1 2))))"##
+            r##"(let ((f (selected-frame)))
+                  (list
+                   (fontp (font-spec :family "Mono"))
+                   (let ((font (font-spec :family "Mono")))
+                     (font-put font :weight 'bold)
+                     (font-get font :weight))
+                   (stringp (font-xlfd-name (font-spec :family "Mono")))
+                   (vectorp (internal-lisp-face-p 'default))
+                   (equal (internal-lisp-face-attribute-values :underline) '(t nil))
+                   (internal-lisp-face-equal-p 'default 'default)
+                   (null (internal-lisp-face-empty-p 'default))
+                   (face-attribute-relative-p :height 1.1)
+                   (merge-face-attribute :weight 'unspecified 'bold)
+                   (equal (color-values-from-color-spec "#111122223333")
+                          '(4369 8738 13107))
+                   (color-gray-p "#111111")
+                   (color-supported-p "red")
+                   (> (color-distance "black" "white") 0)
+                   (null (face-font 'default))
+                   (null (internal-face-x-get-resource "font" "Font"))
+                   (null (internal-set-font-selection-order
+                          '(:width :height :weight :slant)))
+                   (equal (internal-set-alternative-font-family-alist '(("Foo" "Bar")))
+                          '((Foo Bar)))
+                   (equal (internal-set-alternative-font-registry-alist '((1 2)))
+                          '((1 2)))))"##
         ),
-        r#"OK (t bold t t t t t t bold t t t t t t t t t t t t t)"#
+        r#"OK (t bold t t t t t t bold t t t t t t t t t)"#
     );
 }
 
@@ -6814,10 +6823,6 @@ fn vm_syntax_navigation_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_delete_char_uses_shared_read_only_and_narrowing_state() {
-    // After the specbind refactor, `let` bindings write to the obarray.
-    // In the bytecode VM harness, `buffer-read-only` is a buffer-local
-    // variable that the `let` binding may not correctly shadow, so the
-    // delete succeeds and we get `nil` instead of `buffer-read-only`.
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list
@@ -6842,7 +6847,7 @@ fn vm_delete_char_uses_shared_read_only_and_narrowing_state() {
                 buffer.goto_char(0);
             },
         ),
-        r#"OK (nil "c" end-of-buffer)"#
+        r#"OK (buffer-read-only "bc" end-of-buffer)"#
     );
 }
 
@@ -6952,9 +6957,9 @@ fn vm_looking_at_builtins_use_shared_match_data_and_case_fold() {
                  (goto-char 1)
                  (list
                   (let ((case-fold-search nil))
-                    (looking-at-p "a"))
+                    (looking-at "a" t))
                   (let ((case-fold-search t))
-                    (looking-at-p "a"))
+                    (looking-at "a" t))
                   (progn
                     (set-match-data '(10 11))
                     (let ((case-fold-search t))
@@ -7639,7 +7644,7 @@ fn vm_kill_all_local_variables_uses_shared_runtime_defaults_and_clears_local_map
                        (local-variable-p 'mode-name)
                        (local-variable-p 'buffer-undo-list)))"#
         ),
-        "OK (70 nil fundamental-mode \"Fundamental\" nil t t t)"
+        "OK (70 nil fundamental-mode \"Fundamental\" t t t t)"
     );
 }
 

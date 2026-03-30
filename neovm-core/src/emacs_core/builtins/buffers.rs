@@ -1564,15 +1564,6 @@ pub(crate) fn builtin_compute_motion(
         expect_fixnum(&args[4])?
     };
 
-    // Extract tab-width from obarray.
-    let tab_width = obarray
-        .symbol_value("tab-width")
-        .and_then(|v| match v {
-            Value::Int(n) if *n > 0 => Some(*n as usize),
-            _ => None,
-        })
-        .unwrap_or(8);
-
     // Get buffer text.
     let Some(buf) = buffers.current_buffer() else {
         return Ok(Value::list(vec![
@@ -1586,6 +1577,16 @@ pub(crate) fn builtin_compute_motion(
     let text = buf.text.to_string();
     let begv = buf.begv;
     let zv = buf.zv;
+    let tab_width = buf
+        .get_buffer_local("tab-width")
+        .copied()
+        .or_else(|| obarray.symbol_value("tab-width").copied())
+        .and_then(|value| match value {
+            Value::Int(n) if n > 0 => Some(n as usize),
+            Value::Char(c) if (c as u32) > 0 => Some(c as usize),
+            _ => None,
+        })
+        .unwrap_or(8);
 
     // Convert 1-based char positions to byte offsets.
     let max_chars = buf.text.char_count();

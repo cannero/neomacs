@@ -49,6 +49,36 @@ The third execution slice is also in:
   compatibility/runtime cases and `new_minimal_vm_harness()` for low-level
   manual-bytecode cases.
 
+The fourth execution slice is also in:
+
+- a broader VM rerun found the next real compatibility bugs after harness
+  unification instead of more harness bootstrap gaps.
+- `dbus-error` is now part of the standard error hierarchy, matching
+  `src/dbusbind.c`.
+- buffer modification ticks now follow GNU `modiff` semantics more closely:
+  they increase logarithmically with edit size, and `chars_modified_tick`
+  rejoins `modified_tick` after each character change.
+- `accept-process-output` now roots queued filter/sentinel callbacks across
+  GC in both evaluator and VM paths.
+- the terminal-coding VM coverage was corrected to use the C/Rust builtin
+  boundary (`set-terminal-coding-system-internal`) instead of asserting the
+  Lisp wrapper `set-terminal-coding-system` inside the bare runtime harness.
+
+The fifth execution slice is also in:
+
+- broader VM reruns were used as the gate after each slice, not just focused
+  regressions.
+- several remaining failures turned out to be test-boundary mistakes, not
+  runtime bugs: GNU Lisp wrappers like `process-live-p`, `file-truename`,
+  `face-list`, and `face-id` should not be asserted in the bare runtime
+  harness.
+- `compute-motion` now respects buffer-local `tab-width`, matching GNU's
+  current-buffer behavior instead of reading only the global default.
+- after those corrections, the next remaining failures moved on to other VM
+  areas (`kill-all-local-variables`, key lookup wrappers, `looking-at-p`,
+  thread error reporting), which means the harness/runtime-surface cleanup in
+  this plan is no longer the active blocker.
+
 Focused verification after this slice:
 
 - `vm_frame_selected_window_builtins_use_shared_runtime_state`
@@ -421,6 +451,16 @@ This refactor is complete when:
   substitute for builtin bootstrap
 - the remaining distinction between runtime and minimal harnesses is explicit in
   code, docs, and tests
+
+## Current follow-up status
+
+After the harness split:
+
+- wrapper-only runtime tests were retargeted off GNU Lisp helpers such as
+  `local-key-binding` and `looking-at-p`
+- broader VM/runtime follow-up uncovered a real GNU mismatch in thread error
+  ownership, and neomacs now treats `thread-last-error` / `thread-join` as part
+  of the shared runtime contract instead of join-time bookkeeping
 
 ## Risks
 

@@ -154,6 +154,24 @@ pub(crate) fn make_signal_binding_value(sig: &SignalData) -> Value {
     Value::list(values)
 }
 
+/// Reconstruct a signal flow from a condition-case/thread error binding form.
+pub(crate) fn signal_from_binding_value(value: Value) -> Option<Flow> {
+    let Value::Cons(cell) = value else {
+        return None;
+    };
+    let pair = read_cons(cell);
+    let symbol = pair.car;
+    let tail = pair.cdr;
+    let symbol_name = symbol.as_symbol_name()?;
+    if tail.is_nil() {
+        return Some(signal(symbol_name, vec![]));
+    }
+    if let Some(items) = super::value::list_to_vec(&tail) {
+        return Some(signal(symbol_name, items));
+    }
+    Some(signal_with_data(symbol_name, tail))
+}
+
 /// Format an eval result for the compat test harness (TSV output).
 pub fn format_eval_result(result: &Result<Value, EvalError>) -> String {
     match result {

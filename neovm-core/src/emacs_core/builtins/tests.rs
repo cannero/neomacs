@@ -1607,34 +1607,34 @@ fn buffer_modified_tick_semantics() {
         Value::Int(1)
     );
 
-    builtin_insert(&mut eval, vec![Value::string("x")]).unwrap();
+    builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(2)
+        Value::Int(4)
     );
     assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(2)
+        Value::Int(4)
     );
 
     builtin_set_buffer_modified_p(&mut eval, vec![Value::Nil]).unwrap();
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(2)
+        Value::Int(4)
     );
     assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(2)
+        Value::Int(4)
     );
 
-    builtin_delete_region(&mut eval, vec![Value::Int(1), Value::Int(2)]).unwrap();
+    builtin_delete_region(&mut eval, vec![Value::Int(1), Value::Int(7)]).unwrap();
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(3)
+        Value::Int(7)
     );
     assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(3)
+        Value::Int(7)
     );
 
     let dead = create_unique_test_buffer(&mut eval, "*ticks-dead*");
@@ -2240,7 +2240,7 @@ fn kill_all_local_variables_clears_buffer_locals() {
         buf.get_buffer_local("mode-name"),
         Some(&Value::string("Fundamental"))
     );
-    assert_eq!(buf.get_buffer_local("buffer-undo-list"), Some(&Value::Nil));
+    assert_eq!(buf.get_buffer_local("buffer-undo-list"), Some(&Value::True));
     assert!(eval.buffers.current_local_map().is_nil());
 }
 

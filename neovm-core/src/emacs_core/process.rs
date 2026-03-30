@@ -5081,6 +5081,20 @@ pub(crate) fn builtin_accept_process_output_collect(
     }
 }
 
+pub(crate) fn root_accept_process_output_callbacks(
+    eval: &mut super::eval::Context,
+    callbacks: &[(Value, Vec<Value>)],
+) -> usize {
+    let saved = eval.save_temp_roots();
+    for (callback, callback_args) in callbacks {
+        eval.push_temp_root(*callback);
+        for arg in callback_args {
+            eval.push_temp_root(*arg);
+        }
+    }
+    saved
+}
+
 /// (process-send-string PROCESS STRING) -> nil
 pub(crate) fn builtin_process_send_string(
     eval: &mut super::eval::Context,
@@ -5858,9 +5872,14 @@ pub(crate) fn builtin_accept_process_output(
     args: Vec<Value>,
 ) -> EvalResult {
     let (result, callbacks) = builtin_accept_process_output_collect(&mut eval.processes, args)?;
+    let saved_roots = root_accept_process_output_callbacks(eval, &callbacks);
     for (callback, callback_args) in callbacks {
-        let _ = eval.apply(callback, callback_args)?;
+        if let Err(flow) = eval.apply(callback, callback_args) {
+            eval.restore_temp_roots(saved_roots);
+            return Err(flow);
+        }
     }
+    eval.restore_temp_roots(saved_roots);
     Ok(result)
 }
 

@@ -380,8 +380,7 @@ impl Buffer {
         }
         self.overlays
             .adjust_for_insert(insert_pos, byte_len, overlay_before_markers);
-        self.modified_tick += char_len as i64;
-        self.chars_modified_tick += char_len as i64;
+        self.record_char_modification(char_len);
         self.sync_modified_flag();
     }
 
@@ -449,8 +448,7 @@ impl Buffer {
             self.text.adjust_text_props_for_delete(start, end);
         }
         self.overlays.adjust_for_delete(start, end);
-        self.modified_tick += char_len as i64;
-        self.chars_modified_tick += char_len as i64;
+        self.record_char_modification(char_len);
         self.sync_modified_flag();
     }
 
@@ -460,12 +458,26 @@ impl Buffer {
         preserve_modified_state: bool,
     ) {
         let old_state = self.modified_state_value();
-        self.modified_tick += changed_chars as i64;
-        self.chars_modified_tick += changed_chars as i64;
+        self.record_char_modification(changed_chars);
         if preserve_modified_state && old_state.is_nil() {
             self.save_modified_tick = self.modified_tick;
         }
         self.sync_modified_flag();
+    }
+
+    fn modification_tick_delta(changed_chars: usize) -> i64 {
+        if changed_chars == 0 {
+            1
+        } else {
+            changed_chars.ilog2() as i64 + 1
+        }
+    }
+
+    /// GNU `modiff` increments logarithmically with edit size, and
+    /// `chars_modiff` is reset to the new `modiff` on each character change.
+    fn record_char_modification(&mut self, changed_chars: usize) {
+        self.modified_tick += Self::modification_tick_delta(changed_chars);
+        self.chars_modified_tick = self.modified_tick;
     }
 
     // -- Undo helpers --------------------------------------------------------
@@ -3164,16 +3176,29 @@ mod tests {
         assert_eq!(buf.modified_tick, 1);
         assert_eq!(buf.chars_modified_tick, 1);
 
-        buf.insert("x");
-        assert_eq!(buf.modified_tick, 2);
-        assert_eq!(buf.chars_modified_tick, 2);
+        buf.insert("abcdef");
+        assert_eq!(buf.modified_tick, 4);
+        assert_eq!(buf.chars_modified_tick, 4);
 
         buf.set_modified(false);
-        assert_eq!(buf.modified_tick, 2);
-        assert_eq!(buf.chars_modified_tick, 2);
+        assert_eq!(buf.modified_tick, 4);
+        assert_eq!(buf.chars_modified_tick, 4);
         assert_eq!(buf.modified_state_value(), Value::Nil);
 
-        buf.delete_region(0, 1);
+        buf.delete_region(0, 6);
+        assert_eq!(buf.modified_tick, 7);
+        assert_eq!(buf.chars_modified_tick, 7);
+        assert_eq!(buf.modified_state_value(), Value::True);
+    }
+
+    #[test]
+    fn chars_modified_tick_rejoins_modiff_after_non_char_modification() {
+        let mut buf = Buffer::new(BufferId(1), "test".into());
+        assert_eq!(buf.restore_modified_state(Value::True), Value::True);
+        assert_eq!(buf.modified_tick, 2);
+        assert_eq!(buf.chars_modified_tick, 1);
+
+        buf.insert("x");
         assert_eq!(buf.modified_tick, 3);
         assert_eq!(buf.chars_modified_tick, 3);
         assert_eq!(buf.modified_state_value(), Value::True);

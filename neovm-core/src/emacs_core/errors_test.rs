@@ -183,6 +183,16 @@ fn obarray_file_missing_conditions() {
 }
 
 #[test]
+fn obarray_dbus_error_conditions() {
+    let mut ob = Obarray::new();
+    init_standard_errors(&mut ob);
+    let conds = ob.get_property("dbus-error", "error-conditions").unwrap();
+    let items = iter_symbol_list(conds);
+    assert!(items.contains(&"dbus-error".to_string()));
+    assert!(items.contains(&"error".to_string()));
+}
+
+#[test]
 fn obarray_cyclic_indirection_conditions() {
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);

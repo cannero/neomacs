@@ -1112,6 +1112,46 @@ fn accept_process_output_millis_contract_matches_oracle() {
 }
 
 #[test]
+fn accept_process_output_roots_callbacks_across_gc() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let forms = parse_forms(&format!(
+        r#"(progn
+             (fset 'proc-root-filter
+                   (lambda (_proc string)
+                     (garbage-collect)
+                     (setq proc-root-filter-data string)))
+             (fset 'proc-root-sentinel
+                   (lambda (_proc msg)
+                     (setq proc-root-sentinel-data msg)))
+             (setq proc-root-filter-data nil
+                   proc-root-sentinel-data nil)
+             (let ((p (make-process :name "proc-rooting"
+                                    :buffer nil
+                                    :command (list "{echo}" "out")
+                                    :connection-type 'pipe)))
+               (unwind-protect
+                   (progn
+                     (set-process-filter p 'proc-root-filter)
+                     (set-process-sentinel p 'proc-root-sentinel)
+                     (accept-process-output p 0.1)
+                     (accept-process-output p 0.1)
+                     (list proc-root-filter-data proc-root-sentinel-data))
+                 (condition-case nil
+                     (delete-process p)
+                   (error nil)))))"#,
+    ))
+    .expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    assert_eq!(
+        format_eval_result(&result),
+        r#"OK ("out
+" "finished
+")"#
+    );
+}
+
+#[test]
 fn process_mark_type_thread_send_and_running_child_runtime_surface() {
     let cat = find_bin("cat");
     let results = eval_all(&format!(

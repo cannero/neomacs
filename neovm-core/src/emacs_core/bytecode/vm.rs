@@ -2790,9 +2790,15 @@ impl<'a> Vm<'a> {
                 &mut self.ctx.processes,
                 args.to_vec(),
             )?;
+        let saved_roots =
+            crate::emacs_core::process::root_accept_process_output_callbacks(self.ctx, &callbacks);
         for (callback, callback_args) in callbacks {
-            let _ = self.call_function_with_roots(callback, &callback_args)?;
+            if let Err(flow) = self.call_function_with_roots(callback, &callback_args) {
+                self.ctx.restore_temp_roots(saved_roots);
+                return Err(flow);
+            }
         }
+        self.ctx.restore_temp_roots(saved_roots);
         Ok(result)
     }
 

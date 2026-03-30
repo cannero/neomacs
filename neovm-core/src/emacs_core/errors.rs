@@ -334,6 +334,7 @@ pub fn init_standard_errors(obarray: &mut Obarray) {
         "File notification error",
         &["file-error"],
     );
+    register_simple(obarray, "dbus-error", "D-Bus error", &["error"]);
 
     // --- json-error family ---
     register_simple(obarray, "json-error", "JSON error", &["error"]);
@@ -815,6 +816,8 @@ impl ErrorRegistry {
             self.parents
                 .insert(name.to_string(), vec!["file-error".to_string()]);
         }
+        self.parents
+            .insert("dbus-error".to_string(), vec!["error".to_string()]);
 
         // json-error family.
         self.parents

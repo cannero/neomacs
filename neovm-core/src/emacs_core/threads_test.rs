@@ -674,7 +674,8 @@ fn test_make_thread_non_callable_returns_thread_object() {
 fn test_make_thread_non_callable_last_error_shape() {
     let mut eval = Context::new();
     let thread = builtin_make_thread(&mut eval, vec![Value::Int(1)]).unwrap();
-    let _ = builtin_thread_join(&mut eval, vec![thread]).unwrap();
+    let result = builtin_thread_join(&mut eval, vec![thread]);
+    assert!(matches!(result, Err(Flow::Signal(_))));
     let err = builtin_thread_last_error(&mut eval, vec![]).unwrap();
     assert_eq!(
         super::super::print::print_value(&err),
@@ -683,25 +684,66 @@ fn test_make_thread_non_callable_last_error_shape() {
 }
 
 #[test]
-fn test_thread_last_error_is_published_when_joining_signaled_thread() {
+fn test_thread_last_error_is_published_when_signaled_thread_exits() {
     let mut eval = Context::new();
     let _ = builtin_thread_last_error(&mut eval, vec![Value::True]).unwrap();
 
     let thread = builtin_make_thread(&mut eval, vec![Value::symbol("car")]).unwrap();
-    let before_join = builtin_thread_last_error(&mut eval, vec![]).unwrap();
-    assert!(before_join.is_nil());
-
-    let _ = builtin_thread_join(&mut eval, vec![thread]).unwrap();
-    let after_join = builtin_thread_last_error(&mut eval, vec![]).unwrap();
+    let published = builtin_thread_last_error(&mut eval, vec![]).unwrap();
     assert_eq!(
-        super::super::print::print_value(&after_join),
+        super::super::print::print_value(&published),
         "(wrong-number-of-arguments #<subr car> 0)"
     );
 
+    let join_result = builtin_thread_join(&mut eval, vec![thread]);
+    assert!(matches!(join_result, Err(Flow::Signal(_))));
+
     let _ = builtin_thread_last_error(&mut eval, vec![Value::True]).unwrap();
-    let _ = builtin_thread_join(&mut eval, vec![thread]).unwrap();
-    let republished = builtin_thread_last_error(&mut eval, vec![]).unwrap();
-    assert!(republished.is_nil());
+    let cleared = builtin_thread_last_error(&mut eval, vec![]).unwrap();
+    assert!(cleared.is_nil());
+}
+
+#[test]
+fn test_thread_signal_noncurrent_thread_changes_join_outcome_without_publishing_last_error() {
+    let mut eval = Context::new();
+    let _ = builtin_thread_last_error(&mut eval, vec![Value::True]).unwrap();
+    let thread = builtin_make_thread(
+        &mut eval,
+        vec![Value::make_lambda(super::super::value::LambdaData {
+            params: super::super::value::LambdaParams::simple(vec![]),
+            body: vec![super::super::expr::Expr::Int(42)].into(),
+            env: None,
+            docstring: None,
+            doc_form: None,
+            interactive: None,
+        })],
+    )
+    .unwrap();
+
+    assert_eq!(
+        builtin_thread_signal(
+            &mut eval,
+            vec![
+                thread,
+                Value::symbol("error"),
+                Value::list(vec![Value::string("oops")])
+            ],
+        )
+        .unwrap(),
+        Value::Nil
+    );
+
+    let join_result = builtin_thread_join(&mut eval, vec![thread]);
+    match join_result {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(sig.data, vec![Value::string("oops")]);
+        }
+        other => panic!("expected thread-join to re-signal stored thread error, got {other:?}"),
+    }
+
+    let last_error = builtin_thread_last_error(&mut eval, vec![]).unwrap();
+    assert!(last_error.is_nil());
 }
 
 #[test]

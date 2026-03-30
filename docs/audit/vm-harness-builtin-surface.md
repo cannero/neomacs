@@ -243,6 +243,21 @@ The remaining work is no longer "fix the broken harness surface". It is just
 keeping the explicit split honest and continuing to align higher-level VM
 behavior with GNU Emacs.
 
+One important boundary that showed up immediately after the harness fix:
+
+- GNU's public `set-terminal-coding-system` lives in
+  `lisp/international/mule.el`.
+- GNU's C runtime surface only exposes
+  `set-terminal-coding-system-internal` and `terminal-coding-system`.
+- the same rule applies to other GNU Lisp helpers that surfaced in broader VM
+  reruns, such as `process-live-p` in `lisp/subr.el`, `file-truename` in
+  `lisp/files.el`, and `face-list` / `face-id` in `lisp/faces.el`.
+
+So Neomacs runtime-harness tests should not assert the Lisp wrapper unless the
+test uses a bootstrapped/loadup-complete evaluator. The runtime harness is
+supposed to match `Context::new()` plus builtin registration, not a fully
+loaded Lisp world.
+
 Detailed implementation plan:
 
 - `docs/plans/2026-03-30-vm-harness-runtime-unification.md`
@@ -372,3 +387,16 @@ Neomacs should adopt the same rule:
 - full VM compatibility tests must run against the same builtin function
   surface as `Context::new()`
 - any reduced harness must be opt-in, narrowly named, and never be the default
+
+## Follow-up findings after the harness split
+
+The next audit wave exposed two different classes of failures:
+
+- `local-key-binding` and `looking-at-p` were stale runtime-harness
+  expectations, not missing builtins. GNU implements them in Lisp
+  (`lisp/subr.el`), so bare runtime-harness VM tests should cover the C-owned
+  boundary instead (`lookup-key`, `looking-at`, etc.).
+- `thread-last-error` / `thread-join` were real runtime mismatches. GNU records
+  `thread-last-error` when a thread dies and `thread-join` re-signals the
+  thread's terminal error from the stored error form. Neomacs previously
+  deferred publication to `thread-join`, which is architecturally wrong.

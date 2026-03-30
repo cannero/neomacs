@@ -799,10 +799,9 @@ pub(crate) fn collect_mapatoms_symbols(
     Ok((func, symbols))
 }
 
-/// (unintern NAME &optional OBARRAY) — remove symbol from obarray.
+/// (unintern NAME OBARRAY) — remove symbol from obarray.
 pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    expect_min_args("unintern", &args, 1)?;
-    expect_max_args("unintern", &args, 2)?;
+    expect_args("unintern", &args, 2)?;
     validate_optional_obarray_arg(&args)?;
     let name = match &args[0] {
         Value::Symbol(id) => resolve_sym(*id).to_owned(),
