@@ -648,6 +648,8 @@ GNU `src/macros.c` / `src/keyboard.c`:
   state, and a GNU-shaped finalized boundary for the current command
 - `cancel-kbd-macro-events` now truncates only the unfinalized tail of the
   current command instead of being a no-op
+- `start-kbd-macro` append mode now re-executes the previous macro when
+  `NO-EXEC` is nil, while keeping the new appended definition buffer stable
 - `KmacroManager` now keeps only higher-level metadata such as the macro ring
   and counter state
 - VM/shared-runtime tests now exercise the same keyboard-owned state instead of
@@ -655,8 +657,6 @@ GNU `src/macros.c` / `src/keyboard.c`:
 
 Remaining GNU mismatches in this slice:
 
-- `start-kbd-macro` append mode still does not re-execute the previous macro
-  when `NO-EXEC` is nil
 - macro playback is still driven by direct event execution helpers rather than
   the same command-loop/input path GNU uses in `Fexecute_kbd_macro`
 

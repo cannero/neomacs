@@ -248,7 +248,7 @@ fn test_start_with_append() {
     let _ = builtin_end_kbd_macro(&mut eval, vec![]);
 
     // Append to it
-    let _ = builtin_start_kbd_macro(&mut eval, vec![Value::True]);
+    let _ = builtin_start_kbd_macro(&mut eval, vec![Value::True, Value::True]);
     assert_eq!(eval.command_loop.keyboard.kboard.kbd_macro_events.len(), 1);
     let _ = builtin_store_kbd_macro_event(&mut eval, vec![Value::Char('b')]);
     eval.finalize_kbd_macro_runtime_chars();
@@ -258,6 +258,80 @@ fn test_start_with_append() {
         eval.command_loop.last_kbd_macro(),
         Some([Value::Char('a'), Value::Char('b')].as_slice())
     );
+}
+
+#[test]
+fn test_start_with_append_reexecutes_last_macro_when_no_exec_is_nil() {
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        "(progn
+           (setq kmacro-append-count 0)
+           (fset 'kmacro-append-bump
+                 (lambda ()
+                   (setq kmacro-append-count (1+ kmacro-append-count)))))",
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::symbol("kmacro-append-bump")])
+        .expect("store");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-append-count")
+            .expect("kmacro-append-count"),
+        Value::Int(0)
+    );
+
+    builtin_start_kbd_macro(&mut eval, vec![Value::True, Value::Nil]).expect("append");
+    assert_eq!(
+        eval.eval_symbol("kmacro-append-count")
+            .expect("kmacro-append-count"),
+        Value::Int(1)
+    );
+    assert_eq!(
+        eval.command_loop.keyboard.kboard.kbd_macro_events,
+        vec![Value::symbol("kmacro-append-bump")]
+    );
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end append");
+    assert_eq!(
+        eval.command_loop.last_kbd_macro(),
+        Some([Value::symbol("kmacro-append-bump")].as_slice())
+    );
+}
+
+#[test]
+fn test_start_with_append_no_exec_skips_reexecution() {
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        "(progn
+           (setq kmacro-no-exec-count 0)
+           (fset 'kmacro-no-exec-bump
+                 (lambda ()
+                   (setq kmacro-no-exec-count (1+ kmacro-no-exec-count)))))",
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::symbol("kmacro-no-exec-bump")])
+        .expect("store");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
+
+    builtin_start_kbd_macro(&mut eval, vec![Value::True, Value::True]).expect("append");
+    assert_eq!(
+        eval.eval_symbol("kmacro-no-exec-count")
+            .expect("kmacro-no-exec-count"),
+        Value::Int(0)
+    );
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end append");
 }
 
 #[test]
@@ -313,6 +387,34 @@ fn test_defining_executing_kbd_macro_p_builtins() {
 
     assert!(builtin_defining_kbd_macro_p(&mut eval, vec![Value::Nil]).is_err());
     assert!(builtin_executing_kbd_macro_p(&mut eval, vec![Value::Nil]).is_err());
+}
+
+#[test]
+fn test_execute_kbd_macro_restores_outer_execution_state() {
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let outer = vec![Value::Char('o'), Value::Char('u')];
+    eval.begin_executing_kbd_macro_runtime(outer.clone());
+    eval.command_loop.keyboard.kboard.kbd_macro_index = 1;
+
+    builtin_execute_kbd_macro(&mut eval, vec![Value::vector(vec![])])
+        .expect("execute nested macro");
+
+    assert_eq!(
+        eval.command_loop
+            .keyboard
+            .kboard
+            .executing_kbd_macro
+            .as_deref(),
+        Some(outer.as_slice())
+    );
+    assert_eq!(eval.command_loop.keyboard.kboard.kbd_macro_index, 1);
+    assert_eq!(
+        eval.eval_symbol("executing-kbd-macro-index")
+            .expect("executing-kbd-macro-index"),
+        Value::Int(1)
+    );
 }
 
 #[test]

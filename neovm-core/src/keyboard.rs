@@ -3400,6 +3400,27 @@ impl crate::emacs_core::eval::Context {
         self.sync_keyboard_macro_runtime_vars();
     }
 
+    pub(crate) fn snapshot_executing_kbd_macro_runtime(&self) -> (Option<Vec<Value>>, usize) {
+        (
+            self.command_loop
+                .keyboard
+                .kboard
+                .executing_kbd_macro
+                .clone(),
+            self.command_loop.keyboard.kboard.kbd_macro_index,
+        )
+    }
+
+    pub(crate) fn restore_executing_kbd_macro_runtime(
+        &mut self,
+        events: Option<Vec<Value>>,
+        index: usize,
+    ) {
+        self.command_loop.keyboard.kboard.executing_kbd_macro = events;
+        self.command_loop.keyboard.kboard.kbd_macro_index = index;
+        self.sync_keyboard_macro_runtime_vars();
+    }
+
     pub(crate) fn finish_executing_kbd_macro_runtime(&mut self) {
         self.command_loop.finish_executing_kbd_macro();
         self.sync_keyboard_macro_runtime_vars();

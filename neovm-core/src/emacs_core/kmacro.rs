@@ -152,21 +152,62 @@ pub(crate) fn builtin_defining_kbd_macro(
     expect_min_args("defining-kbd-macro", &args, 1)?;
     expect_max_args("defining-kbd-macro", &args, 2)?;
     let append = args[0].is_truthy();
+    let no_exec = args.get(1).is_some_and(Value::is_truthy);
+    start_kbd_macro_impl(eval, append, no_exec)?;
+    Ok(Value::Nil)
+}
+
+fn last_kbd_macro_or_array_error(eval: &super::eval::Context) -> Result<Vec<Value>, Flow> {
+    eval.command_loop
+        .last_kbd_macro()
+        .map(|events| events.to_vec())
+        .ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("arrayp"), Value::Nil],
+            )
+        })
+}
+
+fn execute_kbd_macro_events_with_runtime_state(
+    eval: &mut super::eval::Context,
+    macro_events: &[Value],
+    count: i64,
+    mut call: impl FnMut(&mut super::eval::Context, Value, Vec<Value>) -> EvalResult,
+) -> EvalResult {
+    let saved_state = eval.snapshot_executing_kbd_macro_runtime();
+    eval.begin_executing_kbd_macro_runtime(macro_events.to_vec());
+    let result = execute_kbd_macro_events(
+        eval.obarray.symbol_function("self-insert-command").cloned(),
+        macro_events,
+        count,
+        |func, call_args| call(eval, func, call_args),
+    );
+    eval.restore_executing_kbd_macro_runtime(saved_state.0, saved_state.1);
+    result
+}
+
+fn start_kbd_macro_impl(
+    eval: &mut super::eval::Context,
+    append: bool,
+    no_exec: bool,
+) -> EvalResult {
     let initial_events = if append {
-        Some(
-            eval.command_loop
-                .last_kbd_macro()
-                .ok_or_else(|| {
-                    signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("arrayp"), Value::Nil],
-                    )
-                })?
-                .to_vec(),
-        )
+        Some(last_kbd_macro_or_array_error(eval)?)
     } else {
         None
     };
+
+    if let Some(ref initial_events) = initial_events
+        && !no_exec
+    {
+        execute_kbd_macro_events_with_runtime_state(
+            eval,
+            initial_events,
+            1,
+            |eval, func, args| eval.apply(func, args),
+        )?;
+    }
 
     eval.start_kbd_macro_runtime(initial_events.as_deref())?;
     Ok(Value::Nil)
@@ -234,30 +275,16 @@ pub(crate) fn execute_kbd_macro_events(
 ///
 /// Start recording a keyboard macro.  With non-nil APPEND, append to
 /// the last macro instead of starting a new one.  Signals an error if
-/// already recording.  NO-EXEC is accepted for arity compatibility and
-/// currently ignored.
+/// already recording.  With APPEND and nil NO-EXEC, replay the previous
+/// macro before starting the new appended definition, matching GNU Emacs.
 pub(crate) fn builtin_start_kbd_macro(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("start-kbd-macro", &args, 2)?;
     let append = args.first().is_some_and(|v| v.is_truthy());
-    let initial_events = if append {
-        Some(
-            eval.command_loop
-                .last_kbd_macro()
-                .ok_or_else(|| {
-                    signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("arrayp"), Value::Nil],
-                    )
-                })?
-                .to_vec(),
-        )
-    } else {
-        None
-    };
-    eval.start_kbd_macro_runtime(initial_events.as_deref())?;
+    let no_exec = args.get(1).is_some_and(Value::is_truthy);
+    start_kbd_macro_impl(eval, append, no_exec)?;
     Ok(Value::Nil)
 }
 
@@ -285,13 +312,9 @@ pub(crate) fn builtin_call_last_kbd_macro(
     args: Vec<Value>,
 ) -> EvalResult {
     let (macro_keys, repeat) = plan_call_last_kbd_macro(eval.command_loop.last_kbd_macro(), &args)?;
-    let self_insert = eval.obarray.symbol_function("self-insert-command").cloned();
-    eval.begin_executing_kbd_macro_runtime(macro_keys.clone());
-    let result = execute_kbd_macro_events(self_insert, &macro_keys, repeat, |func, call_args| {
-        eval.apply(func, call_args)
-    });
-    eval.finish_executing_kbd_macro_runtime();
-    result
+    execute_kbd_macro_events_with_runtime_state(eval, &macro_keys, repeat, |eval, func, args| {
+        eval.apply(func, args)
+    })
 }
 
 /// (execute-kbd-macro MACRO &optional COUNT LOOPFUNC) -> nil
@@ -303,13 +326,9 @@ pub(crate) fn builtin_execute_kbd_macro(
     args: Vec<Value>,
 ) -> EvalResult {
     let (macro_events, count) = plan_execute_kbd_macro(&args)?;
-    let self_insert = eval.obarray.symbol_function("self-insert-command").cloned();
-    eval.begin_executing_kbd_macro_runtime(macro_events.clone());
-    let result = execute_kbd_macro_events(self_insert, &macro_events, count, |func, call_args| {
-        eval.apply(func, call_args)
-    });
-    eval.finish_executing_kbd_macro_runtime();
-    result
+    execute_kbd_macro_events_with_runtime_state(eval, &macro_events, count, |eval, func, args| {
+        eval.apply(func, args)
+    })
 }
 
 /// (name-last-kbd-macro SYMBOL) -> nil
