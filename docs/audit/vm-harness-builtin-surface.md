@@ -30,6 +30,76 @@ That matters here because `(selected-window)` is just an ordinary public subr
 call in GNU Emacs. There is no special VM-only fallback required for it to be
 callable.
 
+### GNU startup ownership
+
+GNU startup builds one callable world in C during normal initialization.
+
+- `emacs.c` calls `syms_of_*` initialization functions during startup.
+- modules like `window.c` register public entry points with `defsubr`.
+- `defsubr` in `lread.c` interns the symbol and writes the subr directly into
+  the symbol's function cell with `set_symbol_function`.
+
+That means the public callable surface is not a secondary cache layered on top
+of the runtime. It is the runtime.
+
+### GNU bytecode call path
+
+GNU bytecode does not resolve ordinary public primitive calls through a
+separate VM-only registry.
+
+In `bytecode.c`, the generic `Bcall*` path:
+
+1. looks at the function object on the stack
+2. follows the symbol's function cell
+3. uses a fast path for closures and subrs when available
+4. otherwise falls through to `funcall_general`
+
+In `eval.c`, `funcall_general` again starts from the function object and its
+symbol function cell. If the target is a subr, it calls `funcall_subr`; if it
+is nil, it signals `void-function`.
+
+So GNU's rule is:
+
+- direct bytecode instructions are optimizations
+- ordinary primitive callability still depends on the same public function
+  surface the interpreter uses
+
+This is exactly why a reduced harness is architecturally wrong for Neomacs
+compatibility testing.
+
+### GNU pdump behavior
+
+GNU pdump does not introduce a second callable namespace for bytecode.
+
+What pdump hooks repair after dump load are C-owned runtime structures, for
+example:
+
+- `init_eval_once` registers `init_eval_once_for_pdumper`
+- that hook reinitializes evaluator-owned specpdl storage after pdump load
+
+This is a key distinction:
+
+- pdump repairs C runtime state after load
+- pdump does not replace the Lisp-visible callable surface with a smaller one
+
+So the Neomacs pattern of hand-replacing the obarray for VM tests is not GNU
+pdump-shaped either.
+
+### GNU test strategy
+
+GNU's own tests also reflect this design.
+
+- `eval-tests.el` exercises evaluator and bytecode behavior inside ordinary
+  Emacs.
+- `bytecomp-tests.el` compares interpreted and byte-compiled results by
+  compiling a lambda and `funcall`ing it in the normal runtime.
+- `comp-tests.el` explicitly checks that primitives with no dedicated bytecode
+  are still callable.
+
+That last point matters. GNU's test suite assumes compiled code can call normal
+primitives through the shared runtime surface; it does not rely on a special VM
+test harness with a reduced public function namespace.
+
 ## Neomacs Design Today
 
 ### Normal startup path
@@ -177,6 +247,7 @@ GNU has one real runtime surface:
 - symbols live in one obarray
 - `defsubr` writes real function cells into that surface
 - interpreter and bytecode both call into that same callable world
+- pdump repairs C-owned runtime state, not the Lisp-visible callable namespace
 
 Tests may initialize less editor state, but GNU does not create a separate
 "bytecode-only function namespace" where ordinary public subrs disappear.
@@ -261,6 +332,18 @@ The first step should be simpler:
 
 Snapshotting is an optimization and isolation tool. It is not a substitute for
 having the correct callable surface.
+
+### What should stay optimized
+
+Neomacs should still keep direct VM opcodes where they genuinely match GNU's
+bytecode fast paths. The mistake is not "having fast paths"; the mistake is
+letting those fast paths hide that the generic callable surface is wrong.
+
+So the intended ownership should be:
+
+- direct opcodes are performance optimizations
+- public primitive callability is owned by the shared evaluator surface
+- VM compatibility tests must validate both paths
 
 ### Bottom line
 
