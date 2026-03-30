@@ -1,10 +1,13 @@
 # VM Harness Builtin Surface Audit
 
 **Date**: 2026-03-30
+**Status**: historical mismatch fixed on `main`; this audit remains as the GNU
+design rationale for the explicit runtime/minimal harness split.
 
-## Problem
+## Historical Problem
 
-Current `main` has a broad VM bootstrap mismatch that shows up as:
+Before the runtime-harness refactor, `main` had a broad VM bootstrap mismatch
+that showed up as:
 
 - `ERR (void-function (selected-window))`
 - `ERR (void-function (fset))`
@@ -100,7 +103,7 @@ That last point matters. GNU's test suite assumes compiled code can call normal
 primitives through the shared runtime surface; it does not rely on a special VM
 test harness with a reduced public function namespace.
 
-## Neomacs Design Today
+## Historical Neomacs Design
 
 ### Normal startup path
 
@@ -114,7 +117,7 @@ That gives normal runtime both of the things GNU relies on:
 - a populated subr registry
 - builtin function cells in the obarray
 
-### VM harness path
+### VM harness path before the refactor
 
 `Context::new_vm_harness()` in `neovm-core/src/emacs_core/eval.rs` does not
 match that shape:
@@ -177,9 +180,9 @@ which expects either:
 
 The VM harness has neither, so it resolves to `void-function`.
 
-## Reproduced Evidence
+## Reproduced Evidence From The Old Harness
 
-Focused `cargo nextest` runs on current `main` reproduce all of these:
+Focused `cargo nextest` runs on the old harness reproduced all of these:
 
 - `vm_frame_selected_window_builtins_use_shared_runtime_state`
   fails with `ERR (void-function (selected-window))`
@@ -196,9 +199,9 @@ GNU-compatible callable surface actually is.
 
 ## Audit Conclusion
 
-This is an architectural mismatch, not a single missing builtin.
+This was an architectural mismatch, not a single missing builtin.
 
-`Context::new_vm_harness()` is not GNU-shaped. It creates a private evaluator
+The old `Context::new_vm_harness()` was not GNU-shaped. It created a private evaluator
 surface that is materially different from normal startup, then the VM partly
 papers over that split with direct opcode implementations.
 
@@ -226,9 +229,19 @@ The fix direction should follow GNU Emacs's ownership model:
    - proxy builtin call survives
    - generic public subr call survives
 
-Until that is done, Neomacs's VM runtime still differs from GNU Emacs in a
-fundamental way: bytecode is not running against the same public callable
-surface as the ordinary evaluator.
+## Current State
+
+`main` now follows the direction from this audit:
+
+- compatibility/source-form VM helpers use `Context::new_vm_runtime_harness()`
+- low-level manual-bytecode tests use `Context::new_minimal_vm_harness()`
+- the ambiguous `new_vm_harness()` alias has been removed
+- runtime-harness regressions now explicitly cover `selected-window`, `fset`,
+  `defvaralias`, and `func-arity`
+
+The remaining work is no longer "fix the broken harness surface". It is just
+keeping the explicit split honest and continuing to align higher-level VM
+behavior with GNU Emacs.
 
 Detailed implementation plan:
 

@@ -42,6 +42,13 @@ The second execution slice is also in:
 - the full-runtime harness also exposed one stale VM test assumption around
   GNU recursive `load` depth; that test was corrected to match `lread.c`.
 
+The third execution slice is also in:
+
+- the transitional `new_vm_harness()` alias has been removed entirely.
+- VM tests now use only explicit names: `new_vm_runtime_harness()` for
+  compatibility/runtime cases and `new_minimal_vm_harness()` for low-level
+  manual-bytecode cases.
+
 Focused verification after this slice:
 
 - `vm_frame_selected_window_builtins_use_shared_runtime_state`
@@ -170,6 +177,7 @@ Recommended migration path:
    - delete `new_vm_harness()` entirely and keep only explicit names
 
 The second option is cleaner because it avoids another ambiguous default.
+That is the option now implemented on `main`.
 
 ## Constructor design
 
