@@ -897,6 +897,8 @@ impl super::eval::Context {
         self.flush_pending_safe_funcalls();
         let mut fired_any = false;
 
+        // GNU runs Lisp timers from `timer_check` before servicing lower-level
+        // atimer/process-fd callbacks in `wait_reading_process_output`.
         while let Some(timer) = self.next_due_gnu_timer_snapshot() {
             fired_any = true;
             if let Value::Vector(timer_id) = timer {

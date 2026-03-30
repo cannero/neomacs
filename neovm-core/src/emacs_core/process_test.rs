@@ -3,6 +3,7 @@ use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_eval
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Create an evaluator with minimal Elisp shims for process testing.
 /// These shims mirror GNU Emacs Elisp functions that wrap C-level builtins.
@@ -98,6 +99,28 @@ fn tmp_file(label: &str) -> String {
         .expect("time should be monotonic")
         .as_nanos();
     format!("/tmp/neovm-{label}-{}-{nonce}.txt", std::process::id())
+}
+
+fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
+    let when = SystemTime::now()
+        .checked_sub(delay)
+        .unwrap_or(UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
+        .expect("timer deadline should not precede unix epoch");
+    let secs = when.as_secs() as i64;
+
+    Value::vector(vec![
+        Value::Nil,
+        Value::Int(secs >> 16),
+        Value::Int(secs & 0xFFFF),
+        Value::Int(when.subsec_micros() as i64),
+        Value::Nil,
+        Value::symbol(callback),
+        Value::Nil,
+        Value::Nil,
+        Value::Int(0),
+        Value::Nil,
+    ])
 }
 
 // -- ProcessManager unit tests ------------------------------------------
@@ -1471,6 +1494,96 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
     assert_eq!(
         format!("{}", events_after_second),
         r#"(timer (filter "out
+") (sentinel "finished
+"))"#
+    );
+}
+
+#[test]
+fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callbacks() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq apio-full-order nil)
+             (fset 'apio-gnu-order-callback
+                   (lambda ()
+                     (setq apio-full-order
+                           (append apio-full-order '(gnu)))))
+             (fset 'timer-event-handler
+                   (lambda (timer)
+                     (setq timer-list (delq timer timer-list))
+                     (funcall (aref timer 5))))
+             (fset 'apio-rust-order-callback
+                   (lambda ()
+                     (setq apio-full-order
+                           (append apio-full-order '(rust)))))
+             (fset 'apio-full-order-filter
+                   (lambda (_proc string)
+                     (setq apio-full-order
+                           (append apio-full-order
+                                   (list (list 'filter string))))))
+             (fset 'apio-full-order-sentinel
+                   (lambda (_proc msg)
+                     (setq apio-full-order
+                           (append apio-full-order
+                                   (list (list 'sentinel msg)))))))"#,
+    )
+    .expect("parse mixed timer ordering setup");
+    ev.eval_expr(&setup[0])
+        .expect("install mixed timer ordering setup");
+
+    ev.set_variable(
+        "timer-list",
+        Value::list(vec![gnu_timer_before(
+            Duration::from_millis(1),
+            "apio-gnu-order-callback",
+        )]),
+    );
+    ev.timers.add_timer(
+        0.0,
+        0.0,
+        Value::symbol("apio-rust-order-callback"),
+        vec![],
+        false,
+    );
+
+    let pid = ev
+        .processes
+        .create_process("apio-full-order".into(), None, echo, vec!["out".into()]);
+    ev.processes
+        .spawn_child(pid, false)
+        .expect("spawn mixed ordering process");
+    builtin_set_process_filter(
+        &mut ev,
+        vec![
+            Value::Int(pid as i64),
+            Value::symbol("apio-full-order-filter"),
+        ],
+    )
+    .expect("install mixed ordering filter");
+    builtin_set_process_sentinel(
+        &mut ev,
+        vec![
+            Value::Int(pid as i64),
+            Value::symbol("apio-full-order-sentinel"),
+        ],
+    )
+    .expect("install mixed ordering sentinel");
+
+    let first = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+    )
+    .expect("accept-process-output with mixed timer sources");
+    let events_after_first = ev
+        .eval_symbol("apio-full-order")
+        .expect("mixed ordering event list");
+
+    assert_eq!(first, Value::True);
+    assert_eq!(
+        format!("{}", events_after_first),
+        r#"(gnu rust (filter "out
 ") (sentinel "finished
 "))"#
     );

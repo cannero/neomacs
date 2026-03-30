@@ -3,9 +3,10 @@
 **Date**: 2026-03-30
 **Status**: Neomacs now has a shared wait/service path, a real `callproc`
 owner, shared callback envelopes for both process callbacks and timer
-callbacks, and GNU-shaped merged ordering between ordinary and idle GNU Lisp
-timers. Phase 9 risk is now mostly exact intra-cycle ordering across timer
-sources, process activity, input wakeups, and redisplay.
+callbacks, GNU-shaped merged ordering between ordinary and idle GNU Lisp
+timers, and regression coverage for the mixed GNU-Lisp-timer /
+internal-Rust-timer / process-callback order. Phase 9 risk is now mostly the
+remaining input/redisplay edge cases in that shared wait path.
 
 ## GNU Emacs Design
 
@@ -84,9 +85,15 @@ and
 That closed the earlier starvation bug and the older `PROCESS` /
 `JUST-THIS-ONE` mismatch.
 
-The remaining GNU risk is narrower now: exact ordering when GNU Lisp timers,
-internal Rust timers, process filters, sentinels, and input wakeups are all
-due in the same wait cycle is not yet locked down by differential coverage.
+The mixed GNU Lisp timer / internal Rust timer / process-callback order is now
+locked down by coverage: Neomacs runs GNU Lisp timers first, then internal Rust
+timers, then process filters/sentinels in the same wait cycle, which matches
+GNU's `timer_check` followed by timerfd/atimer callbacks and then process-fd
+reads in `wait_reading_process_output`.
+
+The remaining GNU risk is narrower now: keyboard/input break semantics and
+redisplay/input competition across the shared wait path are not yet as tightly
+locked down as the timer/process ordering itself.
 
 ### GNU ordinary and idle timer ordering now follows `timer_check_2` more closely
 
