@@ -279,8 +279,15 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   keyboard owner switches to the source frame's terminal before using
   terminal-local decoding state. That brings raw key ingress closer to GNU's
   "current kboard follows input source" model instead of only following the
-  selected frame. The remaining gap is now thinner `keyboard.c` side-queue
-  behavior plus device delete hooks tearing down per-terminal keyboard state.
+  selected frame.
+
+- Terminal owner follow-up broadened: `delete-terminal` now runs a
+  device-specific host delete hook before generic terminal/frame/kboard
+  teardown, matching GNU `terminal.c`'s split between
+  `delete-terminal-functions`, `delete_terminal_hook`, and final terminal
+  deletion more closely. The remaining gap is now thinner `keyboard.c`
+  side-queue behavior plus the deferred `Qnoelisp` / last-frame terminal
+  deletion path.
 
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented

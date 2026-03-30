@@ -19,6 +19,11 @@ impl TerminalHost for RecordingTerminalHost {
         self.log.borrow_mut().push("resume");
         Ok(())
     }
+
+    fn delete_terminal(&mut self) -> Result<(), String> {
+        self.log.borrow_mut().push("delete");
+        Ok(())
+    }
 }
 
 #[test]
@@ -330,6 +335,26 @@ fn delete_terminal_force_runs_hook_and_deletes_frames_on_terminal() {
         .expect("deleted-terminal-log value"),
         handle
     );
+}
+
+#[test]
+fn delete_terminal_force_invokes_terminal_host_delete_hook() {
+    reset_terminal_thread_locals();
+    configure_terminal_runtime(TerminalRuntimeConfig::interactive(
+        Some("xterm-256color".to_string()),
+        256,
+    ));
+    let log = Rc::new(RefCell::new(Vec::new()));
+    set_terminal_host(Box::new(RecordingTerminalHost {
+        log: Rc::clone(&log),
+    }));
+
+    let mut eval = Context::new();
+    assert_eq!(
+        builtin_delete_terminal(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
+        Value::Nil
+    );
+    assert_eq!(log.borrow().as_slice(), &["delete"]);
 }
 
 #[test]

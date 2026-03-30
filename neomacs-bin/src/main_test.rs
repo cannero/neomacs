@@ -1,10 +1,10 @@
 use super::{
     BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, EarlyCliAction, FrontendKind,
-    PrimaryWindowDisplayHost, PrimaryWindowSize, StartupOptions, bootstrap_buffers,
-    bootstrap_default_font_name, bootstrap_display_config, bootstrap_frame_metrics,
-    classify_early_cli_action, configure_gnu_startup_state, current_layout_frame_id,
-    face_height_to_pixels, parse_startup_options, render_help_text, render_version_text,
-    run_gnu_startup,
+    PrimaryWindowDisplayHost, PrimaryWindowSize, StartupOptions, TtyTerminalHost,
+    bootstrap_buffers, bootstrap_default_font_name, bootstrap_display_config,
+    bootstrap_frame_metrics, classify_early_cli_action, configure_gnu_startup_state,
+    current_layout_frame_id, face_height_to_pixels, parse_startup_options, render_help_text,
+    render_version_text, run_gnu_startup,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
@@ -15,6 +15,7 @@ use neovm_core::emacs_core::load::{
 };
 use neovm_core::emacs_core::parse_forms;
 use neovm_core::emacs_core::print_value_with_eval;
+use neovm_core::emacs_core::terminal::pure::TerminalHost;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::face::FaceHeight;
 use neovm_core::window::FrameId;
@@ -116,6 +117,23 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
     }
     assert!(host.primary_window_adopted);
     assert_eq!(host.primary_frame_id, Some(FrameId(0x100000001)));
+}
+
+#[test]
+fn tty_terminal_host_delete_terminal_sends_shutdown() {
+    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+    let mut host = TtyTerminalHost { cmd_tx };
+
+    host.delete_terminal()
+        .expect("delete terminal should succeed");
+
+    match cmd_rx
+        .try_recv()
+        .expect("shutdown command should be queued")
+    {
+        RenderCommand::Shutdown => {}
+        other => panic!("expected Shutdown, got {other:?}"),
+    }
 }
 
 #[test]

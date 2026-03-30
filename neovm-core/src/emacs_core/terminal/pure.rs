@@ -53,6 +53,9 @@ pub struct TerminalRuntimeConfig {
 pub trait TerminalHost {
     fn suspend_tty(&mut self) -> Result<(), String>;
     fn resume_tty(&mut self) -> Result<(), String>;
+    fn delete_terminal(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 struct TerminalRecord {
@@ -1068,6 +1071,17 @@ pub(crate) fn builtin_delete_terminal(
     let hook_sym =
         crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "delete-terminal-functions");
     let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(eval, hook_sym, &[terminal])?;
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        let Some(host) = manager
+            .get_mut(terminal_id)
+            .and_then(|terminal| terminal.host.as_deref_mut())
+        else {
+            return Ok(());
+        };
+        host.delete_terminal()
+            .map_err(|message| signal("error", vec![Value::string(message)]))
+    })?;
 
     let frames_to_delete = eval
         .frames

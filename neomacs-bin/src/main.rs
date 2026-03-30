@@ -433,6 +433,12 @@ impl TerminalHost for TtyTerminalHost {
             .send(RenderCommand::ResumeTty)
             .map_err(|err| format!("failed to resume tty frontend: {err}"))
     }
+
+    fn delete_terminal(&mut self) -> Result<(), String> {
+        self.cmd_tx
+            .send(RenderCommand::Shutdown)
+            .map_err(|err| format!("failed to delete tty terminal frontend: {err}"))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
