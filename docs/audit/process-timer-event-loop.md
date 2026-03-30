@@ -138,6 +138,27 @@ So the same callback can observe different dynamic behavior depending on
 whether it was reached through keyboard waiting or through
 `accept-process-output`. GNU has one behavior here, not two.
 
+### `sleep-for` is still a private polling loop
+
+GNU `sleep-for` in `dispnew.c` does not implement a second ad hoc event loop.
+It loops on `wait_reading_process_output`, which means subprocess wakeups,
+timer checks, and the ordinary wait-path bookkeeping stay unified. See
+[dispnew.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/dispnew.c#L6894)
+and
+[process.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/process.c#L5332).
+
+Neomacs `sleep-for` instead uses `std::thread::sleep` in 50ms chunks, then
+manually calls `eval.poll_process_output()` and `eval.fire_pending_timers()`
+after each chunk in
+[timer.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/timer.rs#L608).
+
+That is closer than a plain blocking sleep, but it is still not GNU’s design:
+
+- `sleep-for` has its own private wait loop
+- callback ordering is inherited from manual call order, not one shared owner
+- input/waiting-state semantics are not obviously the same as the keyboard or
+  `accept-process-output` paths
+
 ### Timer ownership is still split between GNU-shaped Lisp timers and a Rust timer manager
 
 GNU’s ordinary and idle timers are part of the keyboard/event-loop contract.
@@ -151,6 +172,41 @@ Neomacs currently has two timer worlds:
 This split may be acceptable as a migration step, but it is not yet GNU-like
 ownership. Event-loop semantics are only GNU-compatible if both timer surfaces
 are serviced from the same wait path with the same ordering rules.
+
+### Synchronous subprocess ownership is still not `callproc.c`-shaped
+
+GNU keeps synchronous subprocess invocation in `src/callproc.c`, separate from
+`process.c` but still part of the same process/timer/input boundary. It also
+honors `DISPLAY` by redisplaying while output is inserted. See
+[callproc.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/callproc.c#L272)
+and
+[callproc.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/callproc.c#L510).
+
+Neomacs still has only a placeholder `callproc` module:
+
+- [callproc/mod.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/callproc/mod.rs#L1)
+
+and the real implementations live in
+[process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L4079),
+where `call-process`, `process-file`, and related entry points dispatch through
+direct `Command::output()` / `spawn()` helpers and explicitly ignore `DISPLAY`.
+
+That is a confirmed GNU mismatch for `DISPLAY`, and it is also an ownership
+problem: the dedicated synchronous-process owner does not exist yet.
+
+## Coverage Gaps
+
+Current neomacs coverage in `process_test.rs` is mostly argument contract and
+rooting coverage. It does not yet lock down the high-risk shared-wait-path
+semantics, especially:
+
+- `accept-process-output PROCESS` still servicing unrelated processes when
+  `JUST-THIS-ONE` is `nil`
+- integer `JUST-THIS-ONE` suppressing timers
+- timer firing during `accept-process-output`
+- identical filter/sentinel dynamic-state preservation across keyboard waits
+  and `accept-process-output`
+- `sleep-for` sharing the same wake/service behavior as the main wait path
 
 ## Refactor Direction
 
@@ -173,7 +229,12 @@ The GNU-shaped direction is:
    - match data
    - waiting/input state
    - quit/debug policy as needed
-5. Keep `neovm-core` as the semantic owner. Pollers, worker/runtime tasks, and
+5. Route `sleep-for` through that same wait/service owner instead of keeping a
+   second private polling loop in `timer.rs`.
+6. Extract synchronous subprocess invocation into `callproc/mod.rs` only after
+   the wait-path ownership is clear, and carry over GNU `DISPLAY` semantics
+   while output is inserted.
+7. Keep `neovm-core` as the semantic owner. Pollers, worker/runtime tasks, and
    frontend wakeups should remain transport mechanisms only.
 
 ## What To Audit Next Inside Phase 9
@@ -182,9 +243,11 @@ The next concrete source-level audit order should be:
 
 1. `accept-process-output` policy and callback timing
 2. filter/sentinel dynamic-state preservation
-3. `sleep-for` / `sit-for` / input wait integration
-4. `call-process` / `process-file` interaction with the same wait path
+3. `sleep-for` / input wait integration through the same owner
+4. `call-process` / `process-file` extraction into a real `callproc` owner
+   with GNU `DISPLAY` behavior
 5. timer ordering when both GNU Lisp timers and Rust timers are due
+6. focused differential coverage for the shared wait-path cases listed above
 
 ## Conclusion
 
