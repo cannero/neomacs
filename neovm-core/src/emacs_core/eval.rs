@@ -2887,6 +2887,7 @@ impl Context {
                 Value::symbol("focus-out"),
                 Value::symbol("config-changed-event"),
                 Value::symbol("selection-request"),
+                Value::symbol("monitors-changed"),
             ]),
         );
         obarray.make_special("while-no-input-ignore-events");

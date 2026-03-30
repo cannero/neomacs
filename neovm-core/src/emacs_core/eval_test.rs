@@ -6693,6 +6693,18 @@ fn throw_on_input_is_special_and_dynamically_bound() {
 }
 
 #[test]
+fn while_no_input_ignore_events_bootstraps_monitors_changed_like_gnu() {
+    let results = eval_all(
+        "(memq 'monitors-changed while-no-input-ignore-events)
+         (special-variable-p 'while-no-input-ignore-events)
+         input-pending-p-filter-events",
+    );
+    assert_eq!(results[0], "OK (monitors-changed)");
+    assert_eq!(results[1], "OK t");
+    assert_eq!(results[2], "OK t");
+}
+
+#[test]
 fn with_temp_message_accepts_min_arity_and_runs_body() {
     let results = bootstrap_eval_all(
         "(with-temp-message nil 42)

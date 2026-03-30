@@ -101,6 +101,8 @@ same delete-frame special-event handling as direct `read_char`, instead of
 quitting immediately on that path.
 It also now honors `throw-on-input` before dispatching those close events,
 which matches the direct `read_char` path more closely.
+The default `while-no-input-ignore-events` bootstrap value now also includes
+`monitors-changed`, matching GNU's default ignore set more closely.
 
 ### The shared wait path now services non-user-visible host input before polling timers/processes
 
