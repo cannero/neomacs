@@ -22,6 +22,7 @@ Existing overview files remain important:
 - [Bootstrap Pipeline](bootstrap-pipeline-gnu-vs-neomacs.md)
 - [GNU Backend Coupling Map](gnu-emacs-backend-module-dependencies.md)
 - [Error / Condition System Audit](error-condition-system.md)
+- [VM Harness Builtin Surface Audit](vm-harness-builtin-surface.md)
 
 These audits are not a claim that Neomacs already matches GNU Emacs. They are
 the current audit result and the required direction to make Neomacs 100%
