@@ -819,6 +819,7 @@ pub struct Context {
     pub face_change_count: u64,
     /// Recursion depth counter.
     pub(crate) depth: usize,
+    eval_counter: u64,
     /// Maximum recursion depth.
     pub(crate) max_depth: usize,
     /// Set when allocation crosses the GC threshold; cleared by `gc_collect`.
@@ -3389,6 +3390,7 @@ impl Context {
             face_table: FaceTable::new(),
             face_change_count: 0,
             depth: 0,
+            eval_counter: 0,
             max_depth: 2400, // Matches GNU Emacs default (max-lisp-eval-depth)
             gc_pending: false,
             gc_count: 0,
@@ -3521,6 +3523,7 @@ impl Context {
             face_table,
             face_change_count: 0,
             depth: 0,
+            eval_counter: 0,
             max_depth: 2400,
             gc_pending: false,
             gc_count: 0,
@@ -3908,7 +3911,11 @@ impl Context {
                 Ok(Value::Nil)
             }
             Err(Flow::Signal(sig)) => {
-                eprintln!("command_loop_top_level_1: top-level SIGNALED: {} {:?}", sig.symbol_name(), sig.data);
+                eprintln!(
+                    "command_loop_top_level_1: top-level SIGNALED: {} {:?}",
+                    sig.symbol_name(),
+                    sig.data
+                );
                 let data_str = sig
                     .data
                     .iter()
@@ -5140,6 +5147,26 @@ impl Context {
     // -----------------------------------------------------------------------
 
     pub(crate) fn eval(&mut self, expr: &Expr) -> EvalResult {
+        // Debug: periodically dump current form to find infinite loops
+        self.eval_counter = self.eval_counter.wrapping_add(1);
+        if self.eval_counter % 10_000_000 == 0 {
+            let brief = match expr {
+                Expr::List(items) if !items.is_empty() => {
+                    if let Expr::Symbol(id) = &items[0] {
+                        format!("({}...)", crate::emacs_core::intern::resolve_sym(*id))
+                    } else {
+                        format!("({:?}...)", &items[0])
+                    }
+                }
+                Expr::Symbol(id) => crate::emacs_core::intern::resolve_sym(*id).to_string(),
+                _ => format!("{:?}", expr),
+            };
+            eprintln!(
+                "EVAL #{}: depth={} form={}",
+                self.eval_counter, self.depth, brief
+            );
+        }
+
         // GNU Emacs only increments lisp_eval_depth for actual form evaluation
         // (lists = function calls / special forms), not for atoms (int, string,
         // symbol, etc.). This matches eval_sub in eval.c which increments before

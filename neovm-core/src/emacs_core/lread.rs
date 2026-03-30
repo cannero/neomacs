@@ -412,10 +412,16 @@ fn expect_optional_prompt_string(args: &[Value]) -> Result<(), Flow> {
 /// In batch mode, reads from `unread-command-events`, returns nil if empty.
 /// In interactive mode, blocks on the input channel via `read_char()`.
 pub(crate) fn builtin_read_event(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    eprintln!(
+        "read-event called: args={:?}",
+        args.iter().map(|v| format!("{}", v)).collect::<Vec<_>>()
+    );
     if let Some(value) = builtin_read_event_in_runtime(eval, &args)? {
+        eprintln!("read-event: returned from runtime: {}", value);
         return Ok(value);
     }
 
+    eprintln!("read-event: falling through to eval path (will block for input)");
     finish_read_event_in_eval(eval, &args)
 }
 
