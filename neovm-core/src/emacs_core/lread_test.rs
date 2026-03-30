@@ -401,6 +401,23 @@ fn read_event_with_float_seconds_does_not_set_command_keys_when_empty() {
 }
 
 #[test]
+fn read_event_with_interactive_timeout_returns_nil() {
+    let mut ev = Context::new();
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    let start = std::time::Instant::now();
+    let result = builtin_read_event(
+        &mut ev,
+        vec![Value::Nil, Value::Nil, Value::Float(0.01, next_float_id())],
+    )
+    .unwrap();
+
+    assert!(result.is_nil());
+    assert!(start.elapsed() < std::time::Duration::from_millis(250));
+}
+
+#[test]
 fn read_event_with_non_nil_seconds_preserves_existing_command_keys_context() {
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);

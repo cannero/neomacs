@@ -437,7 +437,10 @@ pub(crate) fn finish_read_event_interactive_in_runtime(
     args: &[Value],
 ) -> EvalResult {
     if runtime.has_input_receiver() {
-        let event = runtime.read_char_blocking()?;
+        let timeout = super::reader::parse_optional_read_seconds_arg(args.get(2))?;
+        let Some(event) = runtime.read_char_with_timeout(timeout)? else {
+            return Ok(Value::Nil);
+        };
         let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
         if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
             runtime.set_read_command_keys(vec![event]);
@@ -479,8 +482,14 @@ pub(crate) fn finish_read_char_exclusive_interactive_in_runtime(
     args: &[Value],
 ) -> EvalResult {
     if runtime.has_input_receiver() {
+        let timeout = super::reader::parse_optional_read_seconds_arg(args.get(2))?;
+        let deadline = timeout.map(|timeout| std::time::Instant::now() + timeout);
         loop {
-            let event = runtime.read_char_blocking()?;
+            let remaining = deadline
+                .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()));
+            let Some(event) = runtime.read_char_with_timeout(remaining)? else {
+                return Ok(Value::Nil);
+            };
             let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
             if let Some(n) = event_to_int(&event) {
                 if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {

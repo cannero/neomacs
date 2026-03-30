@@ -7,6 +7,7 @@ use super::expr::Expr;
 use super::intern::{SymId, intern, resolve_sym};
 use super::symbol::Obarray;
 use super::value::*;
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,6 +64,29 @@ fn expect_number(value: &Value) -> Result<(), Flow> {
             vec![Value::symbol("numberp"), *other],
         )),
     }
+}
+
+pub(crate) fn parse_optional_read_seconds_arg(
+    value: Option<&Value>,
+) -> Result<Option<Duration>, Flow> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_nil() {
+        return Ok(None);
+    }
+
+    let seconds = value.as_number_f64().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("numberp"), *value],
+        )
+    })?;
+    if seconds <= 0.0 {
+        return Ok(Some(Duration::ZERO));
+    }
+
+    Ok(Some(Duration::from_secs_f64(seconds)))
 }
 
 fn expect_initial_input_stringish(value: &Value) -> Result<(), Flow> {
@@ -1599,6 +1623,7 @@ pub(crate) trait KeyboardInputRuntime {
     fn read_command_keys(&self) -> &[Value];
     fn has_input_receiver(&self) -> bool;
     fn read_char_blocking(&mut self) -> Result<Value, Flow>;
+    fn read_char_with_timeout(&mut self, timeout: Option<Duration>) -> Result<Option<Value>, Flow>;
     fn read_key_sequence_blocking(
         &mut self,
         options: crate::keyboard::ReadKeySequenceOptions,
@@ -1644,6 +1669,10 @@ impl KeyboardInputRuntime for super::eval::Context {
 
     fn read_char_blocking(&mut self) -> Result<Value, Flow> {
         super::eval::Context::read_char(self)
+    }
+
+    fn read_char_with_timeout(&mut self, timeout: Option<Duration>) -> Result<Option<Value>, Flow> {
+        super::eval::Context::read_char_with_timeout(self, timeout)
     }
 
     fn read_key_sequence_blocking(
@@ -2100,7 +2129,10 @@ pub(crate) fn finish_read_char_interactive_in_runtime(
     args: &[Value],
 ) -> EvalResult {
     if runtime.has_input_receiver() {
-        let event = runtime.read_char_blocking()?;
+        let timeout = parse_optional_read_seconds_arg(args.get(2))?;
+        let Some(event) = runtime.read_char_with_timeout(timeout)? else {
+            return Ok(Value::Nil);
+        };
         let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
         if let Some(n) = event_to_int(&event) {
             if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {

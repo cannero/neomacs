@@ -151,6 +151,30 @@ impl GnuTimerTimestamp {
         Duration::new(secs, nanos)
     }
 
+    pub(crate) fn overdue_duration(self, now: Self) -> std::time::Duration {
+        use std::time::Duration;
+
+        if self >= now {
+            return Duration::ZERO;
+        }
+
+        let mut secs = now.unix_seconds() - self.unix_seconds();
+        let mut usecs = now.usecs - self.usecs;
+        let mut psecs = now.psecs - self.psecs;
+
+        if psecs < 0 {
+            psecs += 1_000_000;
+            usecs -= 1;
+        }
+        if usecs < 0 {
+            usecs += 1_000_000;
+            secs -= 1;
+        }
+
+        let nanos = ((usecs as u32) * 1_000) + (psecs as u32 / 1_000);
+        Duration::new(secs as u64, nanos)
+    }
+
     pub(crate) fn from_duration(duration: std::time::Duration) -> Self {
         let secs = duration.as_secs() as i64;
         let usecs = duration.subsec_micros() as i64;

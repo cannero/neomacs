@@ -1574,6 +1574,23 @@ fn read_char_with_nil_seconds_sets_command_keys_when_empty() {
 }
 
 #[test]
+fn read_char_with_interactive_timeout_returns_nil() {
+    let mut ev = Context::new();
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    let start = std::time::Instant::now();
+    let result = builtin_read_char(
+        &mut ev,
+        vec![Value::Nil, Value::Nil, Value::Float(0.01, next_float_id())],
+    )
+    .unwrap();
+
+    assert!(result.is_nil());
+    assert!(start.elapsed() < std::time::Duration::from_millis(250));
+}
+
+#[test]
 fn read_char_preserves_existing_command_keys_context() {
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);
@@ -1938,6 +1955,13 @@ impl KeyboardInputRuntime for BlockingKeySequenceRuntime {
     }
 
     fn read_char_blocking(&mut self) -> Result<Value, Flow> {
+        unreachable!("read-char should not be used in this test runtime")
+    }
+
+    fn read_char_with_timeout(
+        &mut self,
+        _timeout: Option<std::time::Duration>,
+    ) -> Result<Option<Value>, Flow> {
         unreachable!("read-char should not be used in this test runtime")
     }
 

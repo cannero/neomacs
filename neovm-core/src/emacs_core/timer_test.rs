@@ -296,6 +296,20 @@ fn gnu_sit_for_matches_subr_el() {
 }
 
 #[test]
+fn gnu_sit_for_interactive_timeout_returns_t() {
+    let mut ev = gnu_subr_sit_for_eval();
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    let forms = super::super::parser::parse_forms("(sit-for 0.01 t)").expect("parse sit-for");
+
+    let start = Instant::now();
+    let result = ev.eval(&forms[0]).expect("eval interactive sit-for");
+
+    assert!(result.is_truthy());
+    assert!(start.elapsed() < Duration::from_millis(250));
+}
+
+#[test]
 fn test_builtin_sleep_for() {
     use super::super::eval::Context;
 

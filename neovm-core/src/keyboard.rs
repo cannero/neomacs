@@ -2588,18 +2588,23 @@ impl crate::emacs_core::eval::Context {
         }
     }
 
-    pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
+    pub(crate) fn read_char_with_timeout(
+        &mut self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Option<Value>, crate::emacs_core::error::Flow> {
+        let deadline = timeout.map(|timeout| std::time::Instant::now() + timeout);
+
         loop {
             self.sync_keyboard_terminal_owner();
             if let Some(event) = self.command_loop.keyboard.take_unread_selection_event() {
-                return Ok(event);
+                return Ok(Some(event));
             }
 
             if let Some(event) = self.command_loop.keyboard.pop_unread_event() {
                 if self.execute_special_event_if_bound(event)? {
                     continue;
                 }
-                return Ok(event);
+                return Ok(Some(event));
             }
 
             if let Some(event) = self.command_loop.keyboard.next_executing_kbd_macro_event() {
@@ -2607,7 +2612,7 @@ impl crate::emacs_core::eval::Context {
                     "executing-kbd-macro-index",
                     Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
                 );
-                return Ok(event);
+                return Ok(Some(event));
             }
 
             if self.sync_pending_resize_events() {
@@ -2615,9 +2620,14 @@ impl crate::emacs_core::eval::Context {
             }
             if let Some(event) = self.drain_ready_input_event_for_read_char() {
                 if let Some(value) = self.handle_read_char_input_event(event)? {
-                    return Ok(value);
+                    return Ok(Some(value));
                 }
                 continue;
+            }
+
+            if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+                self.timer_stop_idle();
+                return Ok(None);
             }
 
             self.redisplay();
@@ -2634,7 +2644,7 @@ impl crate::emacs_core::eval::Context {
 
             if let Some(event) = self.drain_ready_input_event_for_read_char() {
                 if let Some(value) = self.handle_read_char_input_event(event)? {
-                    return Ok(value);
+                    return Ok(Some(value));
                 }
                 continue;
             }
@@ -2643,12 +2653,20 @@ impl crate::emacs_core::eval::Context {
                 Some(ref rx) => rx.clone(),
                 None => {
                     tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
-                    return Ok(Value::Nil);
+                    return Ok(Some(Value::Nil));
                 }
             };
 
             self.timer_start_idle();
-            let timeout = self.next_input_wait_timeout();
+            let mut timeout = self.next_input_wait_timeout();
+            if let Some(deadline) = deadline {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    self.timer_stop_idle();
+                    return Ok(None);
+                }
+                timeout = Some(timeout.map_or(remaining, |current| current.min(remaining)));
+            }
             if cfg!(test) {
                 eprintln!(
                     "read_char wait timeout={:?} idle={:?}",
@@ -2673,7 +2691,7 @@ impl crate::emacs_core::eval::Context {
                     }
                     self.timer_stop_idle();
                     if let Some(value) = self.handle_read_char_input_event(event)? {
-                        return Ok(value);
+                        return Ok(Some(value));
                     }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -2685,6 +2703,10 @@ impl crate::emacs_core::eval::Context {
                             self.next_idle_gnu_timer_timeout()
                         );
                     }
+                    if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+                        self.timer_stop_idle();
+                        return Ok(None);
+                    }
                     let _ = self.service_wait_path_once(None, false, true, true);
                     continue;
                 }
@@ -2694,6 +2716,10 @@ impl crate::emacs_core::eval::Context {
                 }
             }
         }
+    }
+
+    pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
+        Ok(self.read_char_with_timeout(None)?.unwrap_or(Value::Nil))
     }
 
     /// Build an Emacs mouse event value.
@@ -3318,6 +3344,47 @@ impl crate::emacs_core::eval::Context {
             .filter(|timer| timer.when <= now)
             .map(|timer| timer.timer)
             .collect()
+    }
+
+    pub(crate) fn next_due_gnu_timer_snapshot(&self) -> Option<Value> {
+        let ordinary_now = crate::emacs_core::eval::GnuTimerTimestamp::now();
+        let next_ordinary = self
+            .obarray
+            .symbol_value("timer-list")
+            .and_then(crate::emacs_core::value::list_to_vec)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(pending_gnu_timer_in_keyboard_runtime)
+            .find(|timer| timer.when <= ordinary_now);
+
+        let next_idle = self
+            .current_idle_duration()
+            .map(crate::emacs_core::eval::GnuTimerTimestamp::from_duration)
+            .and_then(|idle_now| {
+                self.obarray
+                    .symbol_value("timer-idle-list")
+                    .and_then(crate::emacs_core::value::list_to_vec)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(pending_gnu_idle_timer_in_keyboard_runtime)
+                    .find(|timer| timer.when <= idle_now)
+                    .map(|timer| (timer, idle_now))
+            });
+
+        match (next_ordinary, next_idle) {
+            (Some(ordinary), Some((idle, idle_now))) => {
+                let ordinary_overdue = ordinary.when.overdue_duration(ordinary_now);
+                let idle_overdue = idle.when.overdue_duration(idle_now);
+                if ordinary_overdue > idle_overdue {
+                    Some(ordinary.timer)
+                } else {
+                    Some(idle.timer)
+                }
+            }
+            (Some(ordinary), None) => Some(ordinary.timer),
+            (None, Some((idle, _))) => Some(idle.timer),
+            (None, None) => None,
+        }
     }
 
     pub(crate) fn next_ordinary_gnu_timer_timeout(&self) -> Option<std::time::Duration> {

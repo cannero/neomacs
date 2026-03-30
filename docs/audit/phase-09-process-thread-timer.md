@@ -68,8 +68,14 @@ Bad:
   callbacks now preserve GNU-visible state like `deactivate-mark`, and
   short-lived children now deliver filter+sentinel in the same wait cycle.
   `read_char` also now gives ready input priority over timer/process callbacks
-  instead of servicing them after input arrival. The remaining Phase 9 risk is
-  exact GNU ordering, not the older split-owner architecture.
+  instead of servicing them after input arrival, and GNU ordinary-vs-idle
+  timer merge ordering now follows `timer_check_2` more closely instead of
+  servicing all ordinary timers before all idle timers. Interactive
+  `read-event` / `read-char` timeouts now also flow through the shared wait
+  path, which restores GNU `sit-for` timeout behavior. The remaining Phase 9
+  risk is exact GNU ordering across GNU-vs-Rust timer sources and the
+  remaining `sleep-for` / `sit-for` redisplay/input edge cases, not the older
+  split-owner architecture.
 
 ## Long-term ideal design
 
@@ -90,7 +96,8 @@ The ideal design is:
   `accept-process-output` ordering against GNU.
 - Keep the Phase 9 follow-up focused on remaining ordering gaps:
   GNU-vs-Rust timer ordering inside the shared wait path,
-  and `sleep-for` / `sit-for` parity.
+  and the remaining `sleep-for` / `sit-for` parity details around
+  redisplay/input competition.
 - Re-study GNU `thread.c` before changing `threads.rs`; the current simulated
   implementation should be treated as a compatibility placeholder, not as the
   final design.

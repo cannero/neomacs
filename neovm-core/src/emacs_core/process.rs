@@ -896,7 +896,7 @@ impl super::eval::Context {
     pub(crate) fn service_pending_timers_with_wait_policy(&mut self, redisplay: bool) -> bool {
         let mut fired_any = false;
 
-        for timer in self.due_gnu_timers_snapshot() {
+        while let Some(timer) = self.next_due_gnu_timer_snapshot() {
             fired_any = true;
             if let Value::Vector(timer_id) = timer {
                 crate::emacs_core::value::with_heap_mut(|heap| {
@@ -908,26 +908,6 @@ impl super::eval::Context {
                 vec![timer],
                 "GNU Lisp timer",
             );
-        }
-
-        for timer in self.due_gnu_idle_timers_snapshot() {
-            fired_any = true;
-            if let Value::Vector(timer_id) = timer {
-                crate::emacs_core::value::with_heap_mut(|heap| {
-                    heap.get_vector_mut(timer_id)[0] = Value::True
-                });
-            }
-            if cfg!(test) {
-                eprintln!("fire_pending_timers idle timer={:?}", timer);
-            }
-            self.run_timer_callback_preserving_state(
-                Value::symbol("timer-event-handler"),
-                vec![timer],
-                "GNU Lisp idle timer",
-            );
-            if cfg!(test) {
-                eprintln!("fire_pending_timers idle callback returned");
-            }
         }
 
         let now = Instant::now();

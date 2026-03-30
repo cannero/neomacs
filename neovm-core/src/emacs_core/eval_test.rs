@@ -106,6 +106,28 @@ fn gnu_timer_after(delay: Duration, callback: &str) -> Value {
     ])
 }
 
+fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
+    let when = SystemTime::now()
+        .checked_sub(delay)
+        .expect("timer deadline should fit in system time")
+        .duration_since(UNIX_EPOCH)
+        .expect("timer deadline should be after unix epoch");
+    let secs = when.as_secs() as i64;
+
+    Value::vector(vec![
+        Value::Nil,
+        Value::Int(secs >> 16),
+        Value::Int(secs & 0xFFFF),
+        Value::Int(when.subsec_micros() as i64),
+        Value::Nil,
+        Value::symbol(callback),
+        Value::Nil,
+        Value::Nil,
+        Value::Int(0),
+        Value::Nil,
+    ])
+}
+
 fn gnu_idle_timer_after(delay: Duration, callback: &str) -> Value {
     let secs = delay.as_secs() as i64;
 
@@ -2380,6 +2402,104 @@ fn fire_pending_timers_requests_redisplay_after_callbacks() {
     ev.fire_pending_timers();
 
     assert_eq!(*redisplay_calls.borrow(), vec![Value::symbol("done")]);
+}
+
+#[test]
+fn fire_pending_timers_prefers_more_overdue_ordinary_timer_over_idle_timer() {
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        "(progn
+           (setq vm-timer-order nil)
+           (fset 'vm-ordinary-callback
+                 (lambda ()
+                   (setq vm-timer-order (append vm-timer-order '(ordinary)))))
+           (fset 'vm-idle-callback
+                 (lambda ()
+                   (setq vm-timer-order (append vm-timer-order '(idle)))))
+           (fset 'timer-event-handler
+                 (lambda (timer)
+                   (if (aref timer 7)
+                       (setq timer-idle-list (delq timer timer-idle-list))
+                     (setq timer-list (delq timer timer-list)))
+                   (funcall (aref timer 5)))))",
+    )
+    .expect("parse timer ordering setup");
+    ev.eval_expr(&setup[0])
+        .expect("install timer ordering setup");
+
+    ev.set_variable(
+        "timer-list",
+        Value::list(vec![gnu_timer_before(
+            Duration::from_millis(20),
+            "vm-ordinary-callback",
+        )]),
+    );
+    ev.set_variable(
+        "timer-idle-list",
+        Value::list(vec![gnu_idle_timer_after(
+            Duration::from_millis(0),
+            "vm-idle-callback",
+        )]),
+    );
+    ev.timer_start_idle();
+    thread::sleep(Duration::from_millis(5));
+
+    ev.fire_pending_timers();
+
+    assert_eq!(
+        ev.eval_symbol("vm-timer-order")
+            .expect("timer order should be recorded"),
+        Value::list(vec![Value::symbol("ordinary"), Value::symbol("idle")])
+    );
+}
+
+#[test]
+fn fire_pending_timers_prefers_more_overdue_idle_timer_over_ordinary_timer() {
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        "(progn
+           (setq vm-timer-order nil)
+           (fset 'vm-ordinary-callback
+                 (lambda ()
+                   (setq vm-timer-order (append vm-timer-order '(ordinary)))))
+           (fset 'vm-idle-callback
+                 (lambda ()
+                   (setq vm-timer-order (append vm-timer-order '(idle)))))
+           (fset 'timer-event-handler
+                 (lambda (timer)
+                   (if (aref timer 7)
+                       (setq timer-idle-list (delq timer timer-idle-list))
+                     (setq timer-list (delq timer timer-list)))
+                   (funcall (aref timer 5)))))",
+    )
+    .expect("parse timer ordering setup");
+    ev.eval_expr(&setup[0])
+        .expect("install timer ordering setup");
+
+    ev.set_variable(
+        "timer-list",
+        Value::list(vec![gnu_timer_after(
+            Duration::from_millis(5),
+            "vm-ordinary-callback",
+        )]),
+    );
+    ev.set_variable(
+        "timer-idle-list",
+        Value::list(vec![gnu_idle_timer_after(
+            Duration::from_millis(0),
+            "vm-idle-callback",
+        )]),
+    );
+    ev.timer_start_idle();
+    thread::sleep(Duration::from_millis(20));
+
+    ev.fire_pending_timers();
+
+    assert_eq!(
+        ev.eval_symbol("vm-timer-order")
+            .expect("timer order should be recorded"),
+        Value::list(vec![Value::symbol("idle"), Value::symbol("ordinary")])
+    );
 }
 
 #[test]

@@ -2,8 +2,9 @@
 
 **Date**: 2026-03-30
 **Status**: Neomacs now has a shared wait/service path, a real `callproc`
-owner, and shared callback envelopes for both process callbacks and timer
-callbacks. Phase 9 risk is now mostly exact intra-cycle ordering across timer
+owner, shared callback envelopes for both process callbacks and timer
+callbacks, and GNU-shaped merged ordering between ordinary and idle GNU Lisp
+timers. Phase 9 risk is now mostly exact intra-cycle ordering across timer
 sources, process activity, input wakeups, and redisplay.
 
 ## GNU Emacs Design
@@ -62,7 +63,7 @@ sharing one ordering policy inside that wait path.
 
 ## Confirmed Findings
 
-### `accept-process-output`, `sleep-for`, and keyboard waits now share one wait path, but ordering still needs audit
+### `accept-process-output`, `sleep-for`, and keyboard waits now share one wait path, but cross-source ordering still needs audit
 
 GNU runs timers from the shared wait path unless `just_wait_proc < 0`, i.e.
 unless the caller used integer `JUST-THIS-ONE`. See
@@ -82,6 +83,22 @@ That closed the earlier starvation bug and the older `PROCESS` /
 The remaining GNU risk is narrower now: exact ordering when GNU Lisp timers,
 Rust timers, process filters, sentinels, and input wakeups are all due in the
 same wait cycle is not yet locked down by differential coverage.
+
+### GNU ordinary and idle timer ordering now follows `timer_check_2` more closely
+
+GNU does not fire all ordinary timers and then all idle timers. `timer_check_2`
+merges those two sorted lists and chooses the timer that is due first in its
+own time domain; if both are ripe, it picks the more-overdue timer. See
+[keyboard.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/keyboard.c#L4727).
+
+Neomacs previously serviced `timer-list` and `timer-idle-list` in two separate
+passes, which could invert GNU order whenever an idle timer was more overdue
+than an ordinary timer. The shared wait path now recomputes the next due GNU
+timer one callback at a time and merges ordinary vs idle order using the same
+“more overdue wins” rule in
+[keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L3300)
+and
+[process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L896).
 
 ### Process callbacks now share one async callback envelope, but it is still a translated design
 
@@ -161,6 +178,25 @@ before returning it. The current ownership lives in
 That closes the concrete mismatch where a due timer or process filter could run
 ahead of a ready keypress.
 
+### Interactive `read-event` / `read-char` timeouts now support GNU `sit-for`
+
+GNU `sit-for` is implemented in Lisp in
+[subr.el](/home/exec/Projects/github.com/emacs-mirror/emacs/lisp/subr.el#L3790)
+and depends on `read-event` honoring its `SECONDS` argument on the interactive
+path.
+
+Neomacs previously ignored `SECONDS` once `read-event` or `read-char` fell
+through to the runtime input path, which meant GNU `sit-for` could not time
+out correctly in interactive mode. `read-event`, `read-char`, and
+`read-char-exclusive` now route timeout values through the shared keyboard wait
+path in
+[lread.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/lread.rs#L435),
+[reader.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/reader.rs#L2120),
+and
+[keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L2570).
+That closes the specific Phase 9 blocker where GNU `sit-for` would hang
+instead of returning `t` after the timeout elapsed.
+
 ### Timer ownership is still split between GNU-shaped Lisp timers and a Rust timer manager
 
 GNU’s ordinary and idle timers are part of the keyboard/event-loop contract.
@@ -206,8 +242,8 @@ rooting coverage. It does not yet lock down the high-risk shared-wait-path
 semantics, especially:
 
 - timer ordering when GNU Lisp timers and Rust timers are simultaneously due
-- exact ordering between input wakeups and GNU-vs-Rust timer servicing in one wait cycle
-- `sleep-for` / `sit-for` parity once input and redisplay are involved
+- the remaining `sleep-for` / `sit-for` parity details once redisplay and
+  pending input compete in the same cycle
 - chunked synchronous subprocess insertion and redisplay fidelity versus GNU
   `callproc.c`
 
@@ -239,12 +275,12 @@ The GNU-shaped direction is:
 
 The next concrete source-level audit order should be:
 
-1. timer ordering when both GNU Lisp timers and Rust timers are due
-2. GNU-Lisp-timer vs Rust-timer ordering once input priority is fixed
-3. `sleep-for` / `sit-for` parity once input and redisplay are involved
-4. chunked synchronous subprocess insertion/redisplay fidelity versus GNU
+1. GNU-Lisp-timer vs Rust-timer ordering once ordinary-vs-idle ordering is fixed
+2. the remaining `sleep-for` / `sit-for` parity details once redisplay and
+   pending input compete in the same cycle
+3. chunked synchronous subprocess insertion/redisplay fidelity versus GNU
    `callproc.c`
-5. focused differential coverage for the shared wait-path cases listed above
+4. focused differential coverage for the shared wait-path cases listed above
 
 ## Conclusion
 
