@@ -5624,15 +5624,36 @@ pub(crate) fn x_create_frame_impl(
     Ok(Value::Frame(fid.0))
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DeleteFrameHookMode {
-    RunImmediately,
-    DeferSafe,
+pub(crate) enum DeleteFrameMode {
+    Public { force_non_nil: bool },
+    Noelisp,
+}
+
+impl DeleteFrameMode {
+    fn runs_hooks_immediately(self) -> bool {
+        matches!(self, Self::Public { .. })
+    }
+
+    fn force_non_nil(self) -> bool {
+        match self {
+            Self::Public { force_non_nil } => force_non_nil,
+            Self::Noelisp => true,
+        }
+    }
+
+    fn bypasses_only_frame_check(self) -> bool {
+        matches!(self, Self::Noelisp)
+    }
+
+    fn allows_terminal_cascade(self) -> bool {
+        matches!(self, Self::Public { .. })
+    }
 }
 
 fn other_frames_in_state(
     eval: &super::eval::Context,
     deleting: crate::window::FrameId,
-    force_non_nil: bool,
+    include_invisible: bool,
 ) -> bool {
     eval.frames
         .frame_list()
@@ -5641,16 +5662,14 @@ fn other_frames_in_state(
         .any(|frame_id| {
             eval.frames
                 .get(frame_id)
-                .is_some_and(|frame| force_non_nil || frame.visible)
+                .is_some_and(|frame| include_invisible || frame.visible)
         })
 }
 
 pub(crate) fn delete_frame_owned(
     eval: &mut super::eval::Context,
     fid: crate::window::FrameId,
-    hook_mode: DeleteFrameHookMode,
-    force_non_nil: bool,
-    allow_terminal_cascade: bool,
+    mode: DeleteFrameMode,
 ) -> EvalResult {
     if eval.frames.get(fid).is_none() {
         return Ok(Value::Nil);
@@ -5661,28 +5680,22 @@ pub(crate) fn delete_frame_owned(
         .map(|frame| frame.terminal_id)
         .unwrap_or(crate::emacs_core::terminal::pure::TERMINAL_ID);
     let frame_value = Value::Frame(fid.0);
-    match hook_mode {
-        DeleteFrameHookMode::RunImmediately => {
-            let delete_hook = crate::emacs_core::hook_runtime::hook_symbol_by_name(
-                eval,
-                "delete-frame-functions",
-            );
-            let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
-                eval,
-                delete_hook,
-                &[frame_value],
-            )?;
-        }
-        DeleteFrameHookMode::DeferSafe => {
-            eval.queue_pending_safe_hook("delete-frame-functions", &[frame_value]);
-        }
+    if mode.runs_hooks_immediately() {
+        let delete_hook =
+            crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "delete-frame-functions");
+        let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
+            eval,
+            delete_hook,
+            &[frame_value],
+        )?;
+    } else {
+        eval.queue_pending_safe_hook("delete-frame-functions", &[frame_value]);
     }
     if eval.frames.get(fid).is_none() {
         return Ok(Value::Nil);
     }
-    if hook_mode != DeleteFrameHookMode::DeferSafe
-        && !other_frames_in_state(eval, fid, force_non_nil)
-    {
+    let force_non_nil = mode.force_non_nil();
+    if !mode.bypasses_only_frame_check() && !other_frames_in_state(eval, fid, force_non_nil) {
         return Err(signal(
             "error",
             vec![Value::string(if force_non_nil {
@@ -5700,7 +5713,7 @@ pub(crate) fn delete_frame_owned(
             .get(frame_id)
             .is_none_or(|frame| frame.terminal_id != terminal_id)
     });
-    if allow_terminal_cascade && terminal_is_empty && !eval.frames.frame_list().is_empty() {
+    if mode.allows_terminal_cascade() && terminal_is_empty && !eval.frames.frame_list().is_empty() {
         if let Some(terminal) =
             crate::emacs_core::terminal::pure::terminal_handle_value_for_id(terminal_id)
         {
@@ -5708,27 +5721,25 @@ pub(crate) fn delete_frame_owned(
                 eval,
                 crate::emacs_core::terminal::pure::terminal_handle_id(&terminal)
                     .expect("live terminal handle id"),
-                Value::True,
-                crate::emacs_core::terminal::pure::DeleteTerminalHookMode::RunImmediately,
+                crate::emacs_core::terminal::pure::DeleteTerminalMode::Public {
+                    force_non_nil: true,
+                },
             )?;
         }
     }
     eval.sync_keyboard_terminal_owner();
-    match hook_mode {
-        DeleteFrameHookMode::RunImmediately => {
-            let after_delete_hook = crate::emacs_core::hook_runtime::hook_symbol_by_name(
-                eval,
-                "after-delete-frame-functions",
-            );
-            let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
-                eval,
-                after_delete_hook,
-                &[frame_value],
-            )?;
-        }
-        DeleteFrameHookMode::DeferSafe => {
-            eval.queue_pending_safe_hook("after-delete-frame-functions", &[frame_value]);
-        }
+    if mode.runs_hooks_immediately() {
+        let after_delete_hook = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+            eval,
+            "after-delete-frame-functions",
+        );
+        let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
+            eval,
+            after_delete_hook,
+            &[frame_value],
+        )?;
+    } else {
+        eval.queue_pending_safe_hook("after-delete-frame-functions", &[frame_value]);
     }
     Ok(Value::Nil)
 }
@@ -5744,13 +5755,7 @@ pub(crate) fn builtin_delete_frame(
         resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?
     };
     let force_non_nil = args.get(1).copied().unwrap_or(Value::Nil).is_truthy();
-    delete_frame_owned(
-        eval,
-        fid,
-        DeleteFrameHookMode::RunImmediately,
-        force_non_nil,
-        true,
-    )
+    delete_frame_owned(eval, fid, DeleteFrameMode::Public { force_non_nil })
 }
 
 pub(crate) fn builtin_frame_window_state_change(

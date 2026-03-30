@@ -9,6 +9,8 @@ struct RecordingTerminalHost {
     log: Rc<RefCell<Vec<&'static str>>>,
 }
 
+struct FailingDeleteTerminalHost;
+
 impl TerminalHost for RecordingTerminalHost {
     fn suspend_tty(&mut self) -> Result<(), String> {
         self.log.borrow_mut().push("suspend");
@@ -23,6 +25,20 @@ impl TerminalHost for RecordingTerminalHost {
     fn delete_terminal(&mut self) -> Result<(), String> {
         self.log.borrow_mut().push("delete");
         Ok(())
+    }
+}
+
+impl TerminalHost for FailingDeleteTerminalHost {
+    fn suspend_tty(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resume_tty(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn delete_terminal(&mut self) -> Result<(), String> {
+        Err("terminal already disappeared".to_string())
     }
 }
 
@@ -421,6 +437,91 @@ fn delete_terminal_force_invokes_terminal_host_delete_hook() {
         Value::Nil
     );
     assert_eq!(log.borrow().as_slice(), &["delete"]);
+}
+
+#[test]
+fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
+    reset_terminal_thread_locals();
+    let mut eval = Context::new();
+    let scratch = eval.buffer_manager_mut().create_buffer("*scratch*");
+    eval.buffer_manager_mut().set_current(scratch);
+    let _frame =
+        eval.frame_manager_mut()
+            .create_frame_on_terminal("F1", TERMINAL_ID, 80, 25, scratch);
+    let forms = crate::emacs_core::parse_forms(
+        r#"
+(setq hook-log nil)
+(setq delete-terminal-functions
+      (list (lambda (term)
+              (setq hook-log
+                    (cons (list 'terminal (terminal-live-p term)) hook-log)))))
+(setq delete-frame-functions
+      (list (lambda (frame)
+              (setq hook-log
+                    (cons (list 'before (frame-live-p frame)) hook-log)))))
+(setq after-delete-frame-functions
+      (list (lambda (frame)
+              (setq hook-log
+                    (cons (list 'after (frame-live-p frame)) hook-log)))))
+"#,
+    )
+    .expect("parse delete-terminal noelisp setup");
+    for form in &forms {
+        eval.eval_expr(form)
+            .expect("install delete-terminal noelisp setup");
+    }
+
+    assert_eq!(
+        delete_terminal_noelisp_owned(&mut eval, TERMINAL_ID).unwrap(),
+        Value::Nil
+    );
+    assert!(eval.frame_manager().frame_list().is_empty());
+    assert!(
+        builtin_terminal_live_p(&mut eval, vec![terminal_handle_value()])
+            .unwrap()
+            .is_nil(),
+        "noelisp delete should mark the terminal dead even when it is the sole terminal"
+    );
+    assert_eq!(
+        eval.eval_expr(&crate::emacs_core::parse_forms("hook-log").expect("parse hook-log")[0])
+            .expect("hook-log before flush"),
+        Value::Nil
+    );
+
+    eval.flush_pending_safe_funcalls();
+
+    let post_flush = eval
+        .eval_expr(
+            &crate::emacs_core::parse_forms("(nreverse hook-log)")
+                .expect("parse nreverse hook-log")[0],
+        )
+        .expect("hook-log after flush");
+    assert_eq!(
+        format!("{}", post_flush),
+        "((after nil) (before nil) (terminal nil))"
+    );
+}
+
+#[test]
+fn delete_terminal_noelisp_ignores_host_delete_failures() {
+    reset_terminal_thread_locals();
+    configure_terminal_runtime(TerminalRuntimeConfig::interactive(
+        Some("xterm-256color".to_string()),
+        256,
+    ));
+    set_terminal_host(Box::new(FailingDeleteTerminalHost));
+
+    let mut eval = Context::new();
+    assert_eq!(
+        delete_terminal_noelisp_owned(&mut eval, TERMINAL_ID).unwrap(),
+        Value::Nil
+    );
+    assert!(
+        builtin_terminal_live_p(&mut eval, vec![terminal_handle_value()])
+            .unwrap()
+            .is_nil(),
+        "noelisp delete should finish even if the host is already gone"
+    );
 }
 
 #[test]

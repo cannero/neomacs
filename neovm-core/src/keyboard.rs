@@ -2444,10 +2444,19 @@ impl crate::emacs_core::eval::Context {
             }
             Err(crossbeam_channel::TryRecvError::Empty) => None,
             Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                self.command_loop.running = false;
+                self.handle_display_terminal_disconnect();
                 None
             }
         }
+    }
+
+    fn handle_display_terminal_disconnect(&mut self) {
+        self.input_rx = None;
+        let _ = crate::emacs_core::terminal::pure::delete_terminal_noelisp_owned(
+            self,
+            crate::emacs_core::terminal::pure::TERMINAL_ID,
+        );
+        self.request_shutdown(0, false);
     }
 
     fn handle_read_char_input_event(
@@ -2624,6 +2633,9 @@ impl crate::emacs_core::eval::Context {
                 }
                 continue;
             }
+            if !self.command_loop.running {
+                return Err(crate::emacs_core::error::signal("quit", vec![]));
+            }
 
             if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
                 self.timer_stop_idle();
@@ -2648,10 +2660,16 @@ impl crate::emacs_core::eval::Context {
                 }
                 continue;
             }
+            if !self.command_loop.running {
+                return Err(crate::emacs_core::error::signal("quit", vec![]));
+            }
 
             let rx = match self.input_rx {
                 Some(ref rx) => rx.clone(),
                 None => {
+                    if !self.command_loop.running {
+                        return Err(crate::emacs_core::error::signal("quit", vec![]));
+                    }
                     tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
                     return Ok(Some(Value::Nil));
                 }
@@ -2692,7 +2710,7 @@ impl crate::emacs_core::eval::Context {
                     continue;
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                    self.command_loop.running = false;
+                    self.handle_display_terminal_disconnect();
                     return Err(crate::emacs_core::error::signal("quit", vec![]));
                 }
             }

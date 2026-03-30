@@ -315,6 +315,24 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   owner helper so public `delete-terminal` and the internal deferred path stop
   drifting.
 
+- Internal terminal/frame ownership follow-up landed: NeoVM now models GNU's
+  three-way delete semantics explicitly instead of approximating them as
+  "bool force + deferred hooks". The frame/terminal owners now distinguish:
+  - public `nil` force
+  - public non-`nil` force
+  - internal `Qnoelisp`
+  That means sole-terminal / sole-frame checks are bypassed only for the
+  internal path, delete hooks are deferred only for the internal path, and the
+  terminal owner can finish teardown even if the device-specific host delete
+  callback fails because the terminal already disappeared.
+
+- Keyboard/input follow-up landed on top of that owner split: input-channel
+  disconnect now routes through the terminal owner's internal `Qnoelisp`
+  teardown path instead of only setting `command_loop.running = false`. That
+  brings NeoVM closer to GNU `keyboard.c`'s "terminal device terminated"
+  behavior: delete the terminal through the internal owner, queue the pending
+  safe hook calls, and then unwind the command loop.
+
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented
 - keep broadening subsystem-owned caller coverage instead of adding hook logic

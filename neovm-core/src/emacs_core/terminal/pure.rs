@@ -59,9 +59,28 @@ pub trait TerminalHost {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DeleteTerminalHookMode {
-    RunImmediately,
-    DeferSafe,
+pub(crate) enum DeleteTerminalMode {
+    Public { force_non_nil: bool },
+    Noelisp,
+}
+
+impl DeleteTerminalMode {
+    fn runs_hooks_immediately(self) -> bool {
+        matches!(self, Self::Public { .. })
+    }
+
+    fn bypasses_active_terminal_check(self) -> bool {
+        !matches!(
+            self,
+            Self::Public {
+                force_non_nil: false
+            }
+        )
+    }
+
+    fn ignore_host_delete_errors(self) -> bool {
+        matches!(self, Self::Noelisp)
+    }
 }
 
 struct TerminalRecord {
@@ -1055,12 +1074,11 @@ pub(crate) fn builtin_resume_tty(
 pub(crate) fn delete_terminal_owned(
     eval: &mut crate::emacs_core::eval::Context,
     terminal_id: u64,
-    force: Value,
-    hook_mode: DeleteTerminalHookMode,
+    mode: DeleteTerminalMode,
 ) -> EvalResult {
     let active_live_count =
         TERMINAL_MANAGER.with(|slot| slot.borrow().active_live_terminal_count());
-    if force.is_nil() && active_live_count <= 1 {
+    if !mode.bypasses_active_terminal_check() && active_live_count <= 1 {
         return Err(signal(
             "error",
             vec![Value::string(
@@ -1069,20 +1087,14 @@ pub(crate) fn delete_terminal_owned(
         ));
     }
     let terminal = terminal_handle_value_for_id(terminal_id).unwrap_or_else(terminal_handle_value);
-    match hook_mode {
-        DeleteTerminalHookMode::RunImmediately => {
-            let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
-                eval,
-                "delete-terminal-functions",
-            );
-            let _ =
-                crate::emacs_core::hook_runtime::safe_run_named_hook(eval, hook_sym, &[terminal])?;
-        }
-        DeleteTerminalHookMode::DeferSafe => {
-            eval.queue_pending_safe_hook("delete-terminal-functions", &[terminal]);
-        }
+    if mode.runs_hooks_immediately() {
+        let hook_sym =
+            crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "delete-terminal-functions");
+        let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(eval, hook_sym, &[terminal])?;
+    } else {
+        eval.queue_pending_safe_hook("delete-terminal-functions", &[terminal]);
     }
-    TERMINAL_MANAGER.with(|slot| {
+    let host_delete = TERMINAL_MANAGER.with(|slot| {
         let mut manager = slot.borrow_mut();
         let Some(host) = manager
             .get_mut(terminal_id)
@@ -1091,8 +1103,17 @@ pub(crate) fn delete_terminal_owned(
             return Ok(());
         };
         host.delete_terminal()
-            .map_err(|message| signal("error", vec![Value::string(message)]))
-    })?;
+    });
+    if let Err(message) = host_delete {
+        if mode.ignore_host_delete_errors() {
+            tracing::warn!(
+                "terminal owner: ignoring host delete failure during noelisp teardown: {}",
+                message
+            );
+        } else {
+            return Err(signal("error", vec![Value::string(message)]));
+        }
+    }
 
     let frames_to_delete = eval
         .frames
@@ -1108,9 +1129,7 @@ pub(crate) fn delete_terminal_owned(
         let _ = crate::emacs_core::window_cmds::delete_frame_owned(
             eval,
             frame_id,
-            crate::emacs_core::window_cmds::DeleteFrameHookMode::DeferSafe,
-            false,
-            false,
+            crate::emacs_core::window_cmds::DeleteFrameMode::Noelisp,
         )?;
     }
     delete_terminal_record(terminal_id);
@@ -1126,6 +1145,13 @@ pub(crate) fn delete_terminal_owned(
     Ok(Value::Nil)
 }
 
+pub(crate) fn delete_terminal_noelisp_owned(
+    eval: &mut crate::emacs_core::eval::Context,
+    terminal_id: u64,
+) -> EvalResult {
+    delete_terminal_owned(eval, terminal_id, DeleteTerminalMode::Noelisp)
+}
+
 /// (delete-terminal &optional TERMINAL FORCE) -> nil or error
 pub(crate) fn builtin_delete_terminal(
     eval: &mut crate::emacs_core::eval::Context,
@@ -1136,12 +1162,11 @@ pub(crate) fn builtin_delete_terminal(
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Ok(Value::Nil);
     };
-    let force = args.get(1).copied().unwrap_or(Value::Nil);
+    let force_non_nil = args.get(1).copied().unwrap_or(Value::Nil).is_truthy();
     delete_terminal_owned(
         eval,
         terminal_id,
-        force,
-        DeleteTerminalHookMode::RunImmediately,
+        DeleteTerminalMode::Public { force_non_nil },
     )
 }
 

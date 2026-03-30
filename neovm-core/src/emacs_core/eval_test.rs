@@ -854,6 +854,81 @@ fn read_char_close_requested_honors_throw_on_input_before_quit() {
 }
 
 #[test]
+fn read_char_disconnected_input_uses_noelisp_terminal_teardown() {
+    crate::emacs_core::terminal::pure::reset_terminal_thread_locals();
+    let mut ev = Context::new();
+    let scratch = ev.buffer_manager_mut().create_buffer("*scratch*");
+    ev.buffer_manager_mut().set_current(scratch);
+    let _frame = ev.frame_manager_mut().create_frame_on_terminal(
+        "F1",
+        crate::emacs_core::terminal::pure::TERMINAL_ID,
+        80,
+        25,
+        scratch,
+    );
+    let (tx, rx) = crossbeam_channel::unbounded::<crate::keyboard::InputEvent>();
+    ev.input_rx = Some(rx);
+    drop(tx);
+
+    let forms = parse_forms(
+        r#"
+(setq hook-log nil)
+(setq delete-terminal-functions
+      (list (lambda (term)
+              (setq hook-log
+                    (cons (list 'terminal (terminal-live-p term)) hook-log)))))
+(setq delete-frame-functions
+      (list (lambda (frame)
+              (setq hook-log
+                    (cons (list 'before (frame-live-p frame)) hook-log)))))
+(setq after-delete-frame-functions
+      (list (lambda (frame)
+              (setq hook-log
+                    (cons (list 'after (frame-live-p frame)) hook-log)))))
+"#,
+    )
+    .expect("parse disconnected input hook setup");
+    for form in &forms {
+        ev.eval_expr(form)
+            .expect("install disconnected input hook setup");
+    }
+
+    let flow = ev
+        .read_char()
+        .expect_err("disconnected input should unwind read_char");
+    assert!(matches!(flow, Flow::Signal(ref sig) if sig.symbol_name() == "quit"));
+    assert_eq!(
+        ev.shutdown_request().map(|request| request.exit_code),
+        Some(0)
+    );
+    assert!(ev.frame_manager().frame_list().is_empty());
+    assert!(
+        crate::emacs_core::terminal::pure::builtin_terminal_live_p(
+            &mut ev,
+            vec![crate::emacs_core::terminal::pure::terminal_handle_value()]
+        )
+        .unwrap()
+        .is_nil(),
+        "disconnected input should tear down the display terminal via noelisp delete"
+    );
+    assert_eq!(
+        ev.eval_expr(&parse_forms("hook-log").expect("parse hook-log")[0])
+            .expect("hook-log before flush"),
+        Value::Nil
+    );
+
+    ev.flush_pending_safe_funcalls();
+
+    let post_flush = ev
+        .eval_expr(&parse_forms("(nreverse hook-log)").expect("parse nreverse hook-log")[0])
+        .expect("hook-log after flush");
+    assert_eq!(
+        format!("{}", post_flush),
+        "((after nil) (before nil) (terminal nil))"
+    );
+}
+
+#[test]
 fn eval_list_form_throws_on_pending_host_input() {
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
