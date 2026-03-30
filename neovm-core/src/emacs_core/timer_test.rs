@@ -298,6 +298,7 @@ fn gnu_sit_for_matches_subr_el() {
 #[test]
 fn gnu_sit_for_interactive_timeout_returns_t() {
     let mut ev = gnu_subr_sit_for_eval();
+    ev.set_variable("noninteractive", Value::Nil);
     let (_tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
     let forms = super::super::parser::parse_forms("(sit-for 0.01 t)").expect("parse sit-for");
@@ -307,6 +308,48 @@ fn gnu_sit_for_interactive_timeout_returns_t() {
 
     assert!(result.is_truthy());
     assert!(start.elapsed() < Duration::from_millis(250));
+}
+
+#[test]
+fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
+    let mut ev = gnu_subr_sit_for_eval();
+    ev.set_variable("noninteractive", Value::Nil);
+    let setup = super::super::parser::parse_forms(
+        r#"(progn
+             (setq sit-for-pending-input-timer-fired nil)
+             (fset 'sit-for-pending-input-timer-callback
+                   (lambda ()
+                     (setq sit-for-pending-input-timer-fired 'done))))"#,
+    )
+    .expect("parse sit-for pending-input timer setup");
+    ev.eval_expr(&setup[0])
+        .expect("install sit-for pending-input timer setup");
+    ev.timers.add_timer(
+        0.0,
+        0.0,
+        Value::symbol("sit-for-pending-input-timer-callback"),
+        vec![],
+        false,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+    let forms = super::super::parser::parse_forms("(sit-for 0.5 t)").expect("parse sit-for");
+
+    let result = ev.eval(&forms[0]).expect("eval interactive sit-for");
+
+    assert!(result.is_nil());
+    assert!(
+        ev.eval_symbol("sit-for-pending-input-timer-fired")
+            .expect("timer callback flag")
+            .is_nil()
+    );
+    let event = ev.read_char().expect("keypress should remain available");
+    assert_eq!(event, Value::Int('a' as i64));
 }
 
 #[test]

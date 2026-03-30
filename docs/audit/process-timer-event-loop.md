@@ -197,6 +197,24 @@ and
 That closes the specific Phase 9 blocker where GNU `sit-for` would hang
 instead of returning `t` after the timeout elapsed.
 
+### `input-pending-p t` now gives already pending input priority over timers
+
+GNU `sit-for` first checks `detect_input_pending_run_timers`, which only runs
+timers when input is not already pending. If input is already available,
+`sit-for` returns `nil` immediately instead of firing timers first. See
+[dispnew.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/dispnew.c#L6957)
+and
+[keyboard.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/keyboard.c#L12009).
+
+Neomacs previously called `fire_pending_timers` at the start of
+`input-pending-p t`, before checking unread or staged input. That could make a
+due timer run even though GNU `sit-for` would have returned `nil` immediately
+because input was already pending. `input-pending-p` now checks pending input
+first, and only fires timers if no input is already available, in
+[reader.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/reader.rs#L1697).
+That closes the remaining Phase 9 bug where `sit-for` could run timers ahead
+of queued input.
+
 ### Timer ownership is still split between GNU-shaped Lisp timers and a Rust timer manager
 
 GNU’s ordinary and idle timers are part of the keyboard/event-loop contract.

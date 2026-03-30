@@ -72,10 +72,12 @@ Bad:
   timer merge ordering now follows `timer_check_2` more closely instead of
   servicing all ordinary timers before all idle timers. Interactive
   `read-event` / `read-char` timeouts now also flow through the shared wait
-  path, which restores GNU `sit-for` timeout behavior. The remaining Phase 9
-  risk is exact GNU ordering across GNU-vs-Rust timer sources and the
-  remaining `sleep-for` / `sit-for` redisplay/input edge cases, not the older
-  split-owner architecture.
+  path, which restores GNU `sit-for` timeout behavior, and
+  `input-pending-p t` now checks for already pending input before firing due
+  timers, which restores GNU `sit-for` early-return behavior in that case.
+  The remaining Phase 9 risk is exact GNU ordering across GNU-vs-Rust timer
+  sources and the remaining `sleep-for` / `sit-for` redisplay/input edge
+  cases, not the older split-owner architecture.
 
 ## Long-term ideal design
 

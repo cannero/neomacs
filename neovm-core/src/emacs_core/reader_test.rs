@@ -1263,6 +1263,45 @@ fn input_pending_p_ignores_focus_events_by_default() {
 }
 
 #[test]
+fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending() {
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq input-pending-timer-fired nil)
+             (fset 'input-pending-timer-callback
+                   (lambda () (setq input-pending-timer-fired 'done))))"#,
+    )
+    .expect("parse input-pending-p timer setup");
+    ev.eval_expr(&setup[0])
+        .expect("install input-pending-p timer setup");
+    ev.timers.add_timer(
+        0.0,
+        0.0,
+        Value::symbol("input-pending-timer-callback"),
+        vec![],
+        false,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+
+    let result = builtin_input_pending_p(&mut ev, vec![Value::True]).unwrap();
+    assert_eq!(result, Value::True);
+    assert!(
+        ev.eval_symbol("input-pending-timer-fired")
+            .expect("timer callback flag")
+            .is_nil()
+    );
+
+    let event = ev.read_char().expect("keypress should remain available");
+    assert_eq!(event, Value::Int('a' as i64));
+}
+
+#[test]
 fn input_pending_p_returns_t_when_quit_flag_is_set() {
     let mut ev = Context::new();
     ev.set_quit_flag_value(Value::True);

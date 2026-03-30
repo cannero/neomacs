@@ -1701,39 +1701,45 @@ pub(crate) fn read_key_sequence_options_from_args(
 ///
 /// Return non-nil when unread input, staged host input, or `quit-flag` is pending.
 /// `CHECK-TIMERS` is accepted and fires due timers before checking.
+fn input_pending_now(ctx: &crate::emacs_core::eval::Context, filter_events: bool) -> bool {
+    if peek_unread_command_event_in_state(&ctx.obarray, &[]).is_some() {
+        return true;
+    }
+
+    if ctx.command_loop.keyboard.has_pending_kboard_input() {
+        return true;
+    }
+
+    if !ctx.quit_flag_value().is_nil() {
+        return true;
+    }
+
+    ctx.command_loop
+        .keyboard
+        .pending_input_events
+        .iter()
+        .any(|event| ctx.input_event_counts_as_pending(event, filter_events))
+}
+
 pub(crate) fn builtin_input_pending_p(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("input-pending-p", &args, 1)?;
     ctx.sync_keyboard_terminal_owner();
+    ctx.sync_pending_resize_events();
+
+    let filter_events = ctx.input_pending_p_filters_events();
+    if input_pending_now(ctx, filter_events) {
+        return Ok(Value::True);
+    }
 
     if args.first().is_some_and(Value::is_truthy) {
         ctx.fire_pending_timers();
+        ctx.sync_pending_resize_events();
     }
 
-    ctx.sync_pending_resize_events();
-
-    if peek_unread_command_event_in_state(&ctx.obarray, &[]).is_some() {
-        return Ok(Value::True);
-    }
-
-    if ctx.command_loop.keyboard.has_pending_kboard_input() {
-        return Ok(Value::True);
-    }
-
-    if !ctx.quit_flag_value().is_nil() {
-        return Ok(Value::True);
-    }
-
-    let filter_events = ctx.input_pending_p_filters_events();
-    Ok(Value::bool(
-        ctx.command_loop
-            .keyboard
-            .pending_input_events
-            .iter()
-            .any(|event| ctx.input_event_counts_as_pending(event, filter_events)),
-    ))
+    Ok(Value::bool(input_pending_now(ctx, filter_events)))
 }
 
 // ---------------------------------------------------------------------------
