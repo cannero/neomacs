@@ -1553,6 +1553,54 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(1),
     );
     ctx.defsubr(
+        "name-last-kbd-macro",
+        super::kmacro::builtin_name_last_kbd_macro,
+        1,
+        Some(1),
+    );
+    ctx.defsubr(
+        "kmacro-name-last-macro",
+        super::kmacro::builtin_kmacro_name_last_macro,
+        1,
+        Some(1),
+    );
+    ctx.defsubr(
+        "defining-kbd-macro",
+        super::kmacro::builtin_defining_kbd_macro,
+        1,
+        Some(2),
+    );
+    ctx.defsubr(
+        "defining-kbd-macro-p",
+        super::kmacro::builtin_defining_kbd_macro_p,
+        0,
+        Some(0),
+    );
+    ctx.defsubr(
+        "executing-kbd-macro-p",
+        super::kmacro::builtin_executing_kbd_macro_p,
+        0,
+        Some(0),
+    );
+    ctx.defsubr(
+        "kmacro-set-counter",
+        super::kmacro::builtin_kmacro_set_counter,
+        1,
+        Some(1),
+    );
+    ctx.defsubr(
+        "kmacro-add-counter",
+        super::kmacro::builtin_kmacro_add_counter,
+        1,
+        Some(1),
+    );
+    ctx.defsubr(
+        "kmacro-set-format",
+        super::kmacro::builtin_kmacro_set_format,
+        1,
+        Some(1),
+    );
+    ctx.defsubr(
         "put-text-property",
         super::textprop::builtin_put_text_property,
         0,
@@ -7831,6 +7879,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         |_ctx, args| super::coding::builtin_text_quoting_style(args),
         0,
         Some(0),
+    );
+    ctx.defsubr(
+        "set-buffer-file-coding-system",
+        super::coding::builtin_set_buffer_file_coding_system,
+        1,
+        Some(3),
     );
 
     // -- CCL (eval-dependent) --

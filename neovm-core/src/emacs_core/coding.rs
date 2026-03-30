@@ -2171,6 +2171,47 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("process-coding-system-alist", Value::Nil);
 }
 
+/// `(set-buffer-file-coding-system CODING-SYSTEM &optional FORCE NOMODIFY)` --
+/// set the buffer-local `buffer-file-coding-system` variable.
+///
+/// CODING-SYSTEM is validated via the coding-system registry.  FORCE and
+/// NOMODIFY are accepted for arity compatibility but currently ignored
+/// (GNU uses them to control modification flag and EOL override behaviour).
+pub(crate) fn builtin_set_buffer_file_coding_system(
+    eval: &mut Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("set-buffer-file-coding-system", &args, 1)?;
+    expect_max_args("set-buffer-file-coding-system", &args, 3)?;
+
+    // Validate coding-system argument.
+    let cs_val = args[0];
+    if !cs_val.is_nil() {
+        match cs_val.as_symbol_name() {
+            Some(name) if is_known_or_derived_coding_system(&eval.coding_systems, name) => {}
+            Some(_) => {
+                return Err(signal("coding-system-error", vec![cs_val]));
+            }
+            None => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("symbolp"), cs_val],
+                ));
+            }
+        }
+    }
+
+    // Set buffer-local buffer-file-coding-system on the current buffer.
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    eval.buffers
+        .set_buffer_local_property(current_id, "buffer-file-coding-system", cs_val);
+
+    Ok(Value::Nil)
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================

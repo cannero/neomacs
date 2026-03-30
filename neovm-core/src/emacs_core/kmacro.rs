@@ -412,7 +412,6 @@ pub(crate) fn builtin_kmacro_name_last_macro(
 }
 
 /// (defining-kbd-macro-p) -> non-nil when keyboard macro recording is active.
-#[cfg(test)]
 pub(crate) fn builtin_defining_kbd_macro_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -424,7 +423,6 @@ pub(crate) fn builtin_defining_kbd_macro_p(
 }
 
 /// (executing-kbd-macro-p) -> non-nil when keyboard macro execution is active.
-#[cfg(test)]
 pub(crate) fn builtin_executing_kbd_macro_p(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -440,7 +438,6 @@ pub(crate) fn builtin_executing_kbd_macro_p(
 }
 
 /// (last-kbd-macro) -> last recorded macro vector or nil.
-#[cfg(test)]
 pub(crate) fn builtin_last_kbd_macro(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -455,7 +452,6 @@ pub(crate) fn builtin_last_kbd_macro(
 /// (kmacro-p OBJECT) -> non-nil when OBJECT is a keyboard macro value.
 ///
 /// Compatibility subset: accepts vector and string macro encodings.
-#[cfg(test)]
 pub(crate) fn builtin_kmacro_p(args: Vec<Value>) -> EvalResult {
     expect_args("kmacro-p", &args, 1)?;
     Ok(Value::bool(matches!(
@@ -465,7 +461,6 @@ pub(crate) fn builtin_kmacro_p(args: Vec<Value>) -> EvalResult {
 }
 
 /// (kmacro-set-counter COUNTER &optional FORMAT-START) -> nil
-#[cfg(test)]
 pub(crate) fn builtin_kmacro_set_counter(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -477,7 +472,6 @@ pub(crate) fn builtin_kmacro_set_counter(
 }
 
 /// (kmacro-add-counter DELTA) -> nil
-#[cfg(test)]
 pub(crate) fn builtin_kmacro_add_counter(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -488,7 +482,6 @@ pub(crate) fn builtin_kmacro_add_counter(
 }
 
 /// (kmacro-set-format FORMAT) -> nil
-#[cfg(test)]
 pub(crate) fn builtin_kmacro_set_format(
     eval: &mut super::eval::Context,
     args: Vec<Value>,

@@ -910,6 +910,9 @@ impl Buffer {
                 None => RuntimeBindingValue::Bound(Value::Nil),
             });
         }
+        if name == "enable-multibyte-characters" {
+            return Some(RuntimeBindingValue::Bound(Value::bool(self.multibyte)));
+        }
         self.locals.raw_binding(name)
     }
 
@@ -1899,7 +1902,16 @@ impl BufferManager {
     }
 
     pub fn set_buffer_multibyte_flag(&mut self, id: BufferId, flag: bool) -> Option<()> {
-        self.buffers.get_mut(&id)?.multibyte = flag;
+        let buf = self.buffers.get_mut(&id)?;
+        buf.multibyte = flag;
+        buf.set_buffer_local(
+            "enable-multibyte-characters",
+            if flag {
+                crate::emacs_core::value::Value::True
+            } else {
+                crate::emacs_core::value::Value::Nil
+            },
+        );
         Some(())
     }
 
