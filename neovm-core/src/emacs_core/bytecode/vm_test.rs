@@ -56,7 +56,7 @@ fn with_vm_eval_state<R>(
     lexical: bool,
     f: impl FnOnce(Result<Value, EvalError>, &Context) -> R,
 ) -> R {
-    with_vm_eval_in_context(Context::new_vm_harness(), src, lexical, f)
+    with_vm_eval_in_context(Context::new_vm_runtime_harness(), src, lexical, f)
 }
 
 fn with_vm_eval_full_context_state<R>(
@@ -80,7 +80,7 @@ fn vm_eval_lexical_str(src: &str) -> String {
 }
 
 fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     init(&mut eval);
     let forms = parse_forms(src).expect("parse");
     let mut compiler = Compiler::new(false);

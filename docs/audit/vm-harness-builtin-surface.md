@@ -230,6 +230,10 @@ Until that is done, Neomacs's VM runtime still differs from GNU Emacs in a
 fundamental way: bytecode is not running against the same public callable
 surface as the ordinary evaluator.
 
+Detailed implementation plan:
+
+- `docs/plans/2026-03-30-vm-harness-runtime-unification.md`
+
 ## Deep Design Recommendation
 
 The current design is wrong in two different directions at once:

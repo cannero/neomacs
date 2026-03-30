@@ -1404,7 +1404,19 @@ impl Context {
     }
 
     #[cfg(test)]
+    pub(crate) fn new_vm_runtime_harness() -> Self {
+        // GNU bytecode executes inside the same callable runtime surface as the
+        // ordinary evaluator. Keep the default VM harness on that full surface.
+        Self::new()
+    }
+
+    #[cfg(test)]
     pub(crate) fn new_vm_harness() -> Self {
+        Self::new_vm_runtime_harness()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_minimal_vm_harness() -> Self {
         let mut ev = Self::new_inner(true);
         ev.obarray = Obarray::new();
         super::errors::init_standard_errors(&mut ev.obarray);

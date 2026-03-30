@@ -331,7 +331,7 @@ fn signal_nil_error_object_with_invalid_symbol_reports_generic_invalid_error() {
 #[test]
 fn evaluator_drop_clears_owned_thread_locals() {
     {
-        let mut ev = Context::new_vm_harness();
+        let mut ev = Context::new_minimal_vm_harness();
         assert!(std::ptr::eq(
             crate::emacs_core::intern::current_interner_ptr(),
             &mut *ev.interner,
