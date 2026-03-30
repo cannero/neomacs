@@ -36,6 +36,13 @@ pub struct LispHeap {
     stack_bottom: *const u8,
 }
 
+// `stacker` can move deep recursion onto a separate stack segment. When that
+// happens, the numeric address range between the captured thread stack-bottom
+// and the current stack pointer is not a single readable mapping, so walking
+// it conservatively can segfault. Keep the safety-net narrowly bounded and
+// fall back to explicit roots outside that window.
+const MAX_CONSERVATIVE_STACK_SCAN_BYTES: usize = 1024 * 1024;
+
 impl LispHeap {
     pub fn new() -> Self {
         Self {
@@ -223,13 +230,9 @@ impl LispHeap {
         // Conservative stack scan — catch any roots missed by explicit
         // enumeration, including Values in Rust local variables.
         unsafe {
-            let stack_top = Self::current_stack_ptr();
-            let (lo, hi) = if self.stack_bottom < stack_top {
-                (self.stack_bottom, stack_top)
-            } else {
-                (stack_top, self.stack_bottom)
-            };
-            self.scan_stack_conservative(lo, hi);
+            if let Some((lo, hi)) = self.conservative_stack_scan_bounds() {
+                self.scan_stack_conservative(lo, hi);
+            }
         }
         // Drain the gray queue (fast — only processes newly-discovered items).
         self.mark_all();
@@ -654,8 +657,8 @@ impl LispHeap {
         ptr = (ptr + 3) & !3;
 
         while ptr + 8 <= end {
-            let index = *(ptr as *const u32);
-            let generation = *((ptr + 4) as *const u32);
+            let index = unsafe { *(ptr as *const u32) };
+            let generation = unsafe { *((ptr + 4) as *const u32) };
 
             // Check if this looks like a valid, live ObjId
             if index < heap_len {
@@ -686,11 +689,15 @@ impl LispHeap {
         let mut sp: *const u8;
         #[cfg(target_arch = "x86_64")]
         {
-            std::arch::asm!("mov {}, rsp", out(reg) sp, options(nomem, nostack));
+            unsafe {
+                std::arch::asm!("mov {}, rsp", out(reg) sp, options(nomem, nostack));
+            }
         }
         #[cfg(target_arch = "aarch64")]
         {
-            std::arch::asm!("mov {}, sp", out(reg) sp, options(nomem, nostack));
+            unsafe {
+                std::arch::asm!("mov {}, sp", out(reg) sp, options(nomem, nostack));
+            }
         }
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
         {
@@ -699,6 +706,23 @@ impl LispHeap {
             sp = &marker as *const usize as *const u8;
         }
         sp
+    }
+
+    unsafe fn conservative_stack_scan_bounds(&self) -> Option<(*const u8, *const u8)> {
+        if self.stack_bottom.is_null() {
+            return None;
+        }
+        let stack_top = unsafe { Self::current_stack_ptr() };
+        let (lo, hi) = if self.stack_bottom < stack_top {
+            (self.stack_bottom, stack_top)
+        } else {
+            (stack_top, self.stack_bottom)
+        };
+        let span = (hi as usize).saturating_sub(lo as usize);
+        if span == 0 || span > MAX_CONSERVATIVE_STACK_SCAN_BYTES {
+            return None;
+        }
+        Some((lo, hi))
     }
 
     /// Collect garbage. `roots` must yield every Value that is reachable.
@@ -730,13 +754,9 @@ impl LispHeap {
         // explicit enumeration. Scans the current thread's stack for
         // anything that looks like a valid ObjId and marks it.
         unsafe {
-            let stack_top = Self::current_stack_ptr();
-            let (lo, hi) = if self.stack_bottom < stack_top {
-                (self.stack_bottom, stack_top)
-            } else {
-                (stack_top, self.stack_bottom)
-            };
-            self.scan_stack_conservative(lo, hi);
+            if let Some((lo, hi)) = self.conservative_stack_scan_bounds() {
+                self.scan_stack_conservative(lo, hi);
+            }
         }
         // Mark any additional objects found by stack scan
         self.mark_all();
