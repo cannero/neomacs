@@ -75,9 +75,12 @@ Bad:
   path, which restores GNU `sit-for` timeout behavior, and
   `input-pending-p t` now checks for already pending input before firing due
   timers, which restores GNU `sit-for` early-return behavior in that case.
-  The remaining Phase 9 risk is exact GNU ordering across GNU-vs-Rust timer
-  sources and the remaining `sleep-for` / `sit-for` redisplay/input edge
-  cases, not the older split-owner architecture.
+  The remaining Phase 9 risk is narrower now: Rust `TimerManager` timers are
+  still internal scaffolding rather than a published GNU-visible timer API, so
+  the real compatibility question is whether those internal timers can still
+  perturb GNU Lisp timer/process/input ordering inside the shared wait path,
+  plus the remaining `sleep-for` / `sit-for` redisplay/input edge cases, not
+  the older split-owner architecture.
 
 ## Long-term ideal design
 
@@ -97,7 +100,7 @@ The ideal design is:
 - Audit process filters, sentinels, timer firing, and
   `accept-process-output` ordering against GNU.
 - Keep the Phase 9 follow-up focused on remaining ordering gaps:
-  GNU-vs-Rust timer ordering inside the shared wait path,
+  internal Rust timer interaction inside the shared wait path,
   and the remaining `sleep-for` / `sit-for` parity details around
   redisplay/input competition.
 - Re-study GNU `thread.c` before changing `threads.rs`; the current simulated

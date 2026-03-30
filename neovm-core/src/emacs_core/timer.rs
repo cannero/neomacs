@@ -611,10 +611,6 @@ pub(crate) fn builtin_timer_activate(
 /// subprocess filters/sentinels and timers run with the same ownership as
 /// other event-loop waits.
 pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    eprintln!(
-        "sleep-for called: args={:?}",
-        args.iter().map(|v| format!("{}", v)).collect::<Vec<_>>()
-    );
     expect_min_args("sleep-for", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(

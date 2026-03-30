@@ -58,8 +58,12 @@ The equivalent Neomacs ownership is substantially more unified now:
   [keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L2344)
 
 The remaining design difference is narrower: Neomacs still has both GNU-shaped
-Lisp timers and a Rust `TimerManager`, so final GNU parity depends on them
-sharing one ordering policy inside that wait path.
+Lisp timers and a Rust `TimerManager`, but the Rust timer surface is currently
+an internal compatibility layer rather than a published Lisp-visible timer
+API. Final GNU parity therefore depends less on public timer semantics than on
+making sure those internal timers do not perturb the observable ordering of
+GNU Lisp timers, process callbacks, or input wakeups inside the shared wait
+path.
 
 ## Confirmed Findings
 
@@ -81,8 +85,8 @@ That closed the earlier starvation bug and the older `PROCESS` /
 `JUST-THIS-ONE` mismatch.
 
 The remaining GNU risk is narrower now: exact ordering when GNU Lisp timers,
-Rust timers, process filters, sentinels, and input wakeups are all due in the
-same wait cycle is not yet locked down by differential coverage.
+internal Rust timers, process filters, sentinels, and input wakeups are all
+due in the same wait cycle is not yet locked down by differential coverage.
 
 ### GNU ordinary and idle timer ordering now follows `timer_check_2` more closely
 
@@ -225,9 +229,19 @@ Neomacs currently has two timer worlds:
 - Rust `TimerManager` entries in
   [timer.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/timer.rs#L20)
 
-This split may be acceptable as a migration step, but it is not yet GNU-like
-ownership. Event-loop semantics are only GNU-compatible if both timer surfaces
-are serviced from the same wait path with the same ordering rules.
+This split is acceptable as migration scaffolding because the Rust timer
+surface is not currently published as a GNU-visible Lisp API: the
+`run-at-time` / `run-with-timer` / `run-with-idle-timer` helpers in
+[timer.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/timer.rs#L467)
+exist for compatibility and tests, but are intentionally not registered as
+builtins in
+[builtins/mod.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/builtins/mod.rs#L1434)
+so that GNU `timer.el` remains the public timer owner.
+
+So the remaining GNU risk is narrower than a full “two public timer APIs”
+problem. The important constraint is that internal Rust timers must not
+perturb the observable ordering of GNU Lisp timers, process callbacks, input
+wakeups, or `sit-for` / `accept-process-output` behavior.
 
 ### Synchronous subprocess ownership is now mostly `callproc.c`-shaped
 

@@ -2667,14 +2667,6 @@ impl crate::emacs_core::eval::Context {
                 }
                 timeout = Some(timeout.map_or(remaining, |current| current.min(remaining)));
             }
-            if cfg!(test) {
-                eprintln!(
-                    "read_char wait timeout={:?} idle={:?}",
-                    timeout,
-                    self.current_idle_duration()
-                );
-            }
-
             self.waiting_for_user_input = true;
             let wait_result = if let Some(timeout) = timeout {
                 rx.recv_timeout(timeout)
@@ -2686,23 +2678,12 @@ impl crate::emacs_core::eval::Context {
 
             match wait_result {
                 Ok(event) => {
-                    if cfg!(test) {
-                        eprintln!("read_char recv event={:?}", event);
-                    }
                     self.timer_stop_idle();
                     if let Some(value) = self.handle_read_char_input_event(event)? {
                         return Ok(Some(value));
                     }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                    if cfg!(test) {
-                        eprintln!(
-                            "read_char timeout idle={:?} ordinary={:?} idle-timer={:?}",
-                            self.current_idle_duration(),
-                            self.next_ordinary_gnu_timer_timeout(),
-                            self.next_idle_gnu_timer_timeout()
-                        );
-                    }
                     if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
                         self.timer_stop_idle();
                         return Ok(None);
