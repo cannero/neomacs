@@ -44,6 +44,12 @@ const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
 const EVAL_STACK_SEGMENT: usize = 32 * 1024 * 1024;
 const NAMED_CALL_CACHE_CAPACITY: usize = 8;
 
+#[derive(Clone, Debug)]
+struct ExecutingKbdMacroRuntimeScope {
+    snapshot: crate::keyboard::ExecutingKbdMacroRuntimeSnapshot,
+    real_this_command: Value,
+}
+
 /// A single entry on the specpdl (special binding stack).
 /// Matches GNU Emacs's `union specbinding` SPECPDL_LET / SPECPDL_LET_LOCAL.
 #[derive(Clone, Debug)]
@@ -2393,6 +2399,7 @@ impl Context {
         obarray.set_symbol_value("defining-kbd-macro", Value::Nil);
         obarray.set_symbol_value("executing-kbd-macro", Value::Nil);
         obarray.set_symbol_value("executing-kbd-macro-index", Value::Int(0));
+        obarray.set_symbol_value("kbd-macro-termination-hook", Value::Nil);
         obarray.set_symbol_value("command-history", Value::Nil);
         obarray.set_symbol_value("extended-command-history", Value::Nil);
         obarray.set_symbol_value("completion-ignore-case", Value::Nil);
@@ -4088,23 +4095,52 @@ impl Context {
             && self.command_loop.keyboard.kboard.unread_events.is_empty()
     }
 
-    pub(crate) fn execute_kbd_macro_iteration_via_command_loop(
-        &mut self,
-        macro_events: Vec<Value>,
-    ) -> EvalResult {
+    pub(crate) fn execute_kbd_macro_iteration_via_command_loop(&mut self) -> EvalResult {
         let saved_running = self.command_loop.running;
-        let saved_state = self.snapshot_executing_kbd_macro_runtime();
         if !saved_running {
             self.command_loop.running = true;
         }
-        self.begin_executing_kbd_macro_runtime(macro_events);
         self.assign("prefix-arg", Value::Nil);
         let result = self.command_loop_2();
-        self.restore_executing_kbd_macro_runtime(saved_state.0, saved_state.1);
         if !saved_running && self.command_loop.running {
             self.command_loop.running = false;
         }
         result
+    }
+
+    pub(crate) fn with_executing_kbd_macro_runtime<F>(
+        &mut self,
+        macro_events: Vec<Value>,
+        run: F,
+    ) -> EvalResult
+    where
+        F: FnOnce(&mut Self) -> EvalResult,
+    {
+        let scope = ExecutingKbdMacroRuntimeScope {
+            snapshot: self.snapshot_executing_kbd_macro_runtime(),
+            real_this_command: self.eval_symbol("real-this-command").unwrap_or(Value::Nil),
+        };
+        self.begin_executing_kbd_macro_runtime(macro_events);
+        let result = run(self);
+        let cleanup = self.finish_executing_kbd_macro_runtime_scope(scope);
+        match cleanup {
+            Ok(Value::Nil) => result,
+            Ok(other) => Ok(other),
+            Err(flow) => Err(flow),
+        }
+    }
+
+    pub(crate) fn reset_executing_kbd_macro_runtime_iteration(&mut self) {
+        self.set_executing_kbd_macro_runtime_index(0);
+    }
+
+    fn finish_executing_kbd_macro_runtime_scope(
+        &mut self,
+        scope: ExecutingKbdMacroRuntimeScope,
+    ) -> EvalResult {
+        self.restore_executing_kbd_macro_runtime(scope.snapshot);
+        self.assign("real-this-command", scope.real_this_command);
+        self.run_hook_if_bound("kbd-macro-termination-hook")
     }
 
     fn pending_gnu_timer(timer: Value) -> Option<PendingGnuTimer> {

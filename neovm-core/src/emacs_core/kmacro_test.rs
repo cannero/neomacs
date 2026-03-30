@@ -627,6 +627,115 @@ fn test_end_kbd_macro_repeat_executes_remaining_iterations() {
 }
 
 #[test]
+fn test_execute_kbd_macro_runs_termination_hook_after_restoring_runtime_state() {
+    let mut eval = Context::new();
+    let forms = parse_forms(
+        r#"(progn
+             (setq kmacro-term-ok nil)
+             (setq real-this-command 'outer-real)
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (fset 'kmacro-term-hook
+                   (lambda ()
+                     (setq kmacro-term-ok
+                           (and (null executing-kbd-macro)
+                                (= executing-kbd-macro-index 0)
+                                (eq real-this-command 'outer-real)))))
+             (setq kbd-macro-termination-hook '(kmacro-term-hook))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g "a" (lambda () (interactive) 'ok)))
+             (execute-kbd-macro "a"))"#,
+    )
+    .expect("parse");
+    let _ = eval.eval_forms(&forms);
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-term-ok").expect("kmacro-term-ok"),
+        Value::True
+    );
+    assert_eq!(
+        eval.eval_symbol("real-this-command")
+            .expect("real-this-command"),
+        Value::symbol("outer-real")
+    );
+}
+
+#[test]
+fn test_execute_kbd_macro_runs_termination_hook_after_error() {
+    let mut eval = Context::new();
+    let forms = parse_forms(
+        r#"(progn
+             (setq kmacro-error-term-ok nil)
+             (setq real-this-command 'outer-real)
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (fset 'kmacro-error-term-hook
+                   (lambda ()
+                     (setq kmacro-error-term-ok
+                           (and (null executing-kbd-macro)
+                                (= executing-kbd-macro-index 0)
+                                (eq real-this-command 'outer-real)))))
+             (setq kbd-macro-termination-hook '(kmacro-error-term-hook))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g "a" (lambda () (interactive) (error "boom"))))
+             (condition-case nil
+                 (execute-kbd-macro "a")
+               (error nil)))"#,
+    )
+    .expect("parse");
+    let _ = eval.eval_forms(&forms);
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-error-term-ok")
+            .expect("kmacro-error-term-ok"),
+        Value::True
+    );
+    assert_eq!(
+        eval.eval_symbol("real-this-command")
+            .expect("real-this-command"),
+        Value::symbol("outer-real")
+    );
+}
+
+#[test]
+fn test_call_last_kbd_macro_preserves_gnu_real_this_command_shape() {
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq kmacro-call-last-term-ok nil)
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g "a" (lambda () (interactive) 'ok)))
+             (start-kbd-macro nil nil)
+             (store-kbd-macro-event ?a)
+             (end-kbd-macro)
+             (setq real-this-command 'outer-real)
+             (fset 'kmacro-call-last-term-hook
+                   (lambda ()
+                     (setq kmacro-call-last-term-ok
+                           (and (null executing-kbd-macro)
+                                (= executing-kbd-macro-index 0)
+                                (equal real-this-command last-kbd-macro)))))
+             (setq kbd-macro-termination-hook '(kmacro-call-last-term-hook))
+             (call-last-kbd-macro))"#,
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-call-last-term-ok")
+            .expect("kmacro-call-last-term-ok"),
+        Value::True
+    );
+    assert_eq!(
+        eval.eval_symbol("real-this-command")
+            .expect("real-this-command"),
+        eval.eval_symbol("last-kbd-macro").expect("last-kbd-macro")
+    );
+}
+
+#[test]
 fn test_last_kbd_macro_builtin() {
     use super::super::eval::Context;
 

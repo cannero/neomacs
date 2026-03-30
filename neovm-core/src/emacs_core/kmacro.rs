@@ -185,10 +185,10 @@ fn execute_kbd_macro_iteration(
     macro_events: &[Value],
 ) -> EvalResult {
     if macro_events_require_legacy_direct_execution(eval, macro_events) {
-        return execute_kbd_macro_events_with_legacy_direct_runtime_state(eval, macro_events);
+        return execute_kbd_macro_iteration_with_legacy_direct_runtime_state(eval, macro_events);
     }
 
-    eval.execute_kbd_macro_iteration_via_command_loop(macro_events.to_vec())
+    eval.execute_kbd_macro_iteration_via_command_loop()
 }
 
 fn execute_kbd_macro_events_with_runtime_state(
@@ -197,27 +197,34 @@ fn execute_kbd_macro_events_with_runtime_state(
     count: i64,
     loopfunc: Value,
 ) -> EvalResult {
-    let mut repeat = count;
-    loop {
-        if !loopfunc.is_nil() {
-            let cont = eval.apply(loopfunc, vec![])?;
-            if !cont.is_truthy() {
+    eval.with_executing_kbd_macro_runtime(macro_events.to_vec(), |eval| {
+        let mut repeat = count;
+        let mut success_count = 0usize;
+        loop {
+            eval.reset_executing_kbd_macro_runtime_iteration();
+
+            if !loopfunc.is_nil() {
+                let cont = eval.apply(loopfunc, vec![])?;
+                if !cont.is_truthy() {
+                    break;
+                }
+            }
+
+            execute_kbd_macro_iteration(eval, macro_events)?;
+            success_count += 1;
+            eval.note_executing_kbd_macro_iteration(success_count);
+
+            if repeat == 0 {
+                continue;
+            }
+            repeat -= 1;
+            if repeat == 0 {
                 break;
             }
         }
 
-        execute_kbd_macro_iteration(eval, macro_events)?;
-
-        if repeat == 0 {
-            continue;
-        }
-        repeat -= 1;
-        if repeat == 0 {
-            break;
-        }
-    }
-
-    Ok(Value::Nil)
+        Ok(Value::Nil)
+    })
 }
 
 fn macro_events_require_legacy_direct_execution(
@@ -233,20 +240,19 @@ fn macro_events_require_legacy_direct_execution(
         .any(|event| matches!(event, Value::Symbol(_)) && eval.function_value_is_callable(event))
 }
 
-fn execute_kbd_macro_events_with_legacy_direct_runtime_state(
+fn execute_kbd_macro_iteration_with_legacy_direct_runtime_state(
     eval: &mut super::eval::Context,
     macro_events: &[Value],
 ) -> EvalResult {
-    let saved_state = eval.snapshot_executing_kbd_macro_runtime();
-    eval.begin_executing_kbd_macro_runtime(macro_events.to_vec());
-    let result = execute_kbd_macro_events(
+    execute_kbd_macro_events(
         eval.obarray.symbol_function("self-insert-command").cloned(),
         macro_events,
         1,
-        |func, call_args| eval.apply(func, call_args),
-    );
-    eval.restore_executing_kbd_macro_runtime(saved_state.0, saved_state.1);
-    result
+        |index, func, call_args| {
+            eval.set_executing_kbd_macro_runtime_index(index);
+            eval.apply(func, call_args)
+        },
+    )
 }
 
 fn start_kbd_macro_impl(
@@ -302,18 +308,19 @@ pub(crate) fn execute_kbd_macro_events(
     self_insert_command: Option<Value>,
     macro_events: &[Value],
     count: i64,
-    mut call: impl FnMut(Value, Vec<Value>) -> EvalResult,
+    mut call: impl FnMut(usize, Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     for _ in 0..count {
-        for event in macro_events {
+        for (idx, event) in macro_events.iter().enumerate() {
+            let index = idx + 1;
             match event {
                 Value::Symbol(id) => {
                     let func = Value::symbol(resolve_sym(*id));
-                    let _ = call(func, vec![])?;
+                    let _ = call(index, func, vec![])?;
                 }
                 _ => {
                     if let Some(func) = self_insert_command {
-                        let _ = call(func, vec![Value::Int(1)])?;
+                        let _ = call(index, func, vec![Value::Int(1)])?;
                     }
                 }
             }
@@ -341,9 +348,7 @@ pub(crate) fn builtin_start_kbd_macro(
 
 /// (end-kbd-macro &optional REPEAT LOOPFUNC) -> nil
 ///
-/// Stop recording a keyboard macro.  Signals an error if not currently
-/// recording.  The optional REPEAT argument is accepted for compatibility
-/// but ignored in this implementation.
+/// Stop recording a keyboard macro and optionally replay it.
 pub(crate) fn builtin_end_kbd_macro(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -366,9 +371,7 @@ pub(crate) fn builtin_end_kbd_macro(
 
 /// (call-last-kbd-macro &optional REPEAT LOOPFUNC) -> nil
 ///
-/// Execute the last keyboard macro.  Each recorded event is passed to
-/// the evaluator via `funcall` on `execute-kbd-macro-event` if defined,
-/// otherwise events are evaluated directly.
+/// Execute the last keyboard macro.
 pub(crate) fn builtin_call_last_kbd_macro(
     eval: &mut super::eval::Context,
     args: Vec<Value>,

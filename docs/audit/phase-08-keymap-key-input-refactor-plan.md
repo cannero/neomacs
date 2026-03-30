@@ -99,6 +99,26 @@ So the keymap/input audit remains:
 - modifier canonicalization is still duplicated and not GNU-canonical
 - echo-keystrokes timing/help behavior is still not GNU-shaped
 
+### Latest kmacro ownership progress
+
+The latest keyboard-macro refactors moved another GNU `macros.c` ownership
+boundary into the keyboard runtime:
+
+- live recording/playback state now lives on the keyboard runtime rather than
+  higher-level kmacro metadata
+- append replay, repeat counts, and command-loop playback now go through the
+  shared macro runner
+- macro teardown now restores outer execution state and runs
+  `kbd-macro-termination-hook` from one shared low-level path, closer to GNU
+  `Fexecute_kbd_macro` plus `pop_kbd_macro`
+
+That means the remaining kmacro gaps are narrower:
+
+- compatibility-only callable-symbol macro playback still exists as a
+  temporary non-GNU path
+- the full command-loop/input ownership for every macro event shape is still
+  not complete
+
 ## Deep Refactor Architecture
 
 The rest of Phase 8 should not be "fix one behavior at a time".  It should

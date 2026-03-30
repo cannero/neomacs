@@ -725,6 +725,14 @@ pub struct KBoard {
     pub executing_kbd_macro: Option<Vec<Value>>,
     /// Index into executing keyboard macro.
     pub kbd_macro_index: usize,
+    /// Number of successful iterations for the innermost executing macro.
+    pub executing_kbd_macro_iterations: usize,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ExecutingKbdMacroRuntimeSnapshot {
+    pub events: Option<Vec<Value>>,
+    pub index: usize,
 }
 
 impl KBoard {
@@ -745,6 +753,7 @@ impl KBoard {
             last_kbd_macro: None,
             executing_kbd_macro: None,
             kbd_macro_index: 0,
+            executing_kbd_macro_iterations: 0,
         }
     }
 
@@ -886,11 +895,35 @@ impl KBoard {
     pub fn begin_executing_kbd_macro(&mut self, events: Vec<Value>) {
         self.executing_kbd_macro = Some(events);
         self.kbd_macro_index = 0;
+        self.executing_kbd_macro_iterations = 0;
     }
 
     pub fn finish_executing_kbd_macro(&mut self) {
         self.executing_kbd_macro = None;
         self.kbd_macro_index = 0;
+    }
+
+    pub(crate) fn snapshot_executing_kbd_macro_runtime(&self) -> ExecutingKbdMacroRuntimeSnapshot {
+        ExecutingKbdMacroRuntimeSnapshot {
+            events: self.executing_kbd_macro.clone(),
+            index: self.kbd_macro_index,
+        }
+    }
+
+    pub(crate) fn restore_executing_kbd_macro_runtime(
+        &mut self,
+        snapshot: ExecutingKbdMacroRuntimeSnapshot,
+    ) {
+        self.executing_kbd_macro = snapshot.events;
+        self.kbd_macro_index = snapshot.index;
+    }
+
+    pub(crate) fn set_executing_kbd_macro_index(&mut self, index: usize) {
+        self.kbd_macro_index = index;
+    }
+
+    pub(crate) fn note_executing_kbd_macro_iteration(&mut self, success_count: usize) {
+        self.executing_kbd_macro_iterations = success_count;
     }
 }
 
@@ -3416,24 +3449,37 @@ impl crate::emacs_core::eval::Context {
         self.sync_keyboard_macro_runtime_vars();
     }
 
-    pub(crate) fn snapshot_executing_kbd_macro_runtime(&self) -> (Option<Vec<Value>>, usize) {
-        (
-            self.command_loop
-                .keyboard
-                .kboard
-                .executing_kbd_macro
-                .clone(),
-            self.command_loop.keyboard.kboard.kbd_macro_index,
-        )
+    pub(crate) fn snapshot_executing_kbd_macro_runtime(&self) -> ExecutingKbdMacroRuntimeSnapshot {
+        self.command_loop
+            .keyboard
+            .kboard
+            .snapshot_executing_kbd_macro_runtime()
     }
 
     pub(crate) fn restore_executing_kbd_macro_runtime(
         &mut self,
-        events: Option<Vec<Value>>,
-        index: usize,
+        snapshot: ExecutingKbdMacroRuntimeSnapshot,
     ) {
-        self.command_loop.keyboard.kboard.executing_kbd_macro = events;
-        self.command_loop.keyboard.kboard.kbd_macro_index = index;
+        self.command_loop
+            .keyboard
+            .kboard
+            .restore_executing_kbd_macro_runtime(snapshot);
+        self.sync_keyboard_macro_runtime_vars();
+    }
+
+    pub(crate) fn set_executing_kbd_macro_runtime_index(&mut self, index: usize) {
+        self.command_loop
+            .keyboard
+            .kboard
+            .set_executing_kbd_macro_index(index);
+        self.sync_keyboard_macro_runtime_vars();
+    }
+
+    pub(crate) fn note_executing_kbd_macro_iteration(&mut self, success_count: usize) {
+        self.command_loop
+            .keyboard
+            .kboard
+            .note_executing_kbd_macro_iteration(success_count);
         self.sync_keyboard_macro_runtime_vars();
     }
 

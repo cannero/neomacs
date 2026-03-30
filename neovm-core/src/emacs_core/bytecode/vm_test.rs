@@ -875,6 +875,33 @@ fn vm_execute_kbd_macro_zero_count_uses_loopfunc() {
 }
 
 #[test]
+fn vm_execute_kbd_macro_runs_termination_hook_after_error() {
+    let result = with_vm_eval_full_context_state(
+        "(progn
+           (setq vm-kmacro-term-ok nil)
+           (setq real-this-command 'vm-outer-real)
+           (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+           (fset 'vm-kmacro-term-hook
+                 (lambda ()
+                   (setq vm-kmacro-term-ok
+                         (and (null executing-kbd-macro)
+                              (= executing-kbd-macro-index 0)
+                              (eq real-this-command 'vm-outer-real)))))
+           (setq kbd-macro-termination-hook '(vm-kmacro-term-hook))
+           (let ((g (make-sparse-keymap)))
+             (use-global-map g)
+             (define-key g \"a\" (lambda () (interactive) (error \"boom\"))))
+           (condition-case nil
+               (execute-kbd-macro \"a\")
+             (error nil))
+           (list vm-kmacro-term-ok real-this-command))",
+        false,
+        |result, _| crate::emacs_core::error::format_eval_result(&result),
+    );
+    assert_eq!(result, "OK (t vm-outer-real)");
+}
+
+#[test]
 fn vm_varset_triggers_variable_watcher_callbacks() {
     assert_eq!(
         vm_eval_str(
