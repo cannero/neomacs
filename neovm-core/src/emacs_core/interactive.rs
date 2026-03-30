@@ -2561,11 +2561,10 @@ pub(crate) fn finish_call_interactively_in_eval(
     mut plan: CallInteractivelyPlan,
 ) -> EvalResult {
     let (func, call_args) = resolve_call_interactively_target_and_args_in_eval(eval, &mut plan)?;
-
-    eval.interactive.push_interactive_call(true);
-    let result = eval.apply(func, call_args);
-    eval.interactive.pop_interactive_call();
-    result
+    let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
+    funcall_args.push(func);
+    funcall_args.extend(call_args);
+    eval.apply(Value::symbol("funcall-interactively"), funcall_args)
 }
 
 pub(crate) fn resolve_call_interactively_target_and_args_in_eval(

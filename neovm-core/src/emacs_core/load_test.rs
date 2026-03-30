@@ -13,6 +13,27 @@ use std::process::Command;
 use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+fn isolated_runtime_bootstrap_eval() -> Context {
+    let dump_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../target/test-cache/neovm-advice-stack-minibuffer-partial.pdump");
+    std::fs::create_dir_all(
+        dump_path
+            .parent()
+            .expect("advice-stack partial bootstrap cache parent"),
+    )
+    .expect("create advice-stack partial bootstrap cache dir");
+    if dump_path.exists()
+        && let Ok(eval) = crate::emacs_core::pdump::load_from_dump(&dump_path)
+    {
+        return eval;
+    }
+
+    let eval = partial_bootstrap_eval_until("minibuffer", true);
+    crate::emacs_core::pdump::dump_to_file(&eval, &dump_path)
+        .expect("cache advice-stack partial bootstrap");
+    eval
+}
+
 #[test]
 fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
     let eval =
@@ -5085,6 +5106,138 @@ fn bootstrap_eieio_core_accessor_compiler_macro_call_matches_gnu_source_shape() 
     assert_eq!(
         rendered,
         "OK (progn (or (eieio--class-p class) (signal 'wrong-type-argument (list 'eieio--class class))) (aref class 5))"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_funcall_interactively_marks_backtrace_frame() {
+    let mut eval = isolated_runtime_bootstrap_eval();
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(progn
+  (defun neovm--bt-marker-target ()
+    (interactive)
+    (nth 1 (backtrace-frame 1 'neovm--bt-marker-target)))
+  (unwind-protect
+      (list
+       (funcall-interactively 'neovm--bt-marker-target)
+       (call-interactively 'neovm--bt-marker-target))
+    (fmakunbound 'neovm--bt-marker-target)))
+"#,
+    );
+
+    assert_eq!(rendered, "OK (funcall-interactively funcall-interactively)");
+}
+
+#[test]
+fn bootstrap_runtime_advice_preserves_called_interactively_stack_behavior() {
+    let mut eval = isolated_runtime_bootstrap_eval();
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(progn
+  (defun neovm--advice-ci-target ()
+    (interactive)
+    (list (called-interactively-p 'any)
+          (called-interactively-p 'interactive)))
+  (defun neovm--advice-ci-around (orig &rest args)
+    (apply orig args))
+  (advice-add 'neovm--advice-ci-target :around 'neovm--advice-ci-around)
+  (unwind-protect
+      (list
+       (funcall-interactively 'neovm--advice-ci-target)
+       (call-interactively 'neovm--advice-ci-target))
+    (advice-remove 'neovm--advice-ci-target 'neovm--advice-ci-around)
+    (fmakunbound 'neovm--advice-ci-around)
+    (fmakunbound 'neovm--advice-ci-target)))
+"#,
+    );
+
+    assert_eq!(rendered, "OK ((nil nil) (nil nil))");
+}
+
+#[test]
+fn bootstrap_runtime_around_advice_preserves_advice_stack_shape() {
+    let mut eval = isolated_runtime_bootstrap_eval();
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(progn
+  (defun neovm--advice-stack-target ()
+    (interactive)
+    (list 'target
+          (called-interactively-p 'any)
+          (called-interactively-p 'interactive)
+          (nth 1 (backtrace-frame 1 'neovm--advice-stack-target))))
+  (defun neovm--advice-stack-around (orig &rest args)
+    (list 'around-enter
+          (called-interactively-p 'any)
+          (called-interactively-p 'interactive)
+          (nth 1 (backtrace-frame 1 'neovm--advice-stack-around))
+          (apply orig args)))
+  (advice-add 'neovm--advice-stack-target :around 'neovm--advice-stack-around)
+  (unwind-protect
+      (list
+       (funcall-interactively 'neovm--advice-stack-target)
+       (call-interactively 'neovm--advice-stack-target))
+    (advice-remove 'neovm--advice-stack-target 'neovm--advice-stack-around)
+    (fmakunbound 'neovm--advice-stack-around)
+    (fmakunbound 'neovm--advice-stack-target)))
+"#,
+    );
+
+    assert_eq!(
+        rendered,
+        "OK ((around-enter t nil apply (target nil nil funcall-interactively)) (around-enter t nil apply (target nil nil funcall-interactively)))"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_before_advice_preserves_advice_stack_shape() {
+    let mut eval = isolated_runtime_bootstrap_eval();
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(progn
+  (defvar neovm--advice-stack-before-result nil)
+  (defun neovm--advice-stack-target ()
+    (interactive)
+    (list 'target
+          (called-interactively-p 'any)
+          (called-interactively-p 'interactive)
+          (nth 1 (backtrace-frame 1 'neovm--advice-stack-target))))
+  (defun neovm--advice-stack-before (&rest _args)
+    (setq neovm--advice-stack-before-result
+          (list 'before
+                (called-interactively-p 'any)
+                (called-interactively-p 'interactive)
+                (nth 1 (backtrace-frame 1 'neovm--advice-stack-before)))))
+  (advice-add 'neovm--advice-stack-target :before 'neovm--advice-stack-before)
+  (unwind-protect
+      (list
+       (list
+        (funcall-interactively 'neovm--advice-stack-target)
+        neovm--advice-stack-before-result)
+       (progn
+         (setq neovm--advice-stack-before-result nil)
+         (list
+          (call-interactively 'neovm--advice-stack-target)
+          neovm--advice-stack-before-result)))
+    (advice-remove 'neovm--advice-stack-target 'neovm--advice-stack-before)
+    (fmakunbound 'neovm--advice-stack-before)
+    (fmakunbound 'neovm--advice-stack-target)
+    (makunbound 'neovm--advice-stack-before-result)))
+"#,
+    );
+
+    assert_eq!(
+        rendered,
+        "OK (((target t nil funcall-interactively) (before t nil apply)) ((target t nil funcall-interactively) (before t nil apply)))"
     );
 }
 

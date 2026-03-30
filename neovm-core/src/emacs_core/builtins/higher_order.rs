@@ -63,7 +63,10 @@ pub(crate) fn builtin_funcall_interactively(
     expect_min_args("funcall-interactively", &args, 1)?;
     let func = args[0];
     let call_args = args[1..].to_vec();
-    eval.apply(func, call_args)
+    eval.interactive.push_interactive_call(true);
+    let result = eval.apply(func, call_args);
+    eval.interactive.pop_interactive_call();
+    result
 }
 
 pub(crate) fn builtin_funcall_with_delayed_message(

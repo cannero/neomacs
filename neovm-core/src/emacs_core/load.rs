@@ -2752,7 +2752,7 @@ pub fn create_bootstrap_evaluator_cached_with_features(
     create_bootstrap_evaluator_cached_at_path(extra_features, &dump_path)
 }
 
-fn create_bootstrap_evaluator_cached_at_path(
+pub(crate) fn create_bootstrap_evaluator_cached_at_path(
     extra_features: &[&str],
     dump_path: &Path,
 ) -> Result<super::eval::Context, EvalError> {

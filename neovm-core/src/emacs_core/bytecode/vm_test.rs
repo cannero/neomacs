@@ -8536,7 +8536,7 @@ fn vm_backtrace_and_recursion_builtins_use_shared_runtime_state() {
                  (backtrace--locals 1)
                  (backtrace-debug 1 2)
                  (backtrace-eval 1 2)
-                 (backtrace-frame--internal nil 0 nil)
+                 (backtrace-frame--internal 'ignore 0 nil)
                  (integerp (recursion-depth))))"
         ),
         "OK (t nil 1 nil nil t)"

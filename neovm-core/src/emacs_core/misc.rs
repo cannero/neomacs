@@ -613,16 +613,147 @@ pub(crate) fn builtin_backtrace_eval(
     Ok(Value::Nil)
 }
 
+fn runtime_backtrace_indirect_function(
+    eval: &super::eval::Context,
+    function: Value,
+) -> Option<Value> {
+    match function {
+        Value::Symbol(symbol) => {
+            super::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
+                &eval.obarray,
+                symbol,
+            )
+            .map(|(_, value)| value)
+            .or(Some(function))
+        }
+        Value::True => runtime_backtrace_indirect_function(eval, Value::symbol("t")),
+        Value::Keyword(symbol) => {
+            super::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
+                &eval.obarray,
+                symbol,
+            )
+            .map(|(_, value)| value)
+            .or(Some(function))
+        }
+        Value::Nil => None,
+        other => Some(other),
+    }
+}
+
+fn runtime_backtrace_frames_from_base(
+    eval: &super::eval::Context,
+    base: Value,
+) -> Result<Vec<super::eval::RuntimeBacktraceFrame>, Flow> {
+    let mut offset = 0usize;
+    let mut base_function = base;
+    if let Value::Cons(cell) = base {
+        let pair = read_cons(cell);
+        if let Value::Int(raw_offset) = pair.car {
+            if raw_offset < 0 {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("wholenump"), pair.car],
+                ));
+            }
+            offset = raw_offset as usize;
+            base_function = pair.cdr;
+        }
+    }
+
+    let start_index = if base_function.is_nil() {
+        eval.runtime_backtrace.len().checked_sub(1)
+    } else {
+        let Some(indirect_base) = runtime_backtrace_indirect_function(eval, base_function) else {
+            return Ok(Vec::new());
+        };
+        let mut found = None;
+        for (index, frame) in eval.runtime_backtrace.iter().enumerate().rev() {
+            let Some(indirect_frame) = runtime_backtrace_indirect_function(eval, frame.function)
+            else {
+                continue;
+            };
+            if eq_value(&indirect_frame, &indirect_base) {
+                found = Some(index);
+                break;
+            }
+        }
+        found
+    };
+
+    let Some(mut index) = start_index else {
+        return Ok(Vec::new());
+    };
+
+    while offset > 0 {
+        if index == 0 {
+            return Ok(Vec::new());
+        }
+        index -= 1;
+        offset -= 1;
+    }
+
+    Ok(eval.runtime_backtrace[..=index]
+        .iter()
+        .rev()
+        .cloned()
+        .collect())
+}
+
+fn runtime_backtrace_frame_flags(frame: &super::eval::RuntimeBacktraceFrame) -> Value {
+    if frame.debug_on_exit {
+        Value::list(vec![Value::symbol(":debug-on-exit"), Value::True])
+    } else {
+        Value::Nil
+    }
+}
+
+fn apply_backtrace_callback(
+    eval: &mut super::eval::Context,
+    function: Value,
+    frame: &super::eval::RuntimeBacktraceFrame,
+) -> EvalResult {
+    eval.apply(
+        function,
+        vec![
+            Value::bool(frame.evaluated),
+            frame.function,
+            Value::list(frame.args.clone()),
+            runtime_backtrace_frame_flags(frame),
+        ],
+    )
+}
+
 /// `(backtrace-frame--internal FUN NFRAMES BASE)` -- compatibility helper.
 ///
-/// In official Emacs this walks the specpdl stack and calls FUN for each
-/// frame.  NeoVM doesn't maintain a specpdl-style stack, so we return nil
-/// (no frames available) rather than signalling an error.
+/// In official Emacs this walks the specpdl backtrace. NeoVM now keeps a
+/// GNU-shaped runtime call stack and feeds that through the same callback
+/// shape that `subr.el` expects.
 pub(crate) fn builtin_backtrace_frame_internal(
-    _eval: &mut super::eval::Context,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("backtrace-frame--internal", &args, 3)?;
+    let nframes = expect_wholenump(&args[1])? as usize;
+    let frames = runtime_backtrace_frames_from_base(eval, args[2])?;
+    let Some(frame) = frames.get(nframes) else {
+        return Ok(Value::Nil);
+    };
+    apply_backtrace_callback(eval, args[0], frame)
+}
+
+/// `(mapbacktrace FUNCTION &optional BASE)` -- iterate runtime backtrace
+/// frames in GNU order, newest first.
+pub(crate) fn builtin_mapbacktrace(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("mapbacktrace", &args, 1)?;
+    expect_max_args("mapbacktrace", &args, 2)?;
+    let base = args.get(1).copied().unwrap_or(Value::Nil);
+    let frames = runtime_backtrace_frames_from_base(eval, base)?;
+    for frame in &frames {
+        apply_backtrace_callback(eval, args[0], frame)?;
+    }
     Ok(Value::Nil)
 }
 

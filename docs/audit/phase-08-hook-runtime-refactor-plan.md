@@ -209,6 +209,16 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   model and unblocks buffer-local window hooks.
 - Slice E landed: the dead parallel Rust hook framework was deleted outright by
   removing `neovm-core/src/hooks.rs`.
+- Advice-stack/backtrace slice landed: runtime function dispatch now owns a
+  GNU-shaped Lisp call stack, `backtrace-frame--internal` / `mapbacktrace`
+  read from that runtime owner, and `call-interactively` now routes through a
+  real `funcall-interactively` marker frame so GNU `subr.el` /
+  `nadvice.el` can recover interactive-call state through backtrace walking.
+- Advice-stack follow-up landed: advice-wrapper frames are now labeled with
+  their bound symbol at the runtime owner boundary, so GNU `nadvice.el`
+  sees the same `apply` / advised-symbol / `funcall-interactively` stack
+  shape for `:around` and `:before` advice that it expects when walking
+  `called-interactively-p`.
 
 ## Next
 
@@ -218,6 +228,9 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   to the generic runtime owner
 - preserve the GNU split where Lisp-owned hooks such as save/frame focus
   behavior stay in Lisp rather than migrating into Rust
+- continue the remaining backtrace/introspection parity work in the same owner
+  boundary instead of reintroducing Rust-side `called-interactively-p`
+  semantics
 - make `called-interactively-p` fully GNU-equal by fixing the underlying
   backtrace/introspection owner it depends on in `subr.el`, rather than
   reintroducing a Rust-owned replacement

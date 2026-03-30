@@ -76,6 +76,14 @@ pub(crate) enum SpecBinding {
     },
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct RuntimeBacktraceFrame {
+    pub(crate) function: Value,
+    pub(crate) args: Vec<Value>,
+    pub(crate) evaluated: bool,
+    pub(crate) debug_on_exit: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct GnuTimerTimestamp {
     pub(crate) high_seconds: i64,
@@ -825,6 +833,9 @@ pub struct Context {
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
     pub(crate) vm_gc_roots: Vec<Value>,
+    /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
+    /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
+    pub(crate) runtime_backtrace: Vec<RuntimeBacktraceFrame>,
     /// Shared condition runtime mirror for active catch/condition handlers.
     pub(crate) condition_stack: Vec<ConditionFrame>,
     /// Stable identity source for VM resume targets stored in the shared
@@ -3361,6 +3372,7 @@ impl Context {
             gc_stress: false,
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
+            runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
             saved_lexenvs: Vec::new(),
@@ -3491,6 +3503,7 @@ impl Context {
             gc_stress: false,
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
+            runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
             saved_lexenvs: Vec::new(),
@@ -3599,6 +3612,10 @@ impl Context {
             if let NamedCallTarget::Obarray(val) = &cache.target {
                 roots.push(*val);
             }
+        }
+        for frame in &self.runtime_backtrace {
+            roots.push(frame.function);
+            roots.extend(frame.args.iter().copied());
         }
         // Thread-local statics holding Values
         collect_thread_local_gc_roots(&mut roots);
@@ -5202,7 +5219,59 @@ impl Context {
         }
 
         let function_is_callable = self.function_value_is_callable(&function);
-        match self.apply(function, args) {
+        let result = self.apply_untraced(function, args);
+        match result {
+            Err(Flow::Signal(sig))
+                if sig.symbol_name() == "invalid-function" && !function_is_callable =>
+            {
+                Err(signal("invalid-function", vec![Value::Symbol(sym_id)]))
+            }
+            other => other,
+        }
+    }
+
+    fn apply_symbol_callable_untraced(
+        &mut self,
+        sym_id: SymId,
+        args: Vec<Value>,
+        rewrite_builtin_wrong_arity: bool,
+    ) -> EvalResult {
+        if super::builtins::is_canonical_symbol_id(sym_id) {
+            let name = resolve_sym(sym_id);
+            let invalid_fn = if super::subr_info::is_special_form(name) {
+                Value::Subr(sym_id)
+            } else {
+                value_from_symbol_id(sym_id)
+            };
+            return self.apply_named_callable_by_id_core(
+                sym_id,
+                args,
+                invalid_fn,
+                rewrite_builtin_wrong_arity,
+            );
+        }
+
+        if self.obarray.is_function_unbound_id(sym_id) {
+            return Err(signal("void-function", vec![Value::Symbol(sym_id)]));
+        }
+
+        let Some(function) = self.obarray.symbol_function_id(sym_id).cloned() else {
+            return Err(signal("void-function", vec![Value::Symbol(sym_id)]));
+        };
+
+        if super::autoload::is_autoload_value(&function) {
+            let name = resolve_sym(sym_id);
+            return self.apply_named_autoload_callable(
+                name,
+                function,
+                args,
+                rewrite_builtin_wrong_arity,
+            );
+        }
+
+        let function_is_callable = self.function_value_is_callable(&function);
+        let result = self.apply_untraced(function, args);
+        match result {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {
@@ -5226,6 +5295,38 @@ impl Context {
                 .is_some_and(|(_, resolved)| self.function_value_is_callable(&resolved)),
             _ => false,
         }
+    }
+
+    fn function_value_is_advice_wrapper(&self, function: &Value) -> bool {
+        let advice_type = Some(Value::symbol("advice"));
+        match function {
+            Value::Lambda(id) | Value::Macro(id) => {
+                with_heap(|h| h.get_lambda(*id).doc_form) == advice_type
+            }
+            Value::ByteCode(id) => with_heap(|h| h.get_bytecode(*id).doc_form) == advice_type,
+            Value::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, *id)
+                .is_some_and(|(_, resolved)| self.function_value_is_advice_wrapper(&resolved)),
+            _ => false,
+        }
+    }
+
+    fn advice_wrapper_frame_function(&self, function: Value) -> Value {
+        if self.function_value_is_advice_wrapper(&function)
+            && let Some(symbol) = self.advice_wrapper_symbol_alias(&function)
+        {
+            return Value::Symbol(symbol);
+        }
+        function
+    }
+
+    fn advice_wrapper_symbol_alias(&self, function: &Value) -> Option<SymId> {
+        self.obarray.all_symbols().into_iter().find_map(|name| {
+            let symbol = intern(name);
+            self.obarray
+                .symbol_function_id(symbol)
+                .filter(|bound| eq_value(bound, function))
+                .map(|_| symbol)
+        })
     }
 
     /// Evaluate a slice of expressions into a Vec, rooting intermediate results
@@ -5451,53 +5552,14 @@ impl Context {
                     }
                     return result;
                 }
-                let function_is_callable = self.function_value_is_callable(&func);
-                let alias_target = match &func {
-                    Value::Symbol(target) => Some(resolve_sym(*target).to_owned()),
-                    Value::Subr(bound_name) => Some(resolve_sym(*bound_name).to_owned()),
-                    _ => None,
-                };
                 let writeback_args = args.clone();
-                let result = match self.apply(func, args) {
-                    Err(Flow::Signal(sig))
-                        if sig.symbol_name() == "invalid-function" && !function_is_callable =>
-                    {
-                        if matches!(func, Value::Symbol(_)) {
-                            Err(Flow::Signal(sig))
-                        } else {
-                            Err(signal("invalid-function", vec![Value::symbol(name)]))
-                        }
-                    }
-                    // Rewrite wrong-arity errors for lambdas/bytecode looked up
-                    // from a named symbol: replace the closure object with the
-                    // symbol name to match GNU Emacs behavior.
-                    Err(Flow::Signal(mut sig))
-                        if sig.symbol_name() == "wrong-number-of-arguments"
-                            && matches!(func, Value::Lambda(_) | Value::ByteCode(_))
-                            && !sig.data.is_empty()
-                            && !sig.data[0].is_symbol() =>
-                    {
-                        sig.data[0] = Value::symbol(name);
-                        Err(Flow::Signal(sig))
-                    }
-                    other => other,
-                };
+                let result =
+                    self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
                 self.restore_temp_roots(args_saved);
                 if let Ok(value) = &result {
-                    self.maybe_writeback_mutating_first_arg(
-                        name,
-                        alias_target.as_deref(),
-                        &writeback_args,
-                        value,
-                    );
+                    self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
                 }
-                return if let Some(target) = alias_target {
-                    result.map_err(|flow| {
-                        rewrite_wrong_arity_alias_function_object(flow, name, &target)
-                    })
-                } else {
-                    result
-                };
+                return result;
             }
 
             // Evaluator-only forms like `lambda` still need a fallback path
@@ -7274,8 +7336,37 @@ impl Context {
         }
     }
 
-    /// Apply a function value to evaluated arguments.
-    pub(crate) fn apply(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
+    pub(crate) fn push_runtime_backtrace_frame(&mut self, function: Value, args: &[Value]) {
+        self.runtime_backtrace.push(RuntimeBacktraceFrame {
+            function: self.advice_wrapper_frame_function(function),
+            args: args.to_vec(),
+            evaluated: true,
+            debug_on_exit: false,
+        });
+    }
+
+    pub(crate) fn pop_runtime_backtrace_frame(&mut self) {
+        self.runtime_backtrace.pop();
+    }
+
+    pub(crate) fn with_runtime_backtrace_frame(
+        &mut self,
+        function: Value,
+        args: &[Value],
+        f: impl FnOnce(&mut Self) -> EvalResult,
+    ) -> EvalResult {
+        self.push_runtime_backtrace_frame(function, args);
+        let result = f(self);
+        self.pop_runtime_backtrace_frame();
+        result
+    }
+
+    fn apply_internal(
+        &mut self,
+        function: Value,
+        args: Vec<Value>,
+        record_backtrace: bool,
+    ) -> EvalResult {
         let saved_roots = self.save_temp_roots();
         self.push_temp_root(function);
         for &arg in &args {
@@ -7291,16 +7382,41 @@ impl Context {
         // function-application boundary so those paths don't exhaust the
         // native thread stack long before max-lisp-eval-depth is reached.
         let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
-            self.funcall_general(function, args)
+            if record_backtrace {
+                self.funcall_general(function, args)
+            } else {
+                self.funcall_general_untraced(function, args)
+            }
         });
         self.restore_temp_roots(saved_roots);
         result
+    }
+
+    /// Apply a function value to evaluated arguments.
+    pub(crate) fn apply(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
+        self.apply_internal(function, args, true)
+    }
+
+    pub(crate) fn apply_untraced(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
+        self.apply_internal(function, args, false)
     }
 
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
     /// Called by both the tree-walking interpreter (via apply) and the
     /// bytecode VM (via Vm::call_function).
     pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
+        let frame_args = args.clone();
+        let frame_function = self.advice_wrapper_frame_function(function);
+        self.with_runtime_backtrace_frame(frame_function, &frame_args, |eval| {
+            eval.funcall_general_untraced(function, args)
+        })
+    }
+
+    pub(crate) fn funcall_general_untraced(
+        &mut self,
+        function: Value,
+        args: Vec<Value>,
+    ) -> EvalResult {
         match function {
             Value::ByteCode(bc) => {
                 self.refresh_features_from_variable();
@@ -7322,9 +7438,9 @@ impl Context {
                 self.apply_lambda(&lambda_data, args, func_val)
             }
             Value::Subr(id) => self.apply_subr_object_by_id(id, args, true),
-            Value::Symbol(id) => self.apply_symbol_callable(id, args, true),
-            Value::True => self.apply_symbol_callable(intern("t"), args, true),
-            Value::Keyword(id) => self.apply_symbol_callable(id, args, true),
+            Value::Symbol(id) => self.apply_symbol_callable_untraced(id, args, true),
+            Value::True => self.apply_symbol_callable_untraced(intern("t"), args, true),
+            Value::Keyword(id) => self.apply_symbol_callable_untraced(id, args, true),
             Value::Nil => Err(signal("void-function", vec![Value::symbol("nil")])),
             function @ Value::Cons(_) => {
                 if super::autoload::is_autoload_value(&function) {
@@ -7602,7 +7718,15 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        self.apply_named_callable_by_id_core(sym_id, args, invalid_fn, rewrite_builtin_wrong_arity)
+        let frame_args = args.clone();
+        self.with_runtime_backtrace_frame(Value::Symbol(sym_id), &frame_args, |eval| {
+            eval.apply_named_callable_by_id_core(
+                sym_id,
+                args,
+                invalid_fn,
+                rewrite_builtin_wrong_arity,
+            )
+        })
     }
 
     #[inline]
@@ -7613,7 +7737,11 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        self.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
+        let frame_function = Value::symbol(name);
+        let frame_args = args.clone();
+        self.with_runtime_backtrace_frame(frame_function, &frame_args, |eval| {
+            eval.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
+        })
     }
 
     fn apply_named_callable_by_id_core(
@@ -7642,7 +7770,7 @@ impl Context {
                     }
                     _ => None,
                 };
-                let result = match self.apply(func, args) {
+                let result = match self.apply_untraced(func, args) {
                     Err(Flow::Signal(sig))
                         if sig.symbol_name() == "invalid-function" && !function_is_callable =>
                     {
@@ -7770,7 +7898,7 @@ impl Context {
             vec![autoload_form, Value::symbol(name)],
         )?;
         let function_is_callable = self.function_value_is_callable(&loaded);
-        match self.apply(loaded, args) {
+        match self.apply_untraced(loaded, args) {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {

@@ -1,10 +1,14 @@
 use super::*;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::{
+    apply_runtime_startup_state, create_bootstrap_evaluator_cached,
+    create_bootstrap_evaluator_cached_at_path,
+};
 use crate::emacs_core::string_escape;
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    let dump_path = std::env::temp_dir().join("neovm-advice-stack-misc-test.pdump");
+    let mut ev = create_bootstrap_evaluator_cached_at_path(&[], &dump_path).expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
@@ -560,11 +564,6 @@ fn backtrace_helper_stubs_shape_and_errors() {
             if sig.symbol_name() == "wrong-type-argument"
                 && sig.data == vec![Value::symbol("wholenump"), Value::Nil]
     ));
-    // backtrace-frame--internal now returns nil (stub) rather than
-    // signaling invalid-function.
-    let result =
-        builtin_backtrace_frame_internal(&mut eval, vec![Value::Int(0), Value::Int(0), Value::Nil]);
-    assert_eq!(result.unwrap(), Value::Nil);
 }
 
 #[test]
@@ -588,6 +587,37 @@ fn backtrace_helper_stubs_arity_checks() {
             if sig.symbol_name() == "wrong-number-of-arguments"
                 && sig.data == vec![Value::symbol("backtrace-frame--internal"), Value::Int(0)]
     ));
+}
+
+#[test]
+fn backtrace_frame_internal_tracks_runtime_funcall_interactively_marker() {
+    let mut ev = super::super::eval::Context::new();
+    let forms = parse_forms(
+        r#"
+        (progn
+          (fset 'neovm--misc-bt-target
+                (lambda ()
+                  (interactive)
+                  (let (frame)
+                    (backtrace-frame--internal
+                     (lambda (evald func args flags)
+                       (setq frame (list evald func args flags)))
+                     1
+                     'neovm--misc-bt-target)
+                    (nth 1 frame))))
+          (unwind-protect
+              (list
+               (funcall-interactively 'neovm--misc-bt-target)
+               (call-interactively 'neovm--misc-bt-target))
+            (fmakunbound 'neovm--misc-bt-target)))
+        "#,
+    )
+    .expect("parse");
+    let results = ev.eval_forms(&forms);
+    assert_eq!(
+        results.iter().map(format_eval_result).collect::<Vec<_>>(),
+        vec!["OK (funcall-interactively funcall-interactively)"]
+    );
 }
 
 // ----- special form: save-current-buffer -----

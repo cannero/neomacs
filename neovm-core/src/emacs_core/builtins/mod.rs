@@ -4709,7 +4709,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "mapbacktrace",
-        |_ctx, args| builtin_mapbacktrace(args),
+        super::misc::builtin_mapbacktrace,
         1,
         Some(2),
     );

@@ -4177,10 +4177,7 @@ fn pure_dispatch_map_placeholders_match_compat_contracts() {
         .is_none()
     );
 
-    let mapbacktrace = dispatch_builtin_pure("mapbacktrace", vec![Value::symbol("ignore")])
-        .expect("builtin mapbacktrace should resolve")
-        .expect("builtin mapbacktrace should evaluate");
-    assert!(mapbacktrace.is_nil());
+    assert!(dispatch_builtin_pure("mapbacktrace", vec![Value::symbol("ignore")]).is_none());
 }
 
 #[test]

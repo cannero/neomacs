@@ -3364,7 +3364,8 @@ impl<'a> Vm<'a> {
     }
 
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
-        match func_val {
+        self.ctx.push_runtime_backtrace_frame(func_val, &args);
+        let result = match func_val {
             // Fast path: stay in VM for bytecoded calls.
             // Matches GNU Emacs's CLOSUREP → goto setup_frame in bytecode.c.
             Value::ByteCode(_) => {
@@ -3373,8 +3374,10 @@ impl<'a> Vm<'a> {
             }
             // Everything else: shared dispatch via funcall_general on Context.
             // Matches GNU Emacs where exec_byte_code delegates to funcall_general.
-            _ => self.ctx.funcall_general(func_val, args),
-        }
+            _ => self.ctx.funcall_general_untraced(func_val, args),
+        };
+        self.ctx.pop_runtime_backtrace_frame();
+        result
     }
 
     /// Execute a compiled function without param binding (for inline compilation).
@@ -3707,10 +3710,10 @@ impl<'a> Vm<'a> {
                 &[],
                 &extra_roots,
             )?;
-        self.ctx.interactive.push_interactive_call(true);
-        let result = self.call_function_with_roots(function, &call_args);
-        self.ctx.interactive.pop_interactive_call();
-        result
+        let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
+        funcall_args.push(function);
+        funcall_args.extend(call_args);
+        self.call_function_with_roots(Value::symbol("funcall-interactively"), &funcall_args)
     }
 
     fn builtin_assoc_shared(&mut self, args: &[Value]) -> EvalResult {
