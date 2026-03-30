@@ -2262,7 +2262,6 @@ impl crate::emacs_core::eval::Context {
                         hook_sym,
                         &[terminal],
                     )?;
-                    outcome.redisplay_needed = true;
                 }
                 InputEvent::MouseMove { .. } => {
                     self.timer_resume_idle();

@@ -716,6 +716,52 @@ fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
 }
 
 #[test]
+fn read_char_does_not_redisplay_again_when_monitor_change_arrives_after_pre_block_redisplay() {
+    let mut ev = Context::new();
+
+    let redisplay_count = Rc::new(RefCell::new(0usize));
+    let redisplay_count_in_cb = Rc::clone(&redisplay_count);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let tx_in_cb = tx.clone();
+    let injected = Rc::new(RefCell::new(false));
+    let injected_in_cb = Rc::clone(&injected);
+
+    ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
+        *redisplay_count_in_cb.borrow_mut() += 1;
+
+        if !*injected_in_cb.borrow() {
+            *injected_in_cb.borrow_mut() = true;
+            tx_in_cb
+                .send(crate::keyboard::InputEvent::MonitorsChanged {
+                    monitors: vec![crate::emacs_core::builtins::NeomacsMonitorInfo {
+                        x: 0,
+                        y: 0,
+                        width: 2560,
+                        height: 1440,
+                        scale: 1.25,
+                        width_mm: 600,
+                        height_mm: 340,
+                        name: Some("DP-1".to_string()),
+                    }],
+                })
+                .expect("enqueue monitor change after first redisplay");
+            tx_in_cb
+                .send(crate::keyboard::InputEvent::key_press(
+                    crate::keyboard::KeyEvent::char('a'),
+                ))
+                .expect("enqueue keypress after monitor change");
+        }
+    }));
+
+    ev.input_rx = Some(rx);
+
+    let event = ev.read_char().expect("read_char should return a keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(*redisplay_count.borrow(), 1);
+}
+
+#[test]
 fn redisplay_applies_pending_resize_before_callback() {
     let mut ev = Context::new();
     let fid = ev

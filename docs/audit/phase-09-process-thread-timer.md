@@ -87,7 +87,8 @@ Bad:
   `accept-process-output` / `sleep-for`, including input that arrives during
   the blocking wait itself. The shared wait path now also restores the
   GNU-style redraw decision when resize-like special input is serviced on a
-  `do_display` path. The real remaining work is now the
+  `do_display` path, and it no longer treats monitor-change events as a
+  standalone redisplay trigger there. The real remaining work is now the
   last finer-grained redisplay/input competition edges outside those covered
   wait-path cases, not the older split-owner architecture.
 

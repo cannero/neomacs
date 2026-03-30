@@ -120,9 +120,15 @@ Neomacs now also re-checks that same special-input path immediately after each
 blocking process wait, so a resize arriving during the wait itself is still
 applied before `accept-process-output` or `sleep-for` returns on timeout.
 And when the shared wait path is being used in a `do_display` context,
-Neomacs now folds resize/monitor-change dirtiness into the same redisplay
-decision as timer firing, which restores the GNU-style redraw behavior for
-the `read-char` wait path after a resize is serviced there.
+Neomacs now folds resize dirtiness into the same redisplay decision as timer
+firing, which restores the GNU-style redraw behavior for the `read-char`
+wait path after a resize is serviced there.
+That boundary is now a little tighter: monitor-change events no longer force an
+extra redisplay by themselves on the shared wait path. GNU's
+`swallow_events`/`process_special_events` path runs
+`display-monitors-changed-functions`, but redisplay from that helper is still
+driven by timer runs, process activity, or other display dirtiness, not by the
+monitor-change event alone.
 
 ### GNU ordinary and idle timer ordering now follows `timer_check_2` more closely
 
