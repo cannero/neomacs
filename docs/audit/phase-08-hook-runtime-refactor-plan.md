@@ -229,6 +229,12 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   `post-select-region-hook`, and monitor snapshots are now primed during GUI
   startup and refreshed through a real frontend monitor-change event that runs
   `display-monitors-changed-functions` from the keyboard/display event owner.
+- TTY owner follow-up landed: `suspend-tty` / `resume-tty` now run from a real
+  terminal host boundary instead of unconditional GUI-style errors when TTY
+  runtime is active. GNU-shaped `suspend-tty-functions` run before the host
+  suspend transition, and `resume-tty-functions` run after host resume, while
+  the TTY frontend now owns raw-mode pause/resume instead of Rust faking those
+  hooks elsewhere.
 - Generalized-place advice audit landed: GNU `nadvice.el` ownership is now
   differentially covered for:
   - `add-function`
@@ -245,12 +251,10 @@ infrastructure only. It should not represent a second Lisp hook architecture.
 
 ## Next
 
-- Terminal lifecycle still needs its own owner refactor. GNU runs:
-  - `delete-terminal-functions` from `terminal.c`
-  - `suspend-tty-functions` from `term.c`
-  - `resume-tty-functions` from `term.c`
-  Neomacs should only wire those once the TTY frontend/terminal runtime owns
-  real suspend/resume/delete semantics instead of GUI-style stubs.
+- Terminal deletion still needs its own owner refactor. GNU runs
+  `delete-terminal-functions` from `terminal.c`, but Neomacs still has a
+  single-terminal model and does not yet own truthful delete-terminal
+  semantics for the sole active display/TTY.
 
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented

@@ -16,6 +16,7 @@ thread_local! {
     static TERMINAL_PARAMS: RefCell<Vec<(Value, Value)>> = const { RefCell::new(Vec::new()) };
     static TERMINAL_HANDLE: RefCell<Option<Value>> = const { RefCell::new(None) };
     static TERMINAL_RUNTIME: RefCell<TerminalRuntime> = const { RefCell::new(TerminalRuntime::inactive()) };
+    static TERMINAL_HOST: RefCell<Option<Box<dyn TerminalHost>>> = RefCell::new(None);
 }
 
 pub(crate) const TERMINAL_NAME: &str = "initial_terminal";
@@ -27,6 +28,7 @@ struct TerminalRuntime {
     tty_type: Option<String>,
     color_cells: i64,
     controlling_tty: bool,
+    suspended: bool,
 }
 
 impl TerminalRuntime {
@@ -36,6 +38,7 @@ impl TerminalRuntime {
             tty_type: None,
             color_cells: 0,
             controlling_tty: false,
+            suspended: false,
         }
     }
 
@@ -49,6 +52,11 @@ pub struct TerminalRuntimeConfig {
     pub tty_type: Option<String>,
     pub color_cells: i64,
     pub controlling_tty: bool,
+}
+
+pub trait TerminalHost {
+    fn suspend_tty(&mut self) -> Result<(), String>;
+    fn resume_tty(&mut self) -> Result<(), String>;
 }
 
 impl TerminalRuntimeConfig {
@@ -76,12 +84,21 @@ pub fn configure_terminal_runtime(config: TerminalRuntimeConfig) {
             tty_type: config.tty_type,
             color_cells: config.color_cells.max(0),
             controlling_tty: config.controlling_tty,
+            suspended: false,
         };
     });
 }
 
 pub fn reset_terminal_runtime() {
     TERMINAL_RUNTIME.with(|slot| *slot.borrow_mut() = TerminalRuntime::inactive());
+}
+
+pub fn set_terminal_host(host: Box<dyn TerminalHost>) {
+    TERMINAL_HOST.with(|slot| *slot.borrow_mut() = Some(host));
+}
+
+pub fn reset_terminal_host() {
+    TERMINAL_HOST.with(|slot| *slot.borrow_mut() = None);
 }
 
 fn terminal_runtime() -> TerminalRuntime {
@@ -100,10 +117,34 @@ pub(crate) fn terminal_runtime_supports_color() -> bool {
     terminal_runtime().supports_color()
 }
 
+fn terminal_runtime_suspended() -> bool {
+    terminal_runtime().suspended
+}
+
+fn set_terminal_runtime_suspended(suspended: bool) {
+    TERMINAL_RUNTIME.with(|slot| slot.borrow_mut().suspended = suspended);
+}
+
+fn with_terminal_host<R>(
+    f: impl FnOnce(&mut dyn TerminalHost) -> Result<R, String>,
+) -> Result<R, Flow> {
+    TERMINAL_HOST.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(host) = slot.as_deref_mut() else {
+            return Err(signal(
+                "error",
+                vec![Value::string("TTY terminal host unavailable")],
+            ));
+        };
+        f(host).map_err(|message| signal("error", vec![Value::string(message)]))
+    })
+}
+
 /// Clear cached terminal thread-locals (called from `reset_display_thread_locals`).
 pub(crate) fn reset_terminal_thread_locals() {
     TERMINAL_PARAMS.with(|slot| slot.borrow_mut().clear());
     TERMINAL_HANDLE.with(|slot| *slot.borrow_mut() = None);
+    reset_terminal_host();
     reset_terminal_runtime();
 }
 
@@ -568,12 +609,26 @@ pub(crate) fn builtin_suspend_tty(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_eval(eval, terminal)?;
     }
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Attempt to suspend a non-text terminal device",
-        )],
-    ))
+    if !terminal_runtime_active() {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Attempt to suspend a non-text terminal device",
+            )],
+        ));
+    }
+
+    if terminal_runtime_suspended() {
+        return Ok(Value::Nil);
+    }
+
+    let terminal = terminal_handle_value();
+    let hook_sym =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "suspend-tty-functions");
+    let _ = crate::emacs_core::hook_runtime::run_named_hook(eval, hook_sym, &[terminal])?;
+    with_terminal_host(|host| host.suspend_tty())?;
+    set_terminal_runtime_suspended(true);
+    Ok(Value::Nil)
 }
 
 /// (resume-tty &optional TTY) -> error in GUI/non-text terminal context.
@@ -585,12 +640,26 @@ pub(crate) fn builtin_resume_tty(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_eval(eval, terminal)?;
     }
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Attempt to resume a non-text terminal device",
-        )],
-    ))
+    if !terminal_runtime_active() {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Attempt to resume a non-text terminal device",
+            )],
+        ));
+    }
+
+    if !terminal_runtime_suspended() {
+        return Ok(Value::Nil);
+    }
+
+    with_terminal_host(|host| host.resume_tty())?;
+    set_terminal_runtime_suspended(false);
+    let terminal = terminal_handle_value();
+    let hook_sym =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "resume-tty-functions");
+    let _ = crate::emacs_core::hook_runtime::run_named_hook(eval, hook_sym, &[terminal])?;
+    Ok(Value::Nil)
 }
 
 // ---------------------------------------------------------------------------

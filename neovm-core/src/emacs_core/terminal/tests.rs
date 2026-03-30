@@ -2,6 +2,24 @@ use super::pure::*;
 use crate::emacs_core::error::Flow;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::value::Value;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+struct RecordingTerminalHost {
+    log: Rc<RefCell<Vec<&'static str>>>,
+}
+
+impl TerminalHost for RecordingTerminalHost {
+    fn suspend_tty(&mut self) -> Result<(), String> {
+        self.log.borrow_mut().push("suspend");
+        Ok(())
+    }
+
+    fn resume_tty(&mut self) -> Result<(), String> {
+        self.log.borrow_mut().push("resume");
+        Ok(())
+    }
+}
 
 #[test]
 fn terminal_name_returns_string() {
@@ -160,6 +178,75 @@ fn resume_tty_signals_error() {
         }
         other => panic!("expected error signal, got {other:?}"),
     }
+}
+
+#[test]
+fn suspend_tty_runs_hook_and_invokes_terminal_host() {
+    reset_terminal_thread_locals();
+    let mut eval = Context::new();
+    configure_terminal_runtime(TerminalRuntimeConfig::interactive(
+        Some("xterm-256color".to_string()),
+        256,
+    ));
+    let log = Rc::new(RefCell::new(Vec::new()));
+    set_terminal_host(Box::new(RecordingTerminalHost {
+        log: Rc::clone(&log),
+    }));
+    let forms = crate::emacs_core::parse_forms(
+        r#"
+(setq suspend-log nil)
+(setq suspend-tty-functions
+      (list (lambda (term) (setq suspend-log term))))
+"#,
+    )
+    .expect("parse suspend hook setup");
+    for form in &forms {
+        eval.eval_expr(form).expect("install suspend hook setup");
+    }
+
+    assert_eq!(builtin_suspend_tty(&mut eval, vec![]).unwrap(), Value::Nil);
+    assert_eq!(log.borrow().as_slice(), &["suspend"]);
+    assert_eq!(
+        eval.eval_expr(
+            &crate::emacs_core::parse_forms("suspend-log").expect("parse suspend-log")[0]
+        )
+        .expect("suspend-log value"),
+        terminal_handle_value()
+    );
+}
+
+#[test]
+fn resume_tty_runs_hook_after_terminal_host_resume() {
+    reset_terminal_thread_locals();
+    let mut eval = Context::new();
+    configure_terminal_runtime(TerminalRuntimeConfig::interactive(
+        Some("xterm-256color".to_string()),
+        256,
+    ));
+    let log = Rc::new(RefCell::new(Vec::new()));
+    set_terminal_host(Box::new(RecordingTerminalHost {
+        log: Rc::clone(&log),
+    }));
+    builtin_suspend_tty(&mut eval, vec![]).expect("suspend tty");
+    let forms = crate::emacs_core::parse_forms(
+        r#"
+(setq resume-log nil)
+(setq resume-tty-functions
+      (list (lambda (term) (setq resume-log term))))
+"#,
+    )
+    .expect("parse resume hook setup");
+    for form in &forms {
+        eval.eval_expr(form).expect("install resume hook setup");
+    }
+
+    assert_eq!(builtin_resume_tty(&mut eval, vec![]).unwrap(), Value::Nil);
+    assert_eq!(log.borrow().as_slice(), &["suspend", "resume"]);
+    assert_eq!(
+        eval.eval_expr(&crate::emacs_core::parse_forms("resume-log").expect("parse resume-log")[0])
+            .expect("resume-log value"),
+        terminal_handle_value()
+    );
 }
 
 #[test]

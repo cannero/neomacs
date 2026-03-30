@@ -46,18 +46,45 @@ fn run_tty_frontend(comms: RenderComms) {
     }
 
     let stop_input = Arc::new(AtomicBool::new(false));
+    let pause_input = Arc::new(AtomicBool::new(false));
     let (input_tx, input_rx) = unbounded();
     let input_stop = Arc::clone(&stop_input);
+    let input_pause = Arc::clone(&pause_input);
     let input_handle = thread::Builder::new()
         .name("tty-input".to_string())
-        .spawn(move || read_tty_input(input_tx, input_stop))
+        .spawn(move || read_tty_input(input_tx, input_stop, input_pause))
         .ok();
+    let mut suspended = false;
+    let mut suspended_frame: Option<FrameGlyphBuffer> = None;
 
     loop {
         select! {
             recv(comms.cmd_rx) -> msg => {
                 match msg {
                     Ok(RenderCommand::Shutdown) | Err(_) => break,
+                    Ok(RenderCommand::SuspendTty) => {
+                        if !suspended {
+                            pause_input.store(true, Ordering::Relaxed);
+                            backend.shutdown();
+                            suspended = true;
+                        }
+                    }
+                    Ok(RenderCommand::ResumeTty) => {
+                        if suspended {
+                            if let Err(err) = backend.init() {
+                                tracing::error!("failed to resume tty backend: {err}");
+                                break;
+                            }
+                            suspended = false;
+                            pause_input.store(false, Ordering::Relaxed);
+                            if let Some(frame) = suspended_frame.take()
+                                && let Err(err) = render_frame(&mut backend, frame)
+                            {
+                                tracing::error!("tty resume render failed: {err}");
+                                break;
+                            }
+                        }
+                    }
                     Ok(_) => {}
                 }
             }
@@ -66,14 +93,17 @@ fn run_tty_frontend(comms: RenderComms) {
                     break;
                 };
                 let frame = latest_frame(first_frame, &comms.frame_rx);
-                if let Err(err) = render_frame(&mut backend, frame) {
+                if suspended {
+                    suspended_frame = Some(frame);
+                } else if let Err(err) = render_frame(&mut backend, frame) {
                     tracing::error!("tty render failed: {err}");
                     break;
                 }
             }
             recv(input_rx) -> msg => {
                 match msg {
-                    Ok(event) => comms.send_input(event),
+                    Ok(event) if !suspended => comms.send_input(event),
+                    Ok(_) => {}
                     Err(_) => break,
                 }
             }
@@ -103,8 +133,16 @@ fn render_frame(backend: &mut TtyBackend, frame: FrameGlyphBuffer) -> Result<(),
     Ok(())
 }
 
-fn read_tty_input(tx: crossbeam_channel::Sender<InputEvent>, stop: Arc<AtomicBool>) {
+fn read_tty_input(
+    tx: crossbeam_channel::Sender<InputEvent>,
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+) {
     while !stop.load(Ordering::Relaxed) {
+        if paused.load(Ordering::Relaxed) {
+            thread::sleep(Duration::from_millis(25));
+            continue;
+        }
         match read_one_input_event(&stop) {
             Ok(Some(event)) => {
                 if tx.send(event).is_err() {

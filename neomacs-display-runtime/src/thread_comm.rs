@@ -173,6 +173,10 @@ impl std::fmt::Debug for EffectUpdater {
 pub enum RenderCommand {
     /// Shutdown the render thread
     Shutdown,
+    /// Suspend the active TTY frontend.
+    SuspendTty,
+    /// Resume the active TTY frontend.
+    ResumeTty,
     /// Scroll blit pixels within pixel buffer
     ScrollBlit {
         x: i32,

@@ -39,7 +39,8 @@ use neovm_core::emacs_core::eval::{
 #[cfg(test)]
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::{
-    TerminalRuntimeConfig, configure_terminal_runtime, reset_terminal_runtime,
+    TerminalHost, TerminalRuntimeConfig, configure_terminal_runtime, reset_terminal_host,
+    reset_terminal_runtime, set_terminal_host,
 };
 use neovm_core::emacs_core::{Context, DisplayHost, GuiFrameHostRequest};
 use neovm_core::face::{FaceHeight, FontSlant, FontWeight, FontWidth};
@@ -416,6 +417,24 @@ struct PrimaryWindowDisplayHost {
     primary_window_size: SharedPrimaryWindowSize,
 }
 
+struct TtyTerminalHost {
+    cmd_tx: crossbeam_channel::Sender<RenderCommand>,
+}
+
+impl TerminalHost for TtyTerminalHost {
+    fn suspend_tty(&mut self) -> Result<(), String> {
+        self.cmd_tx
+            .send(RenderCommand::SuspendTty)
+            .map_err(|err| format!("failed to suspend tty frontend: {err}"))
+    }
+
+    fn resume_tty(&mut self) -> Result<(), String> {
+        self.cmd_tx
+            .send(RenderCommand::ResumeTty)
+            .map_err(|err| format!("failed to resume tty frontend: {err}"))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PrimaryWindowSize {
     width: u32,
@@ -667,11 +686,6 @@ fn main() {
         );
     }
 
-    match startup.frontend {
-        FrontendKind::Gui => reset_terminal_runtime(),
-        FrontendKind::Tty => configure_terminal_runtime(detect_tty_runtime()),
-    }
-
     let bootstrap_display = bootstrap_display_config(startup.frontend);
     let (width, height) = startup_dimensions(startup.frontend, bootstrap_frame_metrics());
     // 2. Initialize the evaluator from the canonical core bootstrap.
@@ -682,6 +696,16 @@ fn main() {
         .expect("core bootstrap should succeed");
     evaluator.setup_thread_locals();
     evaluator.set_max_depth(1600);
+    match startup.frontend {
+        FrontendKind::Gui => {
+            reset_terminal_host();
+            reset_terminal_runtime();
+        }
+        FrontendKind::Tty => {
+            reset_terminal_host();
+            configure_terminal_runtime(detect_tty_runtime());
+        }
+    }
     // Disable GC during startup — the bytecode VM's specpdl is not yet
     // scanned by the GC, so collections during VM execution can free
     // values that are still referenced by unwind-protect cleanup forms.
@@ -707,6 +731,11 @@ fn main() {
     let (emacs_comms, render_comms) = comms.split();
     let primary_window_size: SharedPrimaryWindowSize =
         Arc::new(Mutex::new(PrimaryWindowSize { width, height }));
+    if startup.frontend == FrontendKind::Tty {
+        set_terminal_host(Box::new(TtyTerminalHost {
+            cmd_tx: emacs_comms.cmd_tx.clone(),
+        }));
+    }
     if startup.frontend == FrontendKind::Gui {
         evaluator.set_display_host(Box::new(PrimaryWindowDisplayHost {
             cmd_tx: emacs_comms.cmd_tx.clone(),
