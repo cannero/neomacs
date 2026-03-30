@@ -629,6 +629,10 @@ pub enum InputEvent {
     },
     /// Window focus change.
     Focus { focused: bool, emacs_frame_id: u64 },
+    /// Monitor configuration changed.
+    MonitorsChanged {
+        monitors: Vec<crate::emacs_core::builtins::NeomacsMonitorInfo>,
+    },
     /// Window-selection change.
     SelectWindow { window_id: crate::window::WindowId },
     /// Close request.
@@ -1433,7 +1437,10 @@ fn sync_pending_resize_events_in_keyboard_runtime(
 fn input_event_triggers_throw_on_input(event: &InputEvent) -> bool {
     !matches!(
         event,
-        InputEvent::Resize { .. } | InputEvent::Focus { .. } | InputEvent::MouseMove { .. }
+        InputEvent::Resize { .. }
+            | InputEvent::Focus { .. }
+            | InputEvent::MonitorsChanged { .. }
+            | InputEvent::MouseMove { .. }
     )
 }
 
@@ -2441,6 +2448,21 @@ impl crate::emacs_core::eval::Context {
                         }
                         return Ok(event);
                     }
+                    continue;
+                }
+                InputEvent::MonitorsChanged { monitors } => {
+                    self.timer_resume_idle();
+                    crate::emacs_core::builtins::set_neomacs_monitor_info(monitors);
+                    let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+                        self,
+                        "display-monitors-changed-functions",
+                    );
+                    let terminal = crate::emacs_core::terminal::pure::terminal_handle_value();
+                    let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
+                        self,
+                        hook_sym,
+                        &[terminal],
+                    )?;
                     continue;
                 }
                 InputEvent::SelectWindow { window_id } => {

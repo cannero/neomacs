@@ -223,6 +223,12 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   now flow through GNU's `special-event-map` ownership boundary into Lisp
   `handle-focus-in` / `handle-focus-out` handlers, leaving frame-focus hook
   semantics in `frame.el` instead of reimplementing them in Rust.
+- Display/selection owner follow-up landed: `echo-area-clear-hook` now runs
+  from the real echo-area clear owner, active-region selection updates now
+  flow through the GNU command-loop owner into `gui-set-selection` plus
+  `post-select-region-hook`, and monitor snapshots are now primed during GUI
+  startup and refreshed through a real frontend monitor-change event that runs
+  `display-monitors-changed-functions` from the keyboard/display event owner.
 - Generalized-place advice audit landed: GNU `nadvice.el` ownership is now
   differentially covered for:
   - `add-function`
@@ -238,6 +244,13 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   Rust only supplies the C-owned substrate".
 
 ## Next
+
+- Terminal lifecycle still needs its own owner refactor. GNU runs:
+  - `delete-terminal-functions` from `terminal.c`
+  - `suspend-tty-functions` from `term.c`
+  - `resume-tty-functions` from `term.c`
+  Neomacs should only wire those once the TTY frontend/terminal runtime owns
+  real suspend/resume/delete semantics instead of GUI-style stubs.
 
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented

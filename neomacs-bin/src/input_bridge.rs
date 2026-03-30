@@ -5,8 +5,27 @@
 //! between the two so that `neomacs-bin` can feed render-thread input into the
 //! evaluator's command loop.
 
-use neomacs_display_runtime::thread_comm::InputEvent as DisplayEvent;
+use neomacs_display_runtime::thread_comm::{
+    InputEvent as DisplayEvent, MonitorInfo as DisplayMonitorInfo,
+};
+use neovm_core::emacs_core::builtins::NeomacsMonitorInfo;
 use neovm_core::keyboard::{self, InputEvent as KbInputEvent, MouseButton};
+
+pub(crate) fn convert_monitor_infos(monitors: &[DisplayMonitorInfo]) -> Vec<NeomacsMonitorInfo> {
+    monitors
+        .iter()
+        .map(|monitor| NeomacsMonitorInfo {
+            x: monitor.x,
+            y: monitor.y,
+            width: monitor.width,
+            height: monitor.height,
+            scale: monitor.scale,
+            width_mm: monitor.width_mm,
+            height_mm: monitor.height_mm,
+            name: monitor.name.clone(),
+        })
+        .collect()
+}
 
 /// Convert a display runtime input event to a neovm-core keyboard input event.
 ///
@@ -116,6 +135,9 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             focused,
             emacs_frame_id,
         }),
+        DisplayEvent::MonitorsChanged { monitors } => Some(KbInputEvent::MonitorsChanged {
+            monitors: convert_monitor_infos(&monitors),
+        }),
         // Ignore other events (WebKit title changes, etc.)
         _ => None,
     }
@@ -194,6 +216,33 @@ mod tests {
                 focused: true,
                 emacs_frame_id: 42,
             }) => {}
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn monitor_changes_convert_to_core_monitor_snapshot() {
+        let event = convert_display_event(DisplayEvent::MonitorsChanged {
+            monitors: vec![DisplayMonitorInfo {
+                x: 10,
+                y: 20,
+                width: 1920,
+                height: 1080,
+                scale: 1.5,
+                width_mm: 510,
+                height_mm: 290,
+                name: Some("DP-1".to_string()),
+            }],
+        });
+
+        match event {
+            Some(KbInputEvent::MonitorsChanged { monitors }) => {
+                assert_eq!(monitors.len(), 1);
+                assert_eq!(monitors[0].name.as_deref(), Some("DP-1"));
+                assert_eq!(monitors[0].width, 1920);
+                assert_eq!(monitors[0].height, 1080);
+                assert_eq!(monitors[0].scale, 1.5);
+            }
             other => panic!("unexpected event: {other:?}"),
         }
     }

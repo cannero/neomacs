@@ -1296,6 +1296,62 @@ fn special_event_map_bootstraps_focus_handlers() {
 }
 
 #[test]
+fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"
+(setq monitor-hook-terminal nil)
+(setq display-monitors-changed-functions
+      (list (lambda (term)
+              (setq monitor-hook-terminal term))))
+"#,
+    )
+    .expect("parse monitor hook setup");
+    for form in &setup {
+        ev.eval_expr(form).expect("install monitor hook setup");
+    }
+
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::MonitorsChanged {
+            monitors: vec![crate::emacs_core::builtins::NeomacsMonitorInfo {
+                x: 10,
+                y: 20,
+                width: 2560,
+                height: 1440,
+                scale: 1.25,
+                width_mm: 600,
+                height_mm: 340,
+                name: Some("DP-1".to_string()),
+            }],
+        },
+    );
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char('x'),
+        ));
+
+    let event = ev
+        .read_char()
+        .expect("read_char should continue past monitor change event");
+    assert_eq!(event, Value::Int('x' as i64));
+
+    let snapshot = crate::emacs_core::builtins::neomacs_monitor_info_snapshot();
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].name.as_deref(), Some("DP-1"));
+    assert_eq!(snapshot[0].width, 2560);
+    assert_eq!(snapshot[0].height, 1440);
+
+    let result_form = parse_forms("monitor-hook-terminal").expect("parse monitor hook result");
+    assert_eq!(
+        ev.eval_expr(&result_form[0])
+            .expect("display monitor hook terminal"),
+        crate::emacs_core::terminal::pure::terminal_handle_value()
+    );
+}
+
+#[test]
 fn read_char_returns_lispy_select_window_for_transport_event() {
     let mut ev = Context::new();
     ev.frames

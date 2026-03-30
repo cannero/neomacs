@@ -7,6 +7,7 @@ use winit::window::Window;
 
 use crate::core::face::Face;
 use crate::core::frame_glyphs::FrameGlyphBuffer;
+pub use crate::thread_comm::MonitorInfo;
 use crate::thread_comm::{MenuBarItem, RenderComms, TabBarItem, ToolBarItem};
 use neomacs_display_protocol::EffectsConfig;
 use neomacs_renderer_wgpu::{PopupMenuState, TooltipState, WgpuGlyphAtlas, WgpuRenderer};
@@ -21,19 +22,6 @@ use crate::backend::wpe::{WpeBackend, WpeWebView};
 
 /// Shared storage for image dimensions accessible from both threads.
 pub type SharedImageDimensions = Arc<Mutex<HashMap<u32, (u32, u32)>>>;
-
-/// Monitor information collected from winit.
-#[derive(Debug, Clone)]
-pub struct MonitorInfo {
-    pub x: i32,
-    pub y: i32,
-    pub width: i32,
-    pub height: i32,
-    pub scale: f64,
-    pub width_mm: i32,
-    pub height_mm: i32,
-    pub name: Option<String>,
-}
 
 /// Shared storage for monitor info accessible from both threads.
 /// The Condvar is notified once monitors have been populated.
@@ -329,6 +317,7 @@ pub(super) struct RenderApp {
     /// Shared monitor info (populated in resumed(), read from FFI thread)
     pub(super) shared_monitors: Option<SharedMonitorInfo>,
     pub(super) monitors_populated: bool,
+    pub(super) last_monitor_snapshot: Vec<MonitorInfo>,
     pub(super) debug_first_frame_readback_pending: bool,
     pub(super) debug_surface_readback_frames_remaining: u32,
     pub(super) resumed_seen: bool,
@@ -429,6 +418,7 @@ impl RenderApp {
             idle_dim_active: false,
             shared_monitors: Some(shared_monitors),
             monitors_populated: false,
+            last_monitor_snapshot: Vec::new(),
             debug_first_frame_readback_pending: std::env::var_os(
                 "NEOMACS_DEBUG_FIRST_FRAME_READBACK",
             )

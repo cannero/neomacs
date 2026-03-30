@@ -19,6 +19,19 @@ pub use neomacs_display_protocol::{
     EffectsConfig, MenuBarItem, PopupMenuItem, TabBarItem, ToolBarItem, TransitionPolicy,
 };
 
+/// Monitor information transported from the frontend to the evaluator.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MonitorInfo {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub scale: f64,
+    pub width_mm: i32,
+    pub height_mm: i32,
+    pub name: Option<String>,
+}
+
 /// Input event from render thread to Emacs
 #[derive(Debug, Clone)]
 pub enum InputEvent {
@@ -78,6 +91,10 @@ pub enum InputEvent {
         focused: bool,
         /// Emacs frame_id of the window that gained/lost focus (0 = primary)
         emacs_frame_id: u64,
+    },
+    /// Monitor configuration changed on the active terminal.
+    MonitorsChanged {
+        monitors: Vec<MonitorInfo>,
     },
     /// WebKit view title changed
     #[cfg(feature = "wpe-webkit")]
@@ -848,6 +865,7 @@ impl RenderComms {
             InputEvent::WindowResize { .. }
                 | InputEvent::WindowClose { .. }
                 | InputEvent::WindowFocus { .. }
+                | InputEvent::MonitorsChanged { .. }
         )
     }
 
@@ -860,6 +878,7 @@ impl RenderComms {
             InputEvent::WindowResize { .. } => "window-resize",
             InputEvent::WindowClose { .. } => "window-close",
             InputEvent::WindowFocus { .. } => "window-focus",
+            InputEvent::MonitorsChanged { .. } => "monitors-changed",
             #[cfg(feature = "wpe-webkit")]
             InputEvent::WebKitTitleChanged { .. } => "webkit-title-changed",
             #[cfg(feature = "wpe-webkit")]

@@ -1,10 +1,84 @@
+use super::RenderApp;
 use super::state::{effective_window_scale_factor, window_size_from_emacs_pixels};
-use super::{MonitorInfo, RenderApp};
+use crate::thread_comm::InputEvent;
 use std::sync::Arc;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::Window;
 
 impl RenderApp {
+    fn collect_monitor_snapshot(
+        event_loop: &ActiveEventLoop,
+    ) -> Vec<crate::thread_comm::MonitorInfo> {
+        let mut monitors = Vec::new();
+        for monitor in event_loop.available_monitors() {
+            let pos = monitor.position();
+            let size = monitor.size();
+            let scale = monitor.scale_factor();
+            let name = monitor.name();
+            let width_mm = if scale > 0.0 {
+                (size.width as f64 * 25.4 / (96.0 * scale)) as i32
+            } else {
+                0
+            };
+            let height_mm = if scale > 0.0 {
+                (size.height as f64 * 25.4 / (96.0 * scale)) as i32
+            } else {
+                0
+            };
+            monitors.push(crate::thread_comm::MonitorInfo {
+                x: pos.x,
+                y: pos.y,
+                width: size.width as i32,
+                height: size.height as i32,
+                scale,
+                width_mm,
+                height_mm,
+                name,
+            });
+        }
+        monitors
+    }
+
+    fn refresh_monitor_snapshot(&mut self, event_loop: &ActiveEventLoop, emit_change_event: bool) {
+        let snapshot = Self::collect_monitor_snapshot(event_loop);
+        let had_snapshot = self.monitors_populated;
+        let changed = !had_snapshot || self.last_monitor_snapshot != snapshot;
+
+        if !changed {
+            return;
+        }
+
+        self.last_monitor_snapshot = snapshot.clone();
+        self.monitors_populated = true;
+
+        for monitor in &snapshot {
+            tracing::info!(
+                "Monitor: {:?} pos=({},{}) size={}x{} scale={} mm={}x{}",
+                monitor.name,
+                monitor.x,
+                monitor.y,
+                monitor.width,
+                monitor.height,
+                monitor.scale,
+                monitor.width_mm,
+                monitor.height_mm
+            );
+        }
+
+        if let Some(ref shared) = self.shared_monitors {
+            let (ref lock, ref cvar) = **shared;
+            if let Ok(mut shared) = lock.lock() {
+                *shared = snapshot.clone();
+                cvar.notify_all();
+            }
+        }
+
+        if emit_change_event && had_snapshot {
+            self.comms
+                .send_input(InputEvent::MonitorsChanged { monitors: snapshot });
+        }
+    }
+
     pub(super) fn handle_resumed(&mut self, event_loop: &ActiveEventLoop) {
         if !self.resumed_seen {
             tracing::info!(
@@ -66,55 +140,7 @@ impl RenderApp {
             }
         }
 
-        // Populate monitor info on first resume (requires ActiveEventLoop)
-        if !self.monitors_populated {
-            self.monitors_populated = true;
-            if let Some(ref shared) = self.shared_monitors {
-                let mut monitors = Vec::new();
-                for monitor in event_loop.available_monitors() {
-                    let pos = monitor.position();
-                    let size = monitor.size();
-                    let scale = monitor.scale_factor();
-                    let name = monitor.name();
-                    let width_mm = if scale > 0.0 {
-                        (size.width as f64 * 25.4 / (96.0 * scale)) as i32
-                    } else {
-                        0
-                    };
-                    let height_mm = if scale > 0.0 {
-                        (size.height as f64 * 25.4 / (96.0 * scale)) as i32
-                    } else {
-                        0
-                    };
-                    tracing::info!(
-                        "Monitor: {:?} pos=({},{}) size={}x{} scale={} mm={}x{}",
-                        name,
-                        pos.x,
-                        pos.y,
-                        size.width,
-                        size.height,
-                        scale,
-                        width_mm,
-                        height_mm
-                    );
-                    monitors.push(MonitorInfo {
-                        x: pos.x,
-                        y: pos.y,
-                        width: size.width as i32,
-                        height: size.height as i32,
-                        scale,
-                        width_mm,
-                        height_mm,
-                        name,
-                    });
-                }
-                let (ref lock, ref cvar) = **shared;
-                if let Ok(mut shared) = lock.lock() {
-                    *shared = monitors;
-                    cvar.notify_all();
-                }
-            }
-        }
+        self.refresh_monitor_snapshot(event_loop, false);
     }
 
     pub(super) fn handle_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -126,6 +152,7 @@ impl RenderApp {
             );
             self.about_to_wait_seen = true;
         }
+        self.refresh_monitor_snapshot(event_loop, true);
         // Check for shutdown
         if self.process_commands() {
             event_loop.exit();

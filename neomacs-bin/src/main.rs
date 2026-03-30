@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use neomacs_display_runtime::FrameGlyphBuffer;
 use neomacs_display_runtime::render_thread::{
@@ -29,6 +30,7 @@ use neomacs_layout_engine::fontconfig::face_height_to_pixels;
 
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
+use neovm_core::emacs_core::builtins::set_neomacs_monitor_info;
 use neovm_core::emacs_core::display::gui_window_system_symbol;
 use neovm_core::emacs_core::eval::{
     FontResolveRequest, FontSpecResolveRequest, GuiFrameHostSize, ResolvedFontMatch,
@@ -422,6 +424,30 @@ struct PrimaryWindowSize {
 
 type SharedPrimaryWindowSize = Arc<Mutex<PrimaryWindowSize>>;
 
+fn prime_initial_monitor_snapshot(shared: &SharedMonitorInfo) {
+    let (lock, cvar) = &**shared;
+    let monitors = match lock.lock() {
+        Ok(guard) => {
+            if guard.is_empty() {
+                match cvar.wait_timeout(guard, Duration::from_secs(2)) {
+                    Ok((guard, _)) => guard.clone(),
+                    Err(poisoned) => {
+                        let (guard, _) = poisoned.into_inner();
+                        guard.clone()
+                    }
+                }
+            } else {
+                guard.clone()
+            }
+        }
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+
+    if !monitors.is_empty() {
+        set_neomacs_monitor_info(input_bridge::convert_monitor_infos(&monitors));
+    }
+}
+
 fn record_primary_window_resize(shared: &SharedPrimaryWindowSize, event: &DisplayInputEvent) {
     let DisplayInputEvent::WindowResize {
         width,
@@ -711,6 +737,7 @@ fn main() {
                 eprintln!("neomacs: failed to start GUI frontend: {err}");
                 std::process::exit(1);
             });
+            prime_initial_monitor_snapshot(&shared_monitors);
             tracing::info!("GUI render thread spawned ({}x{})", width, height);
             FrontendHandle::Gui(render_thread)
         }
