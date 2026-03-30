@@ -909,69 +909,6 @@ impl LispHeap {
 
     /// Sweep all unmarked objects in one pass.
     fn sweep_all(&mut self) {
-        // Pre-sweep check: find any marked objects that reference
-        // unmarked objects (dangling references that would become stale).
-        {
-            for i in 0..self.objects.len() {
-                if self.marks.get(i).copied().unwrap_or(false) {
-                    // This is a live (marked) object — check its children
-                    let mut children = Vec::new();
-                    Self::trace_heap_object(&self.objects[i], &mut children);
-                    for child in &children {
-                        let ci = child.index as usize;
-                        if ci < self.objects.len()
-                            && !matches!(self.objects[ci], HeapObject::Free)
-                            && !self.marks.get(ci).copied().unwrap_or(true)
-                            && ci < self.generations.len()
-                            && self.generations[ci] == child.generation
-                        {
-                            // FOUND IT: live object references an about-to-be-swept object
-                            let parent_kind = match &self.objects[i] {
-                                HeapObject::Cons { car, cdr } => {
-                                    format!("Cons(car={}, cdr={})", car, cdr)
-                                }
-                                HeapObject::Vector(v) => format!("Vector(len={})", v.len()),
-                                HeapObject::HashTable(_) => "HashTable".to_string(),
-                                HeapObject::Str(s) => {
-                                    format!("Str({:?})", &s.as_str()[..s.as_str().len().min(40)])
-                                }
-                                HeapObject::Lambda(_) => "Lambda".to_string(),
-                                HeapObject::Macro(_) => "Macro".to_string(),
-                                HeapObject::ByteCode(_) => "ByteCode".to_string(),
-                                HeapObject::Overlay(_) => "Overlay".to_string(),
-                                HeapObject::Marker(_) => "Marker".to_string(),
-                                HeapObject::Free => "Free".to_string(),
-                            };
-                            let child_kind = match &self.objects[ci] {
-                                HeapObject::Cons { car, cdr } => {
-                                    format!("Cons(car={}, cdr={})", car, cdr)
-                                }
-                                HeapObject::Vector(v) => format!("Vector(len={})", v.len()),
-                                HeapObject::HashTable(_) => "HashTable".to_string(),
-                                HeapObject::Str(s) => {
-                                    format!("Str({:?})", &s.as_str()[..s.as_str().len().min(40)])
-                                }
-                                HeapObject::Lambda(_) => "Lambda".to_string(),
-                                HeapObject::Macro(_) => "Macro".to_string(),
-                                HeapObject::ByteCode(_) => "ByteCode".to_string(),
-                                HeapObject::Overlay(_) => "Overlay".to_string(),
-                                HeapObject::Marker(_) => "Marker".to_string(),
-                                HeapObject::Free => "Free".to_string(),
-                            };
-                            tracing::error!(
-                                "GC BUG: marked parent references unmarked child!\n  Parent slot {}: {}\n  Child slot {}: {}\n  Child ObjId: {:?}",
-                                i,
-                                parent_kind,
-                                ci,
-                                child_kind,
-                                child
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
         for i in 0..self.objects.len() {
             if !self.marks[i] && !matches!(self.objects[i], HeapObject::Free) {
                 self.objects[i] = HeapObject::Free;
