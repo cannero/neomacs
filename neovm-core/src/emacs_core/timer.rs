@@ -25,7 +25,7 @@ pub type TimerId = u64;
 pub struct Timer {
     /// Unique identifier.
     pub id: TimerId,
-    /// Absolute time when this timer should next fire.
+    /// Absolute time when this timer should next fire (used for non-idle timers).
     pub fire_time: Instant,
     /// If Some, the timer repeats at this interval after firing.
     pub repeat_interval: Option<Duration>,
@@ -37,6 +37,8 @@ pub struct Timer {
     pub active: bool,
     /// Whether this is an idle timer.
     pub idle: bool,
+    /// For idle timers: the idle duration threshold required before firing.
+    pub idle_delay: Option<Duration>,
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +83,8 @@ impl TimerManager {
             None
         };
 
+        let idle_delay = if idle { Some(delay) } else { None };
+
         self.timers.push(Timer {
             id,
             fire_time,
@@ -89,6 +93,7 @@ impl TimerManager {
             args,
             active: true,
             idle,
+            idle_delay,
         });
 
         id
@@ -128,9 +133,14 @@ impl TimerManager {
             if timer.id == id {
                 if !timer.active {
                     timer.active = true;
-                    // Reschedule from now using repeat interval or immediately.
                     let delay = timer.repeat_interval.unwrap_or(Duration::ZERO);
-                    timer.fire_time = Instant::now() + delay;
+                    if timer.idle {
+                        // Reset idle delay threshold to the repeat interval (or zero).
+                        timer.idle_delay = Some(delay);
+                    } else {
+                        // Reschedule from now using repeat interval or immediately.
+                        timer.fire_time = Instant::now() + delay;
+                    }
                 }
                 return true;
             }
@@ -140,21 +150,48 @@ impl TimerManager {
 
     /// Collect all pending callbacks whose fire_time has passed.
     ///
+    /// `idle_duration` is the current idle duration (if the system is idle).
+    /// Idle timers only fire when `idle_duration >= idle_delay`.
+    /// Normal timers fire when `current_time >= fire_time`.
+    ///
     /// Returns a vec of (callback, args) pairs to be executed by the evaluator.
     /// Repeating timers are rescheduled; one-shot timers are deactivated.
-    pub fn fire_pending_timers(&mut self, current_time: Instant) -> Vec<(Value, Vec<Value>)> {
+    pub fn fire_pending_timers(
+        &mut self,
+        current_time: Instant,
+        idle_duration: Option<Duration>,
+    ) -> Vec<(Value, Vec<Value>)> {
         let mut fired = Vec::new();
 
         for timer in &mut self.timers {
             if !timer.active {
                 continue;
             }
-            if current_time >= timer.fire_time {
+
+            let should_fire = if timer.idle {
+                // Idle timers: fire when the user has been idle long enough.
+                match (idle_duration, timer.idle_delay) {
+                    (Some(idle_dur), Some(idle_del)) => idle_dur >= idle_del,
+                    _ => false,
+                }
+            } else {
+                current_time >= timer.fire_time
+            };
+
+            if should_fire {
                 fired.push((timer.callback, timer.args.clone()));
 
                 if let Some(interval) = timer.repeat_interval {
-                    // Reschedule: advance fire_time by interval (catch up if needed)
-                    timer.fire_time = current_time + interval;
+                    if timer.idle {
+                        // For repeating idle timers, increase the idle delay threshold
+                        // so it fires again after another `interval` of idle time.
+                        if let Some(ref mut idle_del) = timer.idle_delay {
+                            *idle_del = idle_duration.unwrap_or(Duration::ZERO) + interval;
+                        }
+                    } else {
+                        // Reschedule: advance fire_time by interval (catch up if needed)
+                        timer.fire_time = current_time + interval;
+                    }
                 } else {
                     timer.active = false;
                 }
@@ -165,16 +202,29 @@ impl TimerManager {
     }
 
     /// Return the duration until the next timer fires, or None if no active timers.
-    pub fn next_fire_time(&self) -> Option<Duration> {
+    ///
+    /// `idle_duration` is the current idle duration (if the system is idle).
+    /// For idle timers, the remaining time is `idle_delay - idle_duration`.
+    /// For normal timers, the remaining time is `fire_time - now`.
+    pub fn next_fire_time(&self, idle_duration: Option<Duration>) -> Option<Duration> {
         let now = Instant::now();
         self.timers
             .iter()
             .filter(|t| t.active)
-            .map(|t| {
-                if t.fire_time > now {
-                    t.fire_time - now
+            .filter_map(|t| {
+                if t.idle {
+                    // Idle timer: compute remaining idle time needed.
+                    let idle_del = t.idle_delay.unwrap_or(Duration::ZERO);
+                    match idle_duration {
+                        Some(idle_dur) if idle_dur >= idle_del => Some(Duration::ZERO),
+                        Some(idle_dur) => Some(idle_del - idle_dur),
+                        // Not idle: idle timers can't fire, don't include in timeout.
+                        None => None,
+                    }
+                } else if t.fire_time > now {
+                    Some(t.fire_time - now)
                 } else {
-                    Duration::ZERO
+                    Some(Duration::ZERO)
                 }
             })
             .min()
@@ -595,6 +645,7 @@ pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value
             let sleep_time = remaining.min(chunk);
             std::thread::sleep(sleep_time);
             eval.poll_process_output();
+            eval.fire_pending_timers();
         }
     }
 

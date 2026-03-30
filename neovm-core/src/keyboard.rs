@@ -3121,7 +3121,8 @@ impl crate::emacs_core::eval::Context {
     }
 
     pub(crate) fn next_input_wait_timeout(&self) -> Option<std::time::Duration> {
-        let mut timeout = self.timers.next_fire_time();
+        let idle_dur = self.current_idle_duration();
+        let mut timeout = self.timers.next_fire_time(idle_dur);
 
         if let Some(gnu_timeout) = self.next_ordinary_gnu_timer_timeout() {
             timeout = Some(timeout.map_or(gnu_timeout, |current| current.min(gnu_timeout)));
@@ -3172,7 +3173,8 @@ impl crate::emacs_core::eval::Context {
         }
 
         let now = std::time::Instant::now();
-        let fired = self.timers.fire_pending_timers(now);
+        let idle_dur = self.current_idle_duration();
+        let fired = self.timers.fire_pending_timers(now, idle_dur);
         for (callback, args) in fired {
             fired_any = true;
             let mut call_args = vec![callback];

@@ -108,7 +108,7 @@ fn fire_pending_timers_one_shot() {
 
     // Fire it
     let now = Instant::now();
-    let fired = mgr.fire_pending_timers(now);
+    let fired = mgr.fire_pending_timers(now, None);
 
     assert_eq!(fired.len(), 1);
     // Check callback is the symbol we set
@@ -122,7 +122,7 @@ fn fire_pending_timers_one_shot() {
     assert!(!mgr.timer_active_p(id));
 
     // Fire again: nothing should fire
-    let fired2 = mgr.fire_pending_timers(Instant::now());
+    let fired2 = mgr.fire_pending_timers(Instant::now(), None);
     assert!(fired2.is_empty());
 }
 
@@ -134,19 +134,19 @@ fn fire_pending_timers_repeat() {
 
     // Fire it once
     let now = Instant::now();
-    let fired = mgr.fire_pending_timers(now);
+    let fired = mgr.fire_pending_timers(now, None);
     assert_eq!(fired.len(), 1);
 
     // Timer should still be active (it repeats)
     assert!(mgr.timer_active_p(id));
 
     // Immediately firing again should NOT fire (needs 1 second)
-    let fired2 = mgr.fire_pending_timers(Instant::now());
+    let fired2 = mgr.fire_pending_timers(Instant::now(), None);
     assert!(fired2.is_empty());
 
     // Advance time by simulating future instant
     let future = Instant::now() + Duration::from_secs(2);
-    let fired3 = mgr.fire_pending_timers(future);
+    let fired3 = mgr.fire_pending_timers(future, None);
     assert_eq!(fired3.len(), 1);
     assert!(mgr.timer_active_p(id));
 }
@@ -157,7 +157,7 @@ fn timer_not_yet_due() {
     // Timer fires in 10 seconds
     let id = mgr.add_timer(10.0, 0.0, Value::symbol("future"), vec![], false);
 
-    let fired = mgr.fire_pending_timers(Instant::now());
+    let fired = mgr.fire_pending_timers(Instant::now(), None);
     assert!(fired.is_empty());
     assert!(mgr.timer_active_p(id));
 }
@@ -167,11 +167,11 @@ fn next_fire_time_works() {
     let mut mgr = TimerManager::new();
 
     // No timers => None
-    assert!(mgr.next_fire_time().is_none());
+    assert!(mgr.next_fire_time(None).is_none());
 
     // Add a timer in the future
     let _id = mgr.add_timer(5.0, 0.0, Value::symbol("cb"), vec![], false);
-    let next = mgr.next_fire_time();
+    let next = mgr.next_fire_time(None);
     assert!(next.is_some());
     // Should be roughly 5 seconds (with some tolerance for test execution time)
     let dur = next.unwrap();
@@ -184,7 +184,7 @@ fn next_fire_time_overdue() {
     let mut mgr = TimerManager::new();
     // Timer with 0 delay => immediately overdue
     let _id = mgr.add_timer(0.0, 0.0, Value::symbol("cb"), vec![], false);
-    let next = mgr.next_fire_time();
+    let next = mgr.next_fire_time(None);
     assert!(next.is_some());
     assert!(next.unwrap() <= Duration::from_millis(10));
 }
@@ -205,12 +205,12 @@ fn timer_set_time_reschedules() {
     let id = mgr.add_timer(100.0, 0.0, Value::symbol("cb"), vec![], false);
 
     // Originally 100 seconds away — won't fire now
-    let fired = mgr.fire_pending_timers(Instant::now());
+    let fired = mgr.fire_pending_timers(Instant::now(), None);
     assert!(fired.is_empty());
 
     // Reschedule to 0 seconds
     mgr.timer_set_time(id, 0.0);
-    let fired = mgr.fire_pending_timers(Instant::now());
+    let fired = mgr.fire_pending_timers(Instant::now(), None);
     assert_eq!(fired.len(), 1);
 }
 
@@ -220,7 +220,7 @@ fn timer_activate_reactivates() {
     let id = mgr.add_timer(0.0, 0.0, Value::symbol("cb"), vec![], false);
 
     // Fire and deactivate
-    mgr.fire_pending_timers(Instant::now());
+    mgr.fire_pending_timers(Instant::now(), None);
     assert!(!mgr.timer_active_p(id));
 
     // Reactivate
@@ -228,7 +228,7 @@ fn timer_activate_reactivates() {
     assert!(mgr.timer_active_p(id));
 
     // Fire again
-    let fired = mgr.fire_pending_timers(Instant::now());
+    let fired = mgr.fire_pending_timers(Instant::now(), None);
     assert_eq!(fired.len(), 1);
 }
 
