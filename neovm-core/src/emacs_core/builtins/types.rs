@@ -234,6 +234,47 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
     }
 }
 
+/// Context-aware type-of that dumps Lisp backtrace on stale ObjId.
+pub(crate) fn builtin_type_of_with_ctx(
+    ctx: &mut super::super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    // Check for stale BEFORE dispatching
+    let stale_id = match &args[0] {
+        Value::Vector(id)
+        | Value::Record(id)
+        | Value::Cons(id)
+        | Value::HashTable(id)
+        | Value::Str(id)
+        | Value::Lambda(id)
+        | Value::Macro(id)
+        | Value::ByteCode(id)
+        | Value::Overlay(id)
+        | Value::Marker(id) => {
+            let is_stale = crate::emacs_core::value::with_heap(|h| {
+                let i = id.index as usize;
+                i < h.generations().len() && h.generations()[i] != id.generation
+            });
+            if is_stale { Some(*id) } else { None }
+        }
+        _ => None,
+    };
+    if let Some(id) = stale_id {
+        let variant = match &args[0] {
+            Value::Record(_) => "record",
+            Value::Vector(_) => "vector",
+            Value::Cons(_) => "cons",
+            _ => "heap-obj",
+        };
+        eprintln!("STALE-DETECT type-of: {} {:?}", variant, id);
+        eprintln!("  Lisp backtrace ({} frames):", ctx.runtime_backtrace.len());
+        for (i, frame) in ctx.runtime_backtrace.iter().rev().take(10).enumerate() {
+            eprintln!("    #{}: {}", i, frame.function);
+        }
+    }
+    builtin_type_of(args)
+}
+
 pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     expect_args("cl-type-of", &args, 1)?;
     // Debug: detect stale ObjId BEFORE accessing heap — return safe value

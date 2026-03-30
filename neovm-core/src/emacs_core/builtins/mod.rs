@@ -6871,7 +6871,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(1),
     );
     ctx.defsubr("bufferp", |_ctx, args| builtin_bufferp(args), 1, Some(1));
-    ctx.defsubr("type-of", |_ctx, args| builtin_type_of(args), 1, Some(1));
+    ctx.defsubr(
+        "type-of",
+        super::builtins::types::builtin_type_of_with_ctx,
+        1,
+        Some(1),
+    );
     ctx.defsubr(
         "sequencep",
         |_ctx, args| builtin_sequencep(args),
