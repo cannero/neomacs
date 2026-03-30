@@ -1935,25 +1935,84 @@ pub(crate) fn builtin_window_text_pixel_size(args: Vec<Value>) -> EvalResult {
 
 /// `(window-text-pixel-size &optional WINDOW FROM TO X-LIMIT Y-LIMIT MODE)` evaluator-backed variant.
 ///
-/// Batch mode returns `(0 . 0)` and validates optional WINDOW / FROM / TO
-/// designators against evaluator state.
+/// Computes approximate pixel dimensions of text in the window region.
+/// Uses the frame's character width/height as a monospace approximation.
 pub(crate) fn builtin_window_text_pixel_size_ctx(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args_range("window-text-pixel-size", &args, 0, 7)?;
     validate_optional_window_designator_in_state(&eval.frames, args.first(), "window-live-p")?;
-    if let Some(from) = args.get(1) {
-        if !from.is_nil() {
-            expect_integer_or_marker(from)?;
+
+    // Get frame metrics
+    let frame = eval.frames.selected_frame();
+    let char_w = frame.map(|f| f.char_width).unwrap_or(8.0);
+    let char_h = frame.map(|f| f.char_height).unwrap_or(16.0);
+
+    let wid = args
+        .first()
+        .and_then(|v| match v {
+            Value::Window(id) => Some(crate::window::WindowId(*id)),
+            _ => None,
+        })
+        .or_else(|| frame.map(|f| f.selected_window));
+
+    let Some(wid) = wid else {
+        return Ok(Value::cons(Value::Int(0), Value::Int(0)));
+    };
+
+    // Find buffer for this window
+    let buf_id = frame
+        .and_then(|f| f.find_window(wid))
+        .and_then(|w| w.buffer_id());
+
+    let Some(buf_id) = buf_id else {
+        return Ok(Value::cons(Value::Int(0), Value::Int(0)));
+    };
+
+    let buf = eval.buffers.get(buf_id);
+    let Some(buf) = buf else {
+        return Ok(Value::cons(Value::Int(0), Value::Int(0)));
+    };
+
+    // Determine FROM/TO range
+    let from_pos = args
+        .get(1)
+        .and_then(|v| if v.is_nil() { None } else { v.as_int() })
+        .map(|i| (i.max(1) - 1) as usize)
+        .unwrap_or(0);
+    let to_pos = args
+        .get(2)
+        .and_then(|v| if v.is_nil() { None } else { v.as_int() })
+        .map(|i| (i.max(1) - 1) as usize)
+        .unwrap_or(buf.text.len());
+
+    // Count lines and max columns in the region
+    let text = buf.text.text_range(from_pos, to_pos.min(buf.text.len()));
+    let mut max_cols = 0usize;
+    let mut lines = 1usize;
+    let mut cur_col = 0usize;
+    for ch in text.chars() {
+        if ch == '\n' {
+            lines += 1;
+            if cur_col > max_cols {
+                max_cols = cur_col;
+            }
+            cur_col = 0;
+        } else if ch == '\t' {
+            cur_col = (cur_col + 8) & !7; // Tab stops at 8
+        } else {
+            cur_col += 1;
         }
     }
-    if let Some(to) = args.get(2) {
-        if !to.is_nil() {
-            expect_integer_or_marker(to)?;
-        }
+    if cur_col > max_cols {
+        max_cols = cur_col;
     }
-    Ok(Value::cons(Value::Int(0), Value::Int(0)))
+
+    let width = (max_cols as f32 * char_w).ceil() as i64;
+    let height = (lines as f32 * char_h).ceil() as i64;
+
+    Ok(Value::cons(Value::Int(width), Value::Int(height)))
 }
 
 /// (pos-visible-in-window-p &optional POS WINDOW PARTIALLY) -> boolean
