@@ -1429,38 +1429,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(1),
     );
     ctx.defsubr("sleep-for", super::timer::builtin_sleep_for, 1, Some(2));
-    ctx.defsubr("run-at-time", super::timer::builtin_run_at_time, 3, None);
-    ctx.defsubr(
-        "run-with-timer",
-        super::timer::builtin_run_with_timer,
-        3,
-        None,
-    );
-    ctx.defsubr(
-        "run-with-idle-timer",
-        super::timer::builtin_run_with_idle_timer,
-        3,
-        None,
-    );
-    ctx.defsubr(
-        "cancel-timer",
-        super::timer::builtin_cancel_timer,
-        1,
-        Some(1),
-    );
-    ctx.defsubr(
-        "timerp",
-        |_ctx, args| super::timer::builtin_timerp(args),
-        1,
-        Some(1),
-    );
-    ctx.defsubr(
-        "timer-activate",
-        super::timer::builtin_timer_activate,
-        1,
-        Some(3),
-    );
-    ctx.defsubr("add-timeout", super::timer::builtin_add_timeout, 3, Some(4));
+    // Timer functions (run-at-time, run-with-timer, run-with-idle-timer,
+    // cancel-timer, timerp, timer-activate) are NOT C primitives in GNU
+    // Emacs — they're defined in timer.el as Elisp functions.
+    // The C layer only provides timer-check (in keyboard.rs) which reads
+    // timer-list / timer-idle-list and calls timer-event-handler.
+    // Registering them as Rust builtins would shadow the Elisp definitions
+    // and create an incompatible parallel timer system.
     ctx.defsubr(
         "add-variable-watcher",
         super::advice::builtin_add_variable_watcher,
