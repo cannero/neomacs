@@ -159,3 +159,116 @@ The fix direction should follow GNU Emacs's ownership model:
 Until that is done, Neomacs's VM runtime still differs from GNU Emacs in a
 fundamental way: bytecode is not running against the same public callable
 surface as the ordinary evaluator.
+
+## Deep Design Recommendation
+
+The current design is wrong in two different directions at once:
+
+- it is not GNU-shaped enough for compatibility testing
+- it is not small or explicit enough to be a clean unit-only harness
+
+So the right fix is not to keep teaching the VM more fallback tricks. The fix
+is to split harness responsibilities clearly.
+
+### What GNU Emacs effectively does
+
+GNU has one real runtime surface:
+
+- symbols live in one obarray
+- `defsubr` writes real function cells into that surface
+- interpreter and bytecode both call into that same callable world
+
+Tests may initialize less editor state, but GNU does not create a separate
+"bytecode-only function namespace" where ordinary public subrs disappear.
+
+### What Neomacs should do
+
+Neomacs should have two explicit evaluator constructors, not one ambiguous one.
+
+#### 1. Full runtime VM test context
+
+This should be the default for `vm_eval_str`, `vm_eval_with_init_str`, and any
+test that claims "shared runtime state" or GNU compatibility.
+
+Shape:
+
+- start from `Context::new()`
+- keep the builtin subr registry
+- keep builtin function cells in the obarray
+- reset mutable editor/runtime state only where test isolation requires it
+
+That gives VM tests the same public callable surface as ordinary evaluator
+calls, which is the GNU shape.
+
+#### 2. Minimal opcode/unit harness
+
+This should only be used for tests that are intentionally about:
+
+- direct bytecode opcodes
+- stack/unwind mechanics
+- hand-built bytecode functions
+- GC/rooting invariants
+
+That harness should be renamed so its semantics are obvious, for example:
+
+- `new_vm_opcode_harness()`
+- `new_minimal_vm_harness()`
+
+If it keeps a reduced function surface, that should be by design and by name,
+not hidden behind the default VM helper.
+
+### Why renaming matters
+
+`new_vm_harness()` currently sounds like "the right runtime for VM tests".
+That is false. Right now it is a partial synthetic evaluator state with no GNU
+equivalent.
+
+Renaming the minimal version is part of the fix because it forces the codebase
+to distinguish:
+
+- VM compatibility tests
+- VM unit mechanics tests
+
+Those are not the same thing.
+
+### Recommended migration plan
+
+1. Change `new_vm_harness()` to build from `Context::new()` and only reset
+   mutable runtime/editor state.
+2. Move the current stripped constructor body to a new explicitly named helper
+   such as `new_minimal_vm_harness()`.
+3. Keep `vm_eval_str`, `vm_eval_lexical_str`, and `vm_eval_with_init_str`
+   on the full runtime harness.
+4. Convert only the truly low-level tests to the minimal harness.
+5. Add one guard test that proves the full VM harness can call ordinary public
+   subrs like:
+   - `selected-window`
+   - `fset`
+   - `defvaralias`
+   - `func-arity`
+
+### Whether pdump snapshotting should be involved
+
+For test isolation, pdump snapshot/restore is architecturally closer to GNU
+than hand-editing the evaluator surface, because it preserves a coherent
+runtime. But it is probably not the first refactor step here.
+
+The first step should be simpler:
+
+- make the default VM harness a full `Context::new()` runtime
+- only then decide whether repeated VM tests should clone a cached snapshot for
+  speed
+
+Snapshotting is an optimization and isolation tool. It is not a substitute for
+having the correct callable surface.
+
+### Bottom line
+
+GNU's rule is simple: bytecode runs inside the same Lisp world as the
+interpreter.
+
+Neomacs should adopt the same rule:
+
+- full VM compatibility tests must run against the same builtin function
+  surface as `Context::new()`
+- any reduced harness must be opt-in, narrowly named, and never be the default
