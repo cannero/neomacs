@@ -7,6 +7,62 @@ use crate::emacs_core::load::{
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::{format_eval_result, parse_forms as parse_bootstrap_forms};
 use std::collections::VecDeque;
+use std::time::Duration;
+
+fn install_mouse_help_echo_snapshot_with_value(eval: &mut Context, help: Value) -> Value {
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    {
+        let buf = eval.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert("abc");
+    }
+    crate::emacs_core::textprop::builtin_put_text_property(
+        eval,
+        vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::symbol("help-echo"),
+            help,
+        ],
+    )
+    .expect("put help-echo property");
+
+    let frame_id = eval
+        .frames
+        .selected_frame()
+        .map(|frame| frame.id)
+        .unwrap_or_else(|| {
+            eval.frames
+                .create_frame("reader-help-echo", 160, 64, buf_id)
+        });
+    let window_id = eval.frames.get(frame_id).expect("frame").selected_window;
+    let frame = eval.frames.get_mut(frame_id).expect("frame");
+    frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+        window_id,
+        text_area_left_offset: 8,
+        points: vec![crate::window::DisplayPointSnapshot {
+            buffer_pos: 1,
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 16,
+            row: 0,
+            col: 0,
+        }],
+        rows: vec![crate::window::DisplayRowSnapshot {
+            row: 0,
+            y: 0,
+            height: 16,
+            start_buffer_pos: Some(1),
+            end_buffer_pos: Some(3),
+        }],
+        ..crate::window::WindowDisplaySnapshot::default()
+    }]);
+    Value::Frame(frame_id.0)
+}
+
+fn install_mouse_help_echo_snapshot(eval: &mut Context, help: &str) -> Value {
+    install_mouse_help_echo_snapshot_with_value(eval, Value::string(help))
+}
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -1376,6 +1432,121 @@ fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
     let inner = read_cons(inner);
     assert_eq!(inner.car, Value::Int(24));
     assert_eq!(inner.cdr, Value::Int(40));
+}
+
+#[test]
+fn input_pending_p_ignores_internal_help_echo_events() {
+    let mut ev = Context::new();
+    let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::Int(12), Value::Int(4)],
+    )
+    .expect("display update should succeed");
+
+    let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
+    assert!(result.is_nil());
+}
+
+#[test]
+fn display_update_for_mouse_movement_shows_help_echo_via_read_char() {
+    let mut ev = Context::new();
+    let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::Int(12), Value::Int(4)],
+    )
+    .expect("display update should succeed");
+
+    let result = ev
+        .read_char_with_timeout(Some(Duration::ZERO))
+        .expect("read-char should consume help-echo");
+    assert!(result.is_none());
+    assert_eq!(ev.current_message_text(), Some("tip"));
+}
+
+#[test]
+fn display_update_for_mouse_movement_clears_help_echo_when_leaving_region() {
+    let mut ev = Context::new();
+    let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::Int(12), Value::Int(4)],
+    )
+    .expect("display update should succeed");
+    ev.read_char_with_timeout(Some(Duration::ZERO))
+        .expect("read-char should consume help-echo");
+    assert_eq!(ev.current_message_text(), Some("tip"));
+
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::Int(12), Value::Int(40)],
+    )
+    .expect("display update should succeed");
+    ev.read_char_with_timeout(Some(Duration::ZERO))
+        .expect("read-char should consume help-echo clear");
+    assert_eq!(ev.current_message_text(), None);
+}
+
+#[test]
+fn display_update_for_mouse_movement_respects_help_echo_inhibit_substitution() {
+    let mut ev = Context::new();
+    let help = Value::string("\\[save-buffer]");
+    crate::emacs_core::textprop::builtin_put_text_property(
+        &mut ev,
+        vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::symbol("help-echo-inhibit-substitution"),
+            Value::True,
+            help,
+        ],
+    )
+    .expect("put help-echo-inhibit-substitution property");
+    let frame = install_mouse_help_echo_snapshot_with_value(&mut ev, help);
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::Int(12), Value::Int(4)],
+    )
+    .expect("display update should succeed");
+
+    let result = ev
+        .read_char_with_timeout(Some(Duration::ZERO))
+        .expect("read-char should consume help-echo");
+    assert!(result.is_none());
+    assert_eq!(ev.current_message_text(), Some("\\[save-buffer]"));
+}
+
+#[test]
+fn read_char_mouse_move_sets_help_echo_even_without_track_mouse() {
+    let mut ev = Context::new();
+    install_mouse_help_echo_snapshot(&mut ev, "tip");
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::MouseMove {
+        x: 12.0,
+        y: 4.0,
+        modifiers: crate::keyboard::Modifiers::none(),
+        target_frame_id: 0,
+    })
+    .expect("queue mouse move");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+
+    let result = ev.read_char().expect("keypress should remain readable");
+    assert_eq!(result, Value::Int('a' as i64));
+    assert_eq!(ev.current_message_text(), None);
 }
 
 #[test]

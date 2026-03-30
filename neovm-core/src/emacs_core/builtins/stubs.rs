@@ -949,9 +949,7 @@ pub(crate) fn builtin_display_update_for_mouse_movement(
     )?;
     let x = expect_fixnum(&args[1])?;
     let y = expect_fixnum(&args[2])?;
-    eval.command_loop
-        .keyboard
-        .set_mouse_pixel_position(Some(fid), x, y);
+    eval.note_mouse_move_for_frame(Some(fid), x, y);
     Ok(Value::Nil)
 }
 

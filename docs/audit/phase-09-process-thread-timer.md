@@ -103,7 +103,12 @@ Bad:
   both record the last pixel position, `display--update-for-mouse-movement`
   now matches GNU's 3-argument `(FRAME X Y)` ABI, and `mouse-position` /
   `mouse-pixel-position` now read that shared state instead of placeholder
-  values. Window-close transport events now route through the same
+  values. Internal `help-echo` delivery is now on that same shared path:
+  mouse updates queue internal `help-echo` events, `input-pending-p` ignores
+  them, direct `read-char` consumes them before returning user input, and
+  `help-echo-inhibit-substitution` is honored on help strings without trying
+  to autoload `help.el` from the low-level reader path. Window-close transport
+  events now route through the same
   delete-frame special-event handling as direct `read_char`,
   instead of quitting immediately on the shared wait path. The real remaining
   work is now the

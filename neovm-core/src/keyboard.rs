@@ -729,6 +729,8 @@ pub struct KBoard {
     pub internal_last_event_frame: Option<crate::window::FrameId>,
     /// Last known mouse position in frame pixel coordinates.
     pub mouse_pixel_position: Option<MousePixelPositionState>,
+    /// Last queued internal `help-echo` event for deduping mouse-motion help.
+    pub last_help_echo_event: Option<Value>,
     /// Unread command events in the Lisp-visible Emacs event form.
     pub unread_events: VecDeque<Value>,
     /// Current raw/translated key sequence being accumulated by `read_key_sequence`.
@@ -774,6 +776,7 @@ impl KBoard {
             unread_selection_event: None,
             internal_last_event_frame: None,
             mouse_pixel_position: None,
+            last_help_echo_event: None,
             unread_events: VecDeque::new(),
             current_key_sequence: ReadKeySequenceState::new(),
             command_keys: Vec::new(),
@@ -994,6 +997,9 @@ impl crate::gc::GcTrace for KBoard {
         if let Some(event) = self.unread_selection_event {
             roots.push(event);
         }
+        if let Some(event) = self.last_help_echo_event {
+            roots.push(event);
+        }
         roots.extend(self.unread_events.iter().copied());
         roots.extend(self.current_key_sequence.raw_events().iter().copied());
         roots.extend(
@@ -1036,6 +1042,13 @@ pub struct KeyboardRuntime {
 }
 
 impl KeyboardRuntime {
+    fn event_counts_as_pending_input(event: &Value) -> bool {
+        !matches!(
+            crate::emacs_core::value::list_to_vec(event).as_deref(),
+            Some([head, ..]) if head.is_symbol_named("help-echo")
+        )
+    }
+
     pub fn new() -> Self {
         Self {
             event_queue: VecDeque::new(),
@@ -1146,7 +1159,11 @@ impl KeyboardRuntime {
 
     pub fn has_pending_kboard_input(&self) -> bool {
         if self.kboard.unread_selection_event.is_some()
-            || !self.kboard.unread_events.is_empty()
+            || self
+                .kboard
+                .unread_events
+                .iter()
+                .any(Self::event_counts_as_pending_input)
             || self
                 .kboard
                 .executing_kbd_macro
@@ -1157,7 +1174,10 @@ impl KeyboardRuntime {
         }
         self.parked_kboards.values().any(|kboard| {
             kboard.unread_selection_event.is_some()
-                || !kboard.unread_events.is_empty()
+                || kboard
+                    .unread_events
+                    .iter()
+                    .any(Self::event_counts_as_pending_input)
                 || kboard
                     .executing_kbd_macro
                     .as_ref()
@@ -2824,6 +2844,9 @@ impl crate::emacs_core::eval::Context {
             }
 
             if let Some(event) = self.command_loop.keyboard.pop_unread_event() {
+                if self.handle_help_echo_event(event)? {
+                    continue;
+                }
                 if self.execute_special_event_if_bound(event)? {
                     continue;
                 }
@@ -2955,12 +2978,206 @@ impl crate::emacs_core::eval::Context {
             .set_mouse_pixel_position(frame_id, x, y);
     }
 
+    fn make_help_echo_event(
+        frame: Value,
+        help: Value,
+        window: Value,
+        object: Value,
+        pos: Value,
+    ) -> Value {
+        Value::list(vec![
+            Value::symbol("help-echo"),
+            frame,
+            help,
+            window,
+            object,
+            pos,
+        ])
+    }
+
+    fn resolve_text_area_help_echo_event(
+        &mut self,
+        frame_id: crate::window::FrameId,
+        x: i64,
+        y: i64,
+    ) -> Option<Value> {
+        let frame = self.frames.get(frame_id)?;
+        let window_id = frame.window_at(x as f32, y as f32)?;
+        let snapshot = frame.window_display_snapshot(window_id)?;
+        let window = frame.find_window(window_id)?;
+        let buffer_id = window.buffer_id()?;
+        let bounds = window.bounds();
+        let query_x = x - bounds.x.round() as i64 - snapshot.text_area_left_offset;
+        let query_y = y - bounds.y.round() as i64;
+        let point = snapshot.point_at_coords(query_x, query_y)?;
+
+        let pair = crate::emacs_core::textprop::builtin_get_char_property_and_overlay_in_state(
+            &self.obarray,
+            &self.buffers,
+            vec![
+                Value::Int(point.buffer_pos as i64),
+                Value::symbol("help-echo"),
+                Value::Buffer(buffer_id),
+            ],
+        )
+        .ok()?;
+        let Value::Cons(cell) = pair else {
+            return None;
+        };
+        let pair = crate::emacs_core::value::read_cons(cell);
+        if pair.car.is_nil() {
+            return None;
+        }
+        let object = if pair.cdr.is_nil() {
+            Value::Buffer(buffer_id)
+        } else {
+            pair.cdr
+        };
+        Some(Self::make_help_echo_event(
+            Value::Frame(frame_id.0),
+            pair.car,
+            Value::Window(window_id.0),
+            object,
+            Value::Int(point.buffer_pos as i64),
+        ))
+    }
+
+    fn queue_mouse_help_echo_update(
+        &mut self,
+        frame_id: Option<crate::window::FrameId>,
+        x: i64,
+        y: i64,
+    ) {
+        let next = frame_id.and_then(|fid| self.resolve_text_area_help_echo_event(fid, x, y));
+        let previous = self.command_loop.keyboard.kboard.last_help_echo_event;
+        let changed = match (previous, next) {
+            (Some(prev), Some(next)) => !crate::emacs_core::value::equal_value(&prev, &next, 0),
+            (None, None) => false,
+            _ => true,
+        };
+        if !changed {
+            return;
+        }
+
+        match next {
+            Some(event) => {
+                self.command_loop.keyboard.unread_event(event);
+                self.command_loop.keyboard.kboard.last_help_echo_event = Some(event);
+            }
+            None => {
+                if let Some(fid) = frame_id {
+                    self.command_loop
+                        .keyboard
+                        .unread_event(Self::make_help_echo_event(
+                            Value::Frame(fid.0),
+                            Value::Nil,
+                            Value::Nil,
+                            Value::Nil,
+                            Value::Int(0),
+                        ));
+                }
+                self.command_loop.keyboard.kboard.last_help_echo_event = None;
+            }
+        }
+    }
+
+    pub(crate) fn note_mouse_move_for_frame(
+        &mut self,
+        frame_id: Option<crate::window::FrameId>,
+        x: i64,
+        y: i64,
+    ) {
+        self.record_mouse_pixel_position(frame_id, x, y);
+        self.queue_mouse_help_echo_update(frame_id, x, y);
+    }
+
     fn note_mouse_move_input_event(&mut self, x: f32, y: f32, target_frame_id: u64) {
-        self.record_mouse_pixel_position(
+        self.note_mouse_move_for_frame(
             self.resolve_input_frame_id(target_frame_id),
             x.round() as i64,
             y.round() as i64,
         );
+    }
+
+    fn handle_help_echo_event(
+        &mut self,
+        event: Value,
+    ) -> Result<bool, crate::emacs_core::error::Flow> {
+        let Some(parts) = crate::emacs_core::value::list_to_vec(&event) else {
+            return Ok(false);
+        };
+        if parts.len() != 6 {
+            return Ok(false);
+        }
+        let head = parts[0];
+        let mut help = parts[2];
+        let window = parts[3];
+        let object = parts[4];
+        let pos = parts[5];
+        if !head.is_symbol_named("help-echo") {
+            return Ok(false);
+        }
+
+        if !help.is_nil() && help.as_str().is_none() {
+            help = if self.function_value_is_callable(&help) {
+                self.funcall_general(help, vec![window, object, pos])?
+            } else {
+                self.eval_value(&help)?
+            };
+            if !help.is_nil() && help.as_str().is_none() {
+                return Ok(true);
+            }
+        }
+
+        if help.as_str().is_some() {
+            help = self.substitute_help_echo_command_keys(help)?;
+        }
+
+        let show_help_function = self
+            .obarray
+            .symbol_value("show-help-function")
+            .copied()
+            .unwrap_or(Value::Nil);
+        if self.function_value_is_callable(&show_help_function) {
+            let _ = self.funcall_general(show_help_function, vec![help])?;
+        } else if let Some(message) = help.as_str() {
+            self.set_current_message(Some(message.to_owned()));
+            self.redisplay();
+        } else {
+            self.clear_current_message();
+        }
+
+        self.timer_resume_idle();
+        Ok(true)
+    }
+
+    fn substitute_help_echo_command_keys(
+        &mut self,
+        help: Value,
+    ) -> Result<Value, crate::emacs_core::error::Flow> {
+        if help.is_nil() || help.as_str().is_none() {
+            return Ok(help);
+        }
+
+        let inhibit = crate::emacs_core::textprop::builtin_get_text_property_in_state(
+            &self.obarray,
+            &self.buffers,
+            vec![
+                Value::Int(1),
+                Value::symbol("help-echo-inhibit-substitution"),
+                help,
+            ],
+        )?;
+        if inhibit.is_truthy() {
+            return Ok(help);
+        }
+
+        match self.obarray.symbol_function("substitute-command-keys") {
+            Some(function) if !crate::emacs_core::autoload::is_autoload_value(&function) => {
+                self.funcall_general(Value::symbol("substitute-command-keys"), vec![help])
+            }
+            _ => crate::emacs_core::doc::builtin_substitute_command_keys(vec![help]),
+        }
     }
 
     /// Build an Emacs mouse event value.

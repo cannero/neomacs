@@ -122,6 +122,14 @@ ABI `(FRAME X Y)` instead of the old local 2-argument stub, and
 instead of acting like placeholders. So the remaining Phase 9 mouse-motion
 work is no longer basic state ownership; it is only finer-grained idle/help
 semantics on top of the now-correct runtime surface.
+The low-level help path is also closer to GNU now: mouse updates queue
+internal `help-echo` events on the shared unread-event path,
+`input-pending-p` ignores those internal events, direct `read-char` consumes
+them before returning user input, and `help-echo-inhibit-substitution` is now
+honored on help strings. Neomacs also avoids trying to autoload `help.el`
+from this low-level path when `substitute-command-keys` is still only present
+as a startup autoload; it falls back to the core substitution implementation
+instead.
 
 ### The shared wait path now services non-user-visible host input before polling timers/processes
 
