@@ -24,6 +24,16 @@ fn eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
+fn eval_one_with_frame(src: &str) -> String {
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    ev.frames.create_frame("F1", 800, 600, buf);
+    let forms = parse_forms(src).expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    format_eval_result(&result)
+}
+
 fn eval_all_with_subr(src: &str) -> Vec<String> {
     let mut ev = Context::new();
     load_minimal_backquote_runtime(&mut ev);
@@ -5547,7 +5557,7 @@ fn set_frame_window_state_change_forces_state_hooks_on_redisplay() {
 
 #[test]
 fn delete_frame_runs_before_and_after_delete_hooks() {
-    let result = eval_one(
+    let result = eval_one_with_frame(
         "(progn
            (setq hook-log nil)
            (let ((f2 (make-frame)))

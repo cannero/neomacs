@@ -309,6 +309,12 @@ infrastructure only. It should not represent a second Lisp hook architecture.
     path when terminal disappearance is driven from inside the device delete
     owner rather than from public Lisp
 
+- Public frame/terminal ownership follow-up landed: `delete-frame` now honors
+  GNU's visible/force split for sole-frame errors instead of silently deleting
+  the only frame, and terminal teardown now goes through a shared terminal
+  owner helper so public `delete-terminal` and the internal deferred path stop
+  drifting.
+
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented
 - keep broadening subsystem-owned caller coverage instead of adding hook logic

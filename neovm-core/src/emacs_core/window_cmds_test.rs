@@ -3033,6 +3033,29 @@ fn delete_frame_works() {
 }
 
 #[test]
+fn delete_frame_errors_on_sole_frame_without_force() {
+    let result = eval_one_with_frame(
+        "(condition-case err
+             (delete-frame nil)
+           (error err))",
+    );
+    assert_eq!(
+        result,
+        "OK (error \"Attempt to delete the sole visible or iconified frame\")"
+    );
+}
+
+#[test]
+fn delete_frame_force_errors_on_only_frame() {
+    let result = eval_one_with_frame(
+        "(condition-case err
+             (delete-frame nil t)
+           (error err))",
+    );
+    assert_eq!(result, "OK (error \"Attempt to delete the only frame\")");
+}
+
+#[test]
 fn deleting_last_frame_on_terminal_deletes_terminal_too() {
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");

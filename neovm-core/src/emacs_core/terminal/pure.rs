@@ -58,6 +58,12 @@ pub trait TerminalHost {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DeleteTerminalHookMode {
+    RunImmediately,
+    DeferSafe,
+}
+
 struct TerminalRecord {
     id: u64,
     name: String,
@@ -1046,17 +1052,12 @@ pub(crate) fn builtin_resume_tty(
 // Builtins moved from builtins.rs
 // ---------------------------------------------------------------------------
 
-/// (delete-terminal &optional TERMINAL FORCE) -> nil or error
-pub(crate) fn builtin_delete_terminal(
+pub(crate) fn delete_terminal_owned(
     eval: &mut crate::emacs_core::eval::Context,
-    args: Vec<Value>,
+    terminal_id: u64,
+    force: Value,
+    hook_mode: DeleteTerminalHookMode,
 ) -> EvalResult {
-    expect_range_args("delete-terminal", &args, 0, 2)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
-    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
-        return Ok(Value::Nil);
-    };
-    let force = args.get(1).copied().unwrap_or(Value::Nil);
     let active_live_count =
         TERMINAL_MANAGER.with(|slot| slot.borrow().active_live_terminal_count());
     if force.is_nil() && active_live_count <= 1 {
@@ -1068,9 +1069,19 @@ pub(crate) fn builtin_delete_terminal(
         ));
     }
     let terminal = terminal_handle_value_for_id(terminal_id).unwrap_or_else(terminal_handle_value);
-    let hook_sym =
-        crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "delete-terminal-functions");
-    let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(eval, hook_sym, &[terminal])?;
+    match hook_mode {
+        DeleteTerminalHookMode::RunImmediately => {
+            let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+                eval,
+                "delete-terminal-functions",
+            );
+            let _ =
+                crate::emacs_core::hook_runtime::safe_run_named_hook(eval, hook_sym, &[terminal])?;
+        }
+        DeleteTerminalHookMode::DeferSafe => {
+            eval.queue_pending_safe_hook("delete-terminal-functions", &[terminal]);
+        }
+    }
     TERMINAL_MANAGER.with(|slot| {
         let mut manager = slot.borrow_mut();
         let Some(host) = manager
@@ -1099,6 +1110,7 @@ pub(crate) fn builtin_delete_terminal(
             frame_id,
             crate::emacs_core::window_cmds::DeleteFrameHookMode::DeferSafe,
             false,
+            false,
         )?;
     }
     delete_terminal_record(terminal_id);
@@ -1112,6 +1124,25 @@ pub(crate) fn builtin_delete_terminal(
     }
     eval.sync_keyboard_terminal_owner();
     Ok(Value::Nil)
+}
+
+/// (delete-terminal &optional TERMINAL FORCE) -> nil or error
+pub(crate) fn builtin_delete_terminal(
+    eval: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("delete-terminal", &args, 0, 2)?;
+    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
+        return Ok(Value::Nil);
+    };
+    let force = args.get(1).copied().unwrap_or(Value::Nil);
+    delete_terminal_owned(
+        eval,
+        terminal_id,
+        force,
+        DeleteTerminalHookMode::RunImmediately,
+    )
 }
 
 /// (make-terminal-frame PARMS) -> error (no TTY support)
