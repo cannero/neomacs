@@ -107,7 +107,11 @@ Bad:
   mouse updates queue internal `help-echo` events, `input-pending-p` ignores
   them, direct `read-char` consumes them before returning user input, and
   `help-echo-inhibit-substitution` is honored on help strings without trying
-  to autoload `help.el` from the low-level reader path. Window-close transport
+  to autoload `help.el` from the low-level reader path. And when
+  `mouse-fixup-help-message` is actually loaded, Neomacs now runs that fixup
+  before either echo-area display or `show-help-function`, matching GNU's
+  low-level help ordering more closely without forcing an autoload of
+  `mouse.el`. Window-close transport
   events now route through the same
   delete-frame special-event handling as direct `read_char`,
   instead of quitting immediately on the shared wait path. The real remaining

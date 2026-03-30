@@ -1527,6 +1527,69 @@ fn display_update_for_mouse_movement_respects_help_echo_inhibit_substitution() {
 }
 
 #[test]
+fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
+    let mut ev = Context::new();
+    let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    let forms = parse_forms(
+        r#"(fset 'mouse-fixup-help-message
+                  (lambda (msg) (concat "fixed:" msg)))"#,
+    )
+    .expect("parse mouse-fixup-help-message");
+    ev.eval_expr(&forms[0])
+        .expect("install mouse-fixup-help-message");
+
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::Int(12), Value::Int(4)],
+    )
+    .expect("display update should succeed");
+
+    let result = ev
+        .read_char_with_timeout(Some(Duration::ZERO))
+        .expect("read-char should consume help-echo");
+    assert!(result.is_none());
+    assert_eq!(ev.current_message_text(), Some("fixed:tip"));
+}
+
+#[test]
+fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function() {
+    let mut ev = Context::new();
+    let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    let forms = parse_forms(
+        r#"(progn
+             (setq show-help-collected nil)
+             (fset 'mouse-fixup-help-message
+                   (lambda (msg) (concat "fixed:" msg)))
+             (setq show-help-function
+                   (lambda (msg) (setq show-help-collected msg))))"#,
+    )
+    .expect("parse help fixup/show-help-function setup");
+    ev.eval_expr(&forms[0])
+        .expect("install help fixup/show-help-function");
+
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::Int(12), Value::Int(4)],
+    )
+    .expect("display update should succeed");
+
+    let result = ev
+        .read_char_with_timeout(Some(Duration::ZERO))
+        .expect("read-char should consume help-echo");
+    assert!(result.is_none());
+    let value = ev
+        .eval_expr(&parse_forms("show-help-collected").expect("parse symbol")[0])
+        .expect("read show-help-collected");
+    assert_eq!(value.as_str(), Some("fixed:tip"));
+}
+
+#[test]
 fn read_char_mouse_move_sets_help_echo_even_without_track_mouse() {
     let mut ev = Context::new();
     install_mouse_help_echo_snapshot(&mut ev, "tip");

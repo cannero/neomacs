@@ -3129,6 +3129,8 @@ impl crate::emacs_core::eval::Context {
             }
         }
 
+        help = self.fixup_help_echo_message(help)?;
+
         if help.as_str().is_some() {
             help = self.substitute_help_echo_command_keys(help)?;
         }
@@ -3149,6 +3151,22 @@ impl crate::emacs_core::eval::Context {
 
         self.timer_resume_idle();
         Ok(true)
+    }
+
+    fn fixup_help_echo_message(
+        &mut self,
+        help: Value,
+    ) -> Result<Value, crate::emacs_core::error::Flow> {
+        if help.as_str().is_none() || !self.has_input_receiver() {
+            return Ok(help);
+        }
+
+        match self.obarray.symbol_function("mouse-fixup-help-message") {
+            Some(function) if !crate::emacs_core::autoload::is_autoload_value(&function) => {
+                self.funcall_general(Value::symbol("mouse-fixup-help-message"), vec![help])
+            }
+            _ => Ok(help),
+        }
     }
 
     fn substitute_help_echo_command_keys(
