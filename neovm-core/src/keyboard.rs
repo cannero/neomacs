@@ -1578,7 +1578,7 @@ fn input_event_is_wait_path_special(event: &InputEvent) -> bool {
         InputEvent::Resize { .. }
             | InputEvent::MonitorsChanged { .. }
             | InputEvent::MouseMove { .. }
-            | InputEvent::CloseRequested
+            | InputEvent::WindowClose { .. }
     )
 }
 
@@ -2266,7 +2266,7 @@ impl crate::emacs_core::eval::Context {
                 InputEvent::MouseMove { .. } => {
                     self.timer_resume_idle();
                 }
-                InputEvent::CloseRequested => {
+                InputEvent::WindowClose { .. } => {
                     self.command_loop.running = false;
                     return Err(crate::emacs_core::error::signal("quit", vec![]));
                 }
