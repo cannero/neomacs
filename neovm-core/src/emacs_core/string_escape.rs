@@ -477,69 +477,175 @@ fn push_escaped_literal_byte(out: &mut Vec<u8>, byte: u8) {
     }
 }
 
+use super::print::PrintOptions;
+
 /// Format a Rust string as an Emacs Lisp string literal, preserving byte-level
 /// sentinels via lossy UTF-8 conversion when invalid byte sequences occur.
 pub(crate) fn format_lisp_string(s: &str) -> String {
-    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, false)).into_owned()
+    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, &PrintOptions::default()))
+        .into_owned()
 }
 
 /// Format with `print-escape-newlines` support.
 /// When `escape_newlines` is true, `\n` → `\\n` and `\f` → `\\f` in output,
 /// matching GNU Emacs print.c behavior.
 pub(crate) fn format_lisp_string_with_escape(s: &str, escape_newlines: bool) -> String {
-    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, escape_newlines)).into_owned()
+    let mut opts = PrintOptions::default();
+    opts.print_escape_newlines = escape_newlines;
+    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, &opts)).into_owned()
+}
+
+/// Format with full `PrintOptions`.
+pub(crate) fn format_lisp_string_with_options(s: &str, options: &PrintOptions) -> String {
+    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, options)).into_owned()
 }
 
 /// Format a Rust string as an Emacs Lisp string literal byte sequence.
 pub(crate) fn format_lisp_string_bytes(s: &str) -> Vec<u8> {
-    format_lisp_string_bytes_inner(s, false)
+    format_lisp_string_bytes_inner(s, &PrintOptions::default())
 }
 
-pub(crate) fn format_lisp_string_bytes_inner(s: &str, escape_newlines: bool) -> Vec<u8> {
+/// Push an octal escape for a character code, choosing 1-3 digits.
+/// If the next character after the octal escape is an octal digit ('0'–'7'),
+/// we must use 3 digits to avoid misinterpretation (matching GNU's `octalout`).
+fn push_octal_escape_contextual(out: &mut Vec<u8>, byte: u8, next_char: Option<char>) {
+    let need_three_digits = byte > 0o77
+        || next_char.is_some_and(|nc| {
+            let nc_u32 = nc as u32;
+            // Check if the next character is an ASCII octal digit.
+            // For sentinel chars, don't force 3 digits.
+            nc_u32 < 0x80 && (b'0'..=b'7').contains(&(nc_u32 as u8))
+        });
+    let need_two_digits = byte > 0o7;
+
+    out.push(b'\\');
+    if need_three_digits {
+        out.push(b'0' + ((byte >> 6) & 7));
+        out.push(b'0' + ((byte >> 3) & 7));
+        out.push(b'0' + (byte & 7));
+    } else if need_two_digits {
+        out.push(b'0' + ((byte >> 3) & 7));
+        out.push(b'0' + (byte & 7));
+    } else {
+        out.push(b'0' + (byte & 7));
+    }
+}
+
+pub(crate) fn format_lisp_string_bytes_inner(s: &str, options: &PrintOptions) -> Vec<u8> {
     let mut out = Vec::with_capacity(s.len() + 2);
     out.push(b'"');
+
+    // Track whether we just emitted a hex escape.  If so, the next
+    // character might be taken as part of the hex literal; GNU Emacs
+    // inserts `\ ` (backslash-space) to disambiguate.
+    let mut need_nonhex = false;
 
     let mut chars = s.chars().peekable();
     while let Some(ch) = chars.next() {
         let code = ch as u32;
+
+        // ---- internal sentinel: unibyte byte ----
         if (UNIBYTE_BYTE_SENTINEL_MIN..=UNIBYTE_BYTE_SENTINEL_MAX).contains(&code) {
             let byte = (code - UNIBYTE_BYTE_SENTINEL_BASE) as u8;
-            push_unibyte_literal_byte(&mut out, byte);
+            // Unibyte string: non-ASCII bytes (>= 0x80) get octal.
+            // print-escape-nonascii applies to non-ASCII in unibyte strings.
+            if byte >= 0x80 && options.print_escape_nonascii {
+                push_octal_escape_contextual(&mut out, byte, chars.peek().copied());
+            } else {
+                push_unibyte_literal_byte(&mut out, byte);
+            }
+            need_nonhex = false;
             continue;
         }
 
+        // ---- internal sentinel: raw byte (multibyte 0x3FFF80..0x3FFFFF) ----
         if (RAW_BYTE_SENTINEL_MIN..=RAW_BYTE_SENTINEL_MAX).contains(&code) {
             let byte = (code - RAW_BYTE_SENTINEL_BASE) as u8;
-            push_octal_escape(&mut out, byte);
+            push_octal_escape_contextual(&mut out, byte, chars.peek().copied());
+            need_nonhex = false;
             continue;
         }
 
+        // ---- internal sentinel: extended sequence ----
         if code == EXT_SEQ_PREFIX {
             if let Some(bytes) = decode_extended_sequence(&mut chars) {
                 for b in bytes {
                     push_escaped_literal_byte(&mut out, b);
                 }
+                need_nonhex = false;
                 continue;
             }
         }
 
-        match ch {
-            // GNU Emacs print.c: `"` and `\` are always escaped.
-            // `\n` and `\f` are escaped when print-escape-newlines is t.
-            '"' => out.extend_from_slice(br#"\""#),
-            '\\' => out.extend_from_slice(br#"\\"#),
-            '\n' if escape_newlines => out.extend_from_slice(br#"\n"#),
-            '\x0c' if escape_newlines => out.extend_from_slice(br#"\f"#),
-            _ => {
-                let mut tmp = [0u8; 4];
-                let bytes = ch.encode_utf8(&mut tmp).as_bytes();
-                out.extend_from_slice(bytes);
+        // ---- print-escape-multibyte: non-ASCII in multibyte strings → \xNNNN ----
+        if options.print_escape_multibyte && code > 0x7F {
+            let hex = format!("\\x{:04x}", code);
+            out.extend_from_slice(hex.as_bytes());
+            need_nonhex = true;
+            continue;
+        }
+
+        // ---- normal character handling ----
+        // If we just had a hex escape, and this character is a hex digit,
+        // output `\ ` to prevent it being taken as part of the escape.
+        if code <= 0x7F && is_hex_digit(code as u8) {
+            if need_nonhex {
+                out.extend_from_slice(b"\\ ");
+            }
+            out.push(code as u8);
+            need_nonhex = false;
+            continue;
+        }
+
+        // \n and \f when print-escape-newlines is set
+        if ch == '\n' && options.print_escape_newlines {
+            out.extend_from_slice(b"\\n");
+            need_nonhex = false;
+            continue;
+        }
+        if ch == '\x0c' && options.print_escape_newlines {
+            out.extend_from_slice(b"\\f");
+            need_nonhex = false;
+            continue;
+        }
+
+        // `"` and `\` are always escaped
+        if ch == '"' || ch == '\\' {
+            out.push(b'\\');
+            out.push(ch as u8);
+            need_nonhex = false;
+            continue;
+        }
+
+        // print-escape-control-characters: control chars (except \t \n \f) → octal
+        // GNU: c_iscntrl(c) matches 0x00-0x1f and 0x7f
+        if options.print_escape_control_characters && code <= 0x7F {
+            let b = code as u8;
+            if b < 0x20 && b != b'\t' && b != b'\n' && b != 0x0c {
+                push_octal_escape_contextual(&mut out, b, chars.peek().copied());
+                need_nonhex = false;
+                continue;
+            }
+            if b == 0x7f {
+                push_octal_escape_contextual(&mut out, b, chars.peek().copied());
+                need_nonhex = false;
+                continue;
             }
         }
+
+        // Default: emit the character as UTF-8
+        let mut tmp = [0u8; 4];
+        let bytes = ch.encode_utf8(&mut tmp).as_bytes();
+        out.extend_from_slice(bytes);
+        need_nonhex = false;
     }
 
     out.push(b'"');
     out
+}
+
+fn is_hex_digit(b: u8) -> bool {
+    b.is_ascii_hexdigit()
 }
 #[cfg(test)]
 #[path = "string_escape_test.rs"]

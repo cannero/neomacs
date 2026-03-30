@@ -295,8 +295,20 @@ pub(crate) fn print_options_from_state(obarray: &super::symbol::Obarray) -> Prin
         Some(Value::Int(n)) if *n >= 0 => Some(*n),
         _ => None,
     };
+    let print_escape_nonascii = obarray
+        .symbol_value("print-escape-nonascii")
+        .is_some_and(Value::is_truthy);
+    let print_escape_multibyte = obarray
+        .symbol_value("print-escape-multibyte")
+        .is_some_and(Value::is_truthy);
+    let print_escape_control_characters = obarray
+        .symbol_value("print-escape-control-characters")
+        .is_some_and(Value::is_truthy);
     let mut opts = PrintOptions::new(print_gensym, print_circle, print_level, print_length);
     opts.print_escape_newlines = print_escape_newlines;
+    opts.print_escape_nonascii = print_escape_nonascii;
+    opts.print_escape_multibyte = print_escape_multibyte;
+    opts.print_escape_control_characters = print_escape_control_characters;
     opts
 }
 

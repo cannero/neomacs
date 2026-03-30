@@ -9,7 +9,7 @@ use super::expr::{self, Expr};
 use super::intern::{SymId, lookup_interned, resolve_sym};
 use super::string_escape::{
     format_lisp_string, format_lisp_string_bytes, format_lisp_string_bytes_inner,
-    format_lisp_string_with_escape,
+    format_lisp_string_with_options,
 };
 use super::value::{
     HashTableTest, StringTextPropertyRun, Value, get_string_text_properties, list_to_vec,
@@ -22,6 +22,9 @@ pub struct PrintOptions {
     pub print_gensym: bool,
     pub print_circle: bool,
     pub print_escape_newlines: bool,
+    pub print_escape_nonascii: bool,
+    pub print_escape_multibyte: bool,
+    pub print_escape_control_characters: bool,
     pub print_level: Option<i64>,
     pub print_length: Option<i64>,
     backquote_output_level: usize,
@@ -33,6 +36,9 @@ impl PrintOptions {
             print_gensym,
             print_circle: false,
             print_escape_newlines: false,
+            print_escape_nonascii: false,
+            print_escape_multibyte: false,
+            print_escape_control_characters: false,
             print_level: None,
             print_length: None,
             backquote_output_level: 0,
@@ -50,6 +56,9 @@ impl PrintOptions {
             print_gensym,
             print_circle,
             print_escape_newlines: false,
+            print_escape_nonascii: false,
+            print_escape_multibyte: false,
+            print_escape_control_characters: false,
             print_level,
             print_length,
             backquote_output_level: 0,
@@ -278,10 +287,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 Some(runs) => {
                     out.push_str(&format_lisp_propertized_string(&s, &runs, state.options))
                 }
-                None => out.push_str(&format_lisp_string_with_escape(
-                    &s,
-                    state.options.print_escape_newlines,
-                )),
+                None => out.push_str(&format_lisp_string_with_options(&s, &state.options)),
             }
         }
         Value::Char(c) => write!(out, "{}", *c as u32).unwrap(),
@@ -746,7 +752,7 @@ fn format_lisp_propertized_string(
     options: PrintOptions,
 ) -> String {
     let mut out = String::from("#(");
-    out.push_str(&format_lisp_string(s));
+    out.push_str(&format_lisp_string_with_options(s, &options));
     for run in runs {
         out.push(' ');
         out.push_str(&run.start.to_string());
@@ -930,7 +936,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             let s = with_heap(|h| h.get_string(*id).to_owned());
             match get_string_text_properties(*id) {
                 Some(runs) => format_lisp_propertized_string(&s, &runs, options),
-                None => format_lisp_string_with_escape(&s, options.print_escape_newlines),
+                None => format_lisp_string_with_options(&s, &options),
             }
         }
         // Emacs chars are integer values, so print as codepoint.
@@ -1050,7 +1056,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         Value::Keyword(id) => out.extend_from_slice(resolve_sym(*id).as_bytes()),
         Value::Str(id) => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
-            let str_bytes = format_lisp_string_bytes_inner(&s, options.print_escape_newlines);
+            let str_bytes = format_lisp_string_bytes_inner(&s, &options);
             if let Some(runs) = get_string_text_properties(*id) {
                 out.extend_from_slice(b"#(");
                 out.extend_from_slice(&str_bytes);
