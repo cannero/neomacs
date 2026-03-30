@@ -99,6 +99,8 @@ locked down as the timer/process ordering itself.
 The shared wait path also now routes window-close transport events through the
 same delete-frame special-event handling as direct `read_char`, instead of
 quitting immediately on that path.
+It also now honors `throw-on-input` before dispatching those close events,
+which matches the direct `read_char` path more closely.
 
 ### The shared wait path now services non-user-visible host input before polling timers/processes
 

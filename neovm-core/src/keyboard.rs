@@ -2241,6 +2241,12 @@ impl crate::emacs_core::eval::Context {
         }
 
         while let Some(event) = self.take_next_wait_path_special_input_event()? {
+            if input_event_triggers_throw_on_input(&event)
+                && self.interrupt_for_input_event_if_requested(event.clone())?
+            {
+                continue;
+            }
+
             match event {
                 InputEvent::Resize {
                     width,

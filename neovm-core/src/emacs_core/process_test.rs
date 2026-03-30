@@ -2028,6 +2028,37 @@ fn accept_process_output_window_close_quits_without_special_handler() {
 }
 
 #[test]
+fn accept_process_output_window_close_honors_throw_on_input_before_quit() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::WindowClose { emacs_frame_id: 0 })
+        .expect("queue window close");
+    ev.input_rx = Some(rx);
+    ev.obarray
+        .set_symbol_value("throw-on-input", Value::symbol("tag"));
+
+    let flow = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+    )
+    .expect_err("throw-on-input should interrupt accept-process-output");
+    assert!(matches!(
+        flow,
+        Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::True
+    ));
+
+    ev.obarray.set_symbol_value("throw-on-input", Value::Nil);
+    let flow = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+    )
+    .expect_err("window close should still quit afterwards");
+    drop(tx);
+
+    assert!(matches!(flow, Flow::Signal(ref sig) if sig.symbol_name() == "quit"));
+}
+
+#[test]
 fn process_mark_type_thread_send_and_running_child_runtime_surface() {
     let cat = find_bin("cat");
     let results = eval_all(&format!(

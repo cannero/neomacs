@@ -571,6 +571,49 @@ fn sleep_for_window_close_uses_special_event_map_handler_when_loaded() {
 }
 
 #[test]
+fn sleep_for_window_close_honors_throw_on_input_before_handler() {
+    let mut ev = Context::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(scratch);
+    let frame = ev.frames.create_frame("F1", 80, 24, scratch);
+    install_minimal_special_event_command_runtime(&mut ev);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::WindowClose {
+        emacs_frame_id: frame.0,
+    })
+    .expect("queue window close");
+    ev.input_rx = Some(rx);
+    ev.command_loop.running = true;
+    ev.obarray
+        .set_symbol_value("throw-on-input", Value::symbol("tag"));
+
+    let flow = builtin_sleep_for(&mut ev, vec![Value::Float(0.01, next_float_id())])
+        .expect_err("throw-on-input should interrupt sleep-for");
+    assert!(matches!(
+        flow,
+        Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::True
+    ));
+
+    ev.obarray.set_symbol_value("throw-on-input", Value::Nil);
+    let result = builtin_sleep_for(&mut ev, vec![Value::Float(0.01, next_float_id())])
+        .expect("sleep-for should consume handled window close afterwards");
+    drop(tx);
+
+    assert_eq!(result, Value::Nil);
+    let logged = ev
+        .eval_symbol("neo-last-delete-frame-event")
+        .expect("delete-frame event should be logged");
+    assert_eq!(
+        logged,
+        Value::list(vec![
+            Value::symbol("delete-frame"),
+            Value::list(vec![Value::Frame(frame.0)]),
+        ]),
+    );
+}
+
+#[test]
 fn test_eval_run_at_time_and_cancel() {
     use super::super::eval::Context;
 
