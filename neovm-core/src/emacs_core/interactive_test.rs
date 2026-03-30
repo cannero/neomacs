@@ -3401,6 +3401,66 @@ fn interactive_lambda_e_spec_reads_parameterized_events_from_keys_vector() {
 }
 
 #[test]
+fn interactive_at_prefix_selects_mouse_window_from_explicit_command_keys() {
+    let mut ev = gnu_simple_command_execute_eval();
+    let results = eval_all_with(
+        &mut ev,
+        r#"(list
+             (let* ((w1 (selected-window))
+                    (w2 (split-window-internal w1 nil 'right nil))
+                    (b1 (get-buffer-create "iat-prefix-b1"))
+                    (b2 (get-buffer-create "iat-prefix-b2"))
+                    (evt (list 'mouse-1 (list (list w2 2 '(0 . 0) 0)))))
+               (set-window-buffer w1 b1)
+               (set-window-buffer w2 b2)
+               (select-window w1)
+               (erase-buffer)
+               (insert "aaaa")
+               (select-window w2)
+               (erase-buffer)
+               (insert "bbbbbb")
+               (set-window-point w1 2)
+               (set-window-point w2 5)
+               (select-window w1)
+               (list
+                (call-interactively
+                 (lambda (pt)
+                   (interactive "@d")
+                   (list (eq (selected-window) w2) pt (eq (current-buffer) b2)))
+                 nil
+                 (vector evt))
+                (eq (selected-window) w2)
+                (eq (current-buffer) b2)))
+             (let* ((w1 (selected-window))
+                    (w2 (split-window-internal w1 nil 'right nil))
+                    (b1 (get-buffer-create "iat-prefix-ce-b1"))
+                    (b2 (get-buffer-create "iat-prefix-ce-b2"))
+                    (evt (list 'mouse-1 (list (list w2 2 '(0 . 0) 0)))))
+               (set-window-buffer w1 b1)
+               (set-window-buffer w2 b2)
+               (select-window w1)
+               (erase-buffer)
+               (insert "aaaa")
+               (select-window w2)
+               (erase-buffer)
+               (insert "bbbbbb")
+               (set-window-point w1 2)
+               (set-window-point w2 5)
+               (select-window w1)
+               (list
+                (command-execute
+                 (lambda (pt)
+                   (interactive "@d")
+                   (list (eq (selected-window) w2) pt (eq (current-buffer) b2)))
+                 nil
+                 (vector evt))
+                (eq (selected-window) w2)
+                (eq (current-buffer) b2))))"#,
+    );
+    assert_eq!(results[0], "OK (((t 5 t) t t) ((t 5 t) t t))");
+}
+
+#[test]
 fn interactive_lambda_e_spec_uses_command_key_context_for_event_dispatch() {
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(

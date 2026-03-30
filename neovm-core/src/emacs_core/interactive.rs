@@ -1400,14 +1400,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
     vm_gc_roots: &[Value],
 ) -> Result<Option<Vec<Value>>, Flow> {
     let parsed = parse_interactive_code_entries(code);
-    interactive_apply_prefix_flags_in_state(
-        &mut shared.obarray,
-        &mut [],
-        &mut shared.buffers,
-        &shared.custom,
-        shared.specpdl.as_slice(),
-        &parsed.prefix_flags,
-    )?;
+    interactive_apply_prefix_flags(shared, &parsed.prefix_flags, context)?;
     if parsed.entries.is_empty() {
         return Ok(Some(Vec::new()));
     }
@@ -1914,15 +1907,104 @@ fn interactive_apply_shift_selection_prefix_in_state(
     }
 }
 
-fn interactive_apply_prefix_flags(eval: &mut Context, prefix_flags: &[char]) -> Result<(), Flow> {
-    interactive_apply_prefix_flags_in_state(
-        &mut eval.obarray,
-        &mut [],
-        &mut eval.buffers,
-        &eval.custom,
-        eval.specpdl.as_slice(),
-        prefix_flags,
-    )
+fn interactive_first_event_with_parameters_from_keys(
+    context: &InteractiveInvocationContext,
+) -> Option<Value> {
+    context
+        .command_keys
+        .iter()
+        .copied()
+        .find(interactive_event_with_parameters_p)
+}
+
+fn interactive_first_event_with_parameters(
+    eval: &Context,
+    context: &InteractiveInvocationContext,
+) -> Option<Value> {
+    if context.has_command_keys_context {
+        return interactive_first_event_with_parameters_from_keys(context);
+    }
+    interactive_last_input_event_with_parameters(eval)
+}
+
+fn interactive_event_target_window(event: &Value) -> Option<Value> {
+    let event_slots = crate::emacs_core::value::list_to_vec(event)?;
+    let mut position = *event_slots.get(1)?;
+    if let Some(positions) = crate::emacs_core::value::list_to_vec(&position)
+        && let Some(first_position) = positions.first()
+    {
+        position = *first_position;
+    }
+    let position_slots = crate::emacs_core::value::list_to_vec(&position)?;
+    match *position_slots.first()? {
+        Value::Window(id) => Some(Value::Window(id)),
+        _ => None,
+    }
+}
+
+fn interactive_inactive_minibuffer_target_p(
+    eval: &Context,
+    window_id: crate::window::WindowId,
+) -> bool {
+    eval.frames.frame_list().into_iter().any(|frame_id| {
+        eval.frames
+            .get(frame_id)
+            .is_some_and(|frame| frame.minibuffer_window == Some(window_id))
+    }) && eval.active_minibuffer_window != Some(window_id)
+}
+
+fn interactive_select_window_from_prefix_context(
+    eval: &mut Context,
+    context: &InteractiveInvocationContext,
+) -> Result<(), Flow> {
+    let Some(event) = interactive_first_event_with_parameters(eval, context) else {
+        return Ok(());
+    };
+    let Some(window_value) = interactive_event_target_window(&event) else {
+        return Ok(());
+    };
+    let Value::Window(window_id) = window_value else {
+        return Ok(());
+    };
+    let window_id = crate::window::WindowId(window_id);
+    if interactive_inactive_minibuffer_target_p(eval, window_id) {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Attempt to select inactive minibuffer window",
+            )],
+        ));
+    }
+
+    eval.run_hook_if_bound("mouse-leave-buffer-hook")?;
+    crate::emacs_core::window_cmds::builtin_select_window(eval, vec![window_value, Value::Nil])?;
+    Ok(())
+}
+
+fn interactive_apply_prefix_flags(
+    eval: &mut Context,
+    prefix_flags: &[char],
+    context: &InteractiveInvocationContext,
+) -> Result<(), Flow> {
+    for prefix_flag in prefix_flags {
+        match prefix_flag {
+            '*' => interactive_require_writable_current_buffer_in_state(
+                &mut eval.obarray,
+                &mut [],
+                &mut eval.buffers,
+            )?,
+            '@' => interactive_select_window_from_prefix_context(eval, context)?,
+            '^' => interactive_apply_shift_selection_prefix_in_state(
+                &mut eval.obarray,
+                &mut [],
+                &mut eval.buffers,
+                &eval.custom,
+                eval.specpdl.as_slice(),
+            ),
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn interactive_apply_prefix_flags_in_state(
@@ -2095,7 +2177,7 @@ fn interactive_args_from_string_code(
     context: &mut InteractiveInvocationContext,
 ) -> Result<Option<Vec<Value>>, Flow> {
     let parsed = parse_interactive_code_entries(code);
-    interactive_apply_prefix_flags(eval, &parsed.prefix_flags)?;
+    interactive_apply_prefix_flags(eval, &parsed.prefix_flags, context)?;
     if parsed.entries.is_empty() {
         return Ok(Some(Vec::new()));
     }

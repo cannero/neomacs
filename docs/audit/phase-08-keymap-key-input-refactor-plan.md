@@ -402,6 +402,9 @@ Current status:
   the duration of the sequence, so clicked-window buffer-local minor-mode maps
   are resolved the GNU way instead of leaking the previously selected buffer's
   minor-mode state into mouse lookup
+- completed: `call-interactively` / `command-execute` explicit `KEYS` vectors
+  now honor the GNU `interactive "@"` prefix too, selecting the window from
+  the first parameterized mouse event before later interactive args are read
 - remaining: full GNU replay/rescan for the remaining non-text mouse-event
   edge cases, especially fake-prefix provenance/backtracking and the broader
   unbound-mouse fallback ladder
