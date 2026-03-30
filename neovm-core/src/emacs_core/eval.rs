@@ -5906,7 +5906,9 @@ impl Context {
                             current_fp,
                             self.gc_count,
                         ));
-                        if !self.macro_cache_disabled {
+                        if !self.macro_cache_disabled
+                            && expanded_cache_entry.opaque_roots.is_empty()
+                        {
                             self.macro_expansion_cache
                                 .insert(cache_key, expanded_cache_entry.clone());
                         }
@@ -8401,7 +8403,11 @@ impl Context {
             current_fp,
             self.gc_count,
         ));
-        if !self.macro_cache_disabled {
+        // Only cache expansions with NO OpaqueValues. Expansions that
+        // embed live heap objects (via Expr::OpaqueValue) can hold stale
+        // ObjIds after GC collects those objects — the Rc<Expr> clone
+        // outlives the GC epoch, producing stale references on reuse.
+        if !self.macro_cache_disabled && cache_entry.opaque_roots.is_empty() {
             if expand_elapsed.as_millis() > 50 {
                 tracing::warn!(
                     "macro_cache MISS id={id:?} ptr={:#x} took {expand_elapsed:.2?}",
