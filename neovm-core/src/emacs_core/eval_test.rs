@@ -2001,6 +2001,84 @@ fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
 }
 
 #[test]
+fn clear_current_message_runs_echo_area_clear_hook_once_when_message_present() {
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"
+(setq echo-clear-count 0)
+(setq echo-area-clear-hook
+      (list (lambda ()
+              (setq echo-clear-count (1+ echo-clear-count)))))
+"#,
+    )
+    .expect("parse echo clear setup");
+    for form in &setup {
+        ev.eval_expr(form).expect("install echo clear hook");
+    }
+
+    ev.set_current_message(Some("hello".to_string()));
+    ev.clear_current_message();
+    assert_eq!(ev.current_message_text(), None);
+
+    let count_form = parse_forms("echo-clear-count").expect("parse count");
+    assert_eq!(
+        ev.eval_expr(&count_form[0]).expect("echo-clear-count"),
+        Value::Int(1)
+    );
+
+    ev.clear_current_message();
+    assert_eq!(
+        ev.eval_expr(&count_form[0]).expect("echo-clear-count"),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn update_active_region_selection_after_command_calls_gnu_owned_selection_surface() {
+    let mut ev = Context::new();
+
+    let setup = parse_forms(
+        r#"
+(setq selection-capture nil
+      post-select-capture nil)
+(fset 'display-selections-p (lambda (&optional _display) t))
+(fset 'region-active-p (lambda () t))
+(fset 'gui-set-selection
+      (lambda (type data)
+        (setq selection-capture (list type data))
+        nil))
+(setq region-extract-function (lambda (_raw) "bcd")
+      transient-mark-mode t
+      mark-active t
+      deactivate-mark nil
+      select-active-regions t
+      selection-inhibit-update-commands nil
+      this-command 'region-test
+      post-select-region-hook
+      (list (lambda (text)
+              (setq post-select-capture text))))
+"#,
+    )
+    .expect("parse region selection setup");
+    for form in &setup {
+        ev.eval_expr(form).expect("install region selection setup");
+    }
+
+    ev.update_active_region_selection_after_command()
+        .expect("update active region selection");
+
+    let result_form =
+        parse_forms("(list selection-capture post-select-capture saved-region-selection)")
+            .expect("parse result form");
+    let result = ev.eval_expr(&result_form[0]).expect("selection result");
+    assert_eq!(
+        format!("{}", result),
+        "((PRIMARY \"bcd\") \"bcd\" nil)",
+        "active-region update should set PRIMARY and run post-select-region-hook"
+    );
+}
+
+#[test]
 fn redisplay_preserves_non_resize_input_for_read_char() {
     let mut ev = Context::new();
     let fid = ev

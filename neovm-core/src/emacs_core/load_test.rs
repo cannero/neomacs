@@ -889,6 +889,15 @@ fn bootstrap_runtime_gui_surface_matches_gnu_icons_residency() {
 }
 
 #[test]
+fn bootstrap_runtime_display_selections_p_is_true_under_neomacs_gui_surface() {
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
+    let forms = parse_forms("(display-selections-p)").expect("parse display-selections-p");
+    let value = eval.eval_expr(&forms[0]).expect("display-selections-p");
+    assert_eq!(value, Value::True);
+}
+
+#[test]
 fn bootstrap_runtime_require_cl_lib_works_under_gui_features() {
     init_test_tracing();
     let mut eval =

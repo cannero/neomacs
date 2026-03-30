@@ -2862,6 +2862,12 @@ impl Context {
         // saved-region-selection is set by keyboard::pure::register_bootstrap_vars
         obarray.set_symbol_value("transient-mark-mode", Value::Nil);
         obarray.set_symbol_value("transient-mark-mode-hook", Value::Nil);
+        obarray.set_symbol_value("post-select-region-hook", Value::Nil);
+        obarray.set_symbol_value("echo-area-clear-hook", Value::Nil);
+        obarray.set_symbol_value("display-monitors-changed-functions", Value::Nil);
+        obarray.set_symbol_value("delete-terminal-functions", Value::Nil);
+        obarray.set_symbol_value("suspend-tty-functions", Value::Nil);
+        obarray.set_symbol_value("resume-tty-functions", Value::Nil);
         obarray.set_symbol_value("overriding-local-map", Value::Nil);
         obarray.make_special("overriding-local-map");
         obarray.set_symbol_value("overriding-local-map-menu-flag", Value::Nil);
@@ -4148,6 +4154,7 @@ impl Context {
 
             // Run post-command-hook
             let _ = self.run_hook_if_bound("post-command-hook");
+            let _ = self.update_active_region_selection_after_command();
 
             if exec_result.is_ok()
                 && self.command_loop.keyboard.kboard.defining_kbd_macro
@@ -4293,6 +4300,98 @@ impl Context {
             }
             _ => Ok(Value::Nil),
         }
+    }
+
+    fn update_active_region_selection_after_command(&mut self) -> EvalResult {
+        if self
+            .eval_symbol("mark-active")
+            .unwrap_or(Value::Nil)
+            .is_nil()
+        {
+            return Ok(Value::Nil);
+        }
+
+        let transient_mark_mode = self
+            .eval_symbol("transient-mark-mode")
+            .unwrap_or(Value::Nil);
+        if transient_mark_mode == Value::symbol("identity") {
+            self.assign("transient-mark-mode", Value::Nil);
+        } else if transient_mark_mode == Value::symbol("only") {
+            self.assign("transient-mark-mode", Value::symbol("identity"));
+        }
+
+        if !self
+            .eval_symbol("deactivate-mark")
+            .unwrap_or(Value::Nil)
+            .is_nil()
+        {
+            let _ = self.apply(Value::symbol("deactivate-mark"), vec![])?;
+            self.assign("saved-region-selection", Value::Nil);
+            return Ok(Value::Nil);
+        }
+
+        if self
+            .apply(Value::symbol("display-selections-p"), vec![])?
+            .is_nil()
+        {
+            self.assign("saved-region-selection", Value::Nil);
+            return Ok(Value::Nil);
+        }
+
+        if self
+            .eval_symbol("select-active-regions")
+            .unwrap_or(Value::Nil)
+            .is_nil()
+        {
+            self.assign("saved-region-selection", Value::Nil);
+            return Ok(Value::Nil);
+        }
+
+        if self
+            .apply(Value::symbol("region-active-p"), vec![])?
+            .is_nil()
+        {
+            self.assign("saved-region-selection", Value::Nil);
+            return Ok(Value::Nil);
+        }
+
+        let this_command = self.eval_symbol("this-command").unwrap_or(Value::Nil);
+        let inhibited_commands = self
+            .eval_symbol("selection-inhibit-update-commands")
+            .unwrap_or(Value::Nil);
+        if self
+            .apply(
+                Value::symbol("memq"),
+                vec![this_command, inhibited_commands],
+            )?
+            .is_truthy()
+        {
+            self.assign("saved-region-selection", Value::Nil);
+            return Ok(Value::Nil);
+        }
+
+        let region_extract = self
+            .eval_symbol("region-extract-function")
+            .unwrap_or(Value::symbol("buffer-substring"));
+        let text = self.apply(region_extract, vec![Value::Nil])?;
+        let text_len = match self.apply(Value::symbol("length"), vec![text])? {
+            Value::Int(len) => len,
+            _ => 0,
+        };
+        if text_len > 0 {
+            let _ = self.apply(
+                Value::symbol("gui-set-selection"),
+                vec![Value::symbol("PRIMARY"), text],
+            )?;
+        }
+        let _ = super::builtins::dispatch_builtin(
+            self,
+            "run-hook-with-args",
+            vec![Value::symbol("post-select-region-hook"), text],
+        )
+        .unwrap_or(Ok(Value::Nil))?;
+        self.assign("saved-region-selection", Value::Nil);
+        Ok(Value::Nil)
     }
 
     /// Trigger redisplay — calls the layout engine and sends frame to render thread.
@@ -4933,6 +5032,12 @@ impl Context {
     }
 
     pub fn clear_current_message(&mut self) {
+        if self.current_message.is_none() {
+            return;
+        }
+        let hook =
+            crate::emacs_core::hook_runtime::hook_symbol_by_name(self, "echo-area-clear-hook");
+        let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(self, hook, &[]);
         self.current_message = None;
     }
 

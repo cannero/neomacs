@@ -855,7 +855,18 @@ pub(crate) fn builtin_display_selections_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-selections-p", &args)?;
-    Ok(Value::Nil)
+    let window_system = display_window_system_symbol_eval(eval, args.first())?;
+    Ok(Value::bool(matches!(
+        window_system,
+        Some(value)
+            if value.is_symbol_named("x")
+                || value.is_symbol_named("w32")
+                || value.is_symbol_named("ns")
+                || value.is_symbol_named("pgtk")
+                || value.is_symbol_named("haiku")
+                || value.is_symbol_named("android")
+                || value.is_symbol_named("neo")
+    )))
 }
 
 /// Context-aware variant of `window-system`.

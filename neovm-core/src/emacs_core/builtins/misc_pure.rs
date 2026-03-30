@@ -30,12 +30,12 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     expect_min_args("message", &args, 1)?;
     // GNU Emacs: nil or empty string clears the echo area and returns as-is.
     if args[0].is_nil() {
-        ctx.set_current_message(None);
+        ctx.clear_current_message();
         return Ok(Value::Nil);
     }
     if let Value::Str(id) = &args[0] {
         if with_heap(|h| h.get_string(*id).is_empty()) {
-            ctx.set_current_message(None);
+            ctx.clear_current_message();
             return Ok(args[0]);
         }
     }

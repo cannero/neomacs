@@ -40,6 +40,8 @@ pub(crate) fn reset_builtins_thread_locals() {
     symbols::reset_symbols_thread_locals();
 }
 
+pub use stubs::{NeomacsMonitorInfo, neomacs_monitor_info_snapshot, set_neomacs_monitor_info};
+
 /// Expect exactly N arguments.
 pub(super) fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
@@ -6006,7 +6008,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "neomacs-display-monitor-attributes-list",
-        |_ctx, args| builtin_neomacs_display_monitor_attributes_list(args),
+        builtin_neomacs_display_monitor_attributes_list,
         0,
         None,
     );

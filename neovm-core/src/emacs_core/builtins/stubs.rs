@@ -2,6 +2,10 @@ use super::*;
 use crate::buffer::BufferManager;
 use crate::emacs_core::fontset;
 use crate::window::{FrameManager, WindowId};
+#[cfg(not(target_os = "linux"))]
+use arboard::Clipboard;
+#[cfg(target_os = "linux")]
+use arboard::{Clipboard, GetExtLinux, LinuxClipboardKind, SetExtLinux};
 
 // =========================================================================
 // fontset.c gap-fill stubs
@@ -205,6 +209,125 @@ pub(crate) fn builtin_treesit_linecol_cache(args: Vec<Value>) -> EvalResult {
 // neomacsfns.c gap-fill stubs
 // =========================================================================
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct NeomacsMonitorInfo {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub scale: f64,
+    pub width_mm: i32,
+    pub height_mm: i32,
+    pub name: Option<String>,
+}
+
+pub fn set_neomacs_monitor_info(monitors: Vec<NeomacsMonitorInfo>) {
+    NEOMACS_MONITORS.with(|slot| *slot.borrow_mut() = monitors);
+}
+
+pub fn neomacs_monitor_info_snapshot() -> Vec<NeomacsMonitorInfo> {
+    NEOMACS_MONITORS.with(|slot| slot.borrow().clone())
+}
+
+fn set_cached_clipboard_text(text: Option<String>) {
+    NEOMACS_CLIPBOARD_TEXT.with(|slot| *slot.borrow_mut() = text);
+}
+
+fn cached_clipboard_text() -> Option<String> {
+    NEOMACS_CLIPBOARD_TEXT.with(|slot| slot.borrow().clone())
+}
+
+fn set_cached_primary_selection_text(text: Option<String>) {
+    NEOMACS_PRIMARY_SELECTION_TEXT.with(|slot| *slot.borrow_mut() = text);
+}
+
+fn cached_primary_selection_text() -> Option<String> {
+    NEOMACS_PRIMARY_SELECTION_TEXT.with(|slot| slot.borrow().clone())
+}
+
+fn set_system_clipboard_text(text: &str) -> bool {
+    Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(text.to_owned()))
+        .is_ok()
+}
+
+fn get_system_clipboard_text() -> Option<String> {
+    Clipboard::new()
+        .ok()
+        .and_then(|mut clipboard| clipboard.get_text().ok())
+}
+
+#[cfg(target_os = "linux")]
+fn set_system_primary_selection_text(text: &str) -> bool {
+    Clipboard::new()
+        .and_then(|mut clipboard| {
+            clipboard
+                .set()
+                .clipboard(LinuxClipboardKind::Primary)
+                .text(text.to_owned())
+        })
+        .is_ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_system_primary_selection_text(_text: &str) -> bool {
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn get_system_primary_selection_text() -> Option<String> {
+    Clipboard::new().ok().and_then(|mut clipboard| {
+        clipboard
+            .get()
+            .clipboard(LinuxClipboardKind::Primary)
+            .text()
+            .ok()
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_system_primary_selection_text() -> Option<String> {
+    None
+}
+
+fn monitor_geometry_value(monitor: &NeomacsMonitorInfo) -> Value {
+    Value::list(vec![
+        Value::Int(monitor.x as i64),
+        Value::Int(monitor.y as i64),
+        Value::Int(monitor.width as i64),
+        Value::Int(monitor.height as i64),
+    ])
+}
+
+fn monitor_mm_size_value(monitor: &NeomacsMonitorInfo) -> Value {
+    Value::list(vec![
+        Value::Int(monitor.width_mm as i64),
+        Value::Int(monitor.height_mm as i64),
+    ])
+}
+
+fn monitor_alist_value(monitor: &NeomacsMonitorInfo, frames: Value) -> Value {
+    Value::list(vec![
+        Value::cons(Value::symbol("geometry"), monitor_geometry_value(monitor)),
+        Value::cons(Value::symbol("workarea"), monitor_geometry_value(monitor)),
+        Value::cons(Value::symbol("mm-size"), monitor_mm_size_value(monitor)),
+        Value::cons(Value::symbol("frames"), frames),
+        Value::cons(
+            Value::symbol("scale-factor"),
+            Value::Float(monitor.scale, next_float_id()),
+        ),
+        Value::cons(
+            Value::symbol("name"),
+            monitor
+                .name
+                .as_deref()
+                .map(Value::string)
+                .unwrap_or(Value::Nil),
+        ),
+        Value::cons(Value::symbol("source"), Value::string("Neomacs")),
+    ])
+}
+
 pub(crate) fn builtin_neomacs_frame_geometry(args: Vec<Value>) -> EvalResult {
     expect_range_args("neomacs-frame-geometry", &args, 0, 1)?;
     Ok(Value::Nil)
@@ -225,9 +348,32 @@ pub(crate) fn builtin_neomacs_set_mouse_absolute_pixel_position(args: Vec<Value>
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_neomacs_display_monitor_attributes_list(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_neomacs_display_monitor_attributes_list(
+    eval: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("neomacs-display-monitor-attributes-list", &args, 0, 1)?;
-    Ok(Value::Nil)
+    let frames = eval
+        .frames
+        .frame_list()
+        .into_iter()
+        .map(|fid| Value::Frame(fid.0))
+        .collect::<Vec<_>>();
+    let monitor_values = neomacs_monitor_info_snapshot();
+    if monitor_values.is_empty() {
+        return Ok(Value::Nil);
+    }
+
+    let mut alists = Vec::with_capacity(monitor_values.len());
+    for (index, monitor) in monitor_values.iter().enumerate() {
+        let frame_list = if index == 0 {
+            Value::list(frames.clone())
+        } else {
+            Value::Nil
+        };
+        alists.push(monitor_alist_value(monitor, frame_list));
+    }
+    Ok(Value::list(alists))
 }
 
 pub(crate) fn builtin_x_scroll_bar_foreground(args: Vec<Value>) -> EvalResult {
@@ -242,22 +388,46 @@ pub(crate) fn builtin_x_scroll_bar_background(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_neomacs_clipboard_set(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-clipboard-set", &args, 1)?;
+    let text = match args[0] {
+        Value::Nil => None,
+        Value::Str(id) => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+        other => Some(format!("{other}")),
+    };
+    set_cached_clipboard_text(text.clone());
+    if let Some(text) = text {
+        let _ = set_system_clipboard_text(&text);
+    }
     Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_neomacs_clipboard_get(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-clipboard-get", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(get_system_clipboard_text()
+        .or_else(cached_clipboard_text)
+        .map(Value::string)
+        .unwrap_or(Value::Nil))
 }
 
 pub(crate) fn builtin_neomacs_primary_selection_set(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-primary-selection-set", &args, 1)?;
+    let text = match args[0] {
+        Value::Nil => None,
+        Value::Str(id) => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+        other => Some(format!("{other}")),
+    };
+    set_cached_primary_selection_text(text.clone());
+    if let Some(text) = text {
+        let _ = set_system_primary_selection_text(&text);
+    }
     Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_neomacs_primary_selection_get(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-primary-selection-get", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(get_system_primary_selection_text()
+        .or_else(cached_primary_selection_text)
+        .map(Value::string)
+        .unwrap_or(Value::Nil))
 }
 
 pub(crate) fn builtin_neomacs_core_backend(args: Vec<Value>) -> EvalResult {
@@ -271,6 +441,9 @@ pub(super) fn reset_stubs_thread_locals() {
     WINDOW_NEW_NORMAL.with(|slot| slot.borrow_mut().clear());
     WINDOW_NEW_PIXEL.with(|slot| slot.borrow_mut().clear());
     WINDOW_NEW_TOTAL.with(|slot| slot.borrow_mut().clear());
+    NEOMACS_CLIPBOARD_TEXT.with(|slot| *slot.borrow_mut() = None);
+    NEOMACS_PRIMARY_SELECTION_TEXT.with(|slot| *slot.borrow_mut() = None);
+    NEOMACS_MONITORS.with(|slot| slot.borrow_mut().clear());
     INOTIFY_NEXT_WATCH_ID.with(|slot| *slot.borrow_mut() = 0);
     INOTIFY_ACTIVE_WATCHES.with(|slot| slot.borrow_mut().clear());
 }
@@ -306,6 +479,9 @@ thread_local! {
     static WINDOW_NEW_NORMAL: RefCell<HashMap<u64, Value>> = RefCell::new(HashMap::new());
     static WINDOW_NEW_PIXEL: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
     static WINDOW_NEW_TOTAL: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
+    static NEOMACS_CLIPBOARD_TEXT: RefCell<Option<String>> = const { RefCell::new(None) };
+    static NEOMACS_PRIMARY_SELECTION_TEXT: RefCell<Option<String>> = const { RefCell::new(None) };
+    static NEOMACS_MONITORS: RefCell<Vec<NeomacsMonitorInfo>> = const { RefCell::new(Vec::new()) };
 }
 
 fn window_state_id(value: &Value) -> Option<u64> {
