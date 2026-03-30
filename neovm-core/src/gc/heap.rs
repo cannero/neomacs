@@ -858,6 +858,45 @@ impl LispHeap {
 
             let mut children = Vec::new();
             Self::trace_heap_object(&self.objects[i], &mut children);
+
+            // For Lambda/Macro: use cached opaque roots (same as mark_all)
+            if matches!(
+                &self.objects[i],
+                HeapObject::Lambda(_) | HeapObject::Macro(_)
+            ) {
+                if let Some(cached) = self.opaque_roots_cache.get(&id.index) {
+                    children.extend_from_slice(cached);
+                } else {
+                    let mut opaque = Vec::new();
+                    match &self.objects[i] {
+                        HeapObject::Lambda(d) | HeapObject::Macro(d) => {
+                            for expr in d.body.iter() {
+                                expr.collect_opaque_values(&mut opaque);
+                            }
+                        }
+                        _ => {}
+                    }
+                    let opaque_ids: Vec<ObjId> = opaque
+                        .iter()
+                        .filter_map(|v| match v {
+                            Value::Cons(id)
+                            | Value::Vector(id)
+                            | Value::Record(id)
+                            | Value::HashTable(id)
+                            | Value::Str(id)
+                            | Value::Lambda(id)
+                            | Value::Macro(id)
+                            | Value::ByteCode(id)
+                            | Value::Overlay(id)
+                            | Value::Marker(id) => Some(*id),
+                            _ => None,
+                        })
+                        .collect();
+                    children.extend_from_slice(&opaque_ids);
+                    self.opaque_roots_cache.insert(id.index, opaque_ids);
+                }
+            }
+
             self.gray_queue.extend(children);
         }
         self.gray_queue.is_empty()
