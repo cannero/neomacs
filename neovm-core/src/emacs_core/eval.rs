@@ -4502,6 +4502,7 @@ impl Context {
         // freed, causing ABA: a new lambda body at the same address gets
         // a stale cached Value from a collected lambda's expression.
         self.source_literal_cache.clear();
+        self.macro_expansion_cache.clear();
         let roots = self.collect_roots();
         self.heap.collect(roots.into_iter());
         self.gc_pending = false;
@@ -4552,6 +4553,7 @@ impl Context {
                 // Clear source_literal_cache — uses raw *const Expr pointers
                 // that can alias after lambda body Rc is freed (ABA problem).
                 self.source_literal_cache.clear();
+                self.macro_expansion_cache.clear();
                 // Re-scan roots before sweeping
                 let roots = self.collect_roots();
                 self.heap.rescan_roots(roots.into_iter());
@@ -4560,6 +4562,9 @@ impl Context {
                 self.run_post_gc_hook();
             }
         } else if self.gc_pending || self.heap.should_collect() {
+            // Clear caches that can hold stale ObjIds before marking
+            self.source_literal_cache.clear();
+            self.macro_expansion_cache.clear();
             // Start a new incremental collection cycle
             let roots = self.collect_roots();
             self.heap.begin_marking(roots.into_iter());
@@ -4871,6 +4876,37 @@ impl Context {
     pub(crate) fn root(&mut self, val: Value) -> Value {
         self.temp_roots.push(val);
         val
+    }
+
+    /// Check if a macro expansion cache entry has stale opaque roots.
+    /// Returns true if ANY opaque root has a stale ObjId.
+    fn macro_cache_entry_has_stale_roots(
+        &self,
+        entry: &std::rc::Rc<MacroExpansionCacheEntry>,
+    ) -> bool {
+        for val in &entry.opaque_roots {
+            match val {
+                Value::Cons(id)
+                | Value::Vector(id)
+                | Value::Record(id)
+                | Value::HashTable(id)
+                | Value::Str(id)
+                | Value::Lambda(id)
+                | Value::Macro(id)
+                | Value::ByteCode(id)
+                | Value::Overlay(id)
+                | Value::Marker(id) => {
+                    let i = id.index as usize;
+                    if i < self.heap.generations().len()
+                        && self.heap.generations()[i] != id.generation
+                    {
+                        return true; // stale!
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Open a HandleScope that can be passed between functions.
@@ -5813,7 +5849,9 @@ impl Context {
                             if let Some(cached) =
                                 self.macro_expansion_cache.get(&cache_key).cloned()
                             {
-                                if cached.fingerprint == current_fp {
+                                if cached.fingerprint == current_fp
+                                    && !self.macro_cache_entry_has_stale_roots(&cached)
+                                {
                                     self.macro_cache_hits += 1;
                                     let expanded = cached.expanded.clone();
                                     let opaque_roots = cached.opaque_roots.clone();
@@ -8311,7 +8349,9 @@ impl Context {
         let current_fp = tail_fingerprint(args);
         if !self.macro_cache_disabled {
             if let Some(cached) = self.macro_expansion_cache.get(&cache_key).cloned() {
-                if cached.fingerprint == current_fp {
+                if cached.fingerprint == current_fp
+                    && !self.macro_cache_entry_has_stale_roots(&cached)
+                {
                     self.macro_cache_hits += 1;
                     return Ok(cached.expanded.clone());
                 }
