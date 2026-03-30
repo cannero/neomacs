@@ -4291,7 +4291,14 @@ impl Context {
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect(&mut self) {
         let roots = self.collect_roots();
+        // Post-GC root validation: check if any root became stale
+        // This catches the case where a root holds a stale ObjId
         self.heap.collect(roots.into_iter());
+        // After GC, validate that all roots are still valid
+        let roots_after = self.collect_roots();
+        for root in &roots_after {
+            self.heap.validate_value(root);
+        }
         self.gc_pending = false;
         self.gc_count += 1;
         self.run_post_gc_hook();

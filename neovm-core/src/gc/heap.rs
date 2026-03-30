@@ -296,7 +296,58 @@ impl LispHeap {
             tracing::warn!("  GC phase: {:?}", self.gc_phase);
             tracing::warn!("  Free list length: {}", self.free_list.len());
             tracing::warn!("==============================");
+            // Search all live (marked) objects for who holds this stale ref
+            let referrers = self.find_referrers(id.index);
+            if referrers.is_empty() {
+                tracing::warn!(
+                    "  No heap objects reference this slot — stale ref is in a ROOT (Context field, obarray, etc.)"
+                );
+            } else {
+                for (slot, desc) in &referrers {
+                    tracing::warn!("  Referenced by slot {}: {}", slot, desc);
+                }
+            }
             panic!("stale ObjId: {:?} (current gen={})", id, cur_gen,);
+        }
+    }
+
+    /// Check if a Value contains a valid ObjId. Logs error if stale.
+    pub fn validate_value(&self, val: &Value) {
+        let id = match val {
+            Value::Str(id)
+            | Value::Cons(id)
+            | Value::Vector(id)
+            | Value::Record(id)
+            | Value::HashTable(id)
+            | Value::Lambda(id)
+            | Value::Macro(id)
+            | Value::ByteCode(id)
+            | Value::Marker(id)
+            | Value::Overlay(id) => *id,
+            _ => return,
+        };
+        let i = id.index as usize;
+        if i < self.objects.len() && self.generations[i] != id.generation {
+            let variant = match val {
+                Value::Str(_) => "Str",
+                Value::Cons(_) => "Cons",
+                Value::Vector(_) => "Vector",
+                Value::Record(_) => "Record",
+                Value::HashTable(_) => "HashTable",
+                Value::Lambda(_) => "Lambda",
+                Value::Macro(_) => "Macro",
+                Value::ByteCode(_) => "ByteCode",
+                Value::Marker(_) => "Marker",
+                Value::Overlay(_) => "Overlay",
+                _ => "?",
+            };
+            tracing::error!(
+                "POST-GC STALE ROOT: Value::{}({:?}) — gen {} vs current {}",
+                variant,
+                id,
+                id.generation,
+                self.generations[i]
+            );
         }
     }
 
@@ -818,8 +869,109 @@ impl LispHeap {
         self.gray_queue.is_empty()
     }
 
+    /// Check if any marked (live) object references the given slot index.
+    /// Used for debugging stale ObjId issues — call before sweeping to
+    /// find dangling references.
+    fn find_referrers(&self, target_index: u32) -> Vec<(usize, String)> {
+        let mut referrers = Vec::new();
+        for (i, obj) in self.objects.iter().enumerate() {
+            if matches!(obj, HeapObject::Free) || !self.marks.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            let mut children = Vec::new();
+            Self::trace_heap_object(obj, &mut children);
+            for child in &children {
+                if child.index == target_index {
+                    let desc = match obj {
+                        HeapObject::Cons { car, cdr } => {
+                            format!("Cons(car={}, cdr={})", car, cdr)
+                        }
+                        HeapObject::Vector(v) => format!("Vector(len={})", v.len()),
+                        HeapObject::HashTable(_) => "HashTable".to_string(),
+                        HeapObject::Str(s) => {
+                            format!("Str({:?})", &s.as_str()[..s.as_str().len().min(40)])
+                        }
+                        HeapObject::Lambda(ld) => {
+                            format!("Lambda(params={:?})", ld.params)
+                        }
+                        HeapObject::Macro(_) => "Macro".to_string(),
+                        HeapObject::ByteCode(_) => "ByteCode".to_string(),
+                        HeapObject::Overlay(_) => "Overlay".to_string(),
+                        HeapObject::Marker(_) => "Marker".to_string(),
+                        HeapObject::Free => unreachable!(),
+                    };
+                    referrers.push((i, desc));
+                }
+            }
+        }
+        referrers
+    }
+
     /// Sweep all unmarked objects in one pass.
     fn sweep_all(&mut self) {
+        // Pre-sweep check: find any marked objects that reference
+        // unmarked objects (dangling references that would become stale).
+        {
+            for i in 0..self.objects.len() {
+                if self.marks.get(i).copied().unwrap_or(false) {
+                    // This is a live (marked) object — check its children
+                    let mut children = Vec::new();
+                    Self::trace_heap_object(&self.objects[i], &mut children);
+                    for child in &children {
+                        let ci = child.index as usize;
+                        if ci < self.objects.len()
+                            && !matches!(self.objects[ci], HeapObject::Free)
+                            && !self.marks.get(ci).copied().unwrap_or(true)
+                            && ci < self.generations.len()
+                            && self.generations[ci] == child.generation
+                        {
+                            // FOUND IT: live object references an about-to-be-swept object
+                            let parent_kind = match &self.objects[i] {
+                                HeapObject::Cons { car, cdr } => {
+                                    format!("Cons(car={}, cdr={})", car, cdr)
+                                }
+                                HeapObject::Vector(v) => format!("Vector(len={})", v.len()),
+                                HeapObject::HashTable(_) => "HashTable".to_string(),
+                                HeapObject::Str(s) => {
+                                    format!("Str({:?})", &s.as_str()[..s.as_str().len().min(40)])
+                                }
+                                HeapObject::Lambda(_) => "Lambda".to_string(),
+                                HeapObject::Macro(_) => "Macro".to_string(),
+                                HeapObject::ByteCode(_) => "ByteCode".to_string(),
+                                HeapObject::Overlay(_) => "Overlay".to_string(),
+                                HeapObject::Marker(_) => "Marker".to_string(),
+                                HeapObject::Free => "Free".to_string(),
+                            };
+                            let child_kind = match &self.objects[ci] {
+                                HeapObject::Cons { car, cdr } => {
+                                    format!("Cons(car={}, cdr={})", car, cdr)
+                                }
+                                HeapObject::Vector(v) => format!("Vector(len={})", v.len()),
+                                HeapObject::HashTable(_) => "HashTable".to_string(),
+                                HeapObject::Str(s) => {
+                                    format!("Str({:?})", &s.as_str()[..s.as_str().len().min(40)])
+                                }
+                                HeapObject::Lambda(_) => "Lambda".to_string(),
+                                HeapObject::Macro(_) => "Macro".to_string(),
+                                HeapObject::ByteCode(_) => "ByteCode".to_string(),
+                                HeapObject::Overlay(_) => "Overlay".to_string(),
+                                HeapObject::Marker(_) => "Marker".to_string(),
+                                HeapObject::Free => "Free".to_string(),
+                            };
+                            tracing::error!(
+                                "GC BUG: marked parent references unmarked child!\n  Parent slot {}: {}\n  Child slot {}: {}\n  Child ObjId: {:?}",
+                                i,
+                                parent_kind,
+                                ci,
+                                child_kind,
+                                child
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         for i in 0..self.objects.len() {
             if !self.marks[i] && !matches!(self.objects[i], HeapObject::Free) {
                 self.objects[i] = HeapObject::Free;
