@@ -772,6 +772,8 @@ fn main() {
     // 10. Enter GNU's outer command loop. This mirrors src/emacs.c, which
     //     enters recursive-edit and lets the outer command loop evaluate the
     //     `top-level` startup form before reading interactive input.
+    // Diagnostic: print startup state
+    eprintln!("PRE-RECURSIVE-EDIT: about to enter command loop");
     tracing::info!("Entering GNU command loop (recursive-edit)...");
     let exit_status = evaluator.recursive_edit();
     if exit_status.is_ok() {
