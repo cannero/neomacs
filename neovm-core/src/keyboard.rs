@@ -2643,7 +2643,7 @@ impl crate::emacs_core::eval::Context {
                 }
                 continue;
             }
-            if !self.command_loop.running {
+            if self.shutdown_request.is_some() {
                 return Err(crate::emacs_core::error::signal("quit", vec![]));
             }
 
@@ -2670,7 +2670,7 @@ impl crate::emacs_core::eval::Context {
                 }
                 continue;
             }
-            if !self.command_loop.running {
+            if self.shutdown_request.is_some() {
                 return Err(crate::emacs_core::error::signal("quit", vec![]));
             }
 

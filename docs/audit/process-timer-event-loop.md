@@ -207,6 +207,12 @@ path in
 [reader.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/reader.rs#L2120),
 and
 [keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L2570).
+Neomacs also no longer treats "top-level command loop not currently running"
+as an automatic `quit` for these direct Lisp readers; only an actual shutdown
+request now aborts the wait. That matches GNU more closely, because
+`read-event` / `read-char` timeouts are valid outside the top-level command
+loop as long as the interactive terminal is still alive.
+
 That closes the specific Phase 9 blocker where GNU `sit-for` would hang
 instead of returning `t` after the timeout elapsed.
 

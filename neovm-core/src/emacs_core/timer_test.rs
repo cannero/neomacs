@@ -323,12 +323,13 @@ fn gnu_sit_for_matches_subr_el() {
 fn gnu_sit_for_interactive_timeout_returns_t() {
     let mut ev = gnu_subr_sit_for_eval();
     ev.set_variable("noninteractive", Value::Nil);
-    let (_tx, rx) = crossbeam_channel::unbounded();
+    let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
     let forms = super::super::parser::parse_forms("(sit-for 0.01 t)").expect("parse sit-for");
 
     let start = Instant::now();
     let result = ev.eval(&forms[0]).expect("eval interactive sit-for");
+    drop(tx);
 
     assert!(result.is_truthy());
     assert!(start.elapsed() < Duration::from_millis(250));
@@ -412,11 +413,12 @@ fn gnu_sit_for_zero_without_nodisp_redisplays_once() {
         *redisplays_in_cb.borrow_mut() += 1;
     }));
 
-    let (_tx, rx) = crossbeam_channel::unbounded();
+    let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
     let forms = super::super::parser::parse_forms("(sit-for 0)").expect("parse sit-for");
 
     let result = ev.eval(&forms[0]).expect("eval zero-second sit-for");
+    drop(tx);
 
     assert!(result.is_truthy());
     assert_eq!(*redisplays.borrow(), 1);
@@ -454,11 +456,12 @@ fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
         *redisplays_in_cb.borrow_mut() += 1;
     }));
 
-    let (_tx, rx) = crossbeam_channel::unbounded();
+    let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
     let forms = super::super::parser::parse_forms("(sit-for 0 t)").expect("parse sit-for");
 
     let result = ev.eval(&forms[0]).expect("eval zero-second sit-for");
+    drop(tx);
 
     assert!(result.is_truthy());
     assert_eq!(*redisplays.borrow(), 0);

@@ -72,7 +72,8 @@ Bad:
   timer merge ordering now follows `timer_check_2` more closely instead of
   servicing all ordinary timers before all idle timers. Interactive
   `read-event` / `read-char` timeouts now also flow through the shared wait
-  path, which restores GNU `sit-for` timeout behavior, and
+  path without depending on `command_loop.running`, which restores GNU
+  `sit-for` / direct-reader timeout behavior, and
   `input-pending-p t` now checks for already pending input before firing due
   timers, which restores GNU `sit-for` early-return behavior in that case.
   The remaining Phase 9 risk is narrower now: Rust `TimerManager` timers are
