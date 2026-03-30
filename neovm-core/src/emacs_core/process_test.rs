@@ -1911,6 +1911,50 @@ fn accept_process_output_services_pending_resize_from_shared_wait_path() {
 }
 
 #[test]
+fn accept_process_output_services_resize_arriving_during_wait() {
+    let mut ev = Context::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    ev.frames
+        .get_mut(fid)
+        .expect("frame should exist")
+        .parameters
+        .insert("window-system".to_string(), Value::symbol("x"));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    let sender = tx.clone();
+    let resize_thread = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(5));
+        sender
+            .send(crate::keyboard::InputEvent::Resize {
+                width: 710,
+                height: 820,
+                emacs_frame_id: 0,
+            })
+            .expect("queue resize event during wait");
+    });
+
+    let result = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Nil, Value::Float(0.05, next_float_id())],
+    )
+    .expect("accept-process-output should service resize arriving during wait");
+    resize_thread.join().expect("resize sender thread");
+    drop(tx);
+
+    let width = crate::emacs_core::window_cmds::builtin_frame_native_width(&mut ev, vec![])
+        .expect("frame-native-width should succeed");
+    let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
+        .expect("frame-native-height should succeed");
+
+    assert_eq!(result, Value::Nil);
+    assert_eq!(width, Value::Int(710));
+    assert_eq!(height, Value::Int(820));
+}
+
+#[test]
 fn process_mark_type_thread_send_and_running_child_runtime_surface() {
     let cat = find_bin("cat");
     let results = eval_all(&format!(

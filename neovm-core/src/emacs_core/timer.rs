@@ -648,6 +648,7 @@ pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value
                 continue;
             }
             let _ = eval.processes.wait_for_output(wait_time);
+            let _ = eval.service_wait_path_special_input_events()?;
         }
     }
 

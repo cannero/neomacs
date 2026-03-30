@@ -116,6 +116,9 @@ and `sleep-for`. The current ownership lives in
 [keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L2179)
 and
 [process.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/emacs_core/process.rs#L1144).
+Neomacs now also re-checks that same special-input path immediately after each
+blocking process wait, so a resize arriving during the wait itself is still
+applied before `accept-process-output` or `sleep-for` returns on timeout.
 
 ### GNU ordinary and idle timer ordering now follows `timer_check_2` more closely
 

@@ -5521,6 +5521,7 @@ pub(crate) fn builtin_accept_process_output(
             continue;
         }
         let _ = eval.processes.wait_for_output(wait_time);
+        let _ = eval.service_wait_path_special_input_events()?;
     }
 }
 

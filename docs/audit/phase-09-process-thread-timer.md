@@ -84,7 +84,8 @@ Bad:
   it runs due timers. The shared wait path now also services pending
   non-user-visible host input such as resize events before polling timers and
   processes, which closes the earlier starvation case for
-  `accept-process-output` / `sleep-for`. The real remaining work is now the
+  `accept-process-output` / `sleep-for`, including input that arrives during
+  the blocking wait itself. The real remaining work is now the
   last finer-grained redisplay/input competition edges outside those covered
   wait-path cases, not the older split-owner architecture.
 
