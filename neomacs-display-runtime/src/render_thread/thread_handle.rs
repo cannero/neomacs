@@ -1,6 +1,11 @@
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+#[cfg(feature = "neo-term")]
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use super::bootstrap::{build_render_event_loop, run_render_loop_with_event_loop};
 use super::{SharedImageDimensions, SharedMonitorInfo};
@@ -73,6 +78,49 @@ impl RenderThread {
 
     /// Spawn the render thread.
     pub fn spawn(
+        comms: RenderComms,
+        width: u32,
+        height: u32,
+        title: String,
+        image_dimensions: SharedImageDimensions,
+        shared_monitors: SharedMonitorInfo,
+    ) -> Result<Self, String> {
+        #[cfg(feature = "neo-term")]
+        let shared_terminals = Arc::new(Mutex::new(HashMap::new()));
+        Self::spawn_inner(
+            comms,
+            width,
+            height,
+            title,
+            image_dimensions,
+            shared_monitors,
+            #[cfg(feature = "neo-term")]
+            shared_terminals,
+        )
+    }
+
+    #[cfg(feature = "neo-term")]
+    pub fn spawn_with_terminals(
+        comms: RenderComms,
+        width: u32,
+        height: u32,
+        title: String,
+        image_dimensions: SharedImageDimensions,
+        shared_monitors: SharedMonitorInfo,
+        shared_terminals: crate::terminal::SharedTerminals,
+    ) -> Result<Self, String> {
+        Self::spawn_inner(
+            comms,
+            width,
+            height,
+            title,
+            image_dimensions,
+            shared_monitors,
+            shared_terminals,
+        )
+    }
+
+    fn spawn_inner(
         comms: RenderComms,
         width: u32,
         height: u32,

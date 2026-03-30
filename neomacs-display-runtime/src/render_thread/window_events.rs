@@ -204,6 +204,10 @@ impl RenderApp {
                                     keysym: control_keysym,
                                     modifiers: self.modifiers,
                                     pressed: true,
+                                    emacs_frame_id: self
+                                        .multi_windows
+                                        .emacs_frame_for_winit(window_id)
+                                        .unwrap_or(0),
                                 });
                                 handled_via_text = true;
                             } else if let Some(keysyms) =
@@ -225,6 +229,10 @@ impl RenderApp {
                                         keysym,
                                         modifiers: self.modifiers,
                                         pressed: true,
+                                        emacs_frame_id: self
+                                            .multi_windows
+                                            .emacs_frame_for_winit(window_id)
+                                            .unwrap_or(0),
                                     });
                                 }
                                 handled_via_text = true;
@@ -266,6 +274,10 @@ impl RenderApp {
                                 keysym,
                                 modifiers: self.modifiers,
                                 pressed: state == ElementState::Pressed,
+                                emacs_frame_id: self
+                                    .multi_windows
+                                    .emacs_frame_for_winit(window_id)
+                                    .unwrap_or(0),
                             });
                         } else if state == ElementState::Pressed {
                             tracing::debug!(
@@ -352,6 +364,10 @@ impl RenderApp {
                                 keysym,
                                 modifiers: 0,
                                 pressed: true,
+                                emacs_frame_id: self
+                                    .multi_windows
+                                    .emacs_frame_for_winit(window_id)
+                                    .unwrap_or(0),
                             });
                         }
                     }

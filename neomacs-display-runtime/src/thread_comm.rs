@@ -39,6 +39,8 @@ pub enum InputEvent {
         keysym: u32,
         modifiers: u32,
         pressed: bool,
+        /// Emacs frame_id of the window that produced the key event (0 = primary)
+        emacs_frame_id: u64,
     },
     MouseButton {
         button: u32,
@@ -1102,6 +1104,7 @@ mod tests {
             keysym: 65, // 'A'
             modifiers: 0,
             pressed: true,
+            emacs_frame_id: 0,
         };
 
         comms.input_tx.send(event.clone()).unwrap();
@@ -1112,10 +1115,12 @@ mod tests {
                 keysym,
                 modifiers,
                 pressed,
+                emacs_frame_id,
             } => {
                 assert_eq!(keysym, 65);
                 assert_eq!(modifiers, 0);
                 assert!(pressed);
+                assert_eq!(emacs_frame_id, 0);
             }
             other => panic!("Expected Key event, got {:?}", other),
         }
@@ -1191,6 +1196,7 @@ mod tests {
                 keysym: 0,
                 modifiers: 0,
                 pressed: false,
+                emacs_frame_id: 0,
             };
             comms.input_tx.try_send(event).unwrap();
         }
@@ -1200,6 +1206,7 @@ mod tests {
             keysym: 0,
             modifiers: 0,
             pressed: false,
+            emacs_frame_id: 0,
         });
         assert!(
             result.is_err(),
@@ -1325,16 +1332,19 @@ mod tests {
             keysym: 0xFF0D, // Return
             modifiers: 4,   // Ctrl
             pressed: true,
+            emacs_frame_id: 0,
         };
         match event {
             InputEvent::Key {
                 keysym,
                 modifiers,
                 pressed,
+                emacs_frame_id,
             } => {
                 assert_eq!(keysym, 0xFF0D);
                 assert_eq!(modifiers, 4);
                 assert!(pressed);
+                assert_eq!(emacs_frame_id, 0);
             }
             _ => panic!("Wrong variant"),
         }
@@ -1572,6 +1582,7 @@ mod tests {
             keysym: 42,
             modifiers: 8,
             pressed: false,
+            emacs_frame_id: 0,
         };
         let cloned = original.clone();
         match cloned {
@@ -1579,10 +1590,12 @@ mod tests {
                 keysym,
                 modifiers,
                 pressed,
+                emacs_frame_id,
             } => {
                 assert_eq!(keysym, 42);
                 assert_eq!(modifiers, 8);
                 assert!(!pressed);
+                assert_eq!(emacs_frame_id, 0);
             }
             _ => panic!("Clone changed variant"),
         }
@@ -1594,6 +1607,7 @@ mod tests {
             keysym: 65,
             modifiers: 0,
             pressed: true,
+            emacs_frame_id: 0,
         };
         let debug = format!("{:?}", event);
         assert!(
@@ -2589,16 +2603,19 @@ mod tests {
                 keysym: 1,
                 modifiers: 0,
                 pressed: true,
+                emacs_frame_id: 0,
             },
             InputEvent::Key {
                 keysym: 2,
                 modifiers: 0,
                 pressed: true,
+                emacs_frame_id: 0,
             },
             InputEvent::Key {
                 keysym: 3,
                 modifiers: 0,
                 pressed: true,
+                emacs_frame_id: 0,
             },
             InputEvent::MouseMove {
                 x: 10.0,
@@ -2679,6 +2696,7 @@ mod tests {
                 keysym: 0x61, // 'a'
                 modifiers: 0,
                 pressed: true,
+                emacs_frame_id: 0,
             });
             render.send_input(InputEvent::WindowResize {
                 width: 1920,

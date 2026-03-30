@@ -759,8 +759,6 @@ fn main() {
                 "Neomacs".to_string(),
                 Arc::clone(&image_dimensions),
                 Arc::clone(&shared_monitors),
-                #[cfg(feature = "neo-term")]
-                Arc::new(Mutex::new(HashMap::new())),
             )
             .unwrap_or_else(|err| {
                 eprintln!("neomacs: failed to start GUI frontend: {err}");

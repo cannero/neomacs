@@ -1234,7 +1234,7 @@ fn input_pending_p_accepts_optional_check_timers_arg() {
 fn input_pending_p_returns_t_with_host_keypress() {
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char('a'),
     ))
     .expect("queue keypress");
@@ -1588,7 +1588,7 @@ fn read_char_preserves_existing_command_keys_context() {
 fn read_char_host_quit_char_returns_event_and_sets_quit_flag() {
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char_with_mods('g', crate::keyboard::Modifiers::ctrl()),
     ))
     .expect("queue C-g");
@@ -1850,7 +1850,7 @@ fn read_key_sequence_accepts_nil_prompt() {
 fn read_key_sequence_treats_host_quit_char_as_ordinary_input() {
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char_with_mods('g', crate::keyboard::Modifiers::ctrl()),
     ))
     .expect("queue C-g");

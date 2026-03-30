@@ -400,7 +400,7 @@ fn read_char_applies_resize_event_before_returning_next_keypress() {
         emacs_frame_id: 0,
     })
     .unwrap();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char('a'),
     ))
     .unwrap();
@@ -411,6 +411,48 @@ fn read_char_applies_resize_event_before_returning_next_keypress() {
     let frame = ev.frames.get(fid).expect("frame should still be live");
     assert_eq!(frame.width, 700);
     assert_eq!(frame.height, 800);
+}
+
+#[test]
+fn read_char_switches_active_kboard_to_keypress_source_frame_terminal() {
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let primary = ev.frames.create_frame("F1", 960, 640, buf);
+    ev.command_loop
+        .keyboard
+        .set_input_decode_map(Value::symbol("primary-map"));
+
+    crate::emacs_core::terminal::pure::ensure_terminal_runtime_owner(
+        7,
+        "tty-7",
+        crate::emacs_core::terminal::pure::TerminalRuntimeConfig::interactive(
+            Some("xterm-256color".to_string()),
+            256,
+        ),
+    );
+    let secondary = ev.frames.create_frame_on_terminal("F2", 7, 960, 640, buf);
+    assert!(ev.frames.select_frame(primary));
+    ev.sync_keyboard_terminal_owner();
+    assert_eq!(ev.command_loop.keyboard.active_terminal_id(), 0);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    tx.send(crate::keyboard::InputEvent::key_press_in_frame(
+        crate::keyboard::KeyEvent::char('z'),
+        secondary.0,
+    ))
+    .unwrap();
+
+    let event = ev.read_char().expect("read_char should return a keypress");
+    assert_eq!(event, Value::Int('z' as i64));
+    assert_eq!(ev.command_loop.keyboard.active_terminal_id(), 7);
+    assert_eq!(
+        ev.command_loop.keyboard.input_decode_map(),
+        Value::Nil,
+        "raw key ingress should switch to the source frame terminal before key decoding state is used"
+    );
 }
 
 #[test]
@@ -578,7 +620,7 @@ fn read_char_triggers_redisplay_after_resize_event() {
         emacs_frame_id: 0,
     })
     .unwrap();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char('a'),
     ))
     .unwrap();
@@ -623,7 +665,7 @@ fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
                 })
                 .expect("enqueue resize after first redisplay");
             tx_in_cb
-                .send(crate::keyboard::InputEvent::KeyPress(
+                .send(crate::keyboard::InputEvent::key_press(
                     crate::keyboard::KeyEvent::char('a'),
                 ))
                 .expect("enqueue keypress after resize");
@@ -733,7 +775,7 @@ fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
 fn read_char_requeues_keypress_and_throws_on_input() {
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char('a'),
     ))
     .expect("queue keypress");
@@ -783,7 +825,7 @@ fn read_char_close_requested_honors_throw_on_input_before_quit() {
 fn eval_list_form_throws_on_pending_host_input() {
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char('a'),
     ))
     .expect("queue keypress");
@@ -941,12 +983,9 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
             height: 800,
             emacs_frame_id: 0,
         });
-    ev.command_loop
-        .keyboard
-        .pending_input_events
-        .push_back(crate::keyboard::InputEvent::KeyPress(
-            crate::keyboard::KeyEvent::char('a'),
-        ));
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::key_press(crate::keyboard::KeyEvent::char('a')),
+    );
 
     let event = ev.read_char().expect("read_char should return a keypress");
     assert_eq!(event, Value::Int('a' as i64));
@@ -1306,12 +1345,9 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
     )
     .expect("define command");
 
-    ev.command_loop
-        .keyboard
-        .pending_input_events
-        .push_back(crate::keyboard::InputEvent::KeyPress(
-            crate::keyboard::KeyEvent::char('a'),
-        ));
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::key_press(crate::keyboard::KeyEvent::char('a')),
+    );
     ev.command_loop
         .keyboard
         .pending_input_events
@@ -1319,12 +1355,9 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
             focused: true,
             emacs_frame_id: target_frame,
         });
-    ev.command_loop
-        .keyboard
-        .pending_input_events
-        .push_back(crate::keyboard::InputEvent::KeyPress(
-            crate::keyboard::KeyEvent::char('b'),
-        ));
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::key_press(crate::keyboard::KeyEvent::char('b')),
+    );
 
     let (keys, binding) = ev.read_key_sequence().expect("read key sequence");
     assert_eq!(keys, vec![Value::Int('a' as i64), Value::Int('b' as i64)]);
@@ -1442,12 +1475,9 @@ fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
             }],
         },
     );
-    ev.command_loop
-        .keyboard
-        .pending_input_events
-        .push_back(crate::keyboard::InputEvent::KeyPress(
-            crate::keyboard::KeyEvent::char('x'),
-        ));
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::key_press(crate::keyboard::KeyEvent::char('x')),
+    );
 
     let event = ev
         .read_char()
@@ -1538,22 +1568,16 @@ fn read_key_sequence_defers_select_window_until_after_current_key_sequence() {
     )
     .expect("define command");
 
-    ev.command_loop
-        .keyboard
-        .pending_input_events
-        .push_back(crate::keyboard::InputEvent::KeyPress(
-            crate::keyboard::KeyEvent::char('a'),
-        ));
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::key_press(crate::keyboard::KeyEvent::char('a')),
+    );
     ev.command_loop
         .keyboard
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::SelectWindow { window_id: w2 });
-    ev.command_loop
-        .keyboard
-        .pending_input_events
-        .push_back(crate::keyboard::InputEvent::KeyPress(
-            crate::keyboard::KeyEvent::char('b'),
-        ));
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::key_press(crate::keyboard::KeyEvent::char('b')),
+    );
 
     let (keys, binding) = ev.read_key_sequence().expect("read key sequence");
     assert_eq!(keys, vec![Value::Int('a' as i64), Value::Int('b' as i64)]);
@@ -2261,7 +2285,7 @@ fn redisplay_preserves_non_resize_input_for_read_char() {
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char('a'),
     ))
     .unwrap();
@@ -2430,7 +2454,7 @@ fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
     ev.input_rx = Some(rx);
     thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(100));
-        tx.send(crate::keyboard::InputEvent::KeyPress(
+        tx.send(crate::keyboard::InputEvent::key_press(
             crate::keyboard::KeyEvent::char('a'),
         ))
         .expect("send keypress");
@@ -2475,7 +2499,7 @@ fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input(
     eprintln!("idle test: spawn sender");
     thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(100));
-        tx.send(crate::keyboard::InputEvent::KeyPress(
+        tx.send(crate::keyboard::InputEvent::key_press(
             crate::keyboard::KeyEvent::char('a'),
         ))
         .expect("send keypress");

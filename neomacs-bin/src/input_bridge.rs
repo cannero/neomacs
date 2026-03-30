@@ -37,6 +37,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             keysym,
             modifiers,
             pressed,
+            emacs_frame_id,
         } => {
             tracing::debug!(
                 "input_bridge: key keysym=0x{:04x} mods=0x{:x} pressed={}",
@@ -44,7 +45,12 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
                 modifiers,
                 pressed
             );
-            let event = keyboard::render_key_transport_to_input_event(keysym, modifiers, pressed)?;
+            let event = keyboard::render_key_transport_to_input_event(
+                keysym,
+                modifiers,
+                pressed,
+                emacs_frame_id,
+            )?;
             tracing::debug!("input_bridge: converted to {:?}", event);
             Some(event)
         }
@@ -153,8 +159,33 @@ mod tests {
             keysym: keyboard::XK_RETURN,
             modifiers: 0,
             pressed: false,
+            emacs_frame_id: 0,
         });
         assert!(event.is_none());
+    }
+
+    #[test]
+    fn key_transport_preserves_source_frame_identity() {
+        let event = convert_display_event(DisplayEvent::Key {
+            keysym: 'a' as u32,
+            modifiers: keyboard::RENDER_CTRL_MASK,
+            pressed: true,
+            emacs_frame_id: 42,
+        });
+
+        match event {
+            Some(KbInputEvent::KeyPress {
+                key,
+                emacs_frame_id,
+            }) => {
+                assert_eq!(
+                    key,
+                    keyboard::KeyEvent::char_with_mods('a', keyboard::Modifiers::ctrl())
+                );
+                assert_eq!(emacs_frame_id, 42);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 
     #[test]

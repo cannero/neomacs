@@ -5054,6 +5054,26 @@ impl Context {
         self.command_loop.keyboard.select_terminal(terminal_id);
     }
 
+    pub(crate) fn sync_keyboard_terminal_owner_for_input_frame(&mut self, emacs_frame_id: u64) {
+        let terminal_id = if emacs_frame_id == 0 {
+            self.frames
+                .selected_frame()
+                .map(|frame| frame.terminal_id)
+                .unwrap_or(crate::emacs_core::terminal::pure::TERMINAL_ID)
+        } else {
+            self.frames
+                .get(crate::window::FrameId(emacs_frame_id))
+                .map(|frame| frame.terminal_id)
+                .unwrap_or_else(|| {
+                    self.frames
+                        .selected_frame()
+                        .map(|frame| frame.terminal_id)
+                        .unwrap_or(crate::emacs_core::terminal::pure::TERMINAL_ID)
+                })
+        };
+        self.command_loop.keyboard.select_terminal(terminal_id);
+    }
+
     /// Public read access to the face table.
     pub fn face_table(&self) -> &FaceTable {
         &self.face_table

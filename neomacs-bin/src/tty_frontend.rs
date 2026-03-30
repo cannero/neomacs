@@ -172,6 +172,7 @@ fn read_one_input_event(stop: &AtomicBool) -> io::Result<Option<InputEvent>> {
         keysym,
         modifiers,
         pressed: true,
+        emacs_frame_id: 0,
     }))
 }
 

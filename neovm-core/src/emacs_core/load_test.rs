@@ -1240,17 +1240,17 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
     let _ = eval.eval_forms(&setup);
 
     let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
     ))
     .expect("queue M-x");
     for ch in "neo-ret-probe".chars() {
-        tx.send(crate::keyboard::InputEvent::KeyPress(
+        tx.send(crate::keyboard::InputEvent::key_press(
             crate::keyboard::KeyEvent::char(ch),
         ))
         .expect("queue command chars");
     }
-    tx.send(crate::keyboard::InputEvent::KeyPress(
+    tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
     ))
     .expect("queue RET");

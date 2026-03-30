@@ -274,10 +274,13 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   non-current `kboard`s after the active one, so unread events, unread
   selection events, and keyboard-macro playback pending on another terminal
   are no longer invisible just because that terminal is not currently active.
-  The remaining keyboard-side GNU gap is narrower: raw keypress transport
-  still lacks explicit source terminal/frame identity, side-queue behavior is
-  still thinner than GNU `keyboard.c`, and device delete hooks still need to
-  tear down per-terminal keyboard state.
+  The remaining keyboard-side GNU gap narrowed further after the next slice:
+  raw keypress transport now carries source frame identity end-to-end, and the
+  keyboard owner switches to the source frame's terminal before using
+  terminal-local decoding state. That brings raw key ingress closer to GNU's
+  "current kboard follows input source" model instead of only following the
+  selected frame. The remaining gap is now thinner `keyboard.c` side-queue
+  behavior plus device delete hooks tearing down per-terminal keyboard state.
 
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented

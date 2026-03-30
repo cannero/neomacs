@@ -511,13 +511,14 @@ pub fn render_key_transport_to_input_event(
     keysym: u32,
     modifiers: u32,
     pressed: bool,
+    emacs_frame_id: u64,
 ) -> Option<InputEvent> {
     if !pressed {
         return None;
     }
 
     let key_event = keysym_to_key_event(keysym, modifiers)?;
-    Some(InputEvent::KeyPress(key_event))
+    Some(InputEvent::key_press_in_frame(key_event, emacs_frame_id))
 }
 
 /// Convert a raw keysym and modifier bitmask (from the render thread) into
@@ -589,7 +590,7 @@ pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
 #[derive(Clone, Debug)]
 pub enum InputEvent {
     /// Keyboard key press.
-    KeyPress(KeyEvent),
+    KeyPress { key: KeyEvent, emacs_frame_id: u64 },
     /// Mouse button press.
     MousePress {
         button: MouseButton,
@@ -637,6 +638,22 @@ pub enum InputEvent {
     SelectWindow { window_id: crate::window::WindowId },
     /// Close request.
     CloseRequested,
+}
+
+impl InputEvent {
+    pub fn key_press(key: KeyEvent) -> Self {
+        Self::KeyPress {
+            key,
+            emacs_frame_id: 0,
+        }
+    }
+
+    pub fn key_press_in_frame(key: KeyEvent, emacs_frame_id: u64) -> Self {
+        Self::KeyPress {
+            key,
+            emacs_frame_id,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1149,7 +1166,7 @@ impl KeyboardRuntime {
         }
 
         while let Some(event) = self.event_queue.pop_front() {
-            if let InputEvent::KeyPress(key) = event {
+            if let InputEvent::KeyPress { key, .. } = event {
                 let emacs_event = key.to_emacs_event_value();
                 self.kboard.store_kbd_macro_event(emacs_event);
                 return Some(emacs_event);
@@ -2490,7 +2507,11 @@ impl crate::emacs_core::eval::Context {
                 self.timer_resume_idle();
                 Ok(self.make_lispy_select_window_event(window_id))
             }
-            InputEvent::KeyPress(ref key) => {
+            InputEvent::KeyPress {
+                ref key,
+                emacs_frame_id,
+            } => {
+                self.sync_keyboard_terminal_owner_for_input_frame(emacs_frame_id);
                 tracing::debug!("read_char: received KeyPress {:?}", key);
                 self.clear_current_message();
                 let emacs_event = key.to_emacs_event_value();
@@ -3727,8 +3748,8 @@ mod tests {
     #[test]
     fn command_loop_enqueue_read() {
         let mut cl = CommandLoop::new();
-        cl.enqueue_event(InputEvent::KeyPress(KeyEvent::char('a')));
-        cl.enqueue_event(InputEvent::KeyPress(KeyEvent::char('b')));
+        cl.enqueue_event(InputEvent::key_press(KeyEvent::char('a')));
+        cl.enqueue_event(InputEvent::key_press(KeyEvent::char('b')));
 
         let e = cl.read_key_event().unwrap();
         assert_eq!(e, Value::Int('a' as i64));
@@ -3740,7 +3761,7 @@ mod tests {
     #[test]
     fn unread_events_have_priority() {
         let mut cl = CommandLoop::new();
-        cl.enqueue_event(InputEvent::KeyPress(KeyEvent::char('a')));
+        cl.enqueue_event(InputEvent::key_press(KeyEvent::char('a')));
         cl.unread_key(KeyEvent::char('z'));
 
         let e = cl.read_key_event().unwrap();
@@ -3818,8 +3839,8 @@ mod tests {
         let mut cl = CommandLoop::new();
         cl.start_kbd_macro();
 
-        cl.enqueue_event(InputEvent::KeyPress(KeyEvent::char('h')));
-        cl.enqueue_event(InputEvent::KeyPress(KeyEvent::char('i')));
+        cl.enqueue_event(InputEvent::key_press(KeyEvent::char('h')));
+        cl.enqueue_event(InputEvent::key_press(KeyEvent::char('i')));
 
         cl.read_key_event(); // 'h' — recorded
         cl.read_key_event(); // 'i' — recorded
@@ -4178,6 +4199,6 @@ mod tests {
 
     #[test]
     fn render_key_transport_drops_key_releases() {
-        assert!(render_key_transport_to_input_event(XK_RETURN, 0, false).is_none());
+        assert!(render_key_transport_to_input_event(XK_RETURN, 0, false, 0).is_none());
     }
 }
