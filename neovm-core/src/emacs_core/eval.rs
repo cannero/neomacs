@@ -1408,10 +1408,13 @@ impl Context {
     pub fn new() -> Self {
         let mut ctx = Self::new_inner(true);
         // Capture stack bottom for conservative GC stack scanning.
-        // This must be done from a frame near the top of the call stack.
-        let stack_marker: usize = 0;
-        ctx.heap
-            .set_stack_bottom(&stack_marker as *const usize as *const u8);
+        // Read the thread's stack upper bound from /proc/self/maps.
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(stack_end) = crate::gc::heap::read_stack_end_from_proc() {
+                ctx.heap.set_stack_bottom(stack_end as *const u8);
+            }
+        }
         // Register builtins AFTER new_inner returns — the function is too
         // large (1500+ lines) for reliable codegen in debug mode when
         // combined with init_builtins (1162 defsubr calls in the same frame).

@@ -1155,6 +1155,22 @@ impl Default for LispHeap {
 // Tests
 // ---------------------------------------------------------------------------
 
+/// Read the stack end address from /proc/self/maps on Linux.
+/// Returns the upper bound of the `[stack]` mapping.
+#[cfg(target_os = "linux")]
+pub fn read_stack_end_from_proc() -> Option<usize> {
+    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+    for line in maps.lines() {
+        if line.contains("[stack]") {
+            let dash = line.find('-')?;
+            let space = line.find(' ')?;
+            let end_hex = &line[dash + 1..space];
+            return usize::from_str_radix(end_hex, 16).ok();
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 #[path = "heap_test.rs"]
 mod tests;
