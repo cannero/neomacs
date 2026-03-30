@@ -30,6 +30,10 @@ pub struct LispHeap {
     gc_phase: GcPhase,
     /// Gray worklist — objects marked but whose children haven't been scanned.
     gray_queue: Vec<ObjId>,
+    /// Stack bottom captured at creation — used by conservative stack scanning.
+    /// Points to the deepest (oldest) stack frame of the thread that owns
+    /// this heap.
+    stack_bottom: *const u8,
 }
 
 impl LispHeap {
@@ -43,7 +47,15 @@ impl LispHeap {
             gc_threshold: 8192,
             gc_phase: GcPhase::Idle,
             gray_queue: Vec::new(),
+            // Will be set by Context::new() from the outermost frame
+            stack_bottom: std::ptr::null(),
         }
+    }
+
+    /// Set the stack bottom pointer (call from the outermost frame).
+    /// Must be called once from the thread's entry point or Context::new().
+    pub fn set_stack_bottom(&mut self, bottom: *const u8) {
+        self.stack_bottom = bottom;
     }
 
     // -----------------------------------------------------------------------
@@ -202,11 +214,22 @@ impl LispHeap {
     /// dynamic stack, temp_roots) during the incremental marking phase can
     /// introduce new live references that weren't in the initial root scan.
     /// This pushes any unmarked root values back to gray for re-tracing,
-    /// then drains the queue.
+    /// does a conservative stack scan as safety net, then drains the queue.
     pub fn rescan_roots(&mut self, roots: impl Iterator<Item = Value>) {
         debug_assert_eq!(self.gc_phase, GcPhase::Marking);
         for root in roots {
             Self::push_value_ids(&root, &mut self.gray_queue);
+        }
+        // Conservative stack scan — catch any roots missed by explicit
+        // enumeration, including Values in Rust local variables.
+        unsafe {
+            let stack_top = Self::current_stack_ptr();
+            let (lo, hi) = if self.stack_bottom < stack_top {
+                (self.stack_bottom, stack_top)
+            } else {
+                (stack_top, self.stack_bottom)
+            };
+            self.scan_stack_conservative(lo, hi);
         }
         // Drain the gray queue (fast — only processes newly-discovered items).
         self.mark_all();
@@ -597,11 +620,92 @@ impl LispHeap {
     // Incremental tri-color mark-and-sweep collection
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Conservative stack scanning
+    // -----------------------------------------------------------------------
+
+    /// Conservatively scan a memory region for potential ObjId references.
+    ///
+    /// Walks `[bottom, top)` word-by-word (4-byte aligned for u32 pairs).
+    /// Any (index, generation) pair that matches a live heap slot is treated
+    /// as a root. False positives are safe (just keep extra objects alive).
+    ///
+    /// This is the same strategy used by GNU Emacs (`mark_memory` in alloc.c),
+    /// Ruby, and Lua to catch roots that explicit enumeration might miss
+    /// (e.g., Values in Rust local variables or registers).
+    ///
+    /// # Safety
+    /// `bottom` and `top` must be valid readable memory. Typically these
+    /// are the current thread's stack bounds.
+    pub unsafe fn scan_stack_conservative(&mut self, bottom: *const u8, top: *const u8) {
+        if bottom.is_null() || top.is_null() || bottom >= top {
+            return;
+        }
+        let heap_len = self.objects.len() as u32;
+        if heap_len == 0 {
+            return;
+        }
+
+        // Scan 4-byte aligned positions for (index, generation) pairs.
+        // ObjId is (u32 index, u32 generation) = 8 bytes.
+        let mut ptr = bottom as usize;
+        let end = top as usize;
+        // Align to 4-byte boundary
+        ptr = (ptr + 3) & !3;
+
+        while ptr + 8 <= end {
+            let index = *(ptr as *const u32);
+            let generation = *((ptr + 4) as *const u32);
+
+            // Check if this looks like a valid, live ObjId
+            if index < heap_len {
+                let i = index as usize;
+                if i < self.generations.len()
+                    && self.generations[i] == generation
+                    && !matches!(self.objects[i], HeapObject::Free)
+                    && !self.marks.get(i).copied().unwrap_or(true)
+                {
+                    // Found a potential live reference — mark it
+                    let id = ObjId { index, generation };
+                    self.gray_queue.push(id);
+                }
+            }
+
+            ptr += 4; // Step by 4 bytes (not 8) to catch unaligned pairs
+        }
+    }
+
+    /// Get an approximate stack pointer for conservative scanning.
+    /// The returned pointer is on the current stack frame.
+    ///
+    /// # Safety
+    /// The returned pointer is only valid for the duration of the calling
+    /// function's stack frame.
+    #[inline(always)]
+    unsafe fn current_stack_ptr() -> *const u8 {
+        let mut sp: *const u8;
+        #[cfg(target_arch = "x86_64")]
+        {
+            std::arch::asm!("mov {}, rsp", out(reg) sp, options(nomem, nostack));
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            std::arch::asm!("mov {}, sp", out(reg) sp, options(nomem, nostack));
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            // Fallback: use a local variable's address as approximate SP
+            let marker: usize = 0;
+            sp = &marker as *const usize as *const u8;
+        }
+        sp
+    }
+
     /// Collect garbage. `roots` must yield every Value that is reachable.
     ///
     /// Runs a complete mark-and-sweep cycle (mark all, then sweep all).
-    /// Write barriers protect against mutations during future incremental
-    /// collection where marking is interleaved with mutator execution.
+    /// Conservative stack scanning provides a safety net for any roots
+    /// missed by explicit enumeration.
     #[tracing::instrument(level = "debug", skip(self, roots), fields(objects = self.objects.len(), allocated = self.allocated_count))]
     pub fn collect(&mut self, roots: impl Iterator<Item = Value>) {
         // -- Begin mark phase --
@@ -620,6 +724,21 @@ impl LispHeap {
         }
 
         // Drain gray queue (full mark)
+        self.mark_all();
+
+        // Conservative stack scan — safety net for any roots missed by
+        // explicit enumeration. Scans the current thread's stack for
+        // anything that looks like a valid ObjId and marks it.
+        unsafe {
+            let stack_top = Self::current_stack_ptr();
+            let (lo, hi) = if self.stack_bottom < stack_top {
+                (self.stack_bottom, stack_top)
+            } else {
+                (stack_top, self.stack_bottom)
+            };
+            self.scan_stack_conservative(lo, hi);
+        }
+        // Mark any additional objects found by stack scan
         self.mark_all();
 
         // -- Sweep phase --
@@ -818,6 +937,7 @@ impl LispHeap {
             gc_threshold: 8192,
             gc_phase: GcPhase::Idle,
             gray_queue: Vec::new(),
+            stack_bottom: std::ptr::null(),
         }
     }
 }
