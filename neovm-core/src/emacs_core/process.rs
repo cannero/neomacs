@@ -1149,14 +1149,17 @@ impl super::eval::Context {
         redisplay_timers: bool,
     ) -> Result<WaitServiceOutcome, Flow> {
         let mut outcome = WaitServiceOutcome::default();
-        let _ = self.service_wait_path_special_input_events()?;
+        let special_input = self.service_wait_path_special_input_events()?;
         if allow_timers {
-            outcome.timers_fired = self.service_pending_timers_with_wait_policy(redisplay_timers);
+            outcome.timers_fired = self.service_pending_timers_with_wait_policy(false);
         }
         let process_outcome =
             self.poll_process_output_with_wait_policy(target_process, just_this_one);
         outcome.any_process_activity = process_outcome.any_process_activity;
         outcome.target_process_activity = process_outcome.target_process_activity;
+        if redisplay_timers && (special_input.redisplay_needed || outcome.timers_fired) {
+            self.redisplay();
+        }
         Ok(outcome)
     }
 

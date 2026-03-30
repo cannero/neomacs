@@ -1582,6 +1582,11 @@ fn input_event_is_wait_path_special(event: &InputEvent) -> bool {
     )
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct WaitPathSpecialInputOutcome {
+    pub(crate) redisplay_needed: bool,
+}
+
 fn sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
     frames: &mut crate::window::FrameManager,
     display_host: Option<&dyn crate::emacs_core::eval::DisplayHost>,
@@ -2221,11 +2226,11 @@ impl crate::emacs_core::eval::Context {
 
     pub(crate) fn service_wait_path_special_input_events(
         &mut self,
-    ) -> Result<bool, crate::emacs_core::error::Flow> {
-        let mut serviced = false;
+    ) -> Result<WaitPathSpecialInputOutcome, crate::emacs_core::error::Flow> {
+        let mut outcome = WaitPathSpecialInputOutcome::default();
 
         if self.sync_pending_resize_events() {
-            serviced = true;
+            outcome.redisplay_needed = true;
         }
 
         while let Some(event) = self.take_next_wait_path_special_input_event()? {
@@ -2236,7 +2241,7 @@ impl crate::emacs_core::eval::Context {
                     emacs_frame_id,
                 } => {
                     self.apply_resize_input_event(width, height, emacs_frame_id, false);
-                    serviced = true;
+                    outcome.redisplay_needed = true;
                 }
                 InputEvent::MonitorsChanged { monitors } => {
                     crate::emacs_core::builtins::set_neomacs_monitor_info(monitors);
@@ -2250,11 +2255,10 @@ impl crate::emacs_core::eval::Context {
                         hook_sym,
                         &[terminal],
                     )?;
-                    serviced = true;
+                    outcome.redisplay_needed = true;
                 }
                 InputEvent::MouseMove { .. } => {
                     self.timer_resume_idle();
-                    serviced = true;
                 }
                 InputEvent::CloseRequested => {
                     self.command_loop.running = false;
@@ -2264,7 +2268,7 @@ impl crate::emacs_core::eval::Context {
             }
         }
 
-        Ok(serviced)
+        Ok(outcome)
     }
 
     /// Read a complete key sequence through keymaps.
