@@ -116,6 +116,7 @@ tempfile = "3"
 [profile.release]
 lto = true
 codegen-units = 1
+debug = true
 
 [patch.crates-io]
 cosmic-text = { git = "https://github.com/eval-exec/cosmic-text", rev = "5dd3fec8572e771794e3f203ab6780d828e9ce09" }

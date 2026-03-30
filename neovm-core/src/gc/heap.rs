@@ -4,7 +4,7 @@ use super::types::{HeapObject, MarkerData, ObjId, OverlayData};
 use crate::buffer::BufferId;
 use crate::emacs_core::bytecode::ByteCodeFunction;
 use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// GC collection phase (tri-color incremental).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +30,11 @@ pub struct LispHeap {
     gc_phase: GcPhase,
     /// Gray worklist — objects marked but whose children haven't been scanned.
     gray_queue: Vec<ObjId>,
+    /// Cache of opaque Value roots from Lambda/Macro body ASTs.
+    /// Avoids re-walking the entire Expr tree on every GC cycle.
+    /// Key = ObjId index, Value = collected opaque Values.
+    /// Invalidated when the object is freed.
+    opaque_roots_cache: HashMap<u32, Vec<ObjId>>,
     /// Stack bottom captured at creation — used by conservative stack scanning.
     /// Points to the deepest (oldest) stack frame of the thread that owns
     /// this heap.
@@ -54,6 +59,7 @@ impl LispHeap {
             gc_threshold: 8192,
             gc_phase: GcPhase::Idle,
             gray_queue: Vec::new(),
+            opaque_roots_cache: HashMap::new(),
             // Will be set by Context::new() from the outermost frame
             stack_bottom: std::ptr::null(),
         }
@@ -296,58 +302,7 @@ impl LispHeap {
             tracing::warn!("  GC phase: {:?}", self.gc_phase);
             tracing::warn!("  Free list length: {}", self.free_list.len());
             tracing::warn!("==============================");
-            // Search all live (marked) objects for who holds this stale ref
-            let referrers = self.find_referrers(id.index);
-            if referrers.is_empty() {
-                tracing::warn!(
-                    "  No heap objects reference this slot — stale ref is in a ROOT (Context field, obarray, etc.)"
-                );
-            } else {
-                for (slot, desc) in &referrers {
-                    tracing::warn!("  Referenced by slot {}: {}", slot, desc);
-                }
-            }
             panic!("stale ObjId: {:?} (current gen={})", id, cur_gen,);
-        }
-    }
-
-    /// Check if a Value contains a valid ObjId. Logs error if stale.
-    pub fn validate_value(&self, val: &Value) {
-        let id = match val {
-            Value::Str(id)
-            | Value::Cons(id)
-            | Value::Vector(id)
-            | Value::Record(id)
-            | Value::HashTable(id)
-            | Value::Lambda(id)
-            | Value::Macro(id)
-            | Value::ByteCode(id)
-            | Value::Marker(id)
-            | Value::Overlay(id) => *id,
-            _ => return,
-        };
-        let i = id.index as usize;
-        if i < self.objects.len() && self.generations[i] != id.generation {
-            let variant = match val {
-                Value::Str(_) => "Str",
-                Value::Cons(_) => "Cons",
-                Value::Vector(_) => "Vector",
-                Value::Record(_) => "Record",
-                Value::HashTable(_) => "HashTable",
-                Value::Lambda(_) => "Lambda",
-                Value::Macro(_) => "Macro",
-                Value::ByteCode(_) => "ByteCode",
-                Value::Marker(_) => "Marker",
-                Value::Overlay(_) => "Overlay",
-                _ => "?",
-            };
-            tracing::error!(
-                "POST-GC STALE ROOT: Value::{}({:?}) — gen {} vs current {}",
-                variant,
-                id,
-                id.generation,
-                self.generations[i]
-            );
         }
     }
 
@@ -835,10 +790,49 @@ impl LispHeap {
             }
             self.marks[i] = true;
 
-            // Collect children into a local vec, then extend gray_queue.
-            // This avoids borrow conflicts with self.objects / self.gray_queue.
             let mut children = Vec::new();
             Self::trace_heap_object(&self.objects[i], &mut children);
+
+            // For Lambda/Macro: use cached opaque roots instead of
+            // re-walking the entire body AST every GC cycle.
+            if matches!(
+                &self.objects[i],
+                HeapObject::Lambda(_) | HeapObject::Macro(_)
+            ) {
+                if let Some(cached) = self.opaque_roots_cache.get(&id.index) {
+                    children.extend_from_slice(cached);
+                } else {
+                    // Compute and cache
+                    let mut opaque = Vec::new();
+                    match &self.objects[i] {
+                        HeapObject::Lambda(d) | HeapObject::Macro(d) => {
+                            for expr in d.body.iter() {
+                                expr.collect_opaque_values(&mut opaque);
+                            }
+                        }
+                        _ => {}
+                    }
+                    let opaque_ids: Vec<ObjId> = opaque
+                        .iter()
+                        .filter_map(|v| match v {
+                            Value::Cons(id)
+                            | Value::Vector(id)
+                            | Value::Record(id)
+                            | Value::HashTable(id)
+                            | Value::Str(id)
+                            | Value::Lambda(id)
+                            | Value::Macro(id)
+                            | Value::ByteCode(id)
+                            | Value::Overlay(id)
+                            | Value::Marker(id) => Some(*id),
+                            _ => None,
+                        })
+                        .collect();
+                    children.extend_from_slice(&opaque_ids);
+                    self.opaque_roots_cache.insert(id.index, opaque_ids);
+                }
+            }
+
             self.gray_queue.extend(children);
         }
     }
@@ -869,48 +863,12 @@ impl LispHeap {
         self.gray_queue.is_empty()
     }
 
-    /// Check if any marked (live) object references the given slot index.
-    /// Used for debugging stale ObjId issues — call before sweeping to
-    /// find dangling references.
-    fn find_referrers(&self, target_index: u32) -> Vec<(usize, String)> {
-        let mut referrers = Vec::new();
-        for (i, obj) in self.objects.iter().enumerate() {
-            if matches!(obj, HeapObject::Free) || !self.marks.get(i).copied().unwrap_or(false) {
-                continue;
-            }
-            let mut children = Vec::new();
-            Self::trace_heap_object(obj, &mut children);
-            for child in &children {
-                if child.index == target_index {
-                    let desc = match obj {
-                        HeapObject::Cons { car, cdr } => {
-                            format!("Cons(car={}, cdr={})", car, cdr)
-                        }
-                        HeapObject::Vector(v) => format!("Vector(len={})", v.len()),
-                        HeapObject::HashTable(_) => "HashTable".to_string(),
-                        HeapObject::Str(s) => {
-                            format!("Str({:?})", &s.as_str()[..s.as_str().len().min(40)])
-                        }
-                        HeapObject::Lambda(ld) => {
-                            format!("Lambda(params={:?})", ld.params)
-                        }
-                        HeapObject::Macro(_) => "Macro".to_string(),
-                        HeapObject::ByteCode(_) => "ByteCode".to_string(),
-                        HeapObject::Overlay(_) => "Overlay".to_string(),
-                        HeapObject::Marker(_) => "Marker".to_string(),
-                        HeapObject::Free => unreachable!(),
-                    };
-                    referrers.push((i, desc));
-                }
-            }
-        }
-        referrers
-    }
-
     /// Sweep all unmarked objects in one pass.
     fn sweep_all(&mut self) {
         for i in 0..self.objects.len() {
             if !self.marks[i] && !matches!(self.objects[i], HeapObject::Free) {
+                // Invalidate opaque roots cache for freed lambdas/macros
+                self.opaque_roots_cache.remove(&(i as u32));
                 self.objects[i] = HeapObject::Free;
                 self.generations[i] = self.generations[i].wrapping_add(1);
                 self.free_list.push(i as u32);
@@ -998,16 +956,10 @@ impl LispHeap {
                 if let Some(interactive_val) = &d.interactive {
                     Self::push_value_ids(interactive_val, children);
                 }
-                // Trace OpaqueValues in body expressions — these hold
-                // runtime Values (closures, byte-code, subrs) embedded in
-                // the AST by value_to_expr / macro expansion.
-                let mut opaque_values = Vec::new();
-                for expr in d.body.iter() {
-                    expr.collect_opaque_values(&mut opaque_values);
-                }
-                for v in &opaque_values {
-                    Self::push_value_ids(v, children);
-                }
+                // NOTE: OpaqueValue roots from body AST are handled by
+                // the opaque_roots_cache in mark_all/mark_some, NOT here.
+                // This avoids the O(n * body_size) cost of re-walking the
+                // entire Expr tree on every GC cycle.
             }
             HeapObject::ByteCode(bc) => {
                 for c in &bc.constants {
@@ -1077,6 +1029,7 @@ impl LispHeap {
             gc_threshold: 8192,
             gc_phase: GcPhase::Idle,
             gray_queue: Vec::new(),
+            opaque_roots_cache: HashMap::new(),
             stack_bottom: std::ptr::null(),
         }
     }
