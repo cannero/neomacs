@@ -699,34 +699,27 @@ pub(crate) fn builtin_seq_position(
     };
     let elements = seq_position_elements(seq)?;
 
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(target);
-    if let Some(tf) = &test_fn {
-        eval.push_temp_root(*tf);
-    }
-    for e in &elements {
-        eval.push_temp_root(*e);
-    }
-
-    for (idx, element) in elements.into_iter().enumerate() {
-        let matches = if let Some(test) = &test_fn {
-            match eval.apply(*test, vec![element, target]) {
-                Ok(v) => v.is_truthy(),
-                Err(e) => {
-                    eval.restore_temp_roots(saved);
-                    return Err(e);
-                }
-            }
-        } else {
-            seq_default_match(&element, &target)
-        };
-        if matches {
-            eval.restore_temp_roots(saved);
-            return Ok(Value::Int(idx as i64));
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(target);
+        if let Some(tf) = &test_fn {
+            ctx.root(*tf);
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::Nil)
+        for e in &elements {
+            ctx.root(*e);
+        }
+
+        for (idx, element) in elements.into_iter().enumerate() {
+            let matches = if let Some(test) = &test_fn {
+                ctx.apply(*test, vec![element, target])?.is_truthy()
+            } else {
+                seq_default_match(&element, &target)
+            };
+            if matches {
+                return Ok(Value::Int(idx as i64));
+            }
+        }
+        Ok(Value::Nil)
+    })
 }
 
 /// `(cl-position ITEM SEQ &optional TESTFN)` -- CL argument order wrapper.
@@ -798,27 +791,19 @@ pub(crate) fn builtin_cl_find_if(eval: &mut super::eval::Context, args: Vec<Valu
     expect_args("cl-find-if", &args, 2)?;
     let pred = args[0];
     let elements = seq_position_elements(&args[1])?;
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(pred);
-    for e in &elements {
-        eval.push_temp_root(*e);
-    }
-    for element in elements {
-        match eval.apply(pred, vec![element]) {
-            Ok(matched) => {
-                if matched.is_truthy() {
-                    eval.restore_temp_roots(saved);
-                    return Ok(element);
-                }
-            }
-            Err(err) => {
-                eval.restore_temp_roots(saved);
-                return Err(err);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(pred);
+        for e in &elements {
+            ctx.root(*e);
+        }
+        for element in elements {
+            let matched = ctx.apply(pred, vec![element])?;
+            if matched.is_truthy() {
+                return Ok(element);
             }
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::Nil)
+        Ok(Value::Nil)
+    })
 }
 
 /// `(cl-subsetp LIST1 LIST2)` -- return t if every element of LIST1 appears in LIST2.
@@ -941,28 +926,21 @@ pub(crate) fn builtin_cl_remove_if(
     expect_args("cl-remove-if", &args, 2)?;
     let pred = args[0];
     let elements = seq_position_elements(&args[1])?;
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(pred);
-    for e in &elements {
-        eval.push_temp_root(*e);
-    }
-    let mut out = Vec::new();
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(pred);
+        for e in &elements {
+            ctx.root(*e);
+        }
+        let mut out = Vec::new();
 
-    for element in elements {
-        match eval.apply(pred, vec![element]) {
-            Ok(matched) => {
-                if !matched.is_truthy() {
-                    out.push(element);
-                }
-            }
-            Err(err) => {
-                eval.restore_temp_roots(saved);
-                return Err(err);
+        for element in elements {
+            let matched = ctx.apply(pred, vec![element])?;
+            if !matched.is_truthy() {
+                out.push(element);
             }
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::list(out))
+        Ok(Value::list(out))
+    })
 }
 
 /// `(cl-remove-if-not PREDICATE SEQ)` -- keep elements satisfying PREDICATE.
@@ -974,28 +952,21 @@ pub(crate) fn builtin_cl_remove_if_not(
     expect_args("cl-remove-if-not", &args, 2)?;
     let pred = args[0];
     let elements = seq_position_elements(&args[1])?;
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(pred);
-    for e in &elements {
-        eval.push_temp_root(*e);
-    }
-    let mut out = Vec::new();
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(pred);
+        for e in &elements {
+            ctx.root(*e);
+        }
+        let mut out = Vec::new();
 
-    for element in elements {
-        match eval.apply(pred, vec![element]) {
-            Ok(matched) => {
-                if matched.is_truthy() {
-                    out.push(element);
-                }
-            }
-            Err(err) => {
-                eval.restore_temp_roots(saved);
-                return Err(err);
+        for element in elements {
+            let matched = ctx.apply(pred, vec![element])?;
+            if matched.is_truthy() {
+                out.push(element);
             }
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::list(out))
+        Ok(Value::list(out))
+    })
 }
 
 /// `(cl-map RESULT-TYPE FUNCTION SEQ...)` -- CL map with explicit result type.
@@ -1081,34 +1052,27 @@ pub(crate) fn builtin_seq_contains_p(
     };
     let elements = seq_position_elements(seq)?;
 
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(target);
-    if let Some(tf) = &test_fn {
-        eval.push_temp_root(*tf);
-    }
-    for e in &elements {
-        eval.push_temp_root(*e);
-    }
-
-    for element in elements {
-        let matches = if let Some(test) = &test_fn {
-            match eval.apply(*test, vec![element, target]) {
-                Ok(v) => v.is_truthy(),
-                Err(e) => {
-                    eval.restore_temp_roots(saved);
-                    return Err(e);
-                }
-            }
-        } else {
-            seq_default_match(&element, &target)
-        };
-        if matches {
-            eval.restore_temp_roots(saved);
-            return Ok(Value::True);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(target);
+        if let Some(tf) = &test_fn {
+            ctx.root(*tf);
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::Nil)
+        for e in &elements {
+            ctx.root(*e);
+        }
+
+        for element in elements {
+            let matches = if let Some(test) = &test_fn {
+                ctx.apply(*test, vec![element, target])?.is_truthy()
+            } else {
+                seq_default_match(&element, &target)
+            };
+            if matches {
+                return Ok(Value::True);
+            }
+        }
+        Ok(Value::Nil)
+    })
 }
 
 /// `(seq-mapn FN &rest SEQS)` — map over multiple sequences.
@@ -1120,29 +1084,22 @@ pub(crate) fn builtin_seq_mapn(eval: &mut super::eval::Context, args: Vec<Value>
         return Ok(Value::Nil);
     }
     let min_len = seqs.iter().map(|s| s.len()).min().unwrap_or(0);
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(func);
-    for seq in &seqs {
-        for e in seq {
-            eval.push_temp_root(*e);
-        }
-    }
-    let mut results = Vec::new();
-    for i in 0..min_len {
-        let call_args: Vec<Value> = seqs.iter().map(|s| s[i]).collect();
-        match eval.apply(func, call_args) {
-            Ok(val) => {
-                eval.push_temp_root(val);
-                results.push(val);
-            }
-            Err(e) => {
-                eval.restore_temp_roots(saved);
-                return Err(e);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(func);
+        for seq in &seqs {
+            for e in seq {
+                ctx.root(*e);
             }
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::list(results))
+        let mut results = Vec::new();
+        for i in 0..min_len {
+            let call_args: Vec<Value> = seqs.iter().map(|s| s[i]).collect();
+            let val = ctx.apply(func, call_args)?;
+            ctx.root(val);
+            results.push(val);
+        }
+        Ok(Value::list(results))
+    })
 }
 
 /// `(seq-do FN SEQ)` — apply fn for side effects, return nil.
@@ -1150,19 +1107,16 @@ pub(crate) fn builtin_seq_do(eval: &mut super::eval::Context, args: Vec<Value>) 
     expect_args("seq-do", &args, 2)?;
     let func = args[0];
     let elems = collect_sequence(&args[1]);
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(func);
-    for e in &elems {
-        eval.push_temp_root(*e);
-    }
-    for e in elems {
-        if let Err(err) = eval.apply(func, vec![e]) {
-            eval.restore_temp_roots(saved);
-            return Err(err);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(func);
+        for e in &elems {
+            ctx.root(*e);
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::Nil)
+        for e in elems {
+            ctx.apply(func, vec![e])?;
+        }
+        Ok(Value::Nil)
+    })
 }
 
 /// `(seq-count PRED SEQ)` — count elements matching predicate.
@@ -1170,27 +1124,20 @@ pub(crate) fn builtin_seq_count(eval: &mut super::eval::Context, args: Vec<Value
     expect_args("seq-count", &args, 2)?;
     let pred = args[0];
     let elems = collect_sequence(&args[1]);
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(pred);
-    for e in &elems {
-        eval.push_temp_root(*e);
-    }
-    let mut count = 0i64;
-    for e in elems {
-        match eval.apply(pred, vec![e]) {
-            Ok(r) => {
-                if r.is_truthy() {
-                    count += 1;
-                }
-            }
-            Err(err) => {
-                eval.restore_temp_roots(saved);
-                return Err(err);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(pred);
+        for e in &elems {
+            ctx.root(*e);
+        }
+        let mut count = 0i64;
+        for e in elems {
+            let r = ctx.apply(pred, vec![e])?;
+            if r.is_truthy() {
+                count += 1;
             }
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::Int(count))
+        Ok(Value::Int(count))
+    })
 }
 
 /// `(seq-reduce FN SEQ INITIAL)` — reduce with initial value.
@@ -1199,26 +1146,18 @@ pub(crate) fn builtin_seq_reduce(eval: &mut super::eval::Context, args: Vec<Valu
     let func = args[0];
     let elems = collect_sequence(&args[1]);
     let mut acc = args[2];
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(func);
-    eval.push_temp_root(acc);
-    for e in &elems {
-        eval.push_temp_root(*e);
-    }
-    for e in elems {
-        match eval.apply(func, vec![acc, e]) {
-            Ok(val) => {
-                acc = val;
-                eval.push_temp_root(acc);
-            }
-            Err(err) => {
-                eval.restore_temp_roots(saved);
-                return Err(err);
-            }
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(func);
+        ctx.root(acc);
+        for e in &elems {
+            ctx.root(*e);
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(acc)
+        for e in elems {
+            acc = ctx.apply(func, vec![acc, e])?;
+            ctx.root(acc);
+        }
+        Ok(acc)
+    })
 }
 
 /// `(seq-some PRED SEQ)` — some element matches predicate.
@@ -1226,27 +1165,19 @@ pub(crate) fn builtin_seq_some(eval: &mut super::eval::Context, args: Vec<Value>
     expect_args("seq-some", &args, 2)?;
     let pred = args[0];
     let elems = collect_sequence(&args[1]);
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(pred);
-    for e in &elems {
-        eval.push_temp_root(*e);
-    }
-    for e in elems {
-        match eval.apply(pred, vec![e]) {
-            Ok(r) => {
-                if r.is_truthy() {
-                    eval.restore_temp_roots(saved);
-                    return Ok(r);
-                }
-            }
-            Err(err) => {
-                eval.restore_temp_roots(saved);
-                return Err(err);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(pred);
+        for e in &elems {
+            ctx.root(*e);
+        }
+        for e in elems {
+            let r = ctx.apply(pred, vec![e])?;
+            if r.is_truthy() {
+                return Ok(r);
             }
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::Nil)
+        Ok(Value::Nil)
+    })
 }
 
 /// `(seq-every-p PRED SEQ)` — all elements match predicate.
@@ -1254,27 +1185,19 @@ pub(crate) fn builtin_seq_every_p(eval: &mut super::eval::Context, args: Vec<Val
     expect_args("seq-every-p", &args, 2)?;
     let pred = args[0];
     let elems = collect_sequence(&args[1]);
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(pred);
-    for e in &elems {
-        eval.push_temp_root(*e);
-    }
-    for e in elems {
-        match eval.apply(pred, vec![e]) {
-            Ok(r) => {
-                if r.is_nil() {
-                    eval.restore_temp_roots(saved);
-                    return Ok(Value::Nil);
-                }
-            }
-            Err(err) => {
-                eval.restore_temp_roots(saved);
-                return Err(err);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(pred);
+        for e in &elems {
+            ctx.root(*e);
+        }
+        for e in elems {
+            let r = ctx.apply(pred, vec![e])?;
+            if r.is_nil() {
+                return Ok(Value::Nil);
             }
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::True)
+        Ok(Value::True)
+    })
 }
 
 /// `(seq-sort PRED SEQ)` — sort with predicate.
@@ -1283,34 +1206,27 @@ pub(crate) fn builtin_seq_sort(eval: &mut super::eval::Context, args: Vec<Value>
     let pred = args[0];
     let mut items = collect_sequence(&args[1]);
 
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(pred);
-    for e in &items {
-        eval.push_temp_root(*e);
-    }
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(pred);
+        for e in &items {
+            ctx.root(*e);
+        }
 
-    // Insertion sort (stable, supports fallible predicates)
-    for i in 1..items.len() {
-        let mut j = i;
-        while j > 0 {
-            match eval.apply(pred, vec![items[j], items[j - 1]]) {
-                Ok(result) => {
-                    if result.is_truthy() {
-                        items.swap(j, j - 1);
-                        j -= 1;
-                    } else {
-                        break;
-                    }
-                }
-                Err(err) => {
-                    eval.restore_temp_roots(saved);
-                    return Err(err);
+        // Insertion sort (stable, supports fallible predicates)
+        for i in 1..items.len() {
+            let mut j = i;
+            while j > 0 {
+                let result = ctx.apply(pred, vec![items[j], items[j - 1]])?;
+                if result.is_truthy() {
+                    items.swap(j, j - 1);
+                    j -= 1;
+                } else {
+                    break;
                 }
             }
         }
-    }
-    eval.restore_temp_roots(saved);
-    Ok(Value::list(items))
+        Ok(Value::list(items))
+    })
 }
 
 // ===========================================================================

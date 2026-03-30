@@ -421,81 +421,79 @@ pub(crate) fn builtin_replace_regexp_in_string(
         _ => super::regex::SearchedString::Owned(s.clone()),
     };
 
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(func);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(func);
 
-    for groups in &iterated.matches {
-        let Some((full_start, full_end)) = groups.first().and_then(|group| *group) else {
-            continue;
-        };
-
-        let (replace_start, replace_end, case_source) = if subexp == 0 {
-            let Some(src) = s.get(full_start..full_end) else {
+        for groups in &iterated.matches {
+            let Some((full_start, full_end)) = groups.first().and_then(|group| *group) else {
                 continue;
             };
-            (full_start, full_end, src.to_string())
-        } else if let Some(Some((group_start, group_end))) = groups.get(subexp as usize) {
-            let Some(src) = s.get(*group_start..*group_end) else {
-                continue;
-            };
-            (*group_start, *group_end, src.to_string())
-        } else {
-            eval.restore_temp_roots(saved);
-            return Err(signal(
-                "error",
-                vec![
-                    Value::string("replace-match subexpression does not exist"),
-                    Value::Int(subexp),
-                ],
-            ));
-        };
 
-        // Set match-data so the function can call match-string etc.
-        // In Emacs, replace-regexp-in-string calls string-match on the
-        // whole STRING with START, so match positions are character
-        // positions relative to the whole string.
-        let mut match_groups = Vec::with_capacity(groups.len());
-        for group in groups {
-            match_groups.push(group.map(|(group_start, group_end)| {
-                let cs = search_region[..group_start - start].chars().count() + prefix_chars;
-                let ce = search_region[..group_end - start].chars().count() + prefix_chars;
-                (cs, ce)
-            }));
-        }
-        eval.match_data = Some(super::regex::MatchData {
-            groups: match_groups,
-            searched_string: Some(searched_string.clone()),
-            searched_buffer: None,
-        });
-
-        out.push_str(&s[cursor..replace_start]);
-
-        // Call the function with the matched string
-        let matched_str = &s[full_start..full_end];
-        let func_result = eval.apply(func, vec![Value::string(matched_str)])?;
-        let base = match func_result.as_str() {
-            Some(s) => s.to_string(),
-            None => {
-                eval.restore_temp_roots(saved);
+            let (replace_start, replace_end, case_source) = if subexp == 0 {
+                let Some(src) = s.get(full_start..full_end) else {
+                    continue;
+                };
+                (full_start, full_end, src.to_string())
+            } else if let Some(Some((group_start, group_end))) = groups.get(subexp as usize) {
+                let Some(src) = s.get(*group_start..*group_end) else {
+                    continue;
+                };
+                (*group_start, *group_end, src.to_string())
+            } else {
                 return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("stringp"), func_result],
+                    "error",
+                    vec![
+                        Value::string("replace-match subexpression does not exist"),
+                        Value::Int(subexp),
+                    ],
                 ));
+            };
+
+            // Set match-data so the function can call match-string etc.
+            // In Emacs, replace-regexp-in-string calls string-match on the
+            // whole STRING with START, so match positions are character
+            // positions relative to the whole string.
+            let mut match_groups = Vec::with_capacity(groups.len());
+            for group in groups {
+                match_groups.push(group.map(|(group_start, group_end)| {
+                    let cs = search_region[..group_start - start].chars().count() + prefix_chars;
+                    let ce = search_region[..group_end - start].chars().count() + prefix_chars;
+                    (cs, ce)
+                }));
             }
-        };
+            ctx.match_data = Some(super::regex::MatchData {
+                groups: match_groups,
+                searched_string: Some(searched_string.clone()),
+                searched_buffer: None,
+            });
 
-        let replacement = if fixedcase {
-            base
-        } else {
-            preserve_case(&base, &case_source)
-        };
-        out.push_str(&replacement);
-        cursor = if subexp == 0 { full_end } else { replace_end };
-    }
+            out.push_str(&s[cursor..replace_start]);
 
-    eval.restore_temp_roots(saved);
-    out.push_str(&s[cursor..]);
-    Ok(Value::string(out))
+            // Call the function with the matched string
+            let matched_str = &s[full_start..full_end];
+            let func_result = ctx.apply(func, vec![Value::string(matched_str)])?;
+            let base = match func_result.as_str() {
+                Some(s) => s.to_string(),
+                None => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("stringp"), func_result],
+                    ));
+                }
+            };
+
+            let replacement = if fixedcase {
+                base
+            } else {
+                preserve_case(&base, &case_source)
+            };
+            out.push_str(&replacement);
+            cursor = if subexp == 0 { full_end } else { replace_end };
+        }
+
+        out.push_str(&s[cursor..]);
+        Ok(Value::string(out))
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -748,14 +748,13 @@ pub(crate) fn builtin_plist_member(
     let predicate = predicate;
 
     // Root Values that survive across eval.apply() in the loop.
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(plist);
-    eval.push_temp_root(prop);
-    if let Some(p) = predicate {
-        eval.push_temp_root(p);
-    }
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(plist);
+        ctx.root(prop);
+        if let Some(p) = predicate {
+            ctx.root(p);
+        }
 
-    let result = (|| -> EvalResult {
         let mut cursor = plist;
         loop {
             match cursor {
@@ -766,7 +765,7 @@ pub(crate) fn builtin_plist_member(
                     };
 
                     let matches = if let Some(predicate) = &predicate {
-                        eval.apply(*predicate, vec![entry_key, prop])?.is_truthy()
+                        ctx.apply(*predicate, vec![entry_key, prop])?.is_truthy()
                     } else {
                         eq_value(&entry_key, &prop)
                     };
@@ -795,10 +794,7 @@ pub(crate) fn builtin_plist_member(
                 }
             }
         }
-    })();
-
-    eval.restore_temp_roots(saved_roots);
-    result
+    })
 }
 
 pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {

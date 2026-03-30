@@ -1116,11 +1116,11 @@ fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result
         }
         other => {
             // Root the callable target across eval.apply().
-            let saved_roots = eval.save_temp_roots();
-            eval.push_temp_root(other);
-            let result = eval.apply(other, vec![Value::Int('\n' as i64)]);
-            eval.restore_temp_roots(saved_roots);
-            result?;
+            eval.with_gc_scope_result(|ctx| {
+                ctx.root(other);
+                ctx.apply(other, vec![Value::Int('\n' as i64)])?;
+                Ok(())
+            })?;
             Ok(())
         }
     }
@@ -1336,12 +1336,10 @@ pub(crate) fn builtin_princ(eval: &mut super::eval::Context, args: Vec<Value>) -
     }
 
     let text = print_value_princ_in_state(eval, &args[0]);
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(target);
-    let callback_result =
-        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
-    eval.restore_temp_roots(saved_roots);
-    callback_result?;
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(target);
+        dispatch_print_callback_chars(&text, |ch| ctx.apply(target, vec![ch]).map(|_| ()))
+    })?;
     Ok(args[0])
 }
 
@@ -1363,12 +1361,10 @@ pub(crate) fn builtin_prin1(eval: &mut super::eval::Context, args: Vec<Value>) -
     }
 
     let text = super::error::print_value_in_state(eval, &args[0]);
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(target);
-    let callback_result =
-        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
-    eval.restore_temp_roots(saved_roots);
-    callback_result?;
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(target);
+        dispatch_print_callback_chars(&text, |ch| ctx.apply(target, vec![ch]).map(|_| ()))
+    })?;
     Ok(args[0])
 }
 
@@ -1411,12 +1407,10 @@ pub(crate) fn builtin_print(eval: &mut super::eval::Context, args: Vec<Value>) -
     text.push('\n');
     text.push_str(&super::error::print_value_in_state(eval, &args[0]));
     text.push('\n');
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(target);
-    let callback_result =
-        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
-    eval.restore_temp_roots(saved_roots);
-    callback_result?;
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(target);
+        dispatch_print_callback_chars(&text, |ch| ctx.apply(target, vec![ch]).map(|_| ()))
+    })?;
     Ok(args[0])
 }
 
@@ -1517,11 +1511,11 @@ pub(crate) fn finish_write_char_in_eval(
             }
         }
         other => {
-            let saved_roots = eval.save_temp_roots();
-            eval.push_temp_root(other);
-            let result = eval.apply(other, vec![Value::Int(char_code)]);
-            eval.restore_temp_roots(saved_roots);
-            result?;
+            eval.with_gc_scope_result(|ctx| {
+                ctx.root(other);
+                ctx.apply(other, vec![Value::Int(char_code)])?;
+                Ok(())
+            })?;
         }
     }
 

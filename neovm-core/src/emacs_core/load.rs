@@ -655,11 +655,11 @@ fn lexical_binding_from_cookie(
                 return Ok(default);
             }
 
-            let saved_roots = eval.save_temp_roots();
-            eval.push_temp_root(hook);
-            eval.push_temp_root(from);
-            let result = eval.apply(hook, vec![from]).map_err(map_flow);
-            eval.restore_temp_roots(saved_roots);
+            let result = eval.with_gc_scope(|ctx| {
+                ctx.root(hook);
+                ctx.root(from);
+                ctx.apply(hook, vec![from]).map_err(map_flow)
+            });
             result.map(|value| value.is_truthy())
         }
     }
@@ -759,21 +759,21 @@ pub(crate) fn eager_expand_eval(
 ) -> Result<Value, EvalError> {
     // Step 1: one-level expand — val = (internal-macroexpand-for-load val nil)
     // Note: real Emacs mutates `val` here; we shadow it.
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(form_value);
-    eval.push_temp_root(macroexpand_fn);
-    let val = match eval.apply(macroexpand_fn, vec![form_value, Value::Nil]) {
-        Ok(v) => v,
-        Err(_) => {
+    let val = eval.with_gc_scope(|ctx| {
+        ctx.root(form_value);
+        ctx.root(macroexpand_fn);
+        ctx.apply(macroexpand_fn, vec![form_value, Value::Nil]).ok()
+    });
+    let val = match val {
+        Some(v) => v,
+        None => {
             // Eager expansion failed (cycle detection, missing macro, etc.).
             // Fall back to evaluating the original form without expansion.
             // This matches .elc behavior where forms are already compiled.
-            eval.restore_temp_roots(saved);
             tracing::debug!("eager_expand step1 failed, falling back to plain eval");
             return eval.eval_value(&form_value).map_err(map_flow);
         }
     };
-    eval.restore_temp_roots(saved);
 
     // Step 2: if result is (progn ...), recurse into subforms.
     // Root `val` during iteration: the recursive `eager_expand_eval`
@@ -782,17 +782,17 @@ pub(crate) fn eager_expand_eval(
         let car = eval.heap.cons_car(id);
         let cdr = eval.heap.cons_cdr(id);
         if car.is_symbol_named("progn") {
-            let saved_progn = eval.save_temp_roots();
-            eval.push_temp_root(val);
-            let mut result = Value::Nil;
-            let mut tail = cdr;
-            while let Value::Cons(sub_id) = tail {
-                let sub_form = eval.heap.cons_car(sub_id);
-                tail = eval.heap.cons_cdr(sub_id);
-                result = eager_expand_eval(eval, sub_form, macroexpand_fn)?;
-            }
-            eval.restore_temp_roots(saved_progn);
-            return Ok(result);
+            return eval.with_gc_scope(|ctx| {
+                ctx.root(val);
+                let mut result = Value::Nil;
+                let mut tail = cdr;
+                while let Value::Cons(sub_id) = tail {
+                    let sub_form = ctx.heap.cons_car(sub_id);
+                    tail = ctx.heap.cons_cdr(sub_id);
+                    result = eager_expand_eval(ctx, sub_form, macroexpand_fn)?;
+                }
+                Ok(result)
+            });
         }
     }
 
@@ -801,36 +801,35 @@ pub(crate) fn eager_expand_eval(
     // IMPORTANT: pass the already-one-level-expanded `val`, not the original
     // `form_value`.  Real Emacs (lread.c:2030) does:
     //   val = eval_sub(calln(macroexpand, val, Qt));
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(val);
-    eval.push_temp_root(macroexpand_fn);
-    let t3 = std::time::Instant::now();
-    let fully_expanded = match eval.apply(macroexpand_fn, vec![val, Value::True]) {
-        Ok(v) => v,
-        Err(_) => {
-            // Full expansion failed; use the one-level-expanded form.
-            eval.restore_temp_roots(saved);
-            tracing::debug!("eager_expand step3 failed, using partially expanded form");
-            val
+    let fully_expanded = eval.with_gc_scope(|ctx| {
+        ctx.root(val);
+        ctx.root(macroexpand_fn);
+        let t3 = std::time::Instant::now();
+        let expanded = match ctx.apply(macroexpand_fn, vec![val, Value::True]) {
+            Ok(v) => v,
+            Err(_) => {
+                // Full expansion failed; use the one-level-expanded form.
+                tracing::debug!("eager_expand step3 failed, using partially expanded form");
+                val
+            }
+        };
+        let d3 = t3.elapsed();
+        if d3.as_millis() > 200 {
+            tracing::warn!("eager_expand step3 (full-expand) took {d3:.2?}");
         }
-    };
-    let d3 = t3.elapsed();
-    if d3.as_millis() > 200 {
-        tracing::warn!("eager_expand step3 (full-expand) took {d3:.2?}");
-    }
-    eval.restore_temp_roots(saved);
+        expanded
+    });
 
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(fully_expanded);
-    let t4 = std::time::Instant::now();
-    let result = eval.eval_value(&fully_expanded).map_err(map_flow)?;
-    let d4 = t4.elapsed();
-    if d4.as_millis() > 200 {
-        tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
-    }
-    eval.restore_temp_roots(saved);
-
-    Ok(result)
+    eval.with_gc_scope(|ctx| {
+        ctx.root(fully_expanded);
+        let t4 = std::time::Instant::now();
+        let result = ctx.eval_value(&fully_expanded).map_err(map_flow)?;
+        let d4 = t4.elapsed();
+        if d4.as_millis() > 200 {
+            tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
+        }
+        Ok(result)
+    })
 }
 
 /// Shared context save/restore for file loading.
@@ -852,34 +851,34 @@ where
     let old_lexenv = eval.lexenv;
     let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
 
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(old_lexenv);
-    if let Some(ref v) = old_load_file {
-        eval.push_temp_root(*v);
-    }
+    eval.with_gc_scope(|ctx| {
+        ctx.root(old_lexenv);
+        if let Some(ref v) = old_load_file {
+            ctx.root(*v);
+        }
 
-    if lexical_binding {
-        eval.set_lexical_binding(true);
-        eval.lexenv = Value::list(vec![Value::True]);
-    }
+        if lexical_binding {
+            ctx.set_lexical_binding(true);
+            ctx.lexenv = Value::list(vec![Value::True]);
+        }
 
-    eval.set_variable(
-        "load-file-name",
-        Value::string(path.to_string_lossy().to_string()),
-    );
+        ctx.set_variable(
+            "load-file-name",
+            Value::string(path.to_string_lossy().to_string()),
+        );
 
-    let result = body(eval);
+        let result = body(ctx);
 
-    eval.set_lexical_binding(old_lexical);
-    eval.lexenv = old_lexenv;
-    if let Some(old) = old_load_file {
-        eval.set_variable("load-file-name", old);
-    } else {
-        eval.set_variable("load-file-name", Value::Nil);
-    }
-    eval.restore_temp_roots(saved_roots);
+        ctx.set_lexical_binding(old_lexical);
+        ctx.lexenv = old_lexenv;
+        if let Some(old) = old_load_file {
+            ctx.set_variable("load-file-name", old);
+        } else {
+            ctx.set_variable("load-file-name", Value::Nil);
+        }
 
-    result
+        result
+    })
 }
 
 /// Shared form-by-form evaluation loop, modelled after GNU Emacs `readevalloop`

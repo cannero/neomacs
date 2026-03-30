@@ -266,85 +266,86 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
     let specpdl_count = eval.specpdl.len();
     let old_lexical = eval.lexical_binding();
     let old_lexenv = eval.lexenv;
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(old_lexenv);
 
-    let buffer_value = Value::Buffer(buffer_id);
-    let prior_eval_buffer_list = eval.visible_variable_value_or_nil("eval-buffer-list");
-    eval.push_temp_root(buffer_value);
-    eval.push_temp_root(prior_eval_buffer_list);
-    let eval_buffer_list = Value::cons(buffer_value, prior_eval_buffer_list);
-    eval.push_temp_root(eval_buffer_list);
-    eval.specbind(intern("eval-buffer-list"), eval_buffer_list);
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(old_lexenv);
 
-    let do_allow_print = args.get(4).is_some_and(Value::is_truthy);
-    let standard_output = if args.get(1).is_none_or(Value::is_nil) && !do_allow_print {
-        Value::symbol("symbolp")
-    } else {
-        args.get(1).copied().unwrap_or(Value::Nil)
-    };
-    eval.specbind(intern("standard-output"), standard_output);
+        let buffer_value = Value::Buffer(buffer_id);
+        let prior_eval_buffer_list = ctx.visible_variable_value_or_nil("eval-buffer-list");
+        ctx.root(buffer_value);
+        ctx.root(prior_eval_buffer_list);
+        let eval_buffer_list = Value::cons(buffer_value, prior_eval_buffer_list);
+        ctx.root(eval_buffer_list);
+        ctx.specbind(intern("eval-buffer-list"), eval_buffer_list);
 
-    if let Some(filename) = filename.as_ref() {
-        let filename_value = Value::string(filename.clone());
-        eval.push_temp_root(filename_value);
-        let current_load_list = Value::cons(filename_value, Value::Nil);
-        eval.push_temp_root(current_load_list);
-        eval.specbind(intern("current-load-list"), current_load_list);
-    }
+        let do_allow_print = args.get(4).is_some_and(Value::is_truthy);
+        let standard_output = if args.get(1).is_none_or(Value::is_nil) && !do_allow_print {
+            Value::symbol("symbolp")
+        } else {
+            args.get(1).copied().unwrap_or(Value::Nil)
+        };
+        ctx.specbind(intern("standard-output"), standard_output);
 
-    let lexical_binding = if let Some(binding) = eval
-        .buffers
-        .get(buffer_id)
-        .and_then(|buffer| buffer.get_buffer_local_binding("lexical-binding"))
-        .and_then(|binding| binding.as_value())
-    {
-        binding.is_truthy()
-    } else {
-        match super::load::source_lexical_binding_for_load(eval, &source, Some(buffer_value)) {
-            Ok(enabled) => enabled,
-            Err(err) => match err {
-                super::error::EvalError::Signal {
-                    symbol,
-                    data,
-                    raw_data,
-                } => {
-                    return Err(super::error::Flow::Signal(super::error::SignalData {
+        if let Some(filename) = filename.as_ref() {
+            let filename_value = Value::string(filename.clone());
+            ctx.root(filename_value);
+            let current_load_list = Value::cons(filename_value, Value::Nil);
+            ctx.root(current_load_list);
+            ctx.specbind(intern("current-load-list"), current_load_list);
+        }
+
+        let lexical_binding = if let Some(binding) = ctx
+            .buffers
+            .get(buffer_id)
+            .and_then(|buffer| buffer.get_buffer_local_binding("lexical-binding"))
+            .and_then(|binding| binding.as_value())
+        {
+            binding.is_truthy()
+        } else {
+            match super::load::source_lexical_binding_for_load(ctx, &source, Some(buffer_value)) {
+                Ok(enabled) => enabled,
+                Err(err) => match err {
+                    super::error::EvalError::Signal {
                         symbol,
                         data,
                         raw_data,
-                        suppress_signal_hook: false,
-                        selected_resume: None,
-                        search_complete: false,
-                    }));
-                }
-                super::error::EvalError::UncaughtThrow { tag, value } => {
-                    return Err(super::error::Flow::Throw { tag, value });
-                }
-            },
+                    } => {
+                        return Err(super::error::Flow::Signal(super::error::SignalData {
+                            symbol,
+                            data,
+                            raw_data,
+                            suppress_signal_hook: false,
+                            selected_resume: None,
+                            search_complete: false,
+                        }));
+                    }
+                    super::error::EvalError::UncaughtThrow { tag, value } => {
+                        return Err(super::error::Flow::Throw { tag, value });
+                    }
+                },
+            }
+        };
+        ctx.set_lexical_binding(lexical_binding);
+        ctx.lexenv = if lexical_binding {
+            Value::list(vec![Value::True])
+        } else {
+            Value::Nil
+        };
+
+        let result = eval_forms_from_source(ctx, &source);
+
+        if result.is_ok()
+            && let Some(filename) = filename.as_deref()
+        {
+            record_eval_buffer_load_history(ctx, filename);
         }
-    };
-    eval.set_lexical_binding(lexical_binding);
-    eval.lexenv = if lexical_binding {
-        Value::list(vec![Value::True])
-    } else {
-        Value::Nil
-    };
 
-    let result = eval_forms_from_source(eval, &source);
+        ctx.set_lexical_binding(old_lexical);
+        ctx.lexenv = old_lexenv;
+        ctx.unbind_to(specpdl_count);
 
-    if result.is_ok()
-        && let Some(filename) = filename.as_deref()
-    {
-        record_eval_buffer_load_history(eval, filename);
-    }
-
-    eval.set_lexical_binding(old_lexical);
-    eval.lexenv = old_lexenv;
-    eval.unbind_to(specpdl_count);
-    eval.restore_temp_roots(saved_roots);
-
-    result
+        result
+    })
 }
 
 /// `(eval-region START END &optional PRINTFLAG READ-FUNCTION)`

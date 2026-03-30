@@ -152,45 +152,45 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
     }
     let func = args[0];
     let seq = args[1];
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(func);
-    eval.push_temp_root(seq);
-    let mut results = Vec::new();
-    // Root cursor at each step for precise GC safety (see builtin_mapc).
-    let map_result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
-        let mut cursor = seq;
-        loop {
-            match cursor {
-                Value::Nil => break Ok(()),
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
-                    let item = pair.car;
-                    cursor = pair.cdr;
-                    drop(pair);
-                    eval.push_temp_root(cursor);
-                    let val = eval.apply(func, vec![item])?;
-                    eval.push_temp_root(val);
-                    results.push(val);
-                }
-                tail => {
-                    break Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("listp"), tail],
-                    ));
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(func);
+        ctx.root(seq);
+        let mut results = Vec::new();
+        // Root cursor at each step for precise GC safety (see builtin_mapc).
+        let map_result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
+            let mut cursor = seq;
+            loop {
+                match cursor {
+                    Value::Nil => break Ok(()),
+                    Value::Cons(cell) => {
+                        let pair = read_cons(cell);
+                        let item = pair.car;
+                        cursor = pair.cdr;
+                        drop(pair);
+                        ctx.root(cursor);
+                        let val = ctx.apply(func, vec![item])?;
+                        ctx.root(val);
+                        results.push(val);
+                    }
+                    tail => {
+                        break Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("listp"), tail],
+                        ));
+                    }
                 }
             }
-        }
-    } else {
-        for_each_sequence_element(&seq, |item| {
-            let val = eval.apply(func, vec![item])?;
-            eval.push_temp_root(val);
-            results.push(val);
-            Ok(())
-        })
-    };
-    eval.restore_temp_roots(saved);
-    map_result?;
-    Ok(Value::list(results))
+        } else {
+            for_each_sequence_element(&seq, |item| {
+                let val = ctx.apply(func, vec![item])?;
+                ctx.root(val);
+                results.push(val);
+                Ok(())
+            })
+        };
+        map_result?;
+        Ok(Value::list(results))
+    })
 }
 
 pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -202,43 +202,43 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
     }
     let func = args[0];
     let seq = args[1];
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(func);
-    eval.push_temp_root(seq);
-    // For cons lists, root cursor at each step so our precise GC
-    // (which doesn't scan the Rust stack) can find the remaining
-    // chain even if a hook callback modifies the list.
-    let result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
-        let mut cursor = seq;
-        loop {
-            match cursor {
-                Value::Nil => break Ok(()),
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
-                    let item = pair.car;
-                    cursor = pair.cdr;
-                    drop(pair);
-                    // Root the remaining tail before calling the function.
-                    eval.push_temp_root(cursor);
-                    eval.apply(func, vec![item])?;
-                }
-                tail => {
-                    break Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("listp"), tail],
-                    ));
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(func);
+        ctx.root(seq);
+        // For cons lists, root cursor at each step so our precise GC
+        // (which doesn't scan the Rust stack) can find the remaining
+        // chain even if a hook callback modifies the list.
+        let result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
+            let mut cursor = seq;
+            loop {
+                match cursor {
+                    Value::Nil => break Ok(()),
+                    Value::Cons(cell) => {
+                        let pair = read_cons(cell);
+                        let item = pair.car;
+                        cursor = pair.cdr;
+                        drop(pair);
+                        // Root the remaining tail before calling the function.
+                        ctx.root(cursor);
+                        ctx.apply(func, vec![item])?;
+                    }
+                    tail => {
+                        break Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("listp"), tail],
+                        ));
+                    }
                 }
             }
-        }
-    } else {
-        for_each_sequence_element(&seq, |item| {
-            eval.apply(func, vec![item])?;
-            Ok(())
-        })
-    };
-    eval.restore_temp_roots(saved);
-    result?;
-    Ok(seq)
+        } else {
+            for_each_sequence_element(&seq, |item| {
+                ctx.apply(func, vec![item])?;
+                Ok(())
+            })
+        };
+        result?;
+        Ok(seq)
+    })
 }
 
 pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -248,19 +248,18 @@ pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Context, args: Vec<Value
     // Emacs 30: separator is optional, defaults to ""
     let separator = args.get(2).copied().unwrap_or_else(|| Value::string(""));
 
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(func);
-    eval.push_temp_root(sequence);
-    eval.push_temp_root(separator);
     let mut parts = Vec::new();
-    let map_result = for_each_sequence_element(&sequence, |item| {
-        let val = eval.apply(func, vec![item])?;
-        eval.push_temp_root(val);
-        parts.push(val);
-        Ok(())
-    });
-    eval.restore_temp_roots(saved);
-    map_result?;
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(func);
+        ctx.root(sequence);
+        ctx.root(separator);
+        for_each_sequence_element(&sequence, |item| {
+            let val = ctx.apply(func, vec![item])?;
+            ctx.root(val);
+            parts.push(val);
+            Ok(())
+        })
+    })?;
 
     if parts.is_empty() {
         return Ok(Value::string(""));
@@ -285,18 +284,17 @@ pub(crate) fn builtin_mapcan(eval: &mut super::eval::Context, args: Vec<Value>) 
     }
     let func = args[0];
     let sequence = args[1];
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(func);
-    eval.push_temp_root(sequence);
     let mut mapped = Vec::new();
-    let map_result = for_each_sequence_element(&sequence, |item| {
-        let val = eval.apply(func, vec![item])?;
-        eval.push_temp_root(val);
-        mapped.push(val);
-        Ok(())
-    });
-    eval.restore_temp_roots(saved);
-    map_result?;
+    eval.with_gc_scope_result(|ctx| {
+        ctx.root(func);
+        ctx.root(sequence);
+        for_each_sequence_element(&sequence, |item| {
+            let val = ctx.apply(func, vec![item])?;
+            ctx.root(val);
+            mapped.push(val);
+            Ok(())
+        })
+    })?;
     builtin_nconc(mapped)
 }
 
@@ -427,15 +425,15 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
                 }
             }
 
-            let saved = eval.save_temp_roots();
-            eval.push_temp_root(args[0]);
-            eval.push_temp_root(lessp_fn);
-            eval.push_temp_root(key_fn);
-            for value in &values {
-                eval.push_temp_root(*value);
-            }
-            let sorted_values = stable_sort_values_with(eval, &values, key_fn, lessp_fn, reverse);
-            eval.restore_temp_roots(saved);
+            let sorted_values = eval.with_gc_scope(|ctx| {
+                ctx.root(args[0]);
+                ctx.root(lessp_fn);
+                ctx.root(key_fn);
+                for value in &values {
+                    ctx.root(*value);
+                }
+                stable_sort_values_with(ctx, &values, key_fn, lessp_fn, reverse)
+            });
             let mut sorted_values = sorted_values?;
             if in_place {
                 for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
@@ -448,15 +446,15 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
         }
         Value::Vector(v) | Value::Record(v) => {
             let values = with_heap(|h| h.get_vector(*v).clone());
-            let saved = eval.save_temp_roots();
-            eval.push_temp_root(args[0]);
-            eval.push_temp_root(lessp_fn);
-            eval.push_temp_root(key_fn);
-            for value in &values {
-                eval.push_temp_root(*value);
-            }
-            let sorted_values = stable_sort_values_with(eval, &values, key_fn, lessp_fn, reverse);
-            eval.restore_temp_roots(saved);
+            let sorted_values = eval.with_gc_scope(|ctx| {
+                ctx.root(args[0]);
+                ctx.root(lessp_fn);
+                ctx.root(key_fn);
+                for value in &values {
+                    ctx.root(*value);
+                }
+                stable_sort_values_with(ctx, &values, key_fn, lessp_fn, reverse)
+            });
             let sorted_values = sorted_values?;
 
             if in_place {

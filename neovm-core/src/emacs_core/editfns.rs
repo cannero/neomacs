@@ -240,13 +240,12 @@ pub(crate) fn signal_before_change(
         run_named_hook_reset_on_error(ctx, "before-change-functions", &hook_args)?;
 
         if !overlay_hooks.is_empty() {
-            let saved = ctx.save_temp_roots();
             let overlay_arg = Value::True; // `t` signals "before change" to overlay hooks
-            for (func, ov_val) in &overlay_hooks {
-                ctx.push_temp_root(*func);
-                ctx.push_temp_root(*ov_val);
-            }
-            let overlay_result = (|| -> Result<(), Flow> {
+            ctx.with_gc_scope_result(|ctx| {
+                for (func, ov_val) in &overlay_hooks {
+                    ctx.root(*func);
+                    ctx.root(*ov_val);
+                }
                 for (func, ov_val) in &overlay_hooks {
                     ctx.apply(
                         *func,
@@ -259,9 +258,7 @@ pub(crate) fn signal_before_change(
                     )?;
                 }
                 Ok(())
-            })();
-            ctx.restore_temp_roots(saved);
-            overlay_result?;
+            })?;
         }
 
         Ok(())
@@ -426,13 +423,12 @@ fn run_overlay_after_change_hooks(
         return Ok(());
     }
 
-    let saved = ctx.save_temp_roots();
-    for (func, ov_val, _) in &hooks {
-        ctx.push_temp_root(*func);
-        ctx.push_temp_root(*ov_val);
-    }
     let after_flag = Value::Nil; // nil signals "after change" to overlay hooks
-    let result = (|| -> Result<(), Flow> {
+    ctx.with_gc_scope_result(|ctx| {
+        for (func, ov_val, _) in &hooks {
+            ctx.root(*func);
+            ctx.root(*ov_val);
+        }
         for (func, ov_val, _) in &hooks {
             ctx.apply(
                 *func,
@@ -446,9 +442,7 @@ fn run_overlay_after_change_hooks(
             )?;
         }
         Ok(())
-    })();
-    ctx.restore_temp_roots(saved);
-    result
+    })
 }
 
 /// Iterate over a Lisp list, yielding each car.

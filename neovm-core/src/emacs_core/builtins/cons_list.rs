@@ -727,53 +727,42 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
             .get(2)
             .and_then(|value| if value.is_nil() { None } else { Some(*value) });
         if test_fn.is_some() {
-            let saved = eval.save_temp_roots();
-            eval.push_temp_root(*key);
-            eval.push_temp_root(list);
-            eval.push_temp_root(test_fn.unwrap());
-            let result = (|| -> EvalResult {
-                let saved_roots = eval.save_temp_roots();
-                eval.push_temp_root(list);
-                let result = (|| -> EvalResult {
-                    let mut cursor = list;
-                    loop {
-                        match cursor {
-                            Value::Nil => return Ok(Value::Nil),
-                            Value::Cons(cell) => {
-                                let pair = read_cons(cell);
-                                if let Value::Cons(ref entry) = pair.car {
-                                    let entry_pair = read_cons(*entry);
-                                    let matches = if let Some(test_fn) = &test_fn {
-                                        eval.apply(*test_fn, vec![entry_pair.car, *key])?
-                                            .is_truthy()
-                                    } else {
-                                        equal_value(key, &entry_pair.car, 0)
-                                    };
-                                    if matches {
-                                        return Ok(pair.car);
-                                    }
+            return eval.with_gc_scope_result(|ctx| {
+                ctx.root(*key);
+                ctx.root(list);
+                ctx.root(test_fn.unwrap());
+                let mut cursor = list;
+                loop {
+                    match cursor {
+                        Value::Nil => return Ok(Value::Nil),
+                        Value::Cons(cell) => {
+                            let pair = read_cons(cell);
+                            if let Value::Cons(ref entry) = pair.car {
+                                let entry_pair = read_cons(*entry);
+                                let matches = if let Some(test_fn) = &test_fn {
+                                    ctx.apply(*test_fn, vec![entry_pair.car, *key])?.is_truthy()
+                                } else {
+                                    equal_value(key, &entry_pair.car, 0)
+                                };
+                                if matches {
+                                    return Ok(pair.car);
                                 }
-                                cursor = pair.cdr;
                             }
-                            _ => {
-                                return Err(signal(
-                                    "wrong-type-argument",
-                                    vec![Value::symbol("listp"), list],
-                                ));
-                            }
+                            cursor = pair.cdr;
+                        }
+                        _ => {
+                            return Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("listp"), list],
+                            ));
                         }
                     }
-                })();
-                eval.restore_temp_roots(saved_roots);
-                result
-            })();
-            eval.restore_temp_roots(saved);
-            return result;
+                }
+            });
         }
         // No test_fn: simple equal-based traversal (no rooting needed)
-        let saved_roots = eval.save_temp_roots();
-        eval.push_temp_root(list);
-        let result = (|| -> EvalResult {
+        eval.with_gc_scope_result(|ctx| {
+            ctx.root(list);
             let mut cursor = list;
             loop {
                 match cursor {
@@ -796,9 +785,7 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                     }
                 }
             }
-        })();
-        eval.restore_temp_roots(saved_roots);
-        result
+        })
     })
 }
 
