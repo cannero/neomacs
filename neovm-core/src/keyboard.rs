@@ -1028,6 +1028,80 @@ impl KeyboardRuntime {
         }
     }
 
+    fn parked_terminal_ids(&self) -> Vec<u64> {
+        let mut ids = self.parked_kboards.keys().copied().collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids
+    }
+
+    fn poll_parked_kboard<R>(&mut self, mut f: impl FnMut(&mut KBoard) -> Option<R>) -> Option<R> {
+        for terminal_id in self.parked_terminal_ids() {
+            let Some(kboard) = self.parked_kboards.get_mut(&terminal_id) else {
+                continue;
+            };
+            let Some(result) = f(kboard) else {
+                continue;
+            };
+            self.select_terminal(terminal_id);
+            return Some(result);
+        }
+        None
+    }
+
+    pub fn take_unread_selection_event(&mut self) -> Option<Value> {
+        self.kboard
+            .unread_selection_event
+            .take()
+            .or_else(|| self.poll_parked_kboard(|kboard| kboard.unread_selection_event.take()))
+    }
+
+    pub fn pop_unread_event(&mut self) -> Option<Value> {
+        self.kboard
+            .unread_events
+            .pop_front()
+            .or_else(|| self.poll_parked_kboard(|kboard| kboard.unread_events.pop_front()))
+    }
+
+    pub fn next_executing_kbd_macro_event(&mut self) -> Option<Value> {
+        if let Some(ref macro_events) = self.kboard.executing_kbd_macro
+            && self.kboard.kbd_macro_index < macro_events.len()
+        {
+            let event = macro_events[self.kboard.kbd_macro_index];
+            self.kboard.kbd_macro_index += 1;
+            return Some(event);
+        }
+        self.poll_parked_kboard(|kboard| {
+            let macro_events = kboard.executing_kbd_macro.as_ref()?;
+            if kboard.kbd_macro_index >= macro_events.len() {
+                return None;
+            }
+            let event = macro_events[kboard.kbd_macro_index];
+            kboard.kbd_macro_index += 1;
+            Some(event)
+        })
+    }
+
+    pub fn has_pending_kboard_input(&self) -> bool {
+        if self.kboard.unread_selection_event.is_some()
+            || !self.kboard.unread_events.is_empty()
+            || self
+                .kboard
+                .executing_kbd_macro
+                .as_ref()
+                .is_some_and(|events| self.kboard.kbd_macro_index < events.len())
+        {
+            return true;
+        }
+        self.parked_kboards.values().any(|kboard| {
+            kboard.unread_selection_event.is_some()
+                || !kboard.unread_events.is_empty()
+                || kboard
+                    .executing_kbd_macro
+                    .as_ref()
+                    .is_some_and(|events| kboard.kbd_macro_index < events.len())
+        })
+    }
+
     pub fn set_terminal_translation_maps(
         &mut self,
         input_decode_map: Value,
@@ -1066,15 +1140,11 @@ impl KeyboardRuntime {
     }
 
     pub fn read_key_event(&mut self) -> Option<Value> {
-        if let Some(event) = self.kboard.unread_events.pop_front() {
+        if let Some(event) = self.pop_unread_event() {
             return Some(event);
         }
 
-        if let Some(ref macro_events) = self.kboard.executing_kbd_macro
-            && self.kboard.kbd_macro_index < macro_events.len()
-        {
-            let event = macro_events[self.kboard.kbd_macro_index];
-            self.kboard.kbd_macro_index += 1;
+        if let Some(event) = self.next_executing_kbd_macro_event() {
             return Some(event);
         }
 
@@ -2344,33 +2414,23 @@ impl crate::emacs_core::eval::Context {
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
         loop {
             self.sync_keyboard_terminal_owner();
-            if let Some(event) = self
-                .command_loop
-                .keyboard
-                .kboard
-                .unread_selection_event
-                .take()
-            {
+            if let Some(event) = self.command_loop.keyboard.take_unread_selection_event() {
                 return Ok(event);
             }
 
-            if let Some(event) = self.command_loop.keyboard.kboard.unread_events.pop_front() {
+            if let Some(event) = self.command_loop.keyboard.pop_unread_event() {
                 if self.execute_special_event_if_bound(event)? {
                     continue;
                 }
                 return Ok(event);
             }
 
-            if let Some(ref macro_events) = self.command_loop.keyboard.kboard.executing_kbd_macro {
-                if self.command_loop.keyboard.kboard.kbd_macro_index < macro_events.len() {
-                    let event = macro_events[self.command_loop.keyboard.kboard.kbd_macro_index];
-                    self.command_loop.keyboard.kboard.kbd_macro_index += 1;
-                    self.assign(
-                        "executing-kbd-macro-index",
-                        Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
-                    );
-                    return Ok(event);
-                }
+            if let Some(event) = self.command_loop.keyboard.next_executing_kbd_macro_event() {
+                self.assign(
+                    "executing-kbd-macro-index",
+                    Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
+                );
+                return Ok(event);
             }
 
             self.sync_pending_resize_events();
@@ -3688,6 +3748,36 @@ mod tests {
         assert_eq!(
             runtime.kboard.unread_events.pop_front(),
             Some(Value::Int(2))
+        );
+    }
+
+    #[test]
+    fn keyboard_runtime_polls_parked_kboards_after_active_one() {
+        let mut runtime = KeyboardRuntime::new();
+        runtime.unread_event(Value::Int(1));
+        runtime.select_terminal(7);
+        runtime.unread_event(Value::Int(2));
+        runtime.select_terminal(crate::emacs_core::terminal::pure::TERMINAL_ID);
+
+        assert_eq!(runtime.read_key_event(), Some(Value::Int(1)));
+        assert_eq!(
+            runtime.read_key_event(),
+            Some(Value::Int(2)),
+            "after the active kboard drains, parked terminal input should be read"
+        );
+        assert_eq!(runtime.active_terminal_id(), 7);
+    }
+
+    #[test]
+    fn keyboard_runtime_reports_pending_input_across_parked_kboards() {
+        let mut runtime = KeyboardRuntime::new();
+        runtime.select_terminal(9);
+        runtime.unread_event(Value::Int(99));
+        runtime.select_terminal(crate::emacs_core::terminal::pure::TERMINAL_ID);
+
+        assert!(
+            runtime.has_pending_kboard_input(),
+            "parked terminal unread input should still count as pending"
         );
     }
 

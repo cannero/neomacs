@@ -1689,20 +1689,7 @@ pub(crate) fn builtin_input_pending_p(
         return Ok(Value::True);
     }
 
-    if ctx
-        .command_loop
-        .keyboard
-        .kboard
-        .unread_selection_event
-        .is_some()
-        || !ctx.command_loop.keyboard.kboard.unread_events.is_empty()
-    {
-        return Ok(Value::True);
-    }
-
-    if let Some(macro_events) = &ctx.command_loop.keyboard.kboard.executing_kbd_macro
-        && ctx.command_loop.keyboard.kboard.kbd_macro_index < macro_events.len()
-    {
+    if ctx.command_loop.keyboard.has_pending_kboard_input() {
         return Ok(Value::True);
     }
 
