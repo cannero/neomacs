@@ -1816,12 +1816,24 @@ impl BufferManager {
         name: &str,
         value: Value,
     ) -> Option<bool> {
-        Some(
-            self.buffers
-                .get_mut(&id)?
+        let buf = self.buffers.get_mut(&id)?;
+        // Record old value for undo before changing.
+        if !buf.undo_state.in_progress() && !undo::undo_list_is_disabled(&buf.get_undo_list()) {
+            let old_val = buf
                 .text
-                .text_props_put_property(start, end, name, value),
-        )
+                .text_props_get_property(start, name)
+                .unwrap_or(Value::Nil);
+            let mut ul = buf.get_undo_list();
+            undo::undo_list_record_property_change(
+                &mut ul,
+                Value::symbol(name),
+                old_val,
+                start,
+                end,
+            );
+            buf.set_undo_list(ul);
+        }
+        Some(buf.text.text_props_put_property(start, end, name, value))
     }
 
     pub fn append_buffer_text_properties(
@@ -1844,12 +1856,27 @@ impl BufferManager {
         end: usize,
         name: &str,
     ) -> Option<bool> {
-        Some(
-            self.buffers
-                .get_mut(&id)?
+        let buf = self.buffers.get_mut(&id)?;
+        // Record old value for undo before removing.
+        if !buf.undo_state.in_progress() && !undo::undo_list_is_disabled(&buf.get_undo_list()) {
+            let old_val = buf
                 .text
-                .text_props_remove_property(start, end, name),
-        )
+                .text_props_get_property(start, name)
+                .unwrap_or(Value::Nil);
+            // Only record if property actually exists.
+            if !old_val.is_nil() {
+                let mut ul = buf.get_undo_list();
+                undo::undo_list_record_property_change(
+                    &mut ul,
+                    Value::symbol(name),
+                    old_val,
+                    start,
+                    end,
+                );
+                buf.set_undo_list(ul);
+            }
+        }
+        Some(buf.text.text_props_remove_property(start, end, name))
     }
 
     pub fn clear_buffer_text_properties(
@@ -1988,6 +2015,9 @@ impl BufferManager {
         let buf = self.buffers.get_mut(&id)?;
         let mut ul = buf.get_undo_list();
         undo::undo_list_boundary(&mut ul);
+        // Periodically truncate the undo list to avoid unbounded growth.
+        // Default limits match GNU Emacs: undo-limit=160000, undo-strong-limit=240000.
+        ul = undo::truncate_undo_list(ul, 160_000, 240_000);
         buf.set_undo_list(ul);
         self.sync_shared_undo_binding_cache(root_id)?;
         Some(())

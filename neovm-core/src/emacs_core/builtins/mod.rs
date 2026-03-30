@@ -2979,6 +2979,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
+    ctx.defsubr(
+        "primitive-undo",
+        super::undo::builtin_primitive_undo,
+        2,
+        Some(2),
+    );
+    ctx.defsubr("undo", super::undo::builtin_undo, 0, Some(1));
+    ctx.defsubr(
+        "buffer-disable-undo",
+        builtin_buffer_disable_undo,
+        0,
+        Some(1),
+    );
     ctx.defsubr("maphash", super::hashtab::builtin_maphash, 2, Some(2));
     ctx.defsubr("mapatoms", super::hashtab::builtin_mapatoms, 1, Some(2));
     ctx.defsubr("unintern", super::hashtab::builtin_unintern, 2, Some(2));

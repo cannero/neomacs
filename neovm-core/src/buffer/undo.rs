@@ -113,6 +113,31 @@ pub fn undo_list_record_point(undo_list: &mut Value, pt: usize) {
     *undo_list = Value::cons(pt1, *undo_list);
 }
 
+/// Record a text-property change: `(nil PROP VAL BEG . END)`.
+///
+/// `prop` is the property name (symbol), `val` is the OLD value before
+/// the change (so that undoing restores it), `beg` and `end` are
+/// 0-indexed byte positions; they are stored as 1-indexed integers.
+pub fn undo_list_record_property_change(
+    undo_list: &mut Value,
+    prop: Value,
+    val: Value,
+    beg: usize,
+    end: usize,
+) {
+    if undo_list_is_disabled(undo_list) || beg >= end {
+        return;
+    }
+    let beg1 = Value::Int((beg + 1) as i64);
+    let end1 = Value::Int((end + 1) as i64);
+    // Build (nil PROP VAL BEG . END)
+    let inner = Value::cons(beg1, end1);
+    let inner = Value::cons(val, inner);
+    let inner = Value::cons(prop, inner);
+    let entry = Value::cons(Value::Nil, inner);
+    *undo_list = Value::cons(entry, *undo_list);
+}
+
 /// Record the first-change sentinel `(t . 0)`.
 pub fn undo_list_record_first_change(undo_list: &mut Value) {
     if undo_list_is_disabled(undo_list) {
@@ -185,6 +210,73 @@ pub fn undo_list_contains_boundary(undo_list: &Value) -> bool {
 /// Check whether the most recent entry is a nil boundary.
 pub fn undo_list_has_trailing_boundary(undo_list: &Value) -> bool {
     undo_list.is_cons() && undo_list.cons_car().is_nil()
+}
+
+/// Estimate the byte size of one undo entry for truncation purposes.
+/// Each cons cell counts as 16 bytes; strings count their byte length.
+fn undo_entry_size(entry: &Value) -> usize {
+    match entry {
+        Value::Nil => 0,
+        Value::Int(_) => 8,
+        Value::Str(_) => entry.as_str().map(|s| s.len()).unwrap_or(8),
+        _ if entry.is_cons() => {
+            let car = entry.cons_car();
+            let cdr = entry.cons_cdr();
+            let car_size = match car {
+                Value::Str(_) => car.as_str().map(|s| s.len()).unwrap_or(8),
+                _ => 8,
+            };
+            let cdr_size = match cdr {
+                Value::Str(_) => cdr.as_str().map(|s| s.len()).unwrap_or(8),
+                _ => 8,
+            };
+            16 + car_size + cdr_size
+        }
+        _ => 8,
+    }
+}
+
+/// Truncate an undo list to stay within size limits.
+///
+/// Walks the list counting approximate byte size.  After exceeding
+/// `undo_limit`, looks for the next nil boundary to truncate at.
+/// After exceeding `undo_strong_limit`, truncates immediately.
+///
+/// Returns the truncated list.
+pub fn truncate_undo_list(undo_list: Value, undo_limit: usize, undo_strong_limit: usize) -> Value {
+    if undo_list_is_disabled(&undo_list) || undo_list.is_nil() {
+        return undo_list;
+    }
+
+    let mut total_size: usize = 0;
+    let mut past_limit = false;
+    let mut scan = undo_list;
+
+    while scan.is_cons() {
+        let entry = scan.cons_car();
+        total_size += undo_entry_size(&entry) + 16; // 16 for the cons cell itself
+
+        if total_size > undo_strong_limit {
+            // Immediate truncation: cut here.
+            scan.set_cdr(Value::Nil);
+            return undo_list;
+        }
+
+        if total_size > undo_limit {
+            past_limit = true;
+        }
+
+        if past_limit && entry.is_nil() {
+            // Found a boundary past the limit — truncate after this boundary.
+            scan.set_cdr(Value::Nil);
+            return undo_list;
+        }
+
+        scan = scan.cons_cdr();
+    }
+
+    // Never exceeded any limit — return as-is.
+    undo_list
 }
 
 // ===========================================================================
