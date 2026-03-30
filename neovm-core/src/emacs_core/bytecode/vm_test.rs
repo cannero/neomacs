@@ -6223,10 +6223,10 @@ fn vm_remaining_display_stub_tail_uses_direct_dispatch() {
             r#"(let ((f (selected-frame)))
                  (setq initial-window-system 'x)
                  (list
-                  (condition-case err (x-display-set-last-user-time nil f) (error err))
+                 (condition-case err (x-display-set-last-user-time nil f) (error err))
                   (x-load-color-file "/definitely/not/found")
                   (display--line-is-continued-p)
-                  (display--update-for-mouse-movement 1 2)
+                  (display--update-for-mouse-movement f 1 2)
                   (x-begin-drag 'drag)
                   (x-double-buffered-p)
                   (x-double-buffered-p f)

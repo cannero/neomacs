@@ -59,10 +59,22 @@ fn assert_subr_arity(name: &str, min: i64, max: Option<i64>) {
     let result = builtin_subr_arity(&mut ctx, vec![Value::Subr(intern(name))]).unwrap();
     if let Value::Cons(cell) = &result {
         let pair = read_cons(*cell);
-        assert_eq!(pair.car.as_int(), Some(min));
+        assert_eq!(
+            pair.car.as_int(),
+            Some(min),
+            "subr min arity mismatch for {name}"
+        );
         match max {
-            Some(n) => assert_eq!(pair.cdr.as_int(), Some(n)),
-            None => assert_eq!(pair.cdr.as_symbol_name(), Some("many")),
+            Some(n) => assert_eq!(
+                pair.cdr.as_int(),
+                Some(n),
+                "subr max arity mismatch for {name}"
+            ),
+            None => assert_eq!(
+                pair.cdr.as_symbol_name(),
+                Some("many"),
+                "subr max arity mismatch for {name}"
+            ),
         }
     } else {
         panic!("expected cons cell");
@@ -744,7 +756,7 @@ fn subr_arity_command_read_primitives_match_oracle() {
     assert_subr_arity("define-fringe-bitmap", 2, Some(5));
     assert_subr_arity("destroy-fringe-bitmap", 1, Some(1));
     assert_subr_arity("display--line-is-continued-p", 0, Some(0));
-    assert_subr_arity("display--update-for-mouse-movement", 2, Some(2));
+    assert_subr_arity("display--update-for-mouse-movement", 3, Some(3));
     assert_subr_arity("do-auto-save", 0, Some(2));
     assert_subr_arity("external-debugging-output", 1, Some(1));
     assert_subr_arity("describe-buffer-bindings", 1, Some(3));

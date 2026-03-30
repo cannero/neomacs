@@ -114,6 +114,14 @@ Mouse-move visibility is also now gated more like GNU:
 non-`nil`, and direct `read-char` now returns a real `mouse-movement` event
 only when `track-mouse` is enabled instead of treating motion as generic
 pending input while never surfacing it to Lisp reads.
+That mouse-motion path now also updates one shared runtime mouse-position
+owner: wait-path and direct-reader `MouseMove` handling record the last pixel
+position, `display--update-for-mouse-movement` now follows GNU's 3-argument
+ABI `(FRAME X Y)` instead of the old local 2-argument stub, and
+`mouse-position` / `mouse-pixel-position` now read from that shared state
+instead of acting like placeholders. So the remaining Phase 9 mouse-motion
+work is no longer basic state ownership; it is only finer-grained idle/help
+semantics on top of the now-correct runtime surface.
 
 ### The shared wait path now services non-user-visible host input before polling timers/processes
 

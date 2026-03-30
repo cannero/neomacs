@@ -680,6 +680,13 @@ pub enum PrefixArg {
     Raw(i32), // number of C-u presses: 1 = (4), 2 = (16), etc.
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MousePixelPositionState {
+    pub frame_id: Option<crate::window::FrameId>,
+    pub x: i64,
+    pub y: i64,
+}
+
 impl PrefixArg {
     /// Convert to Lisp value for `current-prefix-arg`.
     pub fn to_value(&self) -> Value {
@@ -720,6 +727,8 @@ pub struct KBoard {
     /// Last frame observed by `internal-handle-focus-in`, matching GNU
     /// `internal_last_event_frame`.
     pub internal_last_event_frame: Option<crate::window::FrameId>,
+    /// Last known mouse position in frame pixel coordinates.
+    pub mouse_pixel_position: Option<MousePixelPositionState>,
     /// Unread command events in the Lisp-visible Emacs event form.
     pub unread_events: VecDeque<Value>,
     /// Current raw/translated key sequence being accumulated by `read_key_sequence`.
@@ -764,6 +773,7 @@ impl KBoard {
         Self {
             unread_selection_event: None,
             internal_last_event_frame: None,
+            mouse_pixel_position: None,
             unread_events: VecDeque::new(),
             current_key_sequence: ReadKeySequenceState::new(),
             command_keys: Vec::new(),
@@ -821,6 +831,19 @@ impl KBoard {
 
     pub fn set_internal_last_event_frame(&mut self, frame_id: crate::window::FrameId) {
         self.internal_last_event_frame = Some(frame_id);
+    }
+
+    pub fn mouse_pixel_position(&self) -> Option<MousePixelPositionState> {
+        self.mouse_pixel_position
+    }
+
+    pub fn set_mouse_pixel_position(
+        &mut self,
+        frame_id: Option<crate::window::FrameId>,
+        x: i64,
+        y: i64,
+    ) {
+        self.mouse_pixel_position = Some(MousePixelPositionState { frame_id, x, y });
     }
 
     pub fn unread_key(&mut self, event: KeyEvent) {
@@ -1025,6 +1048,19 @@ impl KeyboardRuntime {
 
     pub fn active_terminal_id(&self) -> u64 {
         self.active_terminal_id
+    }
+
+    pub fn mouse_pixel_position(&self) -> Option<MousePixelPositionState> {
+        self.kboard.mouse_pixel_position()
+    }
+
+    pub fn set_mouse_pixel_position(
+        &mut self,
+        frame_id: Option<crate::window::FrameId>,
+        x: i64,
+        y: i64,
+    ) {
+        self.kboard.set_mouse_pixel_position(frame_id, x, y);
     }
 
     pub fn select_terminal(&mut self, terminal_id: u64) {
@@ -2287,7 +2323,13 @@ impl crate::emacs_core::eval::Context {
                         &[terminal],
                     )?;
                 }
-                InputEvent::MouseMove { .. } => {
+                InputEvent::MouseMove {
+                    x,
+                    y,
+                    target_frame_id,
+                    ..
+                } => {
+                    self.note_mouse_move_input_event(x, y, target_frame_id);
                     self.timer_resume_idle();
                 }
                 InputEvent::WindowClose { emacs_frame_id } => {
@@ -2746,21 +2788,18 @@ impl crate::emacs_core::eval::Context {
                 self.command_loop.store_kbd_macro_event(event);
                 Ok(Some(event))
             }
-            InputEvent::MouseMove { .. } => {
+            InputEvent::MouseMove {
+                x,
+                y,
+                modifiers,
+                target_frame_id,
+            } => {
+                self.note_mouse_move_input_event(x, y, target_frame_id);
                 self.timer_resume_idle();
                 if !self.track_mouse_enabled() {
                     return Ok(None);
                 }
                 self.clear_current_message();
-                let InputEvent::MouseMove {
-                    x,
-                    y,
-                    modifiers,
-                    target_frame_id,
-                } = event
-                else {
-                    unreachable!();
-                };
                 let mut sym = String::new();
                 Self::append_modifier_prefix(&modifiers, &mut sym);
                 sym.push_str("mouse-movement");
@@ -2894,6 +2933,34 @@ impl crate::emacs_core::eval::Context {
 
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
         Ok(self.read_char_with_timeout(None)?.unwrap_or(Value::Nil))
+    }
+
+    fn resolve_input_frame_id(&self, emacs_frame_id: u64) -> Option<crate::window::FrameId> {
+        if emacs_frame_id == 0 {
+            self.frames.selected_frame().map(|frame| frame.id)
+        } else {
+            let frame_id = crate::window::FrameId(emacs_frame_id);
+            self.frames.get(frame_id).map(|frame| frame.id)
+        }
+    }
+
+    fn record_mouse_pixel_position(
+        &mut self,
+        frame_id: Option<crate::window::FrameId>,
+        x: i64,
+        y: i64,
+    ) {
+        self.command_loop
+            .keyboard
+            .set_mouse_pixel_position(frame_id, x, y);
+    }
+
+    fn note_mouse_move_input_event(&mut self, x: f32, y: f32, target_frame_id: u64) {
+        self.record_mouse_pixel_position(
+            self.resolve_input_frame_id(target_frame_id),
+            x.round() as i64,
+            y.round() as i64,
+        );
     }
 
     /// Build an Emacs mouse event value.

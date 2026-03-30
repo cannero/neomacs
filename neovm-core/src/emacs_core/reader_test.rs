@@ -1345,6 +1345,40 @@ fn read_char_returns_mouse_move_with_track_mouse() {
 }
 
 #[test]
+fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::MouseMove {
+        x: 24.0,
+        y: 40.0,
+        modifiers: crate::keyboard::Modifiers::none(),
+        target_frame_id: 0,
+    })
+    .expect("queue mouse move");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+
+    let result = ev.read_char().expect("keypress should remain readable");
+    assert_eq!(result, Value::Int('a' as i64));
+
+    let pixel = crate::emacs_core::builtins::symbols::builtin_mouse_pixel_position(&mut ev, vec![])
+        .expect("mouse-pixel-position should succeed");
+    let Value::Cons(cell) = pixel else {
+        panic!("expected dotted mouse pixel position");
+    };
+    let outer = read_cons(cell);
+    let Value::Cons(inner) = outer.cdr else {
+        panic!("expected inner cons");
+    };
+    let inner = read_cons(inner);
+    assert_eq!(inner.car, Value::Int(24));
+    assert_eq!(inner.cdr, Value::Int(40));
+}
+
+#[test]
 fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending() {
     let mut ev = Context::new();
     let setup = parse_forms(

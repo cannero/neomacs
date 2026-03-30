@@ -936,10 +936,22 @@ pub(crate) fn builtin_display_line_is_continued_p(args: Vec<Value>) -> EvalResul
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_display_update_for_mouse_movement(args: Vec<Value>) -> EvalResult {
-    expect_args("display--update-for-mouse-movement", &args, 2)?;
-    let _ = expect_fixnum(&args[0])?;
-    let _ = expect_fixnum(&args[1])?;
+pub(crate) fn builtin_display_update_for_mouse_movement(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("display--update-for-mouse-movement", &args, 3)?;
+    let fid = super::window_cmds::resolve_frame_id_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        Some(&args[0]),
+        "frame-live-p",
+    )?;
+    let x = expect_fixnum(&args[1])?;
+    let y = expect_fixnum(&args[2])?;
+    eval.command_loop
+        .keyboard
+        .set_mouse_pixel_position(Some(fid), x, y);
     Ok(Value::Nil)
 }
 

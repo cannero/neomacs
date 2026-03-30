@@ -98,7 +98,13 @@ Bad:
   host input event before evaluating pending input, so host keypresses are
   visible to `input-pending-p` again, and raw mouse movement is now gated by
   `track-mouse` the GNU way instead of being treated as pending input while
-  direct Lisp readers still discarded it,
+  direct Lisp readers still discarded it. That mouse-motion path now also has
+  one shared runtime position owner: direct readers and the shared wait path
+  both record the last pixel position, `display--update-for-mouse-movement`
+  now matches GNU's 3-argument `(FRAME X Y)` ABI, and `mouse-position` /
+  `mouse-pixel-position` now read that shared state instead of placeholder
+  values. Window-close transport events now route through the same
+  delete-frame special-event handling as direct `read_char`,
   instead of quitting immediately on the shared wait path. The real remaining
   work is now the
   last finer-grained redisplay/input competition edges outside those covered

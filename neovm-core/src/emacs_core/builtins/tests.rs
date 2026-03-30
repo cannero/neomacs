@@ -4242,16 +4242,6 @@ fn pure_dispatch_frame_menu_mouse_placeholders_match_compat_contracts() {
         .expect("builtin menu-or-popup-active-p should resolve")
         .expect("builtin menu-or-popup-active-p should evaluate");
     assert!(menu_active.is_nil());
-
-    let mouse_pixel = dispatch_builtin_pure("mouse-pixel-position", vec![])
-        .expect("builtin mouse-pixel-position should resolve")
-        .expect("builtin mouse-pixel-position should evaluate");
-    assert!(mouse_pixel.is_nil());
-
-    let mouse_position = dispatch_builtin_pure("mouse-position", vec![])
-        .expect("builtin mouse-position should resolve")
-        .expect("builtin mouse-position should evaluate");
-    assert!(mouse_position.is_nil());
 }
 
 #[test]
@@ -4575,22 +4565,6 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin set-minibuffer-window should resolve")
     .expect("builtin set-minibuffer-window should evaluate");
     assert!(set_mini.is_nil());
-
-    let set_mouse_pixel = dispatch_builtin_pure(
-        "set-mouse-pixel-position",
-        vec![Value::Frame(1), Value::Int(0), Value::Int(0)],
-    )
-    .expect("builtin set-mouse-pixel-position should resolve")
-    .expect("builtin set-mouse-pixel-position should evaluate");
-    assert!(set_mouse_pixel.is_nil());
-
-    let set_mouse = dispatch_builtin_pure(
-        "set-mouse-position",
-        vec![Value::Frame(1), Value::Int(0), Value::Int(0)],
-    )
-    .expect("builtin set-mouse-position should resolve")
-    .expect("builtin set-mouse-position should evaluate");
-    assert!(set_mouse.is_nil());
 
     let set_combination = dispatch_builtin_pure(
         "set-window-combination-limit",
@@ -6583,14 +6557,6 @@ fn dispatch_builtin_pure_handles_fringe_display_and_debug_output_placeholders() 
         .expect("display--line-is-continued-p should evaluate");
     assert_eq!(line, Value::Nil);
 
-    let update = dispatch_builtin_pure(
-        "display--update-for-mouse-movement",
-        vec![Value::Int(0), Value::Int(0)],
-    )
-    .expect("display--update-for-mouse-movement should resolve")
-    .expect("display--update-for-mouse-movement should evaluate");
-    assert_eq!(update, Value::Nil);
-
     let autosave = dispatch_builtin_pure("do-auto-save", vec![])
         .expect("do-auto-save should resolve")
         .expect("do-auto-save should evaluate");
@@ -6603,6 +6569,121 @@ fn dispatch_builtin_pure_handles_fringe_display_and_debug_output_placeholders() 
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
         other => panic!("expected signal, got {other:?}"),
     }
+}
+
+#[test]
+fn mouse_position_builtins_default_to_selected_frame_with_nil_coords() {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let selected = dispatch_builtin(&mut eval, "selected-frame", vec![])
+        .expect("selected-frame should resolve")
+        .expect("selected-frame should evaluate");
+
+    let pixel = dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
+        .expect("mouse-pixel-position should resolve")
+        .expect("mouse-pixel-position should evaluate");
+    assert_eq!(
+        pixel,
+        Value::cons(selected, Value::cons(Value::Nil, Value::Nil))
+    );
+
+    let pos = dispatch_builtin(&mut eval, "mouse-position", vec![])
+        .expect("mouse-position should resolve")
+        .expect("mouse-position should evaluate");
+    assert_eq!(
+        pos,
+        Value::cons(selected, Value::cons(Value::Nil, Value::Nil))
+    );
+}
+
+#[test]
+fn display_update_for_mouse_movement_updates_shared_mouse_state() {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
+        .expect("selected-frame should resolve")
+        .expect("selected-frame should evaluate");
+    let Value::Frame(frame_id) = frame else {
+        panic!("selected-frame should return a frame");
+    };
+    if let Some(frame) = eval.frames.get_mut(crate::window::FrameId(frame_id)) {
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+    }
+
+    let update = dispatch_builtin(
+        &mut eval,
+        "display--update-for-mouse-movement",
+        vec![frame, Value::Int(16), Value::Int(32)],
+    )
+    .expect("display--update-for-mouse-movement should resolve")
+    .expect("display--update-for-mouse-movement should evaluate");
+    assert_eq!(update, Value::Nil);
+
+    let pixel = dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
+        .expect("mouse-pixel-position should resolve")
+        .expect("mouse-pixel-position should evaluate");
+    assert_eq!(
+        pixel,
+        Value::cons(frame, Value::cons(Value::Int(16), Value::Int(32)))
+    );
+
+    let pos = dispatch_builtin(&mut eval, "mouse-position", vec![])
+        .expect("mouse-position should resolve")
+        .expect("mouse-position should evaluate");
+    assert_eq!(
+        pos,
+        Value::cons(frame, Value::cons(Value::Int(2), Value::Int(2)))
+    );
+}
+
+#[test]
+fn set_mouse_position_builtins_update_shared_mouse_state() {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
+        .expect("selected-frame should resolve")
+        .expect("selected-frame should evaluate");
+    let Value::Frame(frame_id) = frame else {
+        panic!("selected-frame should return a frame");
+    };
+    if let Some(frame) = eval.frames.get_mut(crate::window::FrameId(frame_id)) {
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+    }
+
+    let set_pixel = dispatch_builtin(
+        &mut eval,
+        "set-mouse-pixel-position",
+        vec![frame, Value::Int(9), Value::Int(17)],
+    )
+    .expect("set-mouse-pixel-position should resolve")
+    .expect("set-mouse-pixel-position should evaluate");
+    assert_eq!(set_pixel, Value::Nil);
+    assert_eq!(
+        dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
+            .expect("mouse-pixel-position should resolve")
+            .expect("mouse-pixel-position should evaluate"),
+        Value::cons(frame, Value::cons(Value::Int(9), Value::Int(17)))
+    );
+
+    let set_char = dispatch_builtin(
+        &mut eval,
+        "set-mouse-position",
+        vec![frame, Value::Int(3), Value::Int(4)],
+    )
+    .expect("set-mouse-position should resolve")
+    .expect("set-mouse-position should evaluate");
+    assert_eq!(set_char, Value::Nil);
+    assert_eq!(
+        dispatch_builtin(&mut eval, "mouse-position", vec![])
+            .expect("mouse-position should resolve")
+            .expect("mouse-position should evaluate"),
+        Value::cons(frame, Value::cons(Value::Int(3), Value::Int(4)))
+    );
+    assert_eq!(
+        dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
+            .expect("mouse-pixel-position should resolve")
+            .expect("mouse-pixel-position should evaluate"),
+        Value::cons(frame, Value::cons(Value::Int(28), Value::Int(72)))
+    );
 }
 
 #[test]

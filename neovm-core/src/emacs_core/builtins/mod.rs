@@ -4034,9 +4034,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "display--update-for-mouse-movement",
-        |_ctx, args| builtin_display_update_for_mouse_movement(args),
-        2,
-        Some(2),
+        |ctx, args| builtin_display_update_for_mouse_movement(ctx, args),
+        3,
+        Some(3),
     );
     ctx.defsubr(
         "do-auto-save",
@@ -5020,13 +5020,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set-mouse-pixel-position",
-        |_ctx, args| builtin_set_mouse_pixel_position(args),
+        |ctx, args| builtin_set_mouse_pixel_position(ctx, args),
         3,
         Some(3),
     );
     ctx.defsubr(
         "set-mouse-position",
-        |_ctx, args| builtin_set_mouse_position(args),
+        |ctx, args| builtin_set_mouse_position(ctx, args),
         3,
         Some(3),
     );
@@ -8360,20 +8360,20 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr(
         "comp--late-register-subr",
         |_ctx, args| super::comp::builtin_comp_late_register_subr(args),
-        0,
-        None,
+        7,
+        Some(7),
     );
     ctx.defsubr(
         "comp--register-lambda",
         |_ctx, args| super::comp::builtin_comp_register_lambda(args),
-        0,
-        None,
+        7,
+        Some(7),
     );
     ctx.defsubr(
         "comp--register-subr",
         |_ctx, args| super::comp::builtin_comp_register_subr(args),
-        0,
-        None,
+        7,
+        Some(7),
     );
     ctx.defsubr(
         "comp--release-ctxt",
@@ -8396,26 +8396,26 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr(
         "comp-el-to-eln-rel-filename",
         |_ctx, args| super::comp::builtin_comp_el_to_eln_rel_filename(args),
-        0,
-        None,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "comp-libgccjit-version",
         |_ctx, args| super::comp::builtin_comp_libgccjit_version(args),
         0,
-        None,
+        Some(0),
     );
     ctx.defsubr(
         "comp-native-compiler-options-effective-p",
         |_ctx, args| super::comp::builtin_comp_native_compiler_options_effective_p(args),
         0,
-        None,
+        Some(0),
     );
     ctx.defsubr(
         "comp-native-driver-options-effective-p",
         |_ctx, args| super::comp::builtin_comp_native_driver_options_effective_p(args),
         0,
-        None,
+        Some(0),
     );
 
     // -- DBus compatibility --

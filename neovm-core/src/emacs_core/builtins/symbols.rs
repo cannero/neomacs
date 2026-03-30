@@ -1932,13 +1932,71 @@ pub(crate) fn builtin_menu_or_popup_active_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+fn selected_frame_value(eval: &mut super::eval::Context) -> Value {
+    let fid =
+        super::window_cmds::ensure_selected_frame_id_in_state(&mut eval.frames, &mut eval.buffers);
+    Value::Frame(fid.0)
+}
+
+fn maybe_transform_mouse_position(eval: &mut super::eval::Context, value: Value) -> EvalResult {
+    let transform = eval
+        .obarray
+        .symbol_value("mouse-position-function")
+        .copied()
+        .unwrap_or(Value::Nil);
+    if transform.is_truthy() {
+        eval.apply(transform, vec![value])
+    } else {
+        Ok(value)
+    }
+}
+
+fn pixel_to_char_mouse_position(
+    eval: &super::eval::Context,
+    frame_id: Option<crate::window::FrameId>,
+    x: i64,
+    y: i64,
+) -> (Value, Value) {
+    let Some(frame_id) = frame_id else {
+        return (Value::Nil, Value::Nil);
+    };
+    let Some(frame) = eval.frames.get(frame_id) else {
+        return (Value::Nil, Value::Nil);
+    };
+    let char_width = frame.char_width.max(1.0);
+    let char_height = frame.char_height.max(1.0);
+    (
+        Value::Int((x as f32 / char_width).floor() as i64),
+        Value::Int((y as f32 / char_height).floor() as i64),
+    )
+}
+
+fn current_mouse_position_value(eval: &mut super::eval::Context, pixel_units: bool) -> EvalResult {
+    let selected_frame = selected_frame_value(eval);
+    let (frame_value, x, y) = match eval.command_loop.keyboard.mouse_pixel_position() {
+        Some(state) => {
+            let frame_value = state
+                .frame_id
+                .map(|frame_id| Value::Frame(frame_id.0))
+                .unwrap_or(Value::Nil);
+            let (x, y) = if pixel_units {
+                (Value::Int(state.x), Value::Int(state.y))
+            } else {
+                pixel_to_char_mouse_position(eval, state.frame_id, state.x, state.y)
+            };
+            (frame_value, x, y)
+        }
+        None => (selected_frame, Value::Nil, Value::Nil),
+    };
+    maybe_transform_mouse_position(eval, Value::cons(frame_value, Value::cons(x, y)))
+}
+
 pub(crate) fn builtin_mouse_pixel_position(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("mouse-pixel-position", &args, 0)?;
-    let frame = super::window_cmds::builtin_selected_frame(eval, Vec::new())?;
-    Ok(Value::list(vec![frame, Value::Nil]))
+    current_mouse_position_value(eval, true)
 }
 
 pub(crate) fn builtin_mouse_position(
@@ -1946,8 +2004,7 @@ pub(crate) fn builtin_mouse_position(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("mouse-position", &args, 0)?;
-    let frame = super::window_cmds::builtin_selected_frame(eval, Vec::new())?;
-    Ok(Value::list(vec![frame, Value::Nil]))
+    current_mouse_position_value(eval, false)
 }
 
 pub(crate) fn builtin_native_comp_available_p(args: Vec<Value>) -> EvalResult {
@@ -2403,29 +2460,50 @@ pub(crate) fn builtin_set_minibuffer_window(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_set_mouse_pixel_position(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_mouse_pixel_position(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-mouse-pixel-position", &args, 3)?;
-    if !matches!(args[0], Value::Frame(_)) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("frame-live-p"), args[0]],
-        ));
-    }
-    let _ = expect_int(&args[1])?;
-    let _ = expect_int(&args[2])?;
+    let fid = super::window_cmds::resolve_frame_id_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        Some(&args[0]),
+        "frame-live-p",
+    )?;
+    let x = expect_int(&args[1])?;
+    let y = expect_int(&args[2])?;
+    eval.command_loop
+        .keyboard
+        .set_mouse_pixel_position(Some(fid), x, y);
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_set_mouse_position(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_mouse_position(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-mouse-position", &args, 3)?;
-    if !matches!(args[0], Value::Frame(_)) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("frame-live-p"), args[0]],
-        ));
-    }
-    let _ = expect_int(&args[1])?;
-    let _ = expect_int(&args[2])?;
+    let fid = super::window_cmds::resolve_frame_id_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        Some(&args[0]),
+        "frame-live-p",
+    )?;
+    let x = expect_int(&args[1])?;
+    let y = expect_int(&args[2])?;
+    let Some(frame) = eval.frames.get(fid) else {
+        return Err(signal("error", vec![Value::string("Frame not found")]));
+    };
+    let char_width = frame.char_width.max(1.0).round() as i64;
+    let char_height = frame.char_height.max(1.0).round() as i64;
+    let pixel_x = x.saturating_mul(char_width).saturating_add(char_width / 2);
+    let pixel_y = y
+        .saturating_mul(char_height)
+        .saturating_add(char_height / 2);
+    eval.command_loop
+        .keyboard
+        .set_mouse_pixel_position(Some(fid), pixel_x, pixel_y);
     Ok(Value::Nil)
 }
 
