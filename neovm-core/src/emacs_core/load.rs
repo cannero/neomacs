@@ -2196,6 +2196,7 @@ fn restore_cached_runtime_window_system_surface(eval: &mut super::eval::Context)
         Some(frame_id)
     } else if let Some(frame_id) = eval.frames.frame_list().into_iter().next() {
         let _ = eval.frames.select_frame(frame_id);
+        eval.sync_keyboard_terminal_owner();
         Some(frame_id)
     } else {
         None

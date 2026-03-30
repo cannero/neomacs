@@ -4738,6 +4738,7 @@ pub(crate) fn builtin_select_frame(
         }
     }
     sync_selected_window_buffer_in_state(frames, buffers, fid);
+    eval.sync_keyboard_terminal_owner();
     Ok(Value::Frame(fid.0))
 }
 /// `(select-frame-set-input-focus FRAME &optional NORECORD)` -> nil.
@@ -4791,6 +4792,7 @@ pub(crate) fn builtin_select_frame_set_input_focus(
         }
     }
     sync_selected_window_buffer_in_state(frames, buffers, fid);
+    eval.sync_keyboard_terminal_owner();
     Ok(Value::Nil)
 }
 /// `(frame-list)` -> list of frame objects.
@@ -5214,12 +5216,14 @@ pub(crate) fn builtin_make_frame(eval: &mut super::eval::Context, args: Vec<Valu
     if backend == MakeFrameBackend::Gui {
         eval.sync_pending_resize_events();
     }
-    make_frame_with_state(
+    let result = make_frame_with_state(
         &mut eval.frames,
         &mut eval.buffers,
         &mut eval.display_host,
         args,
-    )
+    );
+    eval.sync_keyboard_terminal_owner();
+    result
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -5491,12 +5495,14 @@ pub(crate) fn builtin_x_create_frame(
     // already have queued resize events before Lisp reaches x-create-frame,
     // so apply them first instead of reusing stale bootstrap dimensions.
     eval.sync_pending_resize_events();
-    x_create_frame_impl(
+    let result = x_create_frame_impl(
         &mut eval.frames,
         &mut eval.buffers,
         &mut eval.display_host,
         args,
-    )
+    );
+    eval.sync_keyboard_terminal_owner();
+    result
 }
 
 pub(crate) fn x_create_frame_impl(
@@ -5638,6 +5644,7 @@ pub(crate) fn builtin_delete_frame(
     if !eval.frames.delete_frame(fid) {
         return Err(signal("error", vec![Value::string("Cannot delete frame")]));
     }
+    eval.sync_keyboard_terminal_owner();
     let after_delete_hook =
         crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "after-delete-frame-functions");
     let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(

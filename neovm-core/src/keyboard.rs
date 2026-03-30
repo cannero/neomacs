@@ -13,7 +13,7 @@
 use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
 use crate::emacs_core::string_escape::decode_storage_char_codes;
 use crate::emacs_core::value::Value;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 // ---------------------------------------------------------------------------
 // Key events
@@ -987,6 +987,10 @@ pub struct KeyboardRuntime {
     pub event_queue: VecDeque<InputEvent>,
     /// Input already received from the host but not yet returned by `read_char`.
     pub pending_input_events: VecDeque<InputEvent>,
+    /// Terminal id for the currently active `kboard`.
+    active_terminal_id: u64,
+    /// Parked keyboard-local state for terminals that are not currently active.
+    parked_kboards: HashMap<u64, KBoard>,
     /// Keyboard-local command-loop state.
     pub kboard: KBoard,
 }
@@ -996,7 +1000,31 @@ impl KeyboardRuntime {
         Self {
             event_queue: VecDeque::new(),
             pending_input_events: VecDeque::new(),
+            active_terminal_id: crate::emacs_core::terminal::pure::TERMINAL_ID,
+            parked_kboards: HashMap::new(),
             kboard: KBoard::new(),
+        }
+    }
+
+    pub fn active_terminal_id(&self) -> u64 {
+        self.active_terminal_id
+    }
+
+    pub fn select_terminal(&mut self, terminal_id: u64) {
+        if self.active_terminal_id == terminal_id {
+            return;
+        }
+        let current_id = self.active_terminal_id;
+        let current = std::mem::take(&mut self.kboard);
+        self.parked_kboards.insert(current_id, current);
+        self.kboard = self.parked_kboards.remove(&terminal_id).unwrap_or_default();
+        self.active_terminal_id = terminal_id;
+    }
+
+    pub fn delete_terminal_kboard(&mut self, terminal_id: u64) {
+        self.parked_kboards.remove(&terminal_id);
+        if self.active_terminal_id == terminal_id {
+            self.kboard = KBoard::default();
         }
     }
 
@@ -1169,6 +1197,9 @@ impl Default for KeyboardRuntime {
 impl crate::gc::GcTrace for KeyboardRuntime {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         self.kboard.trace_roots(roots);
+        for kboard in self.parked_kboards.values() {
+            kboard.trace_roots(roots);
+        }
     }
 }
 
@@ -2068,6 +2099,7 @@ impl crate::emacs_core::eval::Context {
             resolve_active_key_binding, resolve_prefix_keymap_binding_in_obarray,
         };
 
+        self.sync_keyboard_terminal_owner();
         self.command_loop.reset_key_sequence();
         self.assign("this-command-keys-shift-translated", Value::Nil);
         let mut shift_translation: Option<KeySequenceShiftTranslation> = None;
@@ -2311,6 +2343,7 @@ impl crate::emacs_core::eval::Context {
     /// Before blocking, triggers redisplay.
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
         loop {
+            self.sync_keyboard_terminal_owner();
             if let Some(event) = self
                 .command_loop
                 .keyboard
@@ -3622,6 +3655,40 @@ mod tests {
         assert_eq!(e, Value::Int('z' as i64)); // unread first
         let e = cl.read_key_event().unwrap();
         assert_eq!(e, Value::Int('a' as i64)); // then queue
+    }
+
+    #[test]
+    fn keyboard_runtime_preserves_kboard_state_per_terminal() {
+        let mut runtime = KeyboardRuntime::new();
+        runtime.set_input_decode_map(Value::symbol("primary-map"));
+        runtime.unread_event(Value::Int(1));
+
+        runtime.select_terminal(7);
+        assert_eq!(runtime.active_terminal_id(), 7);
+        assert_eq!(runtime.input_decode_map(), Value::Nil);
+        assert!(runtime.kboard.unread_events.is_empty());
+
+        runtime.set_input_decode_map(Value::symbol("secondary-map"));
+        runtime.unread_event(Value::Int(2));
+
+        runtime.select_terminal(crate::emacs_core::terminal::pure::TERMINAL_ID);
+        assert_eq!(
+            runtime.input_decode_map(),
+            Value::symbol("primary-map"),
+            "switching back should restore the original terminal kboard state"
+        );
+        assert_eq!(
+            runtime.kboard.unread_events.pop_front(),
+            Some(Value::Int(1)),
+            "unread events should be terminal-local"
+        );
+
+        runtime.select_terminal(7);
+        assert_eq!(runtime.input_decode_map(), Value::symbol("secondary-map"));
+        assert_eq!(
+            runtime.kboard.unread_events.pop_front(),
+            Some(Value::Int(2))
+        );
     }
 
     #[test]

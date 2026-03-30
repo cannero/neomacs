@@ -1677,6 +1677,7 @@ pub(crate) fn builtin_input_pending_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("input-pending-p", &args, 1)?;
+    ctx.sync_keyboard_terminal_owner();
 
     if args.first().is_some_and(Value::is_truthy) {
         ctx.fire_pending_timers();

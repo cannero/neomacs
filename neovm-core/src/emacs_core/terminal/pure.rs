@@ -160,6 +160,31 @@ impl TerminalManager {
             .filter(|terminal| terminal.is_active())
             .count()
     }
+
+    fn ensure_terminal(
+        &mut self,
+        id: u64,
+        name: String,
+        runtime: TerminalRuntime,
+    ) -> &mut TerminalRecord {
+        if let Some(idx) = self.terminals.iter().position(|terminal| terminal.id == id) {
+            let terminal = &mut self.terminals[idx];
+            terminal.name = name;
+            terminal.deleted = false;
+            terminal.runtime = runtime;
+            return terminal;
+        }
+        self.terminals.push(TerminalRecord {
+            id,
+            name,
+            handle: terminal_handle_for_id(id),
+            params: Vec::new(),
+            runtime,
+            deleted: false,
+            host: None,
+        });
+        self.terminals.last_mut().expect("terminal present")
+    }
 }
 
 impl TerminalRuntimeConfig {
@@ -192,6 +217,24 @@ pub fn configure_terminal_runtime(config: TerminalRuntimeConfig) {
             suspended: false,
         };
     });
+}
+
+pub(crate) fn ensure_terminal_runtime_owner(
+    id: u64,
+    name: impl Into<String>,
+    config: TerminalRuntimeConfig,
+) -> Value {
+    TERMINAL_MANAGER.with(|slot| {
+        let mut manager = slot.borrow_mut();
+        let runtime = TerminalRuntime {
+            active: config.controlling_tty || config.tty_type.is_some() || config.color_cells > 0,
+            tty_type: config.tty_type,
+            color_cells: config.color_cells.max(0),
+            controlling_tty: config.controlling_tty,
+            suspended: false,
+        };
+        manager.ensure_terminal(id, name.into(), runtime).handle
+    })
 }
 
 pub fn reset_terminal_runtime() {
@@ -1040,11 +1083,15 @@ pub(crate) fn builtin_delete_terminal(
         let _ = eval.frames.delete_frame(frame_id);
     }
     delete_terminal_record(terminal_id);
+    eval.command_loop
+        .keyboard
+        .delete_terminal_kboard(terminal_id);
     if eval.frames.selected_frame().is_none() {
         if let Some(next_selected) = eval.frames.frame_list().into_iter().next() {
             let _ = eval.frames.select_frame(next_selected);
         }
     }
+    eval.sync_keyboard_terminal_owner();
     Ok(Value::Nil)
 }
 

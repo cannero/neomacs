@@ -3099,6 +3099,56 @@ fn frame_builtins_accept_frame_handle_values() {
 }
 
 #[test]
+fn select_frame_switches_active_kboard_to_frame_terminal() {
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let primary = ev.frames.create_frame("F1", 800, 600, buf);
+    ev.command_loop
+        .keyboard
+        .set_input_decode_map(Value::symbol("primary-map"));
+
+    crate::emacs_core::terminal::pure::ensure_terminal_runtime_owner(
+        7,
+        "tty-7",
+        crate::emacs_core::terminal::pure::TerminalRuntimeConfig::interactive(
+            Some("xterm-256color".to_string()),
+            256,
+        ),
+    );
+    let secondary = ev.frames.create_frame_on_terminal("F2", 7, 800, 600, buf);
+
+    assert_eq!(
+        super::builtin_select_frame(&mut ev, vec![Value::Frame(secondary.0)])
+            .expect("select secondary frame"),
+        Value::Frame(secondary.0)
+    );
+    assert_eq!(ev.command_loop.keyboard.active_terminal_id(), 7);
+    assert_eq!(ev.command_loop.keyboard.input_decode_map(), Value::Nil);
+
+    ev.command_loop
+        .keyboard
+        .set_input_decode_map(Value::symbol("secondary-map"));
+
+    assert_eq!(
+        super::builtin_select_frame(&mut ev, vec![Value::Frame(primary.0)])
+            .expect("reselect primary frame"),
+        Value::Frame(primary.0)
+    );
+    assert_eq!(
+        ev.command_loop.keyboard.input_decode_map(),
+        Value::symbol("primary-map")
+    );
+
+    super::builtin_select_frame(&mut ev, vec![Value::Frame(secondary.0)])
+        .expect("reselect secondary frame");
+    assert_eq!(
+        ev.command_loop.keyboard.input_decode_map(),
+        Value::symbol("secondary-map")
+    );
+}
+
+#[test]
 fn frame_visible_p_requires_one_arg() {
     let r = eval_one_with_frame("(condition-case err (frame-visible-p) (error (car err)))");
     assert_eq!(r, "OK wrong-number-of-arguments");

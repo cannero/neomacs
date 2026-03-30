@@ -3321,6 +3321,11 @@ pub(crate) fn builtin_internal_handle_focus_in(
     };
 
     let frame_id = crate::window::FrameId(frame_raw);
+    if let Some(frame) = eval.frames.get(frame_id) {
+        eval.command_loop
+            .keyboard
+            .select_terminal(frame.terminal_id);
+    }
     let selected_frame = eval.frames.selected_frame().map(|frame| frame.id);
     let last_event_frame = eval
         .command_loop

@@ -260,9 +260,17 @@ infrastructure only. It should not represent a second Lisp hook architecture.
 
 - Remaining GNU gap in this area is no longer the hook call itself; it is the
   deeper multi-terminal model from `terminal.c` / `frame.c` / `keyboard.c`:
-  multiple live terminals, per-terminal `kboard`, device-specific
-  `delete_terminal_hook`, and the deferred `Qnoelisp` delete path when the
-  last frame on a terminal disappears.
+  multiple live terminals, fully per-terminal `kboard` polling/side queues,
+  device-specific `delete_terminal_hook`, and the deferred `Qnoelisp` delete
+  path when the last frame on a terminal disappears.
+
+- Keyboard owner follow-up landed: the active NeoVM `kboard` now swaps with
+  the selected frame's terminal instead of staying globally singleton.
+  Terminal-local input decode / local function key maps, unread events, and
+  keyboard macro runtime now survive frame-terminal switches. The remaining
+  keyboard-side GNU gap is broader multi-kboard command-loop behavior:
+  polling non-current kboards, single-kboard mode transitions, and device
+  delete hooks tearing down per-terminal keyboard state.
 
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented

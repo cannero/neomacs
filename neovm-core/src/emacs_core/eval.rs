@@ -5045,6 +5045,15 @@ impl Context {
         &mut self.current_message
     }
 
+    pub(crate) fn sync_keyboard_terminal_owner(&mut self) {
+        let terminal_id = self
+            .frames
+            .selected_frame()
+            .map(|frame| frame.terminal_id)
+            .unwrap_or(crate::emacs_core::terminal::pure::TERMINAL_ID);
+        self.command_loop.keyboard.select_terminal(terminal_id);
+    }
+
     /// Public read access to the face table.
     pub fn face_table(&self) -> &FaceTable {
         &self.face_table

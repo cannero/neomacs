@@ -111,6 +111,7 @@ fn select_frame_window_for_hook_context(
     window_id: crate::window::WindowId,
 ) {
     let _ = eval.frames.select_frame(frame_id);
+    eval.sync_keyboard_terminal_owner();
     if let Some(frame) = eval.frames.get_mut(frame_id) {
         let _ = frame.select_window(window_id);
     }
@@ -125,6 +126,7 @@ fn restore_hook_caller_context(eval: &mut super::eval::Context, saved: HookCalle
         .filter(|frame_id| eval.frames.get(*frame_id).is_some())
     {
         let _ = eval.frames.select_frame(frame_id);
+        eval.sync_keyboard_terminal_owner();
         if let Some(window_id) = saved.selected_window_id
             && let Some(frame) = eval.frames.get_mut(frame_id)
         {
@@ -288,6 +290,7 @@ fn run_window_default_hook_value(
             select_frame_window_for_hook_context(eval, frame_id, selected_window);
         } else {
             let _ = eval.frames.select_frame(frame_id);
+            eval.sync_keyboard_terminal_owner();
         }
         let _ = hook_runtime::safe_run_hook_value(
             eval,
