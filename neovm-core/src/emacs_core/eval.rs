@@ -21,7 +21,9 @@ use super::intern::{
     StringInterner, SymId, clear_current_interner, current_interner_ptr, intern, intern_uninterned,
     lookup_interned, resolve_sym, set_current_interner,
 };
-use super::keymap::{list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap};
+use super::keymap::{
+    list_keymap_define, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
+};
 use super::kmacro::KmacroManager;
 use super::minibuffer::MinibufferManager;
 use super::mode::ModeRegistry;
@@ -1883,6 +1885,18 @@ impl Context {
         // (keyboard.c:13097). Without this, bindings in function-key-map
         // (like [backspace] → [?\C-?]) are not found during key translation.
         list_keymap_set_parent(local_function_key_map, function_key_map);
+        // GNU keyboard.c seeds special-event-map with focus handlers at C
+        // bootstrap time and leaves hook semantics to frame.el.
+        list_keymap_define(
+            special_event_map,
+            Value::symbol("focus-in"),
+            Value::symbol("handle-focus-in"),
+        );
+        list_keymap_define(
+            special_event_map,
+            Value::symbol("focus-out"),
+            Value::symbol("handle-focus-out"),
+        );
 
         let standard_syntax_table = super::syntax::builtin_standard_syntax_table(Vec::new())
             .expect("startup seeding requires standard syntax table");

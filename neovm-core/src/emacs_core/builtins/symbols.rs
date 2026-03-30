@@ -3288,12 +3288,70 @@ fn parse_event_modifiers_gnu(name: &str) -> (u32, &str) {
     (bits, rest)
 }
 
-pub(crate) fn builtin_internal_handle_focus_in(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_internal_handle_focus_in(
+    eval: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal-handle-focus-in", &args, 1)?;
-    Err(signal(
-        "error",
-        vec![Value::string("invalid focus-in event")],
-    ))
+    let Value::Cons(cell) = args[0] else {
+        return Err(signal(
+            "error",
+            vec![Value::string("invalid focus-in event")],
+        ));
+    };
+    let pair = read_cons(cell);
+    if pair.car.as_symbol_name() != Some("focus-in") {
+        return Err(signal(
+            "error",
+            vec![Value::string("invalid focus-in event")],
+        ));
+    }
+    let Value::Cons(cdr_cell) = pair.cdr else {
+        return Err(signal(
+            "error",
+            vec![Value::string("invalid focus-in event")],
+        ));
+    };
+    let frame_value = read_cons(cdr_cell).car;
+    let Value::Frame(frame_raw) = frame_value else {
+        return Err(signal(
+            "error",
+            vec![Value::string("invalid focus-in event")],
+        ));
+    };
+
+    let frame_id = crate::window::FrameId(frame_raw);
+    let selected_frame = eval.frames.selected_frame().map(|frame| frame.id);
+    let last_event_frame = eval
+        .command_loop
+        .keyboard
+        .kboard
+        .internal_last_event_frame();
+    let switching = Some(frame_id) != last_event_frame && Some(frame_id) != selected_frame;
+
+    eval.command_loop
+        .keyboard
+        .kboard
+        .set_internal_last_event_frame(frame_id);
+
+    if switching
+        || eval
+            .command_loop
+            .keyboard
+            .kboard
+            .unread_selection_event
+            .is_some()
+    {
+        eval.command_loop
+            .keyboard
+            .kboard
+            .set_unread_selection_event(Value::list(vec![
+                Value::symbol("switch-frame"),
+                frame_value,
+            ]));
+    }
+
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_internal_make_var_non_special(

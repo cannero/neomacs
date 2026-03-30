@@ -48,6 +48,27 @@ fn bootstrap_eval_one(src: &str) -> String {
     bootstrap_eval_all(src).into_iter().next().expect("result")
 }
 
+fn install_minimal_special_event_command_runtime(ev: &mut Context) {
+    let setup = parse_forms(
+        r#"
+(fset 'command-execute
+      (lambda (cmd &optional _record keys _special)
+        (funcall cmd (aref keys 0))))
+(fset 'handle-focus-in
+      (lambda (event)
+        (internal-handle-focus-in event)))
+(fset 'handle-focus-out
+      (lambda (_event)
+        nil))
+"#,
+    )
+    .expect("parse special-event command runtime");
+    for form in &setup {
+        ev.eval_expr(form)
+            .expect("install special-event command runtime");
+    }
+}
+
 fn gnu_timer_after(delay: Duration, callback: &str) -> Value {
     let when = SystemTime::now()
         .checked_add(delay)
@@ -1119,16 +1140,18 @@ fn read_key_sequence_shift_translates_shifted_function_key() {
 #[test]
 fn read_char_returns_lispy_switch_frame_for_focus_event() {
     let mut ev = Context::new();
+    install_minimal_special_event_command_runtime(&mut ev);
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
-    let selected_frame = ev.frames.selected_frame().expect("selected frame").id.0;
+    let target_buffer = ev.buffers.create_buffer("focus-target");
+    let target_frame = ev.frames.create_frame("F2", 960, 640, target_buffer).0;
 
     ev.command_loop
         .keyboard
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::Focus {
             focused: true,
-            emacs_frame_id: 0,
+            emacs_frame_id: target_frame,
         });
 
     let event = ev
@@ -1138,7 +1161,7 @@ fn read_char_returns_lispy_switch_frame_for_focus_event() {
         event,
         Value::list(vec![
             Value::symbol("switch-frame"),
-            Value::Frame(selected_frame),
+            Value::Frame(target_frame),
         ])
     );
 }
@@ -1146,8 +1169,11 @@ fn read_char_returns_lispy_switch_frame_for_focus_event() {
 #[test]
 fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
     let mut ev = Context::new();
+    install_minimal_special_event_command_runtime(&mut ev);
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let target_buffer = ev.buffers.create_buffer("focus-target");
+    let target_frame = ev.frames.create_frame("F2", 960, 640, target_buffer).0;
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
     let setup = parse_forms(
@@ -1163,8 +1189,6 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
     )
     .expect("define command");
 
-    let selected_frame = ev.frames.selected_frame().expect("selected frame").id.0;
-
     ev.command_loop
         .keyboard
         .pending_input_events
@@ -1176,7 +1200,7 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::Focus {
             focused: true,
-            emacs_frame_id: 0,
+            emacs_frame_id: target_frame,
         });
     ev.command_loop
         .keyboard
@@ -1199,7 +1223,7 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
         deferred,
         Value::list(vec![
             Value::symbol("switch-frame"),
-            Value::Frame(selected_frame),
+            Value::Frame(target_frame),
         ])
     );
 }
@@ -1207,8 +1231,11 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
 #[test]
 fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
     let mut ev = Context::new();
+    install_minimal_special_event_command_runtime(&mut ev);
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let target_buffer = ev.buffers.create_buffer("focus-target");
+    let target_frame = ev.frames.create_frame("F2", 960, 640, target_buffer).0;
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
     crate::emacs_core::keymap::list_keymap_define_seq(
@@ -1218,14 +1245,12 @@ fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
     )
     .expect("define switch-frame binding");
 
-    let selected_frame = ev.frames.selected_frame().expect("selected frame").id.0;
-
     ev.command_loop
         .keyboard
         .pending_input_events
         .push_back(crate::keyboard::InputEvent::Focus {
             focused: true,
-            emacs_frame_id: 0,
+            emacs_frame_id: target_frame,
         });
 
     let (keys, binding) = ev
@@ -1240,10 +1265,34 @@ fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
         keys,
         vec![Value::list(vec![
             Value::symbol("switch-frame"),
-            Value::Frame(selected_frame),
+            Value::Frame(target_frame),
         ])]
     );
     assert_eq!(binding, Value::symbol("handle-switch-frame"));
+}
+
+#[test]
+fn special_event_map_bootstraps_focus_handlers() {
+    let ev = Context::new();
+    let special_event_map = ev
+        .eval_symbol("special-event-map")
+        .expect("special-event-map should be bound");
+
+    let focus_in = crate::emacs_core::keymap::lookup_key_in_keymaps_in_obarray(
+        ev.obarray(),
+        &[special_event_map],
+        &[Value::symbol("focus-in")],
+        true,
+    );
+    let focus_out = crate::emacs_core::keymap::lookup_key_in_keymaps_in_obarray(
+        ev.obarray(),
+        &[special_event_map],
+        &[Value::symbol("focus-out")],
+        true,
+    );
+
+    assert_eq!(focus_in, Value::symbol("handle-focus-in"));
+    assert_eq!(focus_out, Value::symbol("handle-focus-out"));
 }
 
 #[test]

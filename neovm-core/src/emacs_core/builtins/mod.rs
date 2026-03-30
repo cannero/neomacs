@@ -4460,7 +4460,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "internal-handle-focus-in",
-        |_ctx, args| builtin_internal_handle_focus_in(args),
+        |ctx, args| builtin_internal_handle_focus_in(ctx, args),
         1,
         Some(1),
     );

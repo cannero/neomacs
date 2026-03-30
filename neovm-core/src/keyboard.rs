@@ -696,6 +696,9 @@ pub struct KBoard {
     /// before ordinary unread input, matching GNU
     /// `unread_switch_frame` plus read-key-sequence delayed selection events.
     pub unread_selection_event: Option<Value>,
+    /// Last frame observed by `internal-handle-focus-in`, matching GNU
+    /// `internal_last_event_frame`.
+    pub internal_last_event_frame: Option<crate::window::FrameId>,
     /// Unread command events in the Lisp-visible Emacs event form.
     pub unread_events: VecDeque<Value>,
     /// Current raw/translated key sequence being accumulated by `read_key_sequence`.
@@ -739,6 +742,7 @@ impl KBoard {
     pub fn new() -> Self {
         Self {
             unread_selection_event: None,
+            internal_last_event_frame: None,
             unread_events: VecDeque::new(),
             current_key_sequence: ReadKeySequenceState::new(),
             command_keys: Vec::new(),
@@ -788,6 +792,14 @@ impl KBoard {
 
     pub fn set_unread_selection_event(&mut self, event: Value) {
         self.unread_selection_event = Some(event);
+    }
+
+    pub fn internal_last_event_frame(&self) -> Option<crate::window::FrameId> {
+        self.internal_last_event_frame
+    }
+
+    pub fn set_internal_last_event_frame(&mut self, frame_id: crate::window::FrameId) {
+        self.internal_last_event_frame = Some(frame_id);
     }
 
     pub fn unread_key(&mut self, event: KeyEvent) {
@@ -1633,6 +1645,22 @@ impl crate::emacs_core::eval::Context {
         Some(Value::list(vec![Value::symbol("switch-frame"), frame]))
     }
 
+    fn make_lispy_focus_event(&self, focused: bool, emacs_frame_id: u64) -> Option<Value> {
+        let frame = if emacs_frame_id == 0 {
+            self.frames
+                .selected_frame()
+                .map(|frame| Value::Frame(frame.id.0))?
+        } else {
+            let fid = crate::window::FrameId(emacs_frame_id);
+            self.frames.get(fid)?;
+            Value::Frame(emacs_frame_id)
+        };
+        Some(Value::list(vec![
+            Value::symbol(if focused { "focus-in" } else { "focus-out" }),
+            frame,
+        ]))
+    }
+
     fn make_lispy_select_window_event(&self, window_id: crate::window::WindowId) -> Option<Value> {
         for frame_id in self.frames.frame_list() {
             let Some(frame) = self.frames.get(frame_id) else {
@@ -1655,6 +1683,38 @@ impl crate::emacs_core::eval::Context {
             self.eval_symbol("key-translation-map")
                 .unwrap_or(Value::Nil),
         ]
+    }
+
+    fn special_event_binding(&self, event: &Value) -> Option<Value> {
+        let special_event_map = self.obarray.symbol_value("special-event-map").copied()?;
+        let binding = crate::emacs_core::keymap::lookup_key_in_keymaps_in_obarray(
+            self.obarray(),
+            &[special_event_map],
+            &[*event],
+            true,
+        );
+        if binding.is_nil() || matches!(binding, Value::Int(_)) {
+            None
+        } else {
+            Some(binding)
+        }
+    }
+
+    fn execute_special_event_if_bound(
+        &mut self,
+        event: Value,
+    ) -> Result<bool, crate::emacs_core::error::Flow> {
+        let Some(binding) = self.special_event_binding(&event) else {
+            return Ok(false);
+        };
+
+        self.assign("last-input-event", event);
+        let keys = Value::vector(vec![event]);
+        self.apply(
+            Value::symbol("command-execute"),
+            vec![binding, Value::Nil, keys, Value::True],
+        )?;
+        Ok(true)
     }
 
     fn resolve_key_sequence_translation_binding(
@@ -2243,42 +2303,46 @@ impl crate::emacs_core::eval::Context {
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
-        if let Some(event) = self
-            .command_loop
-            .keyboard
-            .kboard
-            .unread_selection_event
-            .take()
-        {
-            return Ok(event);
-        }
-
-        if let Some(event) = self.command_loop.keyboard.kboard.unread_events.pop_front() {
-            return Ok(event);
-        }
-
-        if let Some(ref macro_events) = self.command_loop.keyboard.kboard.executing_kbd_macro {
-            if self.command_loop.keyboard.kboard.kbd_macro_index < macro_events.len() {
-                let event = macro_events[self.command_loop.keyboard.kboard.kbd_macro_index];
-                self.command_loop.keyboard.kboard.kbd_macro_index += 1;
-                self.assign(
-                    "executing-kbd-macro-index",
-                    Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
-                );
+        loop {
+            if let Some(event) = self
+                .command_loop
+                .keyboard
+                .kboard
+                .unread_selection_event
+                .take()
+            {
                 return Ok(event);
             }
-        }
 
-        self.sync_pending_resize_events();
-        self.redisplay();
-        self.fire_pending_timers();
-        self.poll_process_output();
+            if let Some(event) = self.command_loop.keyboard.kboard.unread_events.pop_front() {
+                if self.execute_special_event_if_bound(event)? {
+                    continue;
+                }
+                return Ok(event);
+            }
 
-        tracing::debug!(
-            "read_char: blocking on input (input_rx={})...",
-            self.input_rx.is_some()
-        );
-        loop {
+            if let Some(ref macro_events) = self.command_loop.keyboard.kboard.executing_kbd_macro {
+                if self.command_loop.keyboard.kboard.kbd_macro_index < macro_events.len() {
+                    let event = macro_events[self.command_loop.keyboard.kboard.kbd_macro_index];
+                    self.command_loop.keyboard.kboard.kbd_macro_index += 1;
+                    self.assign(
+                        "executing-kbd-macro-index",
+                        Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
+                    );
+                    return Ok(event);
+                }
+            }
+
+            self.sync_pending_resize_events();
+            self.redisplay();
+            self.fire_pending_timers();
+            self.poll_process_output();
+
+            tracing::debug!(
+                "read_char: blocking on input (input_rx={})...",
+                self.input_rx.is_some()
+            );
+
             if self.sync_pending_resize_events() {
                 self.redisplay();
             }
@@ -2371,9 +2435,10 @@ impl crate::emacs_core::eval::Context {
                     emacs_frame_id,
                 } => {
                     self.timer_resume_idle();
-                    if focused
-                        && let Some(event) = self.make_lispy_switch_frame_event(emacs_frame_id)
-                    {
+                    if let Some(event) = self.make_lispy_focus_event(focused, emacs_frame_id) {
+                        if self.execute_special_event_if_bound(event)? {
+                            continue;
+                        }
                         return Ok(event);
                     }
                     continue;
