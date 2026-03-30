@@ -6705,6 +6705,44 @@ fn while_no_input_ignore_events_bootstraps_monitors_changed_like_gnu() {
 }
 
 #[test]
+fn input_pending_p_filters_default_ignored_events_like_gnu() {
+    let mut ev = Context::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    let window_id = ev.frames.get(fid).expect("frame").window_list()[0];
+
+    ev.command_loop.keyboard.pending_input_events.push_back(
+        crate::keyboard::InputEvent::MonitorsChanged {
+            monitors: vec![crate::emacs_core::builtins::NeomacsMonitorInfo {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+                scale: 1.0,
+                width_mm: 500,
+                height_mm: 300,
+                name: Some("DP-1".to_string()),
+            }],
+        },
+    );
+    ev.command_loop
+        .keyboard
+        .pending_input_events
+        .push_back(crate::keyboard::InputEvent::SelectWindow { window_id });
+
+    let filtered = crate::emacs_core::reader::builtin_input_pending_p(&mut ev, vec![])
+        .expect("default input-pending-p should succeed");
+    assert_eq!(filtered, Value::Nil);
+
+    ev.obarray
+        .set_symbol_value("input-pending-p-filter-events", Value::Nil);
+    let unfiltered = crate::emacs_core::reader::builtin_input_pending_p(&mut ev, vec![])
+        .expect("unfiltered input-pending-p should succeed");
+    assert_eq!(unfiltered, Value::True);
+}
+
+#[test]
 fn with_temp_message_accepts_min_arity_and_runs_body() {
     let results = bootstrap_eval_all(
         "(with-temp-message nil 42)

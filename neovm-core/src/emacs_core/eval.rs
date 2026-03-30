@@ -4696,6 +4696,8 @@ impl Context {
             crate::keyboard::InputEvent::Focus { focused, .. } => {
                 Some(if *focused { "focus-in" } else { "focus-out" })
             }
+            crate::keyboard::InputEvent::MonitorsChanged { .. } => Some("monitors-changed"),
+            crate::keyboard::InputEvent::SelectWindow { .. } => Some("select-window"),
             _ => None,
         };
         let Some(ignore_symbol) = ignore_symbol else {
