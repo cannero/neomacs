@@ -106,6 +106,9 @@ The default `while-no-input-ignore-events` bootstrap value now also includes
 And `input-pending-p`/`while-no-input` filtering now actually honors that
 ignore set for `monitors-changed` and `select-window`, instead of only
 special-casing focus events.
+`input-pending-p` also once again stages one unread host event from the
+runtime input channel before checking pending input, so real host keypresses
+are visible there instead of only already-staged queue entries.
 
 ### The shared wait path now services non-user-visible host input before polling timers/processes
 

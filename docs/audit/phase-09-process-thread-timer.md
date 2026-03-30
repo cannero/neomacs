@@ -94,7 +94,9 @@ Bad:
   while the default `while-no-input-ignore-events` value now includes
   `monitors-changed` like GNU's default ignore set, and `input-pending-p` now
   actually filters `monitors-changed` / `select-window` through that ignore
-  set instead of only special-casing focus events,
+  set instead of only special-casing focus events. It also stages one unread
+  host input event before evaluating pending input, so host keypresses are
+  visible to `input-pending-p` again,
   instead of quitting immediately on the shared wait path. The real remaining
   work is now the
   last finer-grained redisplay/input competition edges outside those covered

@@ -1728,6 +1728,7 @@ pub(crate) fn builtin_input_pending_p(
     expect_max_args("input-pending-p", &args, 1)?;
     ctx.sync_keyboard_terminal_owner();
     ctx.sync_pending_resize_events();
+    let _ = ctx.stage_next_host_input_event_if_available()?;
 
     let filter_events = ctx.input_pending_p_filters_events();
     if input_pending_now(ctx, filter_events) {
@@ -1739,6 +1740,7 @@ pub(crate) fn builtin_input_pending_p(
         // force a redisplay the way `detect_input_pending_run_timers' does.
         let _ = ctx.service_pending_timers_with_wait_policy(false);
         ctx.sync_pending_resize_events();
+        let _ = ctx.stage_next_host_input_event_if_available()?;
     }
 
     Ok(Value::bool(input_pending_now(ctx, filter_events)))

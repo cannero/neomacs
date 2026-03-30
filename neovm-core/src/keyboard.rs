@@ -2208,22 +2208,40 @@ impl crate::emacs_core::eval::Context {
             return Ok(None);
         }
 
-        let Some(ref rx) = self.input_rx else {
+        if self.stage_next_host_input_event_if_available()? {
+            if let Some(event) = self
+                .command_loop
+                .keyboard
+                .pending_input_events
+                .front()
+                .cloned()
+                && input_event_is_wait_path_special(&event)
+            {
+                self.command_loop.keyboard.pending_input_events.pop_front();
+                self.timer_stop_idle();
+                return Ok(Some(event));
+            }
             return Ok(None);
+        }
+
+        Ok(None)
+    }
+
+    pub(crate) fn stage_next_host_input_event_if_available(
+        &mut self,
+    ) -> Result<bool, crate::emacs_core::error::Flow> {
+        let Some(ref rx) = self.input_rx else {
+            return Ok(false);
         };
         match rx.try_recv() {
-            Ok(event) if input_event_is_wait_path_special(&event) => {
-                self.timer_stop_idle();
-                Ok(Some(event))
-            }
             Ok(event) => {
                 self.command_loop
                     .keyboard
                     .pending_input_events
                     .push_back(event);
-                Ok(None)
+                Ok(true)
             }
-            Err(crossbeam_channel::TryRecvError::Empty) => Ok(None),
+            Err(crossbeam_channel::TryRecvError::Empty) => Ok(false),
             Err(crossbeam_channel::TryRecvError::Disconnected) => {
                 self.handle_display_terminal_disconnect();
                 Err(crate::emacs_core::error::signal("quit", vec![]))
