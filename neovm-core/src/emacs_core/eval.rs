@@ -3928,6 +3928,16 @@ impl Context {
                     // another key instead of unwinding like GNU Emacs.
                     return Err(flow);
                 }
+                Err(flow @ Flow::Signal(_))
+                    if self
+                        .command_loop
+                        .keyboard
+                        .kboard
+                        .executing_kbd_macro
+                        .is_some() =>
+                {
+                    return Err(flow);
+                }
                 Err(Flow::Signal(sig)) => {
                     // Error in command loop — display and restart.
                     // Mirrors cmd_error() in keyboard.c.
@@ -3978,6 +3988,11 @@ impl Context {
                 return Ok(Value::Nil);
             }
 
+            if self.executing_kbd_macro_iteration_complete_for_command_loop() {
+                self.assign("this-command", Value::Nil);
+                return Ok(Value::Nil);
+            }
+
             // Transfer prefix-arg → current-prefix-arg before each command
             // (mirrors keyboard.c command_loop_1 logic).
             let prefix_arg = self.eval_symbol("prefix-arg").unwrap_or(Value::Nil);
@@ -4016,6 +4031,16 @@ impl Context {
             if let Err(ref flow) = exec_result {
                 match flow {
                     Flow::Throw { .. } => return exec_result,
+                    Flow::Signal(_)
+                        if self
+                            .command_loop
+                            .keyboard
+                            .kboard
+                            .executing_kbd_macro
+                            .is_some() =>
+                    {
+                        return exec_result;
+                    }
                     Flow::Signal(sig) => {
                         // Log error but continue the loop
                         // (mirrors cmd_error in keyboard.c)
@@ -4048,6 +4073,38 @@ impl Context {
                 self.finalize_kbd_macro_runtime_chars();
             }
         }
+    }
+
+    fn executing_kbd_macro_iteration_complete_for_command_loop(&self) -> bool {
+        matches!(
+            self.command_loop.keyboard.kboard.executing_kbd_macro.as_ref(),
+            Some(events) if self.command_loop.keyboard.kboard.kbd_macro_index >= events.len()
+        ) && self
+            .command_loop
+            .keyboard
+            .kboard
+            .unread_selection_event
+            .is_none()
+            && self.command_loop.keyboard.kboard.unread_events.is_empty()
+    }
+
+    pub(crate) fn execute_kbd_macro_iteration_via_command_loop(
+        &mut self,
+        macro_events: Vec<Value>,
+    ) -> EvalResult {
+        let saved_running = self.command_loop.running;
+        let saved_state = self.snapshot_executing_kbd_macro_runtime();
+        if !saved_running {
+            self.command_loop.running = true;
+        }
+        self.begin_executing_kbd_macro_runtime(macro_events);
+        self.assign("prefix-arg", Value::Nil);
+        let result = self.command_loop_2();
+        self.restore_executing_kbd_macro_runtime(saved_state.0, saved_state.1);
+        if !saved_running && self.command_loop.running {
+            self.command_loop.running = false;
+        }
+        result
     }
 
     fn pending_gnu_timer(timer: Value) -> Option<PendingGnuTimer> {

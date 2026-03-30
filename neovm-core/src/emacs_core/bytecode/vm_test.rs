@@ -829,6 +829,27 @@ fn vm_kmacro_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
+    let result = with_vm_eval_full_context_state(
+        "(progn
+           (setq vm-kmacro-command-loop-count 0)
+           (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+           (let ((g (make-sparse-keymap)))
+             (use-global-map g)
+             (define-key g \"a\"
+               (lambda ()
+                 (interactive)
+                 (setq vm-kmacro-command-loop-count
+                       (1+ vm-kmacro-command-loop-count))))
+             (execute-kbd-macro \"a\")
+             vm-kmacro-command-loop-count))",
+        false,
+        |result, _| crate::emacs_core::error::format_eval_result(&result),
+    );
+    assert_eq!(result, "OK 1");
+}
+
+#[test]
 fn vm_varset_triggers_variable_watcher_callbacks() {
     assert_eq!(
         vm_eval_str(

@@ -173,6 +173,41 @@ fn execute_kbd_macro_events_with_runtime_state(
     eval: &mut super::eval::Context,
     macro_events: &[Value],
     count: i64,
+    call: impl FnMut(&mut super::eval::Context, Value, Vec<Value>) -> EvalResult,
+) -> EvalResult {
+    if macro_events_require_legacy_direct_execution(eval, macro_events) {
+        return execute_kbd_macro_events_with_legacy_direct_runtime_state(
+            eval,
+            macro_events,
+            count,
+            call,
+        );
+    }
+
+    for _ in 0..count {
+        eval.execute_kbd_macro_iteration_via_command_loop(macro_events.to_vec())?;
+    }
+
+    Ok(Value::Nil)
+}
+
+fn macro_events_require_legacy_direct_execution(
+    eval: &super::eval::Context,
+    macro_events: &[Value],
+) -> bool {
+    // Neomacs historically allowed command placeholders like `[ignore]` in
+    // tests and internal scaffolding. Those are not real input events, so
+    // keep them on the temporary direct-execution path while ordinary key
+    // events move through the GNU-style `read_char` / command-loop runtime.
+    macro_events
+        .iter()
+        .any(|event| matches!(event, Value::Symbol(_)) && eval.function_value_is_callable(event))
+}
+
+fn execute_kbd_macro_events_with_legacy_direct_runtime_state(
+    eval: &mut super::eval::Context,
+    macro_events: &[Value],
+    count: i64,
     mut call: impl FnMut(&mut super::eval::Context, Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     let saved_state = eval.snapshot_executing_kbd_macro_runtime();
@@ -201,7 +236,7 @@ fn start_kbd_macro_impl(
     if let Some(ref initial_events) = initial_events
         && !no_exec
     {
-        execute_kbd_macro_events_with_runtime_state(
+        execute_kbd_macro_events_with_legacy_direct_runtime_state(
             eval,
             initial_events,
             1,
