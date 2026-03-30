@@ -285,9 +285,14 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   device-specific host delete hook before generic terminal/frame/kboard
   teardown, matching GNU `terminal.c`'s split between
   `delete-terminal-functions`, `delete_terminal_hook`, and final terminal
-  deletion more closely. The remaining gap is now thinner `keyboard.c`
-  side-queue behavior plus the deferred `Qnoelisp` / last-frame terminal
-  deletion path.
+  deletion more closely.
+
+- Terminal owner follow-up broadened again: when the last frame on a terminal
+  disappears and other frames still exist elsewhere, `delete-frame` now tears
+  down that terminal instead of leaving a terminal object with no frames. That
+  matches GNU's normal multi-terminal owner path more closely. The remaining
+  gap is now thinner `keyboard.c` side-queue behavior plus the fully deferred
+  `Qnoelisp` / "last frame overall" terminal teardown path.
 
 - audit the remaining declared-but-unwired GNU C-owned hook variables and either
   add real owner call sites or explicitly document them as not yet implemented

@@ -5633,6 +5633,11 @@ pub(crate) fn builtin_delete_frame(
         let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
         resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?
     };
+    let terminal_id = eval
+        .frames
+        .get(fid)
+        .map(|frame| frame.terminal_id)
+        .unwrap_or(crate::emacs_core::terminal::pure::TERMINAL_ID);
     let frame_value = Value::Frame(fid.0);
     let delete_hook =
         crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "delete-frame-functions");
@@ -5643,6 +5648,21 @@ pub(crate) fn builtin_delete_frame(
     }
     if !eval.frames.delete_frame(fid) {
         return Err(signal("error", vec![Value::string("Cannot delete frame")]));
+    }
+    let terminal_is_empty = eval.frames.frame_list().into_iter().all(|frame_id| {
+        eval.frames
+            .get(frame_id)
+            .is_none_or(|frame| frame.terminal_id != terminal_id)
+    });
+    if terminal_is_empty && !eval.frames.frame_list().is_empty() {
+        if let Some(terminal) =
+            crate::emacs_core::terminal::pure::terminal_handle_value_for_id(terminal_id)
+        {
+            let _ = crate::emacs_core::terminal::pure::builtin_delete_terminal(
+                eval,
+                vec![terminal, Value::True],
+            )?;
+        }
     }
     eval.sync_keyboard_terminal_owner();
     let after_delete_hook =

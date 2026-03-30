@@ -3033,6 +3033,39 @@ fn delete_frame_works() {
 }
 
 #[test]
+fn deleting_last_frame_on_terminal_deletes_terminal_too() {
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let _primary = ev.frames.create_frame("F1", 800, 600, buf);
+    crate::emacs_core::terminal::pure::ensure_terminal_runtime_owner(
+        7,
+        "tty-7",
+        crate::emacs_core::terminal::pure::TerminalRuntimeConfig::interactive(
+            Some("xterm-256color".to_string()),
+            256,
+        ),
+    );
+    let secondary = ev.frames.create_frame_on_terminal("F2", 7, 800, 600, buf);
+    let secondary_terminal =
+        crate::emacs_core::terminal::pure::terminal_handle_value_for_id(7).expect("terminal 7");
+
+    assert_eq!(
+        super::builtin_delete_frame(&mut ev, vec![Value::Frame(secondary.0)]).unwrap(),
+        Value::Nil
+    );
+    assert!(
+        crate::emacs_core::terminal::pure::builtin_terminal_live_p(
+            &mut ev,
+            vec![secondary_terminal]
+        )
+        .unwrap()
+        .is_nil(),
+        "deleting the last frame on a terminal should tear down that terminal"
+    );
+}
+
+#[test]
 fn framep_true() {
     let r = eval_one_with_frame("(framep (selected-frame))");
     assert_eq!(r, "OK t");
