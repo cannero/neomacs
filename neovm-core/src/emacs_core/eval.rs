@@ -4816,6 +4816,91 @@ impl Context {
         self.temp_roots.truncate(saved_len);
     }
 
+    // -----------------------------------------------------------------------
+    // HandleScope — RAII formalization of the temp_roots save/restore pattern
+    // -----------------------------------------------------------------------
+
+    /// Execute `f` within a HandleScope. All Values rooted via
+    /// `push_temp_root` during `f` are automatically unrooted when
+    /// `f` returns (even on error/early-return).
+    ///
+    /// This is the RAII replacement for save/restore_temp_roots.
+    /// Equivalent to:
+    /// ```ignore
+    /// let saved = ctx.save_temp_roots();
+    /// let result = f(ctx);
+    /// ctx.restore_temp_roots(saved);
+    /// result
+    /// ```
+    #[inline]
+    pub(crate) fn with_gc_scope<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let saved_len = self.temp_roots.len();
+        let result = f(self);
+        self.temp_roots.truncate(saved_len);
+        result
+    }
+
+    /// Like `with_gc_scope` but for fallible operations.
+    /// Restores temp_roots even on error paths.
+    #[inline]
+    pub(crate) fn with_gc_scope_result<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, Flow>,
+    ) -> Result<T, Flow> {
+        let saved_len = self.temp_roots.len();
+        let result = f(self);
+        self.temp_roots.truncate(saved_len);
+        result
+    }
+
+    /// Root a Value so it survives GC until the enclosing scope ends.
+    /// Returns the Value unchanged (for chaining).
+    #[inline]
+    pub(crate) fn root(&mut self, val: Value) -> Value {
+        self.temp_roots.push(val);
+        val
+    }
+
+    /// Open a HandleScope that can be passed between functions.
+    /// The scope MUST be closed via `scope.close(ctx)` when done.
+    /// Prefer `with_gc_scope` for self-contained blocks.
+    #[inline]
+    pub(crate) fn open_gc_scope(&self) -> HandleScope {
+        HandleScope {
+            saved_len: self.temp_roots.len(),
+        }
+    }
+}
+
+/// A transferable GC rooting scope.
+///
+/// Represents a region of `temp_roots` that will be truncated when
+/// the scope is closed. Use `Context::open_gc_scope()` to create.
+///
+/// For self-contained blocks, prefer `Context::with_gc_scope()` which
+/// handles cleanup automatically. Use `HandleScope` when the scope
+/// must be returned to a caller (e.g., eval_args returns a scope
+/// that the caller closes after using the args).
+#[must_use = "HandleScope must be closed via .close(ctx) to restore temp_roots"]
+pub(crate) struct HandleScope {
+    saved_len: usize,
+}
+
+impl HandleScope {
+    /// Close the scope, restoring temp_roots to the saved length.
+    #[inline]
+    pub fn close(self, ctx: &mut Context) {
+        ctx.temp_roots.truncate(self.saved_len);
+    }
+
+    /// Get the saved length (for interop with raw save/restore).
+    #[inline]
+    pub fn saved_len(&self) -> usize {
+        self.saved_len
+    }
+}
+
+impl Context {
     /// Whether lexical-binding is currently enabled.
     pub fn lexical_binding(&self) -> bool {
         self.obarray
@@ -7614,29 +7699,22 @@ impl Context {
         args: Vec<Value>,
         record_backtrace: bool,
     ) -> EvalResult {
-        let saved_roots = self.save_temp_roots();
-        self.push_temp_root(function);
-        for &arg in &args {
-            self.push_temp_root(arg);
-        }
-        if let Err(flow) = self.maybe_gc_and_quit() {
-            self.restore_temp_roots(saved_roots);
-            return Err(flow);
-        }
-        // Deep interpreted expansion (notably loadup's eager macroexpansion of
-        // macroexp.el itself) can recurse through many apply/apply_lambda
-        // frames between successive eval() calls. Grow the stack at the
-        // function-application boundary so those paths don't exhaust the
-        // native thread stack long before max-lisp-eval-depth is reached.
-        let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
-            if record_backtrace {
-                self.funcall_general(function, args)
-            } else {
-                self.funcall_general_untraced(function, args)
+        self.with_gc_scope_result(|ctx| {
+            ctx.root(function);
+            for &arg in &args {
+                ctx.root(arg);
             }
-        });
-        self.restore_temp_roots(saved_roots);
-        result
+            ctx.maybe_gc_and_quit()?;
+            // Deep interpreted expansion can recurse many frames.
+            // Grow the stack at the function-application boundary.
+            stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
+                if record_backtrace {
+                    ctx.funcall_general(function, args)
+                } else {
+                    ctx.funcall_general_untraced(function, args)
+                }
+            })
+        })
     }
 
     /// Apply a function value to evaluated arguments.
