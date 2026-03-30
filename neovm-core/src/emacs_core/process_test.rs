@@ -1,6 +1,8 @@
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Create an evaluator with minimal Elisp shims for process testing.
 /// These shims mirror GNU Emacs Elisp functions that wrap C-level builtins.
@@ -373,6 +375,47 @@ fn call_process_no_destination() {
 }
 
 #[test]
+fn call_process_display_requests_redisplay_after_buffer_insert() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let buf_id = ev.buffers.create_buffer("*cp-display*");
+    assert!(ev.buffers.switch_current(buf_id));
+
+    let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
+    let calls_in_cb = redisplay_calls.clone();
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
+        let current_id = ev.buffers.current_buffer_id().expect("current buffer");
+        calls_in_cb.borrow_mut().push(
+            ev.buffers
+                .get(current_id)
+                .expect("current buffer")
+                .buffer_string(),
+        );
+    }));
+
+    crate::emacs_core::callproc::builtin_call_process(
+        &mut ev,
+        vec![
+            Value::string(echo),
+            Value::Nil,
+            Value::True,
+            Value::True,
+            Value::string("hello"),
+        ],
+    )
+    .expect("call-process should succeed");
+
+    assert_eq!(
+        ev.buffers
+            .get(buf_id)
+            .expect("display buffer")
+            .buffer_string(),
+        "hello\n"
+    );
+    assert_eq!(*redisplay_calls.borrow(), vec!["hello\n".to_string()]);
+}
+
+#[test]
 fn call_process_infile_feeds_stdin() {
     let cat = find_bin("cat");
     let infile = tmp_file("cp-infile");
@@ -478,6 +521,48 @@ fn call_process_region_test() {
     assert_eq!(results[3], "OK 0");
     // Buffer should contain original text plus piped output
     assert!(results[4].contains("hello world"));
+}
+
+#[test]
+fn call_process_region_display_requests_redisplay_after_buffer_insert() {
+    let cat = find_bin("cat");
+    let mut ev = Context::new();
+    let buf_id = ev.buffers.create_buffer("*cpr-display*");
+    assert!(ev.buffers.switch_current(buf_id));
+
+    let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
+    let calls_in_cb = redisplay_calls.clone();
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
+        let current_id = ev.buffers.current_buffer_id().expect("current buffer");
+        calls_in_cb.borrow_mut().push(
+            ev.buffers
+                .get(current_id)
+                .expect("current buffer")
+                .buffer_string(),
+        );
+    }));
+
+    crate::emacs_core::callproc::builtin_call_process_region(
+        &mut ev,
+        vec![
+            Value::string("xyz"),
+            Value::Nil,
+            Value::string(cat),
+            Value::Nil,
+            Value::True,
+            Value::True,
+        ],
+    )
+    .expect("call-process-region should succeed");
+
+    assert_eq!(
+        ev.buffers
+            .get(buf_id)
+            .expect("display buffer")
+            .buffer_string(),
+        "xyz"
+    );
+    assert_eq!(*redisplay_calls.borrow(), vec!["xyz".to_string()]);
 }
 
 #[test]

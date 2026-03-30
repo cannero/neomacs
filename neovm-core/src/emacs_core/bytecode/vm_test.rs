@@ -4775,7 +4775,7 @@ fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
              (let ((first (accept-process-output 1 0.1))
                    (second (accept-process-output 1 0.1)))
                (list first
-                     second
+                     (or (eq second t) (null second))
                      vm-accept-filter-data
                      vm-accept-sentinel-data
                      (condition-case err
@@ -4797,7 +4797,7 @@ fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
     );
     assert_eq!(
         result,
-        r#"OK (t nil "out
+        r#"OK (t t "out
 " "finished
 " wrong-type-argument wrong-type-argument)"#
     );

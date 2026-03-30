@@ -1235,7 +1235,7 @@ fn char_from_codepoint_value(value: &Value) -> Result<char, Flow> {
     }
 }
 
-fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow> {
+pub(crate) fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow> {
     match value {
         Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).to_owned())),
         Value::Vector(items) => {
@@ -1274,7 +1274,7 @@ fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow> {
     }
 }
 
-fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
+pub(crate) fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
     match value {
         Value::Int(n) => Ok(*n),
         Value::Char(c) => Ok(*c as i64),
@@ -1286,7 +1286,7 @@ fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
     }
 }
 
-fn checked_region_bytes(
+pub(crate) fn checked_region_bytes(
     buf: &crate::buffer::Buffer,
     start: i64,
     end: i64,
@@ -1318,7 +1318,7 @@ fn file_error_symbol(kind: std::io::ErrorKind) -> &'static str {
     }
 }
 
-fn signal_process_io(action: &str, target: Option<&str>, err: std::io::Error) -> Flow {
+pub(crate) fn signal_process_io(action: &str, target: Option<&str>, err: std::io::Error) -> Flow {
     let mut data = vec![Value::string(action), Value::string(err.to_string())];
     if let Some(target) = target {
         data.push(Value::string(target));
@@ -1352,7 +1352,7 @@ fn signal_wrong_type_string(value: Value) -> Flow {
     signal("wrong-type-argument", vec![Value::symbol("stringp"), value])
 }
 
-fn expect_string_strict(value: &Value) -> Result<String, Flow> {
+pub(crate) fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value {
         Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).to_owned())),
         other => Err(signal_wrong_type_string(*other)),
@@ -1469,6 +1469,14 @@ fn parse_call_process_destination(
         stderr_file: None,
         no_wait,
     })
+}
+
+pub(crate) fn destination_writes_to_buffer_in_state(
+    buffers: &BufferManager,
+    destination: &Value,
+) -> Result<bool, Flow> {
+    let spec = parse_call_process_destination(buffers, destination)?;
+    Ok(matches!(spec.stdout, OutputTarget::Buffer(_)))
 }
 
 fn insert_process_output_in_state(
@@ -1628,7 +1636,10 @@ pub(crate) fn run_process_command_in_state(
     Ok(Value::Int(exit_code as i64))
 }
 
-fn run_process_capture_output(program: &str, cmd_args: &[String]) -> Result<(i32, Vec<u8>), Flow> {
+pub(crate) fn run_process_capture_output(
+    program: &str,
+    cmd_args: &[String],
+) -> Result<(i32, Vec<u8>), Flow> {
     let mut command = Command::new(program);
     command
         .args(cmd_args)
@@ -1653,7 +1664,7 @@ fn parse_output_lines(stdout: &[u8]) -> Value {
     }
 }
 
-fn parse_optional_infile(args: &[Value], index: usize) -> Result<Option<String>, Flow> {
+pub(crate) fn parse_optional_infile(args: &[Value], index: usize) -> Result<Option<String>, Flow> {
     if args.len() > index && !args[index].is_nil() {
         Ok(Some(expect_string_strict(&args[index])?))
     } else {
@@ -1661,15 +1672,15 @@ fn parse_optional_infile(args: &[Value], index: usize) -> Result<Option<String>,
     }
 }
 
-fn parse_string_args_strict(args: &[Value]) -> Result<Vec<String>, Flow> {
+pub(crate) fn parse_string_args_strict(args: &[Value]) -> Result<Vec<String>, Flow> {
     args.iter().map(expect_string_strict).collect()
 }
 
-fn parse_sequence_args(args: &[Value]) -> Result<Vec<String>, Flow> {
+pub(crate) fn parse_sequence_args(args: &[Value]) -> Result<Vec<String>, Flow> {
     args.iter().map(sequence_value_to_env_string).collect()
 }
 
-fn signal_process_lines_status_error(program: &str, status: i32) -> Flow {
+pub(crate) fn signal_process_lines_status_error(program: &str, status: i32) -> Flow {
     signal(
         "error",
         vec![Value::string(format!(
@@ -1691,7 +1702,7 @@ fn shell_quote_argument(arg: &str) -> String {
     out
 }
 
-fn shell_command_with_args(command: &str, args: &[String]) -> String {
+pub(crate) fn shell_command_with_args(command: &str, args: &[String]) -> String {
     if args.is_empty() {
         return command.to_string();
     }
@@ -4349,7 +4360,7 @@ pub(crate) fn builtin_call_process(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_call_process_impl(&mut eval.buffers, args)
+    super::callproc::builtin_call_process(eval, args)
 }
 
 pub(crate) fn builtin_call_process_impl(
@@ -4375,20 +4386,7 @@ pub(crate) fn builtin_call_process_shell_command(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("call-process-shell-command", &args, 1)?;
-    let command = sequence_value_to_env_string(&args[0])?;
-    let infile = parse_optional_infile(&args, 1)?;
-    let destination = args.get(2).unwrap_or(&Value::Nil);
-    let cmd_args = if args.len() > 4 {
-        parse_sequence_args(&args[4..])?
-    } else {
-        Vec::new()
-    };
-    let shell_command = shell_command_with_args(&command, &cmd_args);
-    let shell_args = vec!["-c".to_string(), shell_command];
-
-    // DISPLAY (arg index 3): ignored in this implementation.
-    run_process_command_in_state(&mut eval.buffers, "sh", infile, destination, &shell_args)
+    super::callproc::builtin_call_process_shell_command(eval, args)
 }
 
 /// (process-file PROGRAM &optional INFILE DESTINATION DISPLAY &rest ARGS)
@@ -4396,16 +4394,7 @@ pub(crate) fn builtin_process_file(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("process-file", &args, 1)?;
-    let program = expect_string_strict(&args[0])?;
-    let infile = parse_optional_infile(&args, 1)?;
-    let destination = args.get(2).unwrap_or(&Value::Nil);
-    let cmd_args = if args.len() > 4 {
-        parse_string_args_strict(&args[4..])?
-    } else {
-        Vec::new()
-    };
-    run_process_command_in_state(&mut eval.buffers, &program, infile, destination, &cmd_args)
+    super::callproc::builtin_process_file(eval, args)
 }
 
 /// (process-file-shell-command COMMAND &optional INFILE DESTINATION DISPLAY &rest ARGS)
@@ -4413,20 +4402,7 @@ pub(crate) fn builtin_process_file_shell_command(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("process-file-shell-command", &args, 1)?;
-    let command = sequence_value_to_env_string(&args[0])?;
-    let infile = parse_optional_infile(&args, 1)?;
-    let destination = args.get(2).unwrap_or(&Value::Nil);
-    let cmd_args = if args.len() > 4 {
-        parse_sequence_args(&args[4..])?
-    } else {
-        Vec::new()
-    };
-    let shell_command = shell_command_with_args(&command, &cmd_args);
-    let shell_args = vec!["-c".to_string(), shell_command];
-
-    // DISPLAY (arg index 3): ignored in this implementation.
-    run_process_command_in_state(&mut eval.buffers, "sh", infile, destination, &shell_args)
+    super::callproc::builtin_process_file_shell_command(eval, args)
 }
 
 /// (process-lines PROGRAM &rest ARGS) -> list of lines
@@ -4434,14 +4410,7 @@ pub(crate) fn builtin_process_lines(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("process-lines", &args, 1)?;
-    let program = expect_string_strict(&args[0])?;
-    let cmd_args = parse_string_args_strict(&args[1..])?;
-    let (status, stdout) = run_process_capture_output(&program, &cmd_args)?;
-    if status != 0 {
-        return Err(signal_process_lines_status_error(&program, status));
-    }
-    Ok(parse_output_lines(&stdout))
+    super::callproc::builtin_process_lines(_eval, args)
 }
 
 /// (process-lines-ignore-status PROGRAM &rest ARGS) -> list of lines
@@ -4449,11 +4418,7 @@ pub(crate) fn builtin_process_lines_ignore_status(
     _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("process-lines-ignore-status", &args, 1)?;
-    let program = expect_string_strict(&args[0])?;
-    let cmd_args = parse_string_args_strict(&args[1..])?;
-    let (_, stdout) = run_process_capture_output(&program, &cmd_args)?;
-    Ok(parse_output_lines(&stdout))
+    super::callproc::builtin_process_lines_ignore_status(_eval, args)
 }
 
 /// (process-lines-handling-status PROGRAM STATUS-HANDLER &rest ARGS) -> list of lines
@@ -4461,20 +4426,7 @@ pub(crate) fn builtin_process_lines_handling_status(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("process-lines-handling-status", &args, 2)?;
-    let program = expect_string_strict(&args[0])?;
-    let status_handler = args[1];
-    let cmd_args = parse_string_args_strict(&args[2..])?;
-    let (status, stdout) = run_process_capture_output(&program, &cmd_args)?;
-    let lines = parse_output_lines(&stdout);
-
-    if !status_handler.is_nil() {
-        let _ = eval.apply(status_handler, vec![Value::Int(status as i64)])?;
-    } else if status != 0 {
-        return Err(signal_process_lines_status_error(&program, status));
-    }
-
-    Ok(lines)
+    super::callproc::builtin_process_lines_handling_status(eval, args)
 }
 
 /// (call-process-region START END PROGRAM &optional DELETE DESTINATION DISPLAY &rest ARGS)
@@ -4484,7 +4436,7 @@ pub(crate) fn builtin_call_process_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_call_process_region_impl(&mut eval.buffers, args)
+    super::callproc::builtin_call_process_region(eval, args)
 }
 
 pub(crate) fn builtin_call_process_region_impl(
