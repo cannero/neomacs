@@ -180,14 +180,7 @@ fn last_kbd_macro_or_array_error(eval: &super::eval::Context) -> Result<Vec<Valu
         })
 }
 
-fn execute_kbd_macro_iteration(
-    eval: &mut super::eval::Context,
-    macro_events: &[Value],
-) -> EvalResult {
-    if macro_events_require_legacy_direct_execution(eval, macro_events) {
-        return execute_kbd_macro_iteration_with_legacy_direct_runtime_state(eval, macro_events);
-    }
-
+fn execute_kbd_macro_iteration(eval: &mut super::eval::Context) -> EvalResult {
     eval.execute_kbd_macro_iteration_via_command_loop()
 }
 
@@ -210,7 +203,7 @@ fn execute_kbd_macro_events_with_runtime_state(
                 }
             }
 
-            execute_kbd_macro_iteration(eval, macro_events)?;
+            execute_kbd_macro_iteration(eval)?;
             success_count += 1;
             eval.note_executing_kbd_macro_iteration(success_count);
 
@@ -225,34 +218,6 @@ fn execute_kbd_macro_events_with_runtime_state(
 
         Ok(Value::Nil)
     })
-}
-
-fn macro_events_require_legacy_direct_execution(
-    eval: &super::eval::Context,
-    macro_events: &[Value],
-) -> bool {
-    // Neomacs historically allowed command placeholders like `[ignore]` in
-    // tests and internal scaffolding. Those are not real input events, so
-    // keep them on the temporary direct-execution path while ordinary key
-    // events move through the GNU-style `read_char` / command-loop runtime.
-    macro_events
-        .iter()
-        .any(|event| matches!(event, Value::Symbol(_)) && eval.function_value_is_callable(event))
-}
-
-fn execute_kbd_macro_iteration_with_legacy_direct_runtime_state(
-    eval: &mut super::eval::Context,
-    macro_events: &[Value],
-) -> EvalResult {
-    execute_kbd_macro_events(
-        eval.obarray.symbol_function("self-insert-command").cloned(),
-        macro_events,
-        1,
-        |index, func, call_args| {
-            eval.set_executing_kbd_macro_runtime_index(index);
-            eval.apply(func, call_args)
-        },
-    )
 }
 
 fn start_kbd_macro_impl(
@@ -302,31 +267,6 @@ pub(crate) fn plan_execute_kbd_macro(args: &[Value]) -> Result<(Vec<Value>, i64,
     let count = args.get(1).map_or(1, prefix_numeric_value);
     let loopfunc = args.get(2).copied().unwrap_or(Value::Nil);
     Ok((resolve_macro_events(&args[0])?, count, loopfunc))
-}
-
-pub(crate) fn execute_kbd_macro_events(
-    self_insert_command: Option<Value>,
-    macro_events: &[Value],
-    count: i64,
-    mut call: impl FnMut(usize, Value, Vec<Value>) -> EvalResult,
-) -> EvalResult {
-    for _ in 0..count {
-        for (idx, event) in macro_events.iter().enumerate() {
-            let index = idx + 1;
-            match event {
-                Value::Symbol(id) => {
-                    let func = Value::symbol(resolve_sym(*id));
-                    let _ = call(index, func, vec![])?;
-                }
-                _ => {
-                    if let Some(func) = self_insert_command {
-                        let _ = call(index, func, vec![Value::Int(1)])?;
-                    }
-                }
-            }
-        }
-    }
-    Ok(Value::Nil)
 }
 
 /// (start-kbd-macro &optional APPEND NO-EXEC) -> nil

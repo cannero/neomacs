@@ -111,11 +111,12 @@ boundary into the keyboard runtime:
 - macro teardown now restores outer execution state and runs
   `kbd-macro-termination-hook` from one shared low-level path, closer to GNU
   `Fexecute_kbd_macro` plus `pop_kbd_macro`
+- symbol-valued macro events like `[ignore]` now always go through the command
+  loop and keymap lookup; the old callable-symbol direct-execution fallback is
+  gone
 
 That means the remaining kmacro gaps are narrower:
 
-- compatibility-only callable-symbol macro playback still exists as a
-  temporary non-GNU path
 - the full command-loop/input ownership for every macro event shape is still
   not complete
 

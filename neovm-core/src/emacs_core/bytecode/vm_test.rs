@@ -812,20 +812,75 @@ fn vm_variable_watcher_management_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_kmacro_builtins_use_shared_runtime_state() {
-    let result = with_vm_eval_full_context_state(
-        "(progn
-           (start-kbd-macro nil nil)
-           (store-kbd-macro-event 'ignore)
-           (end-kbd-macro)
-           (list
-             (condition-case nil (progn (call-last-kbd-macro) t) (error nil))
-             (condition-case nil
-                 (progn (execute-kbd-macro [ignore]) t)
-               (error nil))))",
-        false,
-        |result, _| crate::emacs_core::error::format_eval_result(&result),
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq vm-kmacro-shared-count 0)
+             (setq vm-kmacro-ignore-direct-called nil)
+             (fset 'ignore
+                   (lambda ()
+                     (setq vm-kmacro-ignore-direct-called t)))
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g [ignore]
+                 (lambda ()
+                   (interactive)
+                   (setq vm-kmacro-shared-count (1+ vm-kmacro-shared-count))))))"#,
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    let mut vm = new_vm(&mut eval);
+    assert_eq!(
+        vm.dispatch_vm_builtin("start-kbd-macro", vec![Value::Nil, Value::Nil])
+            .expect("vm start-kbd-macro"),
+        Value::Nil
     );
-    assert_eq!(result, "OK (t t)");
+    assert_eq!(
+        vm.dispatch_vm_builtin("store-kbd-macro-event", vec![Value::symbol("ignore")])
+            .expect("vm store-kbd-macro-event"),
+        Value::Nil
+    );
+    vm.ctx.finalize_kbd_macro_runtime_chars();
+    assert_eq!(
+        vm.dispatch_vm_builtin("end-kbd-macro", vec![])
+            .expect("vm end-kbd-macro"),
+        Value::Nil
+    );
+    assert_eq!(
+        vm.ctx
+            .eval_symbol("last-kbd-macro")
+            .expect("last-kbd-macro"),
+        Value::vector(vec![Value::symbol("ignore")])
+    );
+
+    assert_eq!(
+        vm.dispatch_vm_builtin("call-last-kbd-macro", vec![])
+            .expect("vm call-last-kbd-macro"),
+        Value::Nil
+    );
+    assert_eq!(
+        vm.dispatch_vm_builtin(
+            "execute-kbd-macro",
+            vec![Value::vector(vec![Value::symbol("ignore")])]
+        )
+        .expect("vm execute-kbd-macro"),
+        Value::Nil
+    );
+
+    assert_eq!(
+        vm.ctx
+            .eval_symbol("vm-kmacro-shared-count")
+            .expect("vm-kmacro-shared-count"),
+        Value::Int(2)
+    );
+    assert_eq!(
+        vm.ctx
+            .eval_symbol("vm-kmacro-ignore-direct-called")
+            .expect("vm-kmacro-ignore-direct-called"),
+        Value::Nil
+    );
 }
 
 #[test]

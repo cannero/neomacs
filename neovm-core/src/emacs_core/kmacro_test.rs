@@ -484,31 +484,29 @@ fn test_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
 }
 
 #[test]
-fn test_execute_kbd_macro_callable_symbol_events_keep_legacy_direct_path() {
-    use super::super::eval::Context;
-
+fn test_execute_kbd_macro_symbol_events_use_command_loop_dispatch() {
     let mut eval = Context::new();
-    let setup = parse_forms(
-        "(progn
-           (setq kmacro-direct-count 0)
-           (fset 'kmacro-direct-bump
+    let forms = parse_forms(
+        r#"(progn
+             (setq kmacro-symbol-event-count 0)
+             (setq kmacro-ignore-direct-called nil)
+             (fset 'ignore
+                   (lambda ()
+                     (setq kmacro-ignore-direct-called t)))
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g [ignore]
                  (lambda ()
-                   (setq kmacro-direct-count (1+ kmacro-direct-count)))))",
+                   (interactive)
+                   (setq kmacro-symbol-event-count (1+ kmacro-symbol-event-count))))
+               (execute-kbd-macro [ignore])
+               (list kmacro-symbol-event-count kmacro-ignore-direct-called)))"#,
     )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
-
-    builtin_execute_kbd_macro(
-        &mut eval,
-        vec![Value::vector(vec![Value::symbol("kmacro-direct-bump")])],
-    )
-    .expect("execute direct placeholder macro");
-
-    assert_eq!(
-        eval.eval_symbol("kmacro-direct-count")
-            .expect("kmacro-direct-count"),
-        Value::Int(1)
-    );
+    .expect("parse");
+    let results = eval.eval_forms(&forms);
+    assert_eq!(results.len(), 1);
+    assert_eq!(format_eval_result(&results[0]), "OK (1 nil)");
 }
 
 #[test]
@@ -542,6 +540,46 @@ fn test_call_last_kbd_macro_raw_prefix_repeats_real_key_macro() {
         eval.eval_symbol("kmacro-call-last-count")
             .expect("kmacro-call-last-count"),
         Value::Int(4)
+    );
+}
+
+#[test]
+fn test_call_last_kbd_macro_symbol_events_use_command_loop_dispatch() {
+    let mut eval = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (setq kmacro-call-last-symbol-count 0)
+             (setq kmacro-call-last-ignore-direct-called nil)
+             (fset 'ignore
+                   (lambda ()
+                     (setq kmacro-call-last-ignore-direct-called t)))
+             (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
+             (let ((g (make-sparse-keymap)))
+               (use-global-map g)
+               (define-key g [ignore]
+                 (lambda ()
+                   (interactive)
+                   (setq kmacro-call-last-symbol-count
+                         (1+ kmacro-call-last-symbol-count))))))"#,
+    )
+    .expect("parse setup");
+    let _ = eval.eval_forms(&setup);
+
+    builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::symbol("ignore")]).expect("store ignore");
+    eval.finalize_kbd_macro_runtime_chars();
+    builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
+    builtin_call_last_kbd_macro(&mut eval, vec![]).expect("call-last");
+
+    assert_eq!(
+        eval.eval_symbol("kmacro-call-last-symbol-count")
+            .expect("kmacro-call-last-symbol-count"),
+        Value::Int(1)
+    );
+    assert_eq!(
+        eval.eval_symbol("kmacro-call-last-ignore-direct-called")
+            .expect("kmacro-call-last-ignore-direct-called"),
+        Value::Nil
     );
 }
 
