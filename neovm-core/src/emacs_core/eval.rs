@@ -347,12 +347,17 @@ pub(crate) struct MacroExpansionCacheEntry {
     expanded: Rc<Expr>,
     fingerprint: u64,
     opaque_roots: Vec<Value>,
+    /// GC epoch when this entry was created. If the current gc_count
+    /// differs, opaque Values in the Expr tree may reference collected
+    /// objects — the entry must be discarded and the macro re-expanded.
+    gc_epoch: u64,
 }
 
 impl MacroExpansionCacheEntry {
-    fn new(expanded: Rc<Expr>, fingerprint: u64) -> Self {
+    fn new(expanded: Rc<Expr>, fingerprint: u64, gc_epoch: u64) -> Self {
         Self {
             opaque_roots: opaque_values_for_expr(&expanded),
+            gc_epoch,
             expanded,
             fingerprint,
         }
@@ -5850,7 +5855,7 @@ impl Context {
                                 self.macro_expansion_cache.get(&cache_key).cloned()
                             {
                                 if cached.fingerprint == current_fp
-                                    && !self.macro_cache_entry_has_stale_roots(&cached)
+                                    && cached.gc_epoch == self.gc_count
                                 {
                                     self.macro_cache_hits += 1;
                                     let expanded = cached.expanded.clone();
@@ -5899,6 +5904,7 @@ impl Context {
                         let expanded_cache_entry = Rc::new(MacroExpansionCacheEntry::new(
                             expanded_rc.clone(),
                             current_fp,
+                            self.gc_count,
                         ));
                         if !self.macro_cache_disabled {
                             self.macro_expansion_cache
@@ -8349,9 +8355,7 @@ impl Context {
         let current_fp = tail_fingerprint(args);
         if !self.macro_cache_disabled {
             if let Some(cached) = self.macro_expansion_cache.get(&cache_key).cloned() {
-                if cached.fingerprint == current_fp
-                    && !self.macro_cache_entry_has_stale_roots(&cached)
-                {
+                if cached.fingerprint == current_fp && cached.gc_epoch == self.gc_count {
                     self.macro_cache_hits += 1;
                     return Ok(cached.expanded.clone());
                 }
@@ -8392,7 +8396,11 @@ impl Context {
         let expand_elapsed = expand_start.elapsed();
         self.macro_cache_misses += 1;
         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
-        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(result.clone(), current_fp));
+        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(
+            result.clone(),
+            current_fp,
+            self.gc_count,
+        ));
         if !self.macro_cache_disabled {
             if expand_elapsed.as_millis() > 50 {
                 tracing::warn!(
