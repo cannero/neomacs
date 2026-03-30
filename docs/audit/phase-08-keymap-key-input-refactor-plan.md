@@ -99,6 +99,12 @@ So the keymap/input audit remains:
 - modifier canonicalization is still duplicated and not GNU-canonical
 - echo-keystrokes timing/help behavior is still not GNU-shaped
 
+One narrow active-map mismatch is now closed on current `main`: live-window
+`POSITION` arguments now use that window's buffer and point in the shared
+`keymap.rs` owner for both `current-active-maps` and `key-binding`, matching
+GNU `keymap.c` more closely instead of silently defaulting back to the current
+buffer.
+
 ### Latest kmacro ownership progress
 
 The latest keyboard-macro refactors moved another GNU `macros.c` ownership

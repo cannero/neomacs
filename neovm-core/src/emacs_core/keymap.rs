@@ -1401,6 +1401,33 @@ fn active_map_position(
         return Ok(Some(default_position));
     };
 
+    if let Value::Window(id) = position {
+        let window_id = crate::window::WindowId(*id);
+        for frame_id in frames.frame_list() {
+            let Some(frame) = frames.get(frame_id) else {
+                continue;
+            };
+            let Some(window) = frame.find_window(window_id) else {
+                continue;
+            };
+            let Some(buffer_id) = window.buffer_id() else {
+                break;
+            };
+            let Some(target_buffer) = buffers.get(buffer_id) else {
+                break;
+            };
+
+            return Ok(Some(ActiveMapPosition {
+                buffer_id,
+                buffer_object: Value::Buffer(buffer_id),
+                buffer_local_map: target_buffer.local_map(),
+                char_pos: Some(target_buffer.point_char() as i64 + 1),
+            }));
+        }
+
+        return Ok(Some(default_position));
+    }
+
     if matches!(position, Value::Int(_) | Value::Char(_))
         || crate::emacs_core::marker::is_marker(position)
     {

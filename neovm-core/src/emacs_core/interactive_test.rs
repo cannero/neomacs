@@ -1724,6 +1724,38 @@ fn key_binding_non_position_designators_default_to_point() {
 }
 
 #[test]
+fn current_active_maps_and_key_binding_use_live_window_position_buffer() {
+    assert_eq!(
+        eval_one(
+            r#"(let* ((w1 (selected-window))
+                      (b1 (current-buffer))
+                      (b2 (get-buffer-create " *phase8-window-pos*"))
+                      (w2 (split-window-internal w1 nil 'right nil))
+                      (g (make-sparse-keymap))
+                      (l1 (make-sparse-keymap))
+                      (l2 (make-sparse-keymap)))
+                 (use-global-map g)
+                 (define-key g "a" 'ignore)
+                 (use-local-map l1)
+                 (define-key l1 "a" 'forward-char)
+                 (set-window-buffer w2 b2)
+                 (set-buffer b2)
+                 (use-local-map l2)
+                 (define-key l2 "a" 'backward-char)
+                 (set-buffer b1)
+                 (list
+                  (key-binding "a" t nil w2)
+                  (key-binding "a" t nil w1)
+                  (let ((maps2 (current-active-maps t w2))
+                        (maps1 (current-active-maps t w1)))
+                    (list (eq (car maps2) l2)
+                          (eq (car maps1) l1)))))"#
+        ),
+        "OK (backward-char forward-char (t t))"
+    );
+}
+
+#[test]
 fn global_key_binding_bootstrap_matches_subr_el() {
     assert_eq!(
         gnu_subr_keymap_eval_all(
