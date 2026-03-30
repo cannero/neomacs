@@ -109,6 +109,11 @@ special-casing focus events.
 `input-pending-p` also once again stages one unread host event from the
 runtime input channel before checking pending input, so real host keypresses
 are visible there instead of only already-staged queue entries.
+Mouse-move visibility is also now gated more like GNU:
+`input-pending-p` ignores raw host `MouseMove` unless `track-mouse` is
+non-`nil`, and direct `read-char` now returns a real `mouse-movement` event
+only when `track-mouse` is enabled instead of treating motion as generic
+pending input while never surfacing it to Lisp reads.
 
 ### The shared wait path now services non-user-visible host input before polling timers/processes
 

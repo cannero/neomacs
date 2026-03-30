@@ -1263,6 +1263,88 @@ fn input_pending_p_ignores_focus_events_by_default() {
 }
 
 #[test]
+fn input_pending_p_ignores_mouse_move_without_track_mouse() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::MouseMove {
+        x: 10.0,
+        y: 20.0,
+        modifiers: crate::keyboard::Modifiers::none(),
+        target_frame_id: 0,
+    })
+    .expect("queue mouse move");
+    ev.input_rx = Some(rx);
+
+    let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
+    assert!(result.is_nil());
+}
+
+#[test]
+fn input_pending_p_reports_mouse_move_with_track_mouse() {
+    let mut ev = Context::new();
+    ev.obarray.set_symbol_value("track-mouse", Value::True);
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::MouseMove {
+        x: 10.0,
+        y: 20.0,
+        modifiers: crate::keyboard::Modifiers::none(),
+        target_frame_id: 0,
+    })
+    .expect("queue mouse move");
+    ev.input_rx = Some(rx);
+
+    let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
+    assert_eq!(result, Value::True);
+}
+
+#[test]
+fn read_char_skips_mouse_move_without_track_mouse() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::MouseMove {
+        x: 10.0,
+        y: 20.0,
+        modifiers: crate::keyboard::Modifiers::none(),
+        target_frame_id: 0,
+    })
+    .expect("queue mouse move");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+
+    let result = ev.read_char().expect("keypress should remain readable");
+    assert_eq!(result, Value::Int('a' as i64));
+}
+
+#[test]
+fn read_char_returns_mouse_move_with_track_mouse() {
+    let mut ev = Context::new();
+    ev.obarray.set_symbol_value("track-mouse", Value::True);
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::MouseMove {
+        x: 10.0,
+        y: 20.0,
+        modifiers: crate::keyboard::Modifiers::none(),
+        target_frame_id: 0,
+    })
+    .expect("queue mouse move");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
+    ev.input_rx = Some(rx);
+
+    let result = ev.read_char().expect("mouse movement should be readable");
+    let slots = crate::emacs_core::value::list_to_vec(&result).expect("mouse movement event");
+    assert_eq!(slots[0], Value::symbol("mouse-movement"));
+
+    let next = ev.read_char().expect("keypress should remain readable");
+    assert_eq!(next, Value::Int('a' as i64));
+}
+
+#[test]
 fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending() {
     let mut ev = Context::new();
     let setup = parse_forms(

@@ -5127,11 +5127,6 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
 
 #[test]
 fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
-    let track_mouse = dispatch_builtin_pure("internal--track-mouse", vec![Value::Nil])
-        .expect("builtin internal--track-mouse should resolve")
-        .expect("builtin internal--track-mouse should evaluate");
-    assert!(track_mouse.is_nil());
-
     let char_font = dispatch_builtin_pure("internal-char-font", vec![Value::Int(65)])
         .expect("builtin internal-char-font should resolve")
         .expect("builtin internal-char-font should evaluate");
@@ -5200,6 +5195,49 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin internal-subr-documentation should resolve")
         .expect("builtin internal-subr-documentation should evaluate");
     assert_eq!(subr_doc, Value::True);
+}
+
+#[test]
+fn internal_track_mouse_binds_and_restores_track_mouse() {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let forms = parse_forms(
+        "(progn
+           (setq track-mouse 'outer)
+           (list
+            (internal--track-mouse (lambda () track-mouse))
+            track-mouse))",
+    )
+    .expect("parse");
+
+    let result = eval.eval_expr(&forms[0]).expect("internal--track-mouse");
+    assert_eq!(
+        result,
+        Value::list(vec![Value::True, Value::symbol("outer")])
+    );
+}
+
+#[test]
+fn internal_track_mouse_restores_track_mouse_after_error() {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let forms = parse_forms(
+        "(progn
+           (setq track-mouse 'outer)
+           (condition-case err
+               (internal--track-mouse
+                (lambda ()
+                  (setq track-mouse 'dragging)
+                  (signal 'error nil)))
+             (error (list track-mouse (car err)))))",
+    )
+    .expect("parse");
+
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("internal--track-mouse condition-case");
+    assert_eq!(
+        result,
+        Value::list(vec![Value::symbol("outer"), Value::symbol("error")])
+    );
 }
 
 #[test]

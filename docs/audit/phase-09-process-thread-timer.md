@@ -96,7 +96,9 @@ Bad:
   actually filters `monitors-changed` / `select-window` through that ignore
   set instead of only special-casing focus events. It also stages one unread
   host input event before evaluating pending input, so host keypresses are
-  visible to `input-pending-p` again,
+  visible to `input-pending-p` again, and raw mouse movement is now gated by
+  `track-mouse` the GNU way instead of being treated as pending input while
+  direct Lisp readers still discarded it,
   instead of quitting immediately on the shared wait path. The real remaining
   work is now the
   last finer-grained redisplay/input competition edges outside those covered

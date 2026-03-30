@@ -3167,9 +3167,16 @@ pub(crate) fn builtin_unlock_file(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_internal_track_mouse(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_internal_track_mouse(
+    ctx: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal--track-mouse", &args, 1)?;
-    Ok(Value::Nil)
+    let specpdl_count = ctx.specpdl.len();
+    ctx.specbind(intern("track-mouse"), Value::True);
+    let result = ctx.apply(args[0], vec![]);
+    ctx.unbind_to(specpdl_count);
+    result
 }
 
 pub(crate) fn builtin_internal_char_font(args: Vec<Value>) -> EvalResult {

@@ -2872,6 +2872,7 @@ impl Context {
         obarray.set_symbol_value("this-command-keys-shift-translated", Value::Nil);
         obarray.set_symbol_value("current-prefix-arg", Value::Nil);
         obarray.set_symbol_value("track-mouse", Value::Nil);
+        obarray.make_special("track-mouse");
         obarray.set_symbol_value(
             "while-no-input-ignore-events",
             Value::list(vec![
@@ -4691,6 +4692,14 @@ impl Context {
             .is_truthy()
     }
 
+    pub(crate) fn track_mouse_enabled(&self) -> bool {
+        self.obarray
+            .symbol_value("track-mouse")
+            .copied()
+            .unwrap_or(Value::Nil)
+            .is_truthy()
+    }
+
     fn should_ignore_while_no_input_event(&self, event: &crate::keyboard::InputEvent) -> bool {
         let ignore_symbol = match event {
             crate::keyboard::InputEvent::Focus { focused, .. } => {
@@ -4723,6 +4732,7 @@ impl Context {
         match event {
             crate::keyboard::InputEvent::Resize { .. } => false,
             crate::keyboard::InputEvent::Focus { .. } if !filter_events => false,
+            crate::keyboard::InputEvent::MouseMove { .. } => self.track_mouse_enabled(),
             _ if filter_events && self.should_ignore_while_no_input_event(event) => false,
             _ => true,
         }

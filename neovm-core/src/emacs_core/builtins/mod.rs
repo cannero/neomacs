@@ -4432,7 +4432,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "internal--track-mouse",
-        |_ctx, args| builtin_internal_track_mouse(args),
+        |ctx, args| builtin_internal_track_mouse(ctx, args),
         1,
         Some(1),
     );

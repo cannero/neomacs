@@ -5548,7 +5548,7 @@ fn vm_base64_json_ccl_and_runtime_clusters_use_direct_dispatch() {
                  (null (handle-switch-frame (selected-frame)))
                  (null (init-image-library nil))
                  (condition-case nil (clear-image-cache nil) (error t))
-                 (null (internal--track-mouse nil))
+                 (null (internal--track-mouse (lambda () nil)))
                  (null (internal-complete-buffer "" nil nil))
                  (equal (internal-describe-syntax-value 7) 7)
                  (condition-case nil (internal-handle-focus-in nil) (error t))

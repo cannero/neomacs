@@ -2748,7 +2748,26 @@ impl crate::emacs_core::eval::Context {
             }
             InputEvent::MouseMove { .. } => {
                 self.timer_resume_idle();
-                Ok(None)
+                if !self.track_mouse_enabled() {
+                    return Ok(None);
+                }
+                self.clear_current_message();
+                let InputEvent::MouseMove {
+                    x,
+                    y,
+                    modifiers,
+                    target_frame_id,
+                } = event
+                else {
+                    unreachable!();
+                };
+                let mut sym = String::new();
+                Self::append_modifier_prefix(&modifiers, &mut sym);
+                sym.push_str("mouse-movement");
+                let position = Self::make_mouse_position(x, y, target_frame_id, self);
+                let event = Value::list(vec![Value::symbol(&sym), position]);
+                self.command_loop.store_kbd_macro_event(event);
+                Ok(Some(event))
             }
         }
     }
