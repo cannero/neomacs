@@ -51,6 +51,7 @@
         fontconfig
         freetype
         harfbuzz
+        libotf
         cairo
         glib
         gst_all_1.gstreamer
@@ -265,6 +266,7 @@
                 fontconfig
                 freetype
                 harfbuzz
+                libotf
                 libxml2
                 gnutls
                 libjpeg
