@@ -33,6 +33,25 @@ fn eval_with_process_shims() -> Context {
     ev
 }
 
+fn install_minimal_special_event_command_runtime(ev: &mut Context) {
+    let setup = parse_forms(
+        r#"
+(fset 'command-execute
+      (lambda (cmd &optional _record keys _special)
+        (funcall cmd (aref keys 0))))
+(fset 'handle-delete-frame
+      (lambda (event)
+        (setq neo-last-delete-frame-event event)
+        nil))
+"#,
+    )
+    .expect("parse special-event command runtime");
+    for form in &setup {
+        ev.eval_expr(form)
+            .expect("install special-event command runtime");
+    }
+}
+
 fn eval_one(src: &str) -> String {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
@@ -1952,6 +1971,60 @@ fn accept_process_output_services_resize_arriving_during_wait() {
     assert_eq!(result, Value::Nil);
     assert_eq!(width, Value::Int(710));
     assert_eq!(height, Value::Int(820));
+}
+
+#[test]
+fn accept_process_output_window_close_uses_special_event_map_handler_when_loaded() {
+    let mut ev = Context::new();
+    let scratch = ev.buffer_manager_mut().create_buffer("*scratch*");
+    ev.buffer_manager_mut().set_current(scratch);
+    let frame = ev.frames.create_frame("F1", 80, 24, scratch);
+    install_minimal_special_event_command_runtime(&mut ev);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::WindowClose {
+        emacs_frame_id: frame.0,
+    })
+    .expect("queue window close");
+    ev.input_rx = Some(rx);
+    ev.command_loop.running = true;
+
+    let result = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+    )
+    .expect("accept-process-output should consume handled window close");
+    drop(tx);
+
+    assert_eq!(result, Value::Nil);
+    let logged = ev
+        .eval_symbol("neo-last-delete-frame-event")
+        .expect("delete-frame event should be logged");
+    assert_eq!(
+        logged,
+        Value::list(vec![
+            Value::symbol("delete-frame"),
+            Value::list(vec![Value::Frame(frame.0)]),
+        ]),
+    );
+}
+
+#[test]
+fn accept_process_output_window_close_quits_without_special_handler() {
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::WindowClose { emacs_frame_id: 0 })
+        .expect("queue window close");
+    ev.input_rx = Some(rx);
+
+    let flow = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+    )
+    .expect_err("unhandled window close should still quit");
+    drop(tx);
+
+    assert!(matches!(flow, Flow::Signal(ref sig) if sig.symbol_name() == "quit"));
 }
 
 #[test]

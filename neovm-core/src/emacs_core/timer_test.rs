@@ -57,6 +57,25 @@ fn gnu_subr_sit_for_eval() -> Context {
     ev
 }
 
+fn install_minimal_special_event_command_runtime(ev: &mut Context) {
+    let setup = super::super::parser::parse_forms(
+        r#"
+(fset 'command-execute
+      (lambda (cmd &optional _record keys _special)
+        (funcall cmd (aref keys 0))))
+(fset 'handle-delete-frame
+      (lambda (event)
+        (setq neo-last-delete-frame-event event)
+        nil))
+"#,
+    )
+    .expect("parse special-event command runtime");
+    for form in &setup {
+        ev.eval_expr(form)
+            .expect("install special-event command runtime");
+    }
+}
+
 fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
     let when = SystemTime::now()
         .checked_sub(delay)
@@ -516,6 +535,39 @@ fn test_builtin_sleep_for() {
             if sig.symbol_name() == "wrong-type-argument"
                 && sig.data == vec![Value::symbol("fixnump"), Value::Float(0.5, next_float_id())]
     ));
+}
+
+#[test]
+fn sleep_for_window_close_uses_special_event_map_handler_when_loaded() {
+    let mut ev = Context::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(scratch);
+    let frame = ev.frames.create_frame("F1", 80, 24, scratch);
+    install_minimal_special_event_command_runtime(&mut ev);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::WindowClose {
+        emacs_frame_id: frame.0,
+    })
+    .expect("queue window close");
+    ev.input_rx = Some(rx);
+    ev.command_loop.running = true;
+
+    let result = builtin_sleep_for(&mut ev, vec![Value::Float(0.01, next_float_id())])
+        .expect("sleep-for should consume handled window close");
+    drop(tx);
+
+    assert_eq!(result, Value::Nil);
+    let logged = ev
+        .eval_symbol("neo-last-delete-frame-event")
+        .expect("delete-frame event should be logged");
+    assert_eq!(
+        logged,
+        Value::list(vec![
+            Value::symbol("delete-frame"),
+            Value::list(vec![Value::Frame(frame.0)]),
+        ]),
+    );
 }
 
 #[test]

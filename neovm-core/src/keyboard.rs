@@ -2266,15 +2266,28 @@ impl crate::emacs_core::eval::Context {
                 InputEvent::MouseMove { .. } => {
                     self.timer_resume_idle();
                 }
-                InputEvent::WindowClose { .. } => {
-                    self.command_loop.running = false;
-                    return Err(crate::emacs_core::error::signal("quit", vec![]));
+                InputEvent::WindowClose { emacs_frame_id } => {
+                    self.handle_window_close_input_event(emacs_frame_id)?;
                 }
                 _ => {}
             }
         }
 
         Ok(outcome)
+    }
+
+    fn handle_window_close_input_event(
+        &mut self,
+        emacs_frame_id: u64,
+    ) -> Result<(), crate::emacs_core::error::Flow> {
+        self.timer_resume_idle();
+        if let Some(event) = self.make_lispy_delete_frame_event(emacs_frame_id) {
+            if self.execute_special_event_if_bound(event)? {
+                return Ok(());
+            }
+        }
+        self.command_loop.running = false;
+        Err(crate::emacs_core::error::signal("quit", vec![]))
     }
 
     /// Read a complete key sequence through keymaps.
@@ -2590,14 +2603,8 @@ impl crate::emacs_core::eval::Context {
 
         match event {
             InputEvent::WindowClose { emacs_frame_id } => {
-                self.timer_resume_idle();
-                if let Some(event) = self.make_lispy_delete_frame_event(emacs_frame_id) {
-                    if self.execute_special_event_if_bound(event)? {
-                        return Ok(None);
-                    }
-                }
-                self.command_loop.running = false;
-                Err(crate::emacs_core::error::signal("quit", vec![]))
+                self.handle_window_close_input_event(emacs_frame_id)?;
+                Ok(None)
             }
             InputEvent::Resize {
                 width,

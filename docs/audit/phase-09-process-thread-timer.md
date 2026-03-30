@@ -88,7 +88,10 @@ Bad:
   the blocking wait itself. The shared wait path now also restores the
   GNU-style redraw decision when resize-like special input is serviced on a
   `do_display` path, and it no longer treats monitor-change events as a
-  standalone redisplay trigger there. The real remaining work is now the
+  standalone redisplay trigger there. Window-close transport events now also
+  route through the same delete-frame special-event handling as direct
+  `read_char`, instead of quitting immediately on the shared wait path. The
+  real remaining work is now the
   last finer-grained redisplay/input competition edges outside those covered
   wait-path cases, not the older split-owner architecture.
 

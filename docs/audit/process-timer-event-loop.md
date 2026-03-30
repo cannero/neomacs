@@ -96,6 +96,9 @@ reads in `wait_reading_process_output`.
 The remaining GNU risk is narrower now: keyboard/input break semantics and
 redisplay/input competition across the shared wait path are not yet as tightly
 locked down as the timer/process ordering itself.
+The shared wait path also now routes window-close transport events through the
+same delete-frame special-event handling as direct `read_char`, instead of
+quitting immediately on that path.
 
 ### The shared wait path now services non-user-visible host input before polling timers/processes
 
