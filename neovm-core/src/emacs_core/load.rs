@@ -985,9 +985,10 @@ pub fn load_file_with_flags(
         });
     }
 
-    // GNU Emacs allows three nested loads of the same file and signals an
-    // error on the fourth.  Matching that behavior matters because Lisp
-    // sometimes depends on the signal shape rather than on silent skipping.
+    // GNU Emacs only signals `Recursive load` once the same resolved file is
+    // already present four times in `Vloads_in_progress`, i.e. on the fifth
+    // attempt. Matching that behavior matters because Lisp depends on the
+    // error shape rather than on silent skipping.
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let load_count = eval
         .loads_in_progress

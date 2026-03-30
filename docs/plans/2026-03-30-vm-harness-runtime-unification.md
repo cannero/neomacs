@@ -30,6 +30,18 @@ The first execution slice is in:
 - source-form VM helpers now use the runtime harness.
 - the low-level evaluator-drop test now calls the minimal harness explicitly.
 
+The second execution slice is also in:
+
+- `execute_manual_vm` and `execute_manual_vm_built` now use the minimal
+  harness explicitly.
+- all remaining direct `Context::new_vm_harness()` test call sites were
+  classified and moved to either `new_vm_runtime_harness()` or
+  `new_minimal_vm_harness()`.
+- `vm_test.rs` now has an explicit runtime-harness invariant test covering
+  `selected-window`, `fset`, `defvaralias`, and `func-arity`.
+- the full-runtime harness also exposed one stale VM test assumption around
+  GNU recursive `load` depth; that test was corrected to match `lread.c`.
+
 Focused verification after this slice:
 
 - `vm_frame_selected_window_builtins_use_shared_runtime_state`
@@ -40,6 +52,20 @@ Focused verification after this slice:
 - `evaluator_drop_clears_owned_thread_locals`
 
 All six passed.
+
+Focused verification after the second slice:
+
+- `vm_runtime_harness_exposes_public_builtin_surface`
+- `vm_switch_branches_using_hash_table_jump_table`
+- `vm_throw_restores_saved_stack_before_resuming_catch`
+- `vm_bytecode_wrong_arity_matches_gnu_entry_check`
+- `vm_gnu_arg_descriptor_preserves_optional_and_rest_slots`
+- `vm_compiled_autoload_registration_updates_shared_autoload_manager`
+- `vm_compiled_load_uses_shared_runtime_and_restores_load_file_name`
+- `vm_compiled_load_allows_gnu_normal_recursive_load_depth`
+- `vm_compiled_load_signals_after_gnu_recursive_load_limit`
+
+All targeted checks passed.
 
 ## Why this refactor is necessary
 

@@ -739,7 +739,7 @@ fn execute_manual_vm<T>(
     mut func: ByteCodeFunction,
     init: impl FnOnce(&mut ByteCodeFunction, &mut crate::buffer::BufferManager) -> T,
 ) -> (Value, crate::buffer::BufferManager, T) {
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_minimal_vm_harness();
     let init_state = init(&mut func, &mut eval.buffers);
 
     let result = {
@@ -758,7 +758,7 @@ fn execute_manual_vm<T>(
 fn execute_manual_vm_built<T>(
     build: impl FnOnce(&mut crate::buffer::BufferManager) -> (ByteCodeFunction, T),
 ) -> (Value, crate::buffer::BufferManager, T) {
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_minimal_vm_harness();
     let (func, init_state) = build(&mut eval.buffers);
 
     let result = {
@@ -769,6 +769,30 @@ fn execute_manual_vm_built<T>(
 
     let buffers = std::mem::replace(&mut eval.buffers, crate::buffer::BufferManager::new());
     (result, buffers, init_state)
+}
+
+#[test]
+fn vm_runtime_harness_exposes_public_builtin_surface() {
+    with_vm_eval_in_context(
+        Context::new_vm_runtime_harness(),
+        r#"(progn
+             (setq vm-runtime-harness-base nil)
+             (fset 'vm-runtime-harness-fn 'car)
+             (defvaralias 'vm-runtime-harness-alias 'vm-runtime-harness-base)
+             (setq vm-runtime-harness-alias 7)
+             (list
+              (windowp (selected-window))
+              (funcall 'vm-runtime-harness-fn '(1 . 2))
+              vm-runtime-harness-base
+              (func-arity 'car)))"#,
+        false,
+        |result, _| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (t 1 7 (1 . 1))"
+            );
+        },
+    );
 }
 
 #[test]
@@ -1375,7 +1399,7 @@ fn vm_concat() {
 fn vm_switch_branches_using_hash_table_jump_table() {
     // Build all Values AFTER the evaluator is initialized to avoid
     // stale ObjId/SymId from thread-local heap/interner replacement.
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_minimal_vm_harness();
 
     let table = Value::hash_table(HashTableTest::Eq);
     let Value::HashTable(table_id) = table else {
@@ -1550,7 +1574,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         interactive: None,
     };
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_minimal_vm_harness();
     let mut vm = new_vm(&mut eval);
 
     let result = vm.execute(&func, vec![]).expect("vm catch should execute");
@@ -1559,7 +1583,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
 
 #[test]
 fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror() {
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_minimal_vm_harness();
     let tag = Value::symbol("vm-shared-outer");
     eval.push_condition_frame(ConditionFrame::Catch {
         tag,
@@ -1588,7 +1612,7 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
 
 #[test]
 fn vm_throw_selection_uses_resume_identity_not_numeric_tuple() {
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_minimal_vm_harness();
 
     let mut inner = ByteCodeFunction::new(LambdaParams {
         required: vec![],
@@ -2605,7 +2629,7 @@ fn vm_assoc_and_plist_member_predicates_use_shared_runtime_callbacks() {
 fn vm_runtime_control_tail_uses_localized_shared_paths() {
     assert_eq!(vm_eval_str("(listp (garbage-collect))"), "OK t");
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let kill_only = parse_forms("(kill-emacs 7)").expect("parse");
     let kill_func = Compiler::new(false).compile_toplevel(&kill_only[0]);
 
@@ -3926,7 +3950,7 @@ fn vm_case_table_builtins_use_shared_buffer_state() {
 
 #[test]
 fn vm_undo_boundary_uses_shared_buffer_state() {
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");
@@ -4251,7 +4275,7 @@ fn vm_stale_process_status_builtins_use_shared_runtime_state() {
 fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
     use crate::emacs_core::process::ProcessStatus;
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
 
     let buffer_id = eval.buffers.create_buffer("*vm-proc-control*");
     eval.buffers.set_current(buffer_id);
@@ -4974,7 +4998,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     let out = base.join("out.txt").to_string_lossy().to_string();
     let visit = base.join("visit.txt").to_string_lossy().to_string();
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
     let current = eval.buffers.current_buffer_id().expect("current buffer");
@@ -6417,7 +6441,7 @@ fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
     )
     .expect("write autoload-do-load fixture");
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     eval.obarray.set_symbol_value(
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
@@ -6451,7 +6475,7 @@ fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
     )
     .expect("write autoload call fixture");
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     eval.obarray.set_symbol_value(
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
@@ -7145,7 +7169,7 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
     func.ops = vec![Op::Constant(0), Op::Return];
     func.max_stack = 1;
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_minimal_vm_harness();
     let mut vm = new_vm(&mut eval);
 
     let err = vm
@@ -8073,7 +8097,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         interactive: None,
     };
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_minimal_vm_harness();
     let mut vm = new_vm(&mut eval);
 
     let result = vm
@@ -8097,7 +8121,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
 
 #[test]
 fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let forms =
         parse_forms("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")").expect("parse");
     let mut compiler = Compiler::new(false);
@@ -8119,7 +8143,7 @@ fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
 
 #[test]
 fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     eval.set_read_command_keys(vec![Value::Int(97)]);
 
     let forms = parse_forms("(this-single-command-keys)").expect("parse");
@@ -8145,7 +8169,7 @@ fn vm_compiled_require_respects_recursive_require_guard() {
     )
     .expect("write require fixture");
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let forms = parse_forms(
         "(progn
            (setq vm-bytecode-required-ran nil)
@@ -8184,7 +8208,7 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
     )
     .expect("write require fixture");
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let forms = parse_forms(
         "(progn
            (setq vm-bytecode-required-ran nil)
@@ -8232,7 +8256,7 @@ fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
     std::fs::write(&fixture, "(setq vm-bytecode-load-seen load-file-name)\n")
         .expect("write load fixture");
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let forms = parse_forms(
         "(list
            (load \"vm-bytecode-shared-load\" nil nil nil nil)
@@ -8268,13 +8292,13 @@ fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
 }
 
 #[test]
-fn vm_compiled_load_respects_loads_in_progress_guard() {
+fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-load.el");
     std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
     let fixture = fixture.canonicalize().expect("canonical load fixture");
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let forms = parse_forms(&format!(
         "(progn
            (setq vm-bytecode-load-ran nil)
@@ -8285,19 +8309,68 @@ fn vm_compiled_load_respects_loads_in_progress_guard() {
     .expect("parse");
     let mut compiler = Compiler::new(false);
     let func = compiler.compile_toplevel(&forms[0]);
-    eval.loads_in_progress = vec![fixture];
+    eval.loads_in_progress = vec![fixture.clone()];
 
     let result = {
         let mut vm = new_vm(&mut eval);
         vm.execute(&func, vec![])
-            .expect("compiled load should observe recursive load guard")
+            .expect("compiled load should allow GNU's normal recursive depth")
     };
 
     assert_eq!(
         result,
-        Value::Nil,
-        "compiled load should skip re-entering a file already being loaded"
+        Value::True,
+        "compiled load should proceed until GNU's recursive-load limit is exceeded"
     );
+    assert_eq!(
+        eval.loads_in_progress,
+        vec![fixture],
+        "compiled load should restore the caller's loads_in_progress stack"
+    );
+}
+
+#[test]
+fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fixture = dir.path().join("vm-bytecode-recursive-limit.el");
+    std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
+    let fixture = fixture.canonicalize().expect("canonical load fixture");
+
+    let mut eval = Context::new_vm_runtime_harness();
+    let forms = parse_forms(&format!(
+        r#"(load {:?} nil nil t)"#,
+        fixture.to_string_lossy()
+    ))
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+    eval.loads_in_progress = vec![
+        fixture.clone(),
+        fixture.clone(),
+        fixture.clone(),
+        fixture.clone(),
+    ];
+
+    let err = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect_err("compiled load should signal once GNU's recursive-load limit is exceeded")
+    };
+
+    match map_flow(err) {
+        EvalError::Signal { symbol, data, .. } => {
+            assert_eq!(resolve_sym(symbol), "error");
+            assert_eq!(data[0].as_str(), Some("Recursive load"));
+            assert_eq!(data[1].cons_car(), Value::string(fixture.to_string_lossy()));
+            assert_eq!(
+                crate::emacs_core::value::list_to_vec(&data[1].cons_cdr())
+                    .expect("recursive load payload tail should be a proper list")
+                    .len(),
+                4
+            );
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
 }
 
 #[test]
@@ -8330,7 +8403,7 @@ fn vm_interactive_form_uses_shared_autoload_load_bridge() {
     )
     .expect("write interactive-form autoload fixture");
 
-    let mut eval = Context::new_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let forms = parse_forms(
         "(progn
            (autoload 'vm-interactive-form-auto \"vm-interactive-form-auto\")
