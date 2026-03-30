@@ -14,6 +14,7 @@ This directory now has one audit file per major compatibility module.
 - [Phase 8: Command System](phase-08-command-system.md)
 - [Phase 8 Keymap/Key Input Plan](phase-08-keymap-key-input-refactor-plan.md)
 - [Phase 9: Process / Thread / Timer](phase-09-process-thread-timer.md)
+- [Process / Timer / Event Loop Audit](process-timer-event-loop.md)
 - [Phase 10: Startup & Integration](phase-10-startup-integration.md)
 
 Existing overview files remain important:

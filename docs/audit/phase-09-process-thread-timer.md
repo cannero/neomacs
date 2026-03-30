@@ -59,6 +59,10 @@ Bad:
   `neovm-worker` add a separate task/affinity/runtime layer.
 - That makes Lisp-visible ordering and state transitions a real source-level
   risk, even if individual APIs look plausible.
+- The focused follow-up in
+  [process-timer-event-loop.md](process-timer-event-loop.md)
+  confirms that `accept-process-output` is currently not GNU's single shared
+  event-loop entry point.
 
 ## Long-term ideal design
 
