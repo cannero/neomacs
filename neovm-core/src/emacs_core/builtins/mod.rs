@@ -3769,7 +3769,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         "get-internal-run-time",
         |_ctx, args| builtin_get_internal_run_time(args),
         0,
-        None,
+        Some(0),
     );
     ctx.defsubr(
         "float-time",
@@ -3788,7 +3788,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         "flush-standard-output",
         |_ctx, args| builtin_flush_standard_output(args),
         0,
-        None,
+        Some(0),
     );
     ctx.defsubr(
         "force-mode-line-update",
