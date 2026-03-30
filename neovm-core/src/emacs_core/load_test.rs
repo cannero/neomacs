@@ -5242,6 +5242,155 @@ fn bootstrap_runtime_before_advice_preserves_advice_stack_shape() {
 }
 
 #[test]
+fn runtime_add_function_and_advice_mapc_on_symbol_function_place() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(progn
+  (defun neovm--place-target (x)
+    (list 'target x))
+  (defun neovm--place-around (orig x)
+    (list 'around (funcall orig x)))
+  (unwind-protect
+      (progn
+        (add-function :around (symbol-function 'neovm--place-target)
+                      #'neovm--place-around
+                      '((name . neovm-place-around) (depth . -50)))
+        (list
+         (neovm--place-target 1)
+         (let (seen)
+           (advice-mapc
+            (lambda (f props)
+              (push (list (functionp f)
+                          (cdr (assq 'name props))
+                          (cdr (assq 'depth props)))
+                    seen))
+            'neovm--place-target)
+           (nreverse seen))
+         (progn
+           (remove-function (symbol-function 'neovm--place-target)
+                            'neovm-place-around)
+           (neovm--place-target 2))))
+    (ignore-errors
+      (remove-function (symbol-function 'neovm--place-target)
+                       'neovm-place-around))
+    (fmakunbound 'neovm--place-around)
+    (fmakunbound 'neovm--place-target)))
+"#,
+    );
+
+    assert_eq!(
+        rendered,
+        "OK ((around (target 1)) ((t neovm-place-around -50)) (target 2))"
+    );
+}
+
+#[test]
+fn runtime_add_function_on_local_place() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(progn
+  (defvar neovm--local-place-fn nil)
+  (setq-default neovm--local-place-fn
+                (lambda (x) (list 'global x)))
+  (defun neovm--local-place-around (orig x)
+    (list 'local-around (funcall orig x)))
+  (let ((other (get-buffer-create " *neovm-advice-other*")))
+    (unwind-protect
+        (with-temp-buffer
+          (setq-local neovm--local-place-fn
+                      (lambda (x) (list 'local x)))
+          (add-function :around (local 'neovm--local-place-fn)
+                        #'neovm--local-place-around)
+          (list
+           (funcall neovm--local-place-fn 1)
+           (with-current-buffer other
+             (funcall neovm--local-place-fn 2))
+           (progn
+             (remove-function (local 'neovm--local-place-fn)
+                              #'neovm--local-place-around)
+             (funcall neovm--local-place-fn 3))))
+      (when (buffer-live-p other)
+        (kill-buffer other))
+      (makunbound 'neovm--local-place-fn)
+      (fmakunbound 'neovm--local-place-around))))
+"#,
+    );
+
+    assert_eq!(
+        rendered,
+        "OK ((local-around (local 1)) (global 2) (local 3))"
+    );
+}
+
+#[test]
+fn runtime_add_function_on_process_filter_place() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(progn
+  (defun neovm--proc-filter-around (orig proc string)
+    (list 'filter string (null (funcall orig proc string))))
+  (let ((p (make-pipe-process :name "neovm-adv-filter")))
+    (unwind-protect
+        (progn
+          (add-function :around (process-filter p)
+                        #'neovm--proc-filter-around)
+          (list
+           (funcall (process-filter p) p "chunk")
+           (progn
+             (remove-function (process-filter p)
+                              #'neovm--proc-filter-around)
+             (funcall (process-filter p) p "chunk"))))
+      (ignore-errors (delete-process p))
+      (fmakunbound 'neovm--proc-filter-around))))
+"#,
+    );
+
+    assert_eq!(rendered, "OK ((filter \"chunk\" t) nil)");
+}
+
+#[test]
+fn runtime_add_function_on_process_sentinel_place() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(progn
+  (defun neovm--proc-sentinel-around (orig proc string)
+    (list 'sentinel string (null (funcall orig proc string))))
+  (let ((p (make-pipe-process :name "neovm-adv-sentinel")))
+    (unwind-protect
+        (progn
+          (add-function :around (process-sentinel p)
+                        #'neovm--proc-sentinel-around)
+          (list
+           (funcall (process-sentinel p) p "done")
+           (progn
+             (remove-function (process-sentinel p)
+                              #'neovm--proc-sentinel-around)
+             (funcall (process-sentinel p) p "done"))))
+      (ignore-errors (delete-process p))
+      (fmakunbound 'neovm--proc-sentinel-around))))
+"#,
+    );
+
+    assert_eq!(rendered, "OK ((sentinel \"done\" t) nil)");
+}
+
+#[test]
 fn bootstrap_cl_extra_source_vs_compiled_cl_subseq_setf() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
