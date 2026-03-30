@@ -25,7 +25,7 @@ use std::io::Read as IoRead;
 use std::net::IpAddr;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// A TLS-wrapped TCP stream using rustls.
 /// The underlying `TcpStream` is owned by `StreamOwned`, so when TLS is active
@@ -34,7 +34,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub type TlsStream = rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>;
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::resolve_sym;
+use super::intern::{intern, resolve_sym};
 use super::threads::ThreadManager;
 use super::value::{
     StringTextPropertyRun, Value, list_to_vec, next_float_id, read_cons, with_heap,
@@ -884,6 +884,271 @@ impl ProcessManager {
 
 const DEFAULT_PROCESS_FILTER_SYMBOL: &str = "internal-default-process-filter";
 const DEFAULT_PROCESS_SENTINEL_SYMBOL: &str = "internal-default-process-sentinel";
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct WaitServiceOutcome {
+    pub(crate) any_process_activity: bool,
+    pub(crate) target_process_activity: bool,
+    pub(crate) timers_fired: bool,
+}
+
+impl super::eval::Context {
+    pub(crate) fn service_pending_timers_with_wait_policy(&mut self, redisplay: bool) -> bool {
+        let mut fired_any = false;
+
+        for timer in self.due_gnu_timers_snapshot() {
+            fired_any = true;
+            if let Value::Vector(timer_id) = timer {
+                crate::emacs_core::value::with_heap_mut(|heap| {
+                    heap.get_vector_mut(timer_id)[0] = Value::True
+                });
+            }
+            if let Err(err) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
+                tracing::warn!("GNU Lisp timer callback error: {:?}", err);
+            }
+        }
+
+        for timer in self.due_gnu_idle_timers_snapshot() {
+            fired_any = true;
+            if let Value::Vector(timer_id) = timer {
+                crate::emacs_core::value::with_heap_mut(|heap| {
+                    heap.get_vector_mut(timer_id)[0] = Value::True
+                });
+            }
+            if cfg!(test) {
+                eprintln!("fire_pending_timers idle timer={:?}", timer);
+            }
+            if let Err(err) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
+                tracing::warn!("GNU Lisp idle timer callback error: {:?}", err);
+            } else if cfg!(test) {
+                eprintln!("fire_pending_timers idle callback returned");
+            }
+        }
+
+        let now = Instant::now();
+        let idle_dur = self.current_idle_duration();
+        let fired = self.timers.fire_pending_timers(now, idle_dur);
+        for (callback, args) in fired {
+            fired_any = true;
+            let mut call_args = vec![callback];
+            call_args.extend(args);
+            if let Err(err) =
+                crate::emacs_core::builtins::dispatch_builtin(self, "funcall", call_args)
+                    .unwrap_or(Ok(Value::Nil))
+            {
+                tracing::warn!("Rust timer callback error: {:?}", err);
+            }
+        }
+
+        if fired_any && redisplay {
+            self.redisplay();
+        }
+
+        fired_any
+    }
+
+    fn run_async_process_callback_preserving_state(
+        &mut self,
+        callback: Value,
+        args: Vec<Value>,
+        label: &str,
+    ) {
+        let saved_match_data = self.match_data.clone();
+        let saved_current_buffer = self.buffers.current_buffer_id();
+        let saved_waiting_for_input = self.waiting_for_user_input();
+        let specpdl_count = self.specpdl.len();
+        let saved_roots = self.save_temp_roots();
+
+        self.push_temp_root(callback);
+        for arg in &args {
+            self.push_temp_root(*arg);
+        }
+
+        self.specbind(intern("inhibit-quit"), Value::True);
+
+        let result = self.apply(callback, args);
+
+        self.match_data = saved_match_data;
+        if let Some(buffer_id) = saved_current_buffer {
+            self.restore_current_buffer_if_live(buffer_id);
+        }
+        self.set_waiting_for_user_input(saved_waiting_for_input);
+        self.unbind_to(specpdl_count);
+        self.restore_temp_roots(saved_roots);
+
+        if let Err(err) = result {
+            tracing::warn!("{label} callback error: {:?}", err);
+        }
+    }
+
+    fn run_process_filter_callback(&mut self, pid: ProcessId, filter: Value, data: &str) {
+        let proc_val = Value::Int(pid as i64);
+        let output_val = Value::string(data);
+        if filter.is_nil() || filter.is_symbol_named(DEFAULT_PROCESS_FILTER_SYMBOL) {
+            let callback = Value::symbol(DEFAULT_PROCESS_FILTER_SYMBOL);
+            self.run_async_process_callback_preserving_state(
+                callback,
+                vec![proc_val, output_val],
+                "process filter",
+            );
+        } else if filter.is_truthy() {
+            self.run_async_process_callback_preserving_state(
+                filter,
+                vec![proc_val, output_val],
+                "process filter",
+            );
+        }
+    }
+
+    fn run_process_sentinel_callback(&mut self, pid: ProcessId, sentinel: Value, message: &str) {
+        if sentinel.is_nil() {
+            return;
+        }
+
+        let callback = if sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL) {
+            Value::symbol(DEFAULT_PROCESS_SENTINEL_SYMBOL)
+        } else {
+            sentinel
+        };
+
+        self.run_async_process_callback_preserving_state(
+            callback,
+            vec![Value::Int(pid as i64), Value::string(message)],
+            "process sentinel",
+        );
+    }
+
+    pub(crate) fn poll_process_output_with_wait_policy(
+        &mut self,
+        target_process: Option<ProcessId>,
+        just_this_one: bool,
+    ) -> WaitServiceOutcome {
+        let proc_ids = if just_this_one {
+            target_process.into_iter().collect::<Vec<_>>()
+        } else {
+            self.processes.live_process_ids()
+        };
+
+        if proc_ids.is_empty() {
+            return WaitServiceOutcome::default();
+        }
+
+        let mut outcome = WaitServiceOutcome::default();
+
+        for pid in proc_ids {
+            let is_target = target_process.map_or(true, |target| target == pid);
+            let exited = self.processes.check_child_exit(pid);
+
+            let read_result = self.processes.read_process_output(pid);
+            let is_network = self
+                .processes
+                .get(pid)
+                .map(|p| p.kind == ProcessKind::Network)
+                .unwrap_or(false);
+
+            match read_result {
+                Some(ref data) if !data.is_empty() => {
+                    outcome.any_process_activity = true;
+                    if is_target {
+                        outcome.target_process_activity = true;
+                    }
+
+                    let filter = self
+                        .processes
+                        .get(pid)
+                        .map(|p| p.filter)
+                        .unwrap_or(Value::Nil);
+                    self.run_process_filter_callback(pid, filter, data);
+                }
+                None if is_network => {
+                    outcome.any_process_activity = true;
+                    if is_target {
+                        outcome.target_process_activity = true;
+                    }
+
+                    if let Some(proc) = self.processes.get_mut(pid) {
+                        proc.status = ProcessStatus::Exit(0);
+                    }
+                    let sentinel = self
+                        .processes
+                        .get(pid)
+                        .map(|p| p.sentinel)
+                        .unwrap_or(Value::Nil);
+                    self.run_process_sentinel_callback(
+                        pid,
+                        sentinel,
+                        "connection broken by remote peer\n",
+                    );
+                    continue;
+                }
+                _ => {}
+            }
+
+            if exited {
+                outcome.any_process_activity = true;
+                if is_target {
+                    outcome.target_process_activity = true;
+                }
+
+                let sentinel = self
+                    .processes
+                    .get(pid)
+                    .map(|p| p.sentinel)
+                    .unwrap_or(Value::Nil);
+                let exit_msg = self
+                    .processes
+                    .get(pid)
+                    .map(|p| match &p.status {
+                        ProcessStatus::Exit(code) => {
+                            if *code == 0 {
+                                "finished\n".to_string()
+                            } else {
+                                format!("exited abnormally with code {}\n", code)
+                            }
+                        }
+                        ProcessStatus::Signal(sig) => format!("killed by signal {}\n", sig),
+                        _ => "finished\n".to_string(),
+                    })
+                    .unwrap_or_else(|| "finished\n".to_string());
+                self.run_process_sentinel_callback(pid, sentinel, &exit_msg);
+            }
+        }
+
+        outcome
+    }
+
+    pub(crate) fn service_wait_path_once(
+        &mut self,
+        target_process: Option<ProcessId>,
+        just_this_one: bool,
+        allow_timers: bool,
+        redisplay_timers: bool,
+    ) -> WaitServiceOutcome {
+        let mut outcome = WaitServiceOutcome::default();
+        if allow_timers {
+            outcome.timers_fired = self.service_pending_timers_with_wait_policy(redisplay_timers);
+        }
+        let process_outcome =
+            self.poll_process_output_with_wait_policy(target_process, just_this_one);
+        outcome.any_process_activity = process_outcome.any_process_activity;
+        outcome.target_process_activity = process_outcome.target_process_activity;
+        outcome
+    }
+
+    pub(crate) fn next_wait_path_timeout(
+        &self,
+        remaining: Duration,
+        allow_timers: bool,
+    ) -> Duration {
+        let mut timeout = remaining.min(Duration::from_millis(50));
+        if allow_timers {
+            if let Some(next) = self.next_input_wait_timeout() {
+                timeout = timeout.min(next);
+            }
+        }
+        timeout
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -4890,10 +5155,18 @@ pub(crate) fn builtin_make_process_impl(
     Ok(Value::Int(id as i64))
 }
 
-pub(crate) fn builtin_accept_process_output_collect(
+#[derive(Clone, Copy, Debug)]
+struct AcceptProcessOutputRequest {
+    timeout: Duration,
+    target_id: Option<ProcessId>,
+    just_this_one: bool,
+    allow_timers: bool,
+}
+
+fn parse_accept_process_output_request(
     processes: &mut ProcessManager,
-    args: Vec<Value>,
-) -> Result<(Value, Vec<(Value, Vec<Value>)>), Flow> {
+    args: &[Value],
+) -> Result<Option<AcceptProcessOutputRequest>, Flow> {
     if args.len() > 4 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -4909,7 +5182,7 @@ pub(crate) fn builtin_accept_process_output_collect(
             && resolve_live_process_designator_in_manager(processes, process).is_none()
         {
             if is_stale_process_id_designator_in_manager(processes, process) {
-                return Ok((Value::Nil, Vec::new()));
+                return Ok(None);
             }
             return Err(signal(
                 "wrong-type-argument",
@@ -4947,7 +5220,7 @@ pub(crate) fn builtin_accept_process_output_collect(
         }
     }
 
-    let timeout_ms: Option<u64> = {
+    let timeout_ms: u64 = {
         let secs = args.get(1).and_then(|v| match v {
             Value::Int(n) if !v.is_nil() => Some(*n as f64),
             Value::Float(f, _) => Some(*f),
@@ -4961,9 +5234,9 @@ pub(crate) fn builtin_accept_process_output_collect(
             })
             .unwrap_or(0);
         match secs {
-            Some(s) => Some((s * 1000.0) as u64 + ms as u64),
-            None if ms > 0 => Some(ms as u64),
-            _ => Some(50),
+            Some(s) => (s * 1000.0) as u64 + ms as u64,
+            None if ms > 0 => ms as u64,
+            _ => 50,
         }
     };
 
@@ -4977,122 +5250,19 @@ pub(crate) fn builtin_accept_process_output_collect(
         None
     };
 
-    let proc_ids: Vec<ProcessId> = if let Some(id) = target_id {
-        vec![id]
+    let just_this_one = target_id.is_some() && args.get(3).is_some_and(|value| value.is_truthy());
+    let allow_timers = if target_id.is_some() {
+        !matches!(args.get(3), Some(Value::Int(_)))
     } else {
-        processes.live_process_ids()
+        true
     };
 
-    let start = std::time::Instant::now();
-    let deadline = timeout_ms.map(std::time::Duration::from_millis);
-    let mut got_output = false;
-    let mut callbacks = Vec::new();
-
-    loop {
-        for &pid in &proc_ids {
-            let exited = processes.check_child_exit(pid);
-
-            let read_result = processes.read_process_output(pid);
-            let is_network = processes
-                .get(pid)
-                .map(|p| p.kind == ProcessKind::Network)
-                .unwrap_or(false);
-
-            match &read_result {
-                Some(data) if !data.is_empty() => {
-                    got_output = true;
-                    let filter = processes.get(pid).map(|p| p.filter).unwrap_or(Value::Nil);
-                    if !filter.is_nil()
-                        && !filter.is_symbol_named(DEFAULT_PROCESS_FILTER_SYMBOL)
-                        && filter.is_truthy()
-                    {
-                        callbacks.push((filter, vec![Value::Int(pid as i64), Value::string(data)]));
-                    }
-                }
-                None if is_network => {
-                    // Network connection closed (EOF).
-                    if let Some(proc) = processes.get_mut(pid) {
-                        proc.status = ProcessStatus::Exit(0);
-                    }
-                    let sentinel = processes.get(pid).map(|p| p.sentinel).unwrap_or(Value::Nil);
-                    if !sentinel.is_nil()
-                        && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
-                        && sentinel.is_truthy()
-                    {
-                        callbacks.push((
-                            sentinel,
-                            vec![
-                                Value::Int(pid as i64),
-                                Value::string("connection broken by remote peer\n"),
-                            ],
-                        ));
-                    }
-                    continue;
-                }
-                _ => {}
-            }
-
-            if exited {
-                let sentinel = processes.get(pid).map(|p| p.sentinel).unwrap_or(Value::Nil);
-                let exit_msg = processes
-                    .get(pid)
-                    .map(|p| match &p.status {
-                        ProcessStatus::Exit(code) => {
-                            if *code == 0 {
-                                "finished\n".to_string()
-                            } else {
-                                format!("exited abnormally with code {}\n", code)
-                            }
-                        }
-                        ProcessStatus::Signal(sig) => format!("killed by signal {}\n", sig),
-                        _ => "finished\n".to_string(),
-                    })
-                    .unwrap_or_else(|| "finished\n".to_string());
-                if !sentinel.is_nil()
-                    && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
-                    && sentinel.is_truthy()
-                {
-                    callbacks.push((
-                        sentinel,
-                        vec![Value::Int(pid as i64), Value::string(&exit_msg)],
-                    ));
-                }
-            }
-        }
-
-        if got_output {
-            return Ok((Value::True, callbacks));
-        }
-
-        if let Some(d) = deadline {
-            if start.elapsed() >= d {
-                return Ok((Value::Nil, callbacks));
-            }
-        } else {
-            return Ok((Value::Nil, callbacks));
-        }
-
-        let elapsed = start.elapsed();
-        let remaining = deadline
-            .and_then(|d| d.checked_sub(elapsed))
-            .unwrap_or(std::time::Duration::from_millis(50));
-        let wait_time = remaining.min(std::time::Duration::from_millis(50));
-        let _ = processes.wait_for_output(wait_time);
-    }
-}
-
-pub(crate) fn root_accept_process_output_callbacks(
-    eval: &mut super::eval::Context,
-    callbacks: &[(Value, Vec<Value>)],
-) -> usize {
-    let saved = eval.save_temp_roots();
-    for (callback, callback_args) in callbacks {
-        eval.push_temp_root(*callback);
-        for arg in callback_args {
-            eval.push_temp_root(*arg);
-        }
-    }
-    saved
+    Ok(Some(AcceptProcessOutputRequest {
+        timeout: Duration::from_millis(timeout_ms),
+        target_id,
+        just_this_one,
+        allow_timers,
+    }))
 }
 
 /// (process-send-string PROCESS STRING) -> nil
@@ -5865,22 +6035,46 @@ pub(crate) fn builtin_process_running_child_p_impl(
 }
 
 /// (accept-process-output &optional PROCESS SECONDS MILLISECS JUST-THIS-ONE) -> bool
-///
-/// Batch/runtime compatibility path: validates arguments, then returns nil.
 pub(crate) fn builtin_accept_process_output(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (result, callbacks) = builtin_accept_process_output_collect(&mut eval.processes, args)?;
-    let saved_roots = root_accept_process_output_callbacks(eval, &callbacks);
-    for (callback, callback_args) in callbacks {
-        if let Err(flow) = eval.apply(callback, callback_args) {
-            eval.restore_temp_roots(saved_roots);
-            return Err(flow);
+    let Some(request) = parse_accept_process_output_request(&mut eval.processes, &args)? else {
+        return Ok(Value::Nil);
+    };
+
+    let start = Instant::now();
+    let deadline = start + request.timeout;
+
+    loop {
+        let outcome = eval.service_wait_path_once(
+            request.target_id,
+            request.just_this_one,
+            request.allow_timers,
+            false,
+        );
+
+        let got_output = if request.target_id.is_some() {
+            outcome.target_process_activity
+        } else {
+            outcome.any_process_activity
+        };
+        if got_output {
+            return Ok(Value::True);
         }
+
+        let now = Instant::now();
+        if now >= deadline {
+            return Ok(Value::Nil);
+        }
+
+        let remaining = deadline.saturating_duration_since(now);
+        let wait_time = eval.next_wait_path_timeout(remaining, request.allow_timers);
+        if wait_time.is_zero() {
+            continue;
+        }
+        let _ = eval.processes.wait_for_output(wait_time);
     }
-    eval.restore_temp_roots(saved_roots);
-    Ok(result)
 }
 
 /// (get-process NAME) -> process-or-nil

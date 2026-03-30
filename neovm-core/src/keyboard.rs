@@ -3117,7 +3117,7 @@ impl crate::emacs_core::eval::Context {
         }
     }
 
-    fn due_gnu_timers_snapshot(&self) -> Vec<Value> {
+    pub(crate) fn due_gnu_timers_snapshot(&self) -> Vec<Value> {
         let timers = self
             .obarray
             .symbol_value("timer-list")
@@ -3133,7 +3133,7 @@ impl crate::emacs_core::eval::Context {
             .collect()
     }
 
-    fn due_gnu_idle_timers_snapshot(&self) -> Vec<Value> {
+    pub(crate) fn due_gnu_idle_timers_snapshot(&self) -> Vec<Value> {
         let Some(idle_duration) = self.current_idle_duration() else {
             return Vec::new();
         };
@@ -3206,184 +3206,11 @@ impl crate::emacs_core::eval::Context {
     }
 
     pub(crate) fn fire_pending_timers(&mut self) {
-        let mut fired_any = false;
-
-        for timer in self.due_gnu_timers_snapshot() {
-            fired_any = true;
-            if let Value::Vector(timer_id) = timer {
-                crate::emacs_core::value::with_heap_mut(|heap| {
-                    heap.get_vector_mut(timer_id)[0] = Value::True
-                });
-            }
-            if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
-                tracing::warn!("GNU Lisp timer callback error: {:?}", e);
-            }
-        }
-
-        for timer in self.due_gnu_idle_timers_snapshot() {
-            fired_any = true;
-            if let Value::Vector(timer_id) = timer {
-                crate::emacs_core::value::with_heap_mut(|heap| {
-                    heap.get_vector_mut(timer_id)[0] = Value::True
-                });
-            }
-            if cfg!(test) {
-                eprintln!("fire_pending_timers idle timer={:?}", timer);
-            }
-            if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
-                tracing::warn!("GNU Lisp idle timer callback error: {:?}", e);
-            } else if cfg!(test) {
-                eprintln!("fire_pending_timers idle callback returned");
-            }
-        }
-
-        let now = std::time::Instant::now();
-        let idle_dur = self.current_idle_duration();
-        let fired = self.timers.fire_pending_timers(now, idle_dur);
-        for (callback, args) in fired {
-            fired_any = true;
-            let mut call_args = vec![callback];
-            call_args.extend(args);
-            if let Err(e) =
-                crate::emacs_core::builtins::dispatch_builtin(self, "funcall", call_args)
-                    .unwrap_or(Ok(Value::Nil))
-            {
-                tracing::warn!("Rust timer callback error: {:?}", e);
-            }
-        }
-
-        if fired_any {
-            self.redisplay();
-        }
+        let _ = self.service_pending_timers_with_wait_policy(true);
     }
 
     pub(crate) fn poll_process_output(&mut self) {
-        let proc_ids = self.processes.live_process_ids();
-        if proc_ids.is_empty() {
-            return;
-        }
-
-        for pid in proc_ids {
-            let exited = self.processes.check_child_exit(pid);
-
-            let read_result = self.processes.read_process_output(pid);
-            let is_network = self
-                .processes
-                .get(pid)
-                .map(|p| p.kind == crate::emacs_core::process::ProcessKind::Network)
-                .unwrap_or(false);
-
-            match read_result {
-                Some(ref data) if !data.is_empty() => {
-                    let filter = self
-                        .processes
-                        .get(pid)
-                        .map(|p| p.filter)
-                        .unwrap_or(Value::Nil);
-
-                    let saved_match_data = self.match_data.clone();
-                    let saved_current_buffer = self.buffers.current_buffer_id();
-
-                    if filter.is_nil() || filter.is_symbol_named("internal-default-process-filter")
-                    {
-                        let proc_val = Value::Int(pid as i64);
-                        let output_val = Value::string(data);
-                        if let Err(e) =
-                            crate::emacs_core::process::builtin_internal_default_process_filter(
-                                self,
-                                vec![proc_val, output_val],
-                            )
-                        {
-                            tracing::warn!("Default process filter error for pid {}: {:?}", pid, e);
-                        }
-                    } else if filter.is_truthy() {
-                        let proc_val = Value::Int(pid as i64);
-                        let output_val = Value::string(data);
-                        if let Err(e) = self.apply(filter, vec![proc_val, output_val]) {
-                            tracing::warn!("Process filter error for pid {}: {:?}", pid, e);
-                        }
-                    }
-
-                    self.match_data = saved_match_data;
-                    if let Some(buf_id) = saved_current_buffer {
-                        self.restore_current_buffer_if_live(buf_id);
-                    }
-                }
-                None if is_network => {
-                    if let Some(proc) = self.processes.get_mut(pid) {
-                        proc.status = crate::emacs_core::process::ProcessStatus::Exit(0);
-                    }
-                    let sentinel = self
-                        .processes
-                        .get(pid)
-                        .map(|p| p.sentinel)
-                        .unwrap_or(Value::Nil);
-                    if !sentinel.is_nil()
-                        && !sentinel.is_symbol_named("internal-default-process-sentinel")
-                        && sentinel.is_truthy()
-                    {
-                        let saved_match_data = self.match_data.clone();
-                        let saved_current_buffer = self.buffers.current_buffer_id();
-
-                        let proc_val = Value::Int(pid as i64);
-                        let msg_val = Value::string("connection broken by remote peer\n");
-                        if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
-                            tracing::warn!("Network sentinel error for pid {}: {:?}", pid, e);
-                        }
-
-                        self.match_data = saved_match_data;
-                        if let Some(buf_id) = saved_current_buffer {
-                            self.restore_current_buffer_if_live(buf_id);
-                        }
-                    }
-                    continue;
-                }
-                _ => {}
-            }
-
-            if exited {
-                let sentinel = self
-                    .processes
-                    .get(pid)
-                    .map(|p| p.sentinel)
-                    .unwrap_or(Value::Nil);
-                let exit_msg = self
-                    .processes
-                    .get(pid)
-                    .map(|p| match &p.status {
-                        crate::emacs_core::process::ProcessStatus::Exit(code) => {
-                            if *code == 0 {
-                                "finished\n".to_string()
-                            } else {
-                                format!("exited abnormally with code {}\n", code)
-                            }
-                        }
-                        crate::emacs_core::process::ProcessStatus::Signal(sig) => {
-                            format!("killed by signal {}\n", sig)
-                        }
-                        _ => "finished\n".to_string(),
-                    })
-                    .unwrap_or_else(|| "finished\n".to_string());
-                if !sentinel.is_nil()
-                    && !sentinel.is_symbol_named("internal-default-process-sentinel")
-                    && sentinel.is_truthy()
-                {
-                    let saved_match_data = self.match_data.clone();
-                    let saved_current_buffer = self.buffers.current_buffer_id();
-
-                    let proc_val = Value::Int(pid as i64);
-                    let msg_val = Value::string(&exit_msg);
-                    if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
-                        tracing::warn!("Process sentinel error for pid {}: {:?}", pid, e);
-                    }
-
-                    self.match_data = saved_match_data;
-                    if let Some(buf_id) = saved_current_buffer {
-                        self.restore_current_buffer_if_live(buf_id);
-                    }
-                }
-            }
-        }
+        let _ = self.poll_process_output_with_wait_policy(None, false);
     }
 
     pub(crate) fn record_input_event(&mut self, event: Value) {

@@ -66,6 +66,12 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
+fn eval_one_in_context(ev: &mut Context, src: &str) -> String {
+    let forms = parse_forms(src).expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    format_eval_result(&result)
+}
+
 /// Find the path of a binary, trying /bin, /usr/bin, and PATH lookup.
 fn find_bin(name: &str) -> String {
     for dir in &["/bin", "/usr/bin", "/run/current-system/sw/bin"] {
@@ -1148,6 +1154,268 @@ fn accept_process_output_roots_callbacks_across_gc() {
         r#"OK ("out
 " "finished
 ")"#
+    );
+}
+
+#[test]
+fn accept_process_output_waiting_for_target_still_services_other_processes() {
+    let cat = find_bin("cat");
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let result = eval_one_in_context(
+        &mut ev,
+        &format!(
+            r#"(let ((target (make-process :name "apio-target"
+                                      :buffer nil
+                                      :command (list "{cat}")
+                                      :connection-type 'pipe))
+                 (other (make-process :name "apio-other"
+                                     :buffer nil
+                                     :command (list "{echo}" "other")
+                                     :connection-type 'pipe))
+                 (other-output nil))
+             (unwind-protect
+                 (progn
+                   (set-process-filter other
+                                       (lambda (_proc string)
+                                         (setq other-output
+                                               (cons string other-output))))
+                   (list (accept-process-output target 0.1)
+                         (nreverse other-output)))
+               (condition-case nil (delete-process target) (error nil))
+               (condition-case nil (delete-process other) (error nil))))"#,
+        ),
+    );
+    assert_eq!(
+        result,
+        r#"OK (nil ("other
+"))"#
+    );
+}
+
+#[test]
+fn accept_process_output_just_this_one_suspends_other_processes() {
+    let cat = find_bin("cat");
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let result = eval_one_in_context(
+        &mut ev,
+        &format!(
+            r#"(let ((target (make-process :name "apio-target-only"
+                                      :buffer nil
+                                      :command (list "{cat}")
+                                      :connection-type 'pipe))
+                 (other (make-process :name "apio-other-only"
+                                     :buffer nil
+                                     :command (list "{echo}" "other")
+                                     :connection-type 'pipe))
+                 (other-output nil))
+             (unwind-protect
+                 (progn
+                   (set-process-filter other
+                                       (lambda (_proc string)
+                                         (setq other-output
+                                               (cons string other-output))))
+                   (list (accept-process-output target 0.1 nil t)
+                         (nreverse other-output)))
+               (condition-case nil (delete-process target) (error nil))
+               (condition-case nil (delete-process other) (error nil))))"#,
+        ),
+    );
+    assert_eq!(result, "OK (nil nil)");
+}
+
+#[test]
+fn accept_process_output_integer_just_this_one_suppresses_timers() {
+    let cat = find_bin("cat");
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (fset 'apio-wait-timer-callback
+                   (lambda () (setq apio-wait-timer-fired t)))
+             (setq apio-wait-timer-fired nil))"#,
+    )
+    .expect("parse timer callback setup");
+    ev.eval_expr(&setup[0]).expect("install timer callback");
+
+    let pid = ev
+        .processes
+        .create_process("apio-wait-target".into(), None, cat, Vec::new());
+    ev.processes
+        .spawn_child(pid, false)
+        .expect("spawn target child");
+    ev.timers.add_timer(
+        0.0,
+        0.0,
+        Value::symbol("apio-wait-timer-callback"),
+        vec![],
+        false,
+    );
+
+    let first = builtin_accept_process_output(
+        &mut ev,
+        vec![
+            Value::Int(pid as i64),
+            Value::Float(0.0, next_float_id()),
+            Value::Nil,
+            Value::Int(1),
+        ],
+    )
+    .expect("accept-process-output with integer just-this-one");
+    let after_first = ev
+        .eval_symbol("apio-wait-timer-fired")
+        .expect("timer flag after timer-suppressed wait");
+    let second = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+    )
+    .expect("accept-process-output should service timers without target restriction");
+    let after_second = ev
+        .eval_symbol("apio-wait-timer-fired")
+        .expect("timer flag after unrestricted wait");
+
+    assert_eq!(first, Value::Nil);
+    assert_eq!(after_first, Value::Nil);
+    assert_eq!(second, Value::Nil);
+    assert_eq!(after_second, Value::True);
+}
+
+#[test]
+fn accept_process_output_runs_default_process_filter() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let _ = ev.buffers.create_buffer("*apio-default-filter*");
+    let pid = ev.processes.create_process(
+        "apio-default-filter".into(),
+        Some("*apio-default-filter*".into()),
+        echo,
+        vec!["out".into()],
+    );
+    ev.processes
+        .spawn_child(pid, false)
+        .expect("spawn output process");
+
+    assert_eq!(
+        builtin_process_filter(&mut ev, vec![Value::Int(pid as i64)]).expect("process-filter"),
+        Value::symbol("internal-default-process-filter")
+    );
+
+    let first = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+    )
+    .expect("first accept-process-output");
+    let second = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+    )
+    .expect("second accept-process-output");
+    let buf_id = ev
+        .buffers
+        .find_buffer_by_name("*apio-default-filter*")
+        .expect("default filter should create process buffer");
+    let text = ev
+        .buffers
+        .get(buf_id)
+        .expect("process buffer")
+        .buffer_string();
+
+    assert_eq!(first, Value::True);
+    assert_eq!(second, Value::Nil);
+    assert_eq!(text, "out\n");
+}
+
+#[test]
+fn accept_process_output_restores_current_buffer_and_match_data() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(fset 'apio-restore-filter
+                  (lambda (_proc _string)
+                    (set-buffer (get-buffer-create "*apio-restore-other*"))
+                    (string-match "bb" "abba")))"#,
+    )
+    .expect("parse restore filter");
+    ev.eval_expr(&setup[0]).expect("install restore filter");
+
+    let home_id = ev.buffers.create_buffer("*apio-restore-home*");
+    assert!(ev.buffers.switch_current(home_id));
+    let _ = eval_one_in_context(&mut ev, r#"(string-match "yz" "xyz")"#);
+    let before_match = parse_forms("(match-data)").expect("parse match-data");
+    let before_match_data = ev
+        .eval_expr(&before_match[0])
+        .expect("capture match-data before callback");
+    let before_buffer = ev.buffers.current_buffer_id();
+
+    let pid = ev
+        .processes
+        .create_process("apio-restore".into(), None, echo, vec!["out".into()]);
+    ev.processes
+        .spawn_child(pid, false)
+        .expect("spawn restore process");
+    builtin_set_process_filter(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::symbol("apio-restore-filter")],
+    )
+    .expect("install process filter");
+
+    let result = builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+    )
+    .expect("accept-process-output with restoring filter");
+    let after_match_data = ev
+        .eval_expr(&before_match[0])
+        .expect("capture match-data after callback");
+
+    assert_eq!(result, Value::True);
+    assert_eq!(ev.buffers.current_buffer_id(), before_buffer);
+    assert_eq!(after_match_data, before_match_data);
+}
+
+#[test]
+fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (fset 'sleep-shared-filter
+                   (lambda (_proc string) (setq sleep-shared-output string)))
+             (fset 'sleep-shared-timer
+                   (lambda () (setq sleep-shared-timer-fired 'done)))
+             (setq sleep-shared-output nil
+                   sleep-shared-timer-fired nil))"#,
+    )
+    .expect("parse sleep-for callback setup");
+    ev.eval_expr(&setup[0])
+        .expect("install sleep-for callback setup");
+
+    let pid = ev
+        .processes
+        .create_process("sleep-shared".into(), None, echo, vec!["out".into()]);
+    ev.processes
+        .spawn_child(pid, false)
+        .expect("spawn sleep-for process");
+    builtin_set_process_filter(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::symbol("sleep-shared-filter")],
+    )
+    .expect("install sleep-for process filter");
+    ev.timers
+        .add_timer(0.0, 0.0, Value::symbol("sleep-shared-timer"), vec![], false);
+
+    crate::emacs_core::timer::builtin_sleep_for(&mut ev, vec![Value::Float(0.05, next_float_id())])
+        .expect("sleep-for should use the shared wait path");
+
+    assert_eq!(
+        ev.eval_symbol("sleep-shared-output")
+            .expect("sleep-for process output variable"),
+        Value::string("out\n")
+    );
+    assert_eq!(
+        ev.eval_symbol("sleep-shared-timer-fired")
+            .expect("sleep-for timer variable"),
+        Value::symbol("done")
     );
 }
 

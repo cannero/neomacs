@@ -607,9 +607,9 @@ pub(crate) fn builtin_timer_activate(
 
 /// (sleep-for SECONDS &optional MILLISECONDS) -> nil
 ///
-/// Sleep for the given duration, but poll process output every 50ms so that
-/// subprocess filters/sentinels run promptly (matching GNU Emacs behavior
-/// where `sleep-for` services process output while waiting).
+/// Sleep for the given duration through the shared wait/service path so that
+/// subprocess filters/sentinels and timers run with the same ownership as
+/// other event-loop waits.
 pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("sleep-for", &args, 1)?;
     if args.len() > 2 {
@@ -634,18 +634,20 @@ pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value
     let total_secs = secs + millis / 1000.0;
     if total_secs > 0.0 {
         let total = Duration::from_secs_f64(total_secs);
-        let chunk = Duration::from_millis(50);
-        let start = std::time::Instant::now();
+        let start = Instant::now();
+        let deadline = start + total;
         loop {
-            let elapsed = start.elapsed();
-            if elapsed >= total {
+            let _ = eval.service_wait_path_once(None, false, true, false);
+            let now = Instant::now();
+            if now >= deadline {
                 break;
             }
-            let remaining = total - elapsed;
-            let sleep_time = remaining.min(chunk);
-            std::thread::sleep(sleep_time);
-            eval.poll_process_output();
-            eval.fire_pending_timers();
+            let remaining = deadline.saturating_duration_since(now);
+            let wait_time = eval.next_wait_path_timeout(remaining, true);
+            if wait_time.is_zero() {
+                continue;
+            }
+            let _ = eval.processes.wait_for_output(wait_time);
         }
     }
 

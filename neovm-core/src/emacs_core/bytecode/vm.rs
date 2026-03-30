@@ -2785,21 +2785,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_accept_process_output_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (result, callbacks) =
-            crate::emacs_core::process::builtin_accept_process_output_collect(
-                &mut self.ctx.processes,
-                args.to_vec(),
-            )?;
-        let saved_roots =
-            crate::emacs_core::process::root_accept_process_output_callbacks(self.ctx, &callbacks);
-        for (callback, callback_args) in callbacks {
-            if let Err(flow) = self.call_function_with_roots(callback, &callback_args) {
-                self.ctx.restore_temp_roots(saved_roots);
-                return Err(flow);
-            }
-        }
-        self.ctx.restore_temp_roots(saved_roots);
-        Ok(result)
+        crate::emacs_core::process::builtin_accept_process_output(&mut *self.ctx, args.to_vec())
     }
 
     fn builtin_buffer_list_shared(&mut self, args: &[Value]) -> EvalResult {
