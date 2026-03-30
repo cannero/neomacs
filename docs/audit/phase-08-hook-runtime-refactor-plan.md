@@ -218,3 +218,6 @@ infrastructure only. It should not represent a second Lisp hook architecture.
   to the generic runtime owner
 - preserve the GNU split where Lisp-owned hooks such as save/frame focus
   behavior stay in Lisp rather than migrating into Rust
+- make `called-interactively-p` fully GNU-equal by fixing the underlying
+  backtrace/introspection owner it depends on in `subr.el`, rather than
+  reintroducing a Rust-owned replacement

@@ -878,8 +878,13 @@ impl Buffer {
         self.locals.remove(name)
     }
 
-    pub fn kill_all_local_variables(&mut self, kill_permanent: bool) {
-        self.locals.kill_all_local_variables(kill_permanent);
+    pub fn kill_all_local_variables(
+        &mut self,
+        obarray: &crate::emacs_core::symbol::Obarray,
+        kill_permanent: bool,
+    ) {
+        self.locals
+            .kill_all_local_variables(obarray, kill_permanent);
     }
 
     pub fn get_buffer_local(&self, name: &str) -> Option<&Value> {
@@ -1801,10 +1806,11 @@ impl BufferManager {
     pub fn clear_buffer_local_properties(
         &mut self,
         id: BufferId,
+        obarray: &crate::emacs_core::symbol::Obarray,
         kill_permanent: bool,
     ) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
-        buf.kill_all_local_variables(kill_permanent);
+        buf.kill_all_local_variables(obarray, kill_permanent);
         Some(())
     }
 

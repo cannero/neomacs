@@ -100,6 +100,27 @@ fn compat_kill_all_local_variables_resets_current_buffer_matches_gnu_emacs() {
 }
 
 #[test]
+fn compat_kill_all_local_variables_preserves_partial_permanent_local_hooks_matches_gnu_emacs() {
+    run_case(BufferLocalsCase {
+        name: "kill_all_local_variables_preserves_partial_permanent_local_hooks",
+        form: r#"(let ((buf (get-buffer-create " *compat-kill-local-hook*")))
+  (unwind-protect
+      (with-current-buffer buf
+        (fset 'compat--keep-local-hook (lambda (&rest _) nil))
+        (fset 'compat--drop-local-hook (lambda (&rest _) nil))
+        (put 'compat--keep-local-hook 'permanent-local-hook t)
+        (put 'compat--mixed-hook 'permanent-local 'permanent-local-hook)
+        (setq-local compat--mixed-hook '(compat--drop-local-hook compat--keep-local-hook t))
+        (kill-all-local-variables)
+        (list
+         (condition-case err compat--mixed-hook (error (car err)))
+         (local-variable-p 'compat--mixed-hook buf)
+         (get 'compat--mixed-hook 'permanent-local)))
+    (kill-buffer buf)))"#,
+    });
+}
+
+#[test]
 fn compat_buffer_slot_locality_matches_gnu_emacs() {
     run_case(BufferLocalsCase {
         name: "buffer_slot_locality",

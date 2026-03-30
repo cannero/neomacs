@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::emacs_core::symbol::Obarray;
 use crate::emacs_core::value::{RuntimeBindingValue, Value};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -364,7 +365,7 @@ impl BufferLocals {
         locals
     }
 
-    pub fn kill_all_local_variables(&mut self, kill_permanent: bool) {
+    pub fn kill_all_local_variables(&mut self, obarray: &Obarray, kill_permanent: bool) {
         for name in ALWAYS_LOCAL_BUFFER_LOCAL_NAMES {
             if always_local_kill_all_resets(name)
                 && let Some(binding) = always_local_default_binding(name)
@@ -381,7 +382,26 @@ impl BufferLocals {
                 .retain(|name, _| conditional_slot_is_permanent(name));
         }
 
-        self.lisp_bindings.clear();
+        if kill_permanent {
+            self.lisp_bindings.clear();
+        } else {
+            self.lisp_bindings = self
+                .lisp_bindings
+                .drain(..)
+                .filter_map(|(name, binding)| {
+                    let permanent = obarray
+                        .get_property(&name, "permanent-local")
+                        .copied()
+                        .filter(|value| !value.is_nil())?;
+                    let preserved = if permanent.is_symbol_named("permanent-local-hook") {
+                        preserve_partial_permanent_local_hook_binding(obarray, binding)
+                    } else {
+                        binding
+                    };
+                    Some((name, preserved))
+                })
+                .collect();
+        }
         self.local_map = Value::Nil;
     }
 
@@ -519,5 +539,38 @@ impl BufferLocals {
                 roots.push(*value);
             }
         }
+    }
+}
+
+fn preserve_partial_permanent_local_hook_binding(
+    obarray: &Obarray,
+    binding: RuntimeBindingValue,
+) -> RuntimeBindingValue {
+    match binding {
+        RuntimeBindingValue::Bound(value) => {
+            if !value.is_cons() {
+                return RuntimeBindingValue::Bound(value);
+            }
+
+            let mut preserved = Vec::new();
+            let mut cursor = value;
+            while let Value::Cons(cell) = cursor {
+                let pair = crate::emacs_core::value::read_cons(cell);
+                let elt = pair.car;
+                if elt.is_symbol_named("t")
+                    || elt.as_symbol_name().is_some_and(|name| {
+                        obarray
+                            .get_property(name, "permanent-local-hook")
+                            .is_some_and(|prop| !prop.is_nil())
+                    })
+                {
+                    preserved.push(elt);
+                }
+                cursor = pair.cdr;
+            }
+
+            RuntimeBindingValue::Bound(Value::list(preserved))
+        }
+        RuntimeBindingValue::Void => RuntimeBindingValue::Void,
     }
 }

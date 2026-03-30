@@ -1124,7 +1124,7 @@ pub(crate) fn builtin_kill_all_local_variables(
     // - clears conditional slot locals unless they are permanent-local
     let _ = eval
         .buffers
-        .clear_buffer_local_properties(current_id, kill_permanent);
+        .clear_buffer_local_properties(current_id, &eval.obarray, kill_permanent);
     Ok(Value::Nil)
 }
 

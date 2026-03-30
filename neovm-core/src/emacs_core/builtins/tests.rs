@@ -2281,6 +2281,45 @@ fn ntake_destructively_truncates_lists() {
 }
 
 #[test]
+fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let buf_id = eval.buffers.create_buffer("*kill-all-local-hook*");
+    eval.buffers.set_current(buf_id);
+    eval.obarray.put_property(
+        "compat-mixed-hook",
+        "permanent-local",
+        Value::symbol("permanent-local-hook"),
+    );
+    eval.obarray
+        .put_property("compat--keep-hook", "permanent-local-hook", Value::True);
+    {
+        let buf = eval.buffers.current_buffer_mut().unwrap();
+        buf.set_buffer_local(
+            "compat-mixed-hook",
+            Value::list(vec![
+                Value::symbol("compat--drop-hook"),
+                Value::symbol("compat--keep-hook"),
+                Value::True,
+            ]),
+        );
+    }
+
+    assert_eq!(
+        builtin_kill_all_local_variables(&mut eval, vec![]).unwrap(),
+        Value::Nil
+    );
+
+    let buf = eval.buffers.current_buffer().unwrap();
+    let hook = buf
+        .get_buffer_local("compat-mixed-hook")
+        .copied()
+        .expect("partial permanent hook should remain local");
+    let items =
+        crate::emacs_core::value::list_to_vec(&hook).expect("hook value should stay a proper list");
+    assert_eq!(items, vec![Value::symbol("compat--keep-hook"), Value::True]);
+}
+
+#[test]
 fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
     let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*rbc-source*");
