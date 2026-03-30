@@ -69,6 +69,21 @@ fn install_minimal_special_event_command_runtime(ev: &mut Context) {
     }
 }
 
+fn find_bin(name: &str) -> String {
+    for dir in &["/bin", "/usr/bin", "/run/current-system/sw/bin"] {
+        let path = format!("{}/{}", dir, name);
+        if std::path::Path::new(&path).exists() {
+            return path;
+        }
+    }
+    if let Ok(output) = std::process::Command::new("which").arg(name).output()
+        && output.status.success()
+    {
+        return String::from_utf8_lossy(&output.stdout).trim().to_string();
+    }
+    name.to_string()
+}
+
 fn gnu_timer_after(delay: Duration, callback: &str) -> Value {
     let when = SystemTime::now()
         .checked_add(delay)
@@ -430,6 +445,108 @@ fn read_char_returns_macro_playback_event_value_without_reencoding() {
         .expect("read_char should return executing macro event");
     assert_eq!(event, return_event);
     assert_eq!(ev.command_loop.keyboard.kboard.kbd_macro_index, 1);
+}
+
+#[test]
+fn read_char_prefers_ready_keypress_over_due_timer_callback() {
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (fset 'read-char-priority-timer
+                   (lambda () (setq read-char-priority-timer-fired t)))
+             (setq read-char-priority-timer-fired nil))"#,
+    )
+    .expect("parse timer priority setup");
+    ev.eval_expr(&setup[0])
+        .expect("install timer priority setup");
+    ev.timers.add_timer(
+        0.0,
+        0.0,
+        Value::symbol("read-char-priority-timer"),
+        vec![],
+        false,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue ready keypress");
+    ev.input_rx = Some(rx);
+
+    let event = ev.read_char().expect("read_char should return keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(
+        ev.eval_symbol("read-char-priority-timer-fired")
+            .expect("timer callback flag"),
+        Value::Nil
+    );
+
+    ev.fire_pending_timers();
+    assert_eq!(
+        ev.eval_symbol("read-char-priority-timer-fired")
+            .expect("timer callback flag after explicit service"),
+        Value::True
+    );
+}
+
+#[test]
+fn read_char_prefers_ready_keypress_over_process_filter_callback() {
+    let echo = find_bin("echo");
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(progn
+             (fset 'read-char-priority-filter
+                   (lambda (_proc string)
+                     (setq read-char-priority-filter-data string)))
+             (setq read-char-priority-filter-data nil))"#,
+    )
+    .expect("parse process priority setup");
+    ev.eval_expr(&setup[0])
+        .expect("install process priority setup");
+
+    let pid =
+        ev.processes
+            .create_process("read-char-priority".into(), None, echo, vec!["out".into()]);
+    ev.processes
+        .spawn_child(pid, false)
+        .expect("spawn process priority child");
+    crate::emacs_core::process::builtin_set_process_filter(
+        &mut ev,
+        vec![
+            Value::Int(pid as i64),
+            Value::symbol("read-char-priority-filter"),
+        ],
+    )
+    .expect("install process priority filter");
+
+    std::thread::sleep(Duration::from_millis(20));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue ready keypress");
+    ev.input_rx = Some(rx);
+
+    let event = ev.read_char().expect("read_char should return keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(
+        ev.eval_symbol("read-char-priority-filter-data")
+            .expect("process filter flag"),
+        Value::Nil
+    );
+
+    crate::emacs_core::process::builtin_accept_process_output(
+        &mut ev,
+        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+    )
+    .expect("accept-process-output should service process callback afterwards");
+    assert_eq!(
+        ev.eval_symbol("read-char-priority-filter-data")
+            .expect("process filter flag after explicit service"),
+        Value::string("out\n")
+    );
 }
 
 #[test]

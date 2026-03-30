@@ -53,6 +53,8 @@ The equivalent Neomacs ownership is substantially more unified now:
   [keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L3231)
   and
   [keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L3235)
+  and `read_char` now stages ready input ahead of that service path in
+  [keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L2344)
 
 The remaining design difference is narrower: Neomacs still has both GNU-shaped
 Lisp timers and a Rust `TimerManager`, so final GNU parity depends on them
@@ -141,6 +143,24 @@ Neomacs now re-checks child exit after reading process output in
 which closes the earlier gap where the sentinel for a short-lived child could
 be deferred to a second `accept-process-output` call.
 
+### `read_char` now gives ready input higher priority than timer/process callbacks
+
+GNU's `wait_reading_process_output` and `read_char` path break back to input
+when keyboard input is ready instead of continuing to service subprocess
+callbacks ahead of that input. See
+[process.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/process.c#L5895)
+and
+[keyboard.c](/home/exec/Projects/github.com/emacs-mirror/emacs/src/keyboard.c#L2489).
+
+Neomacs previously fired timers and polled process output even after a ready
+host input event had already arrived. `read_char` now stages immediately ready
+input from the host queue/channel before the shared wait-path service and no
+longer runs timer/process callbacks after receiving a real input event but
+before returning it. The current ownership lives in
+[keyboard.rs](/home/exec/Projects/github.com/eval-exec/neomacs/neovm-core/src/keyboard.rs#L2344).
+That closes the concrete mismatch where a due timer or process filter could run
+ahead of a ready keypress.
+
 ### Timer ownership is still split between GNU-shaped Lisp timers and a Rust timer manager
 
 GNU’s ordinary and idle timers are part of the keyboard/event-loop contract.
@@ -186,7 +206,7 @@ rooting coverage. It does not yet lock down the high-risk shared-wait-path
 semantics, especially:
 
 - timer ordering when GNU Lisp timers and Rust timers are simultaneously due
-- exact ordering between input wakeups and timer/process servicing in one wait cycle
+- exact ordering between input wakeups and GNU-vs-Rust timer servicing in one wait cycle
 - `sleep-for` / `sit-for` parity once input and redisplay are involved
 - chunked synchronous subprocess insertion and redisplay fidelity versus GNU
   `callproc.c`
@@ -220,7 +240,7 @@ The GNU-shaped direction is:
 The next concrete source-level audit order should be:
 
 1. timer ordering when both GNU Lisp timers and Rust timers are due
-2. input wakeup / timer / process ordering in one wait cycle
+2. GNU-Lisp-timer vs Rust-timer ordering once input priority is fixed
 3. `sleep-for` / `sit-for` parity once input and redisplay are involved
 4. chunked synchronous subprocess insertion/redisplay fidelity versus GNU
    `callproc.c`

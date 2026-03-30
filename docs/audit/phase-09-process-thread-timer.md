@@ -67,8 +67,9 @@ Bad:
   `callproc/mod.rs`, process callbacks use one shared runtime envelope, timer
   callbacks now preserve GNU-visible state like `deactivate-mark`, and
   short-lived children now deliver filter+sentinel in the same wait cycle.
-  The remaining Phase 9 risk is exact GNU ordering, not the older split-owner
-  architecture.
+  `read_char` also now gives ready input priority over timer/process callbacks
+  instead of servicing them after input arrival. The remaining Phase 9 risk is
+  exact GNU ordering, not the older split-owner architecture.
 
 ## Long-term ideal design
 
@@ -88,7 +89,7 @@ The ideal design is:
 - Audit process filters, sentinels, timer firing, and
   `accept-process-output` ordering against GNU.
 - Keep the Phase 9 follow-up focused on remaining ordering gaps:
-  input wakeups versus timer/process servicing, GNU-vs-Rust timer ordering,
+  GNU-vs-Rust timer ordering inside the shared wait path,
   and `sleep-for` / `sit-for` parity.
 - Re-study GNU `thread.c` before changing `threads.rs`; the current simulated
   implementation should be treated as a compatibility placeholder, not as the

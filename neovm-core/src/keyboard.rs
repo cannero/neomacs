@@ -2411,6 +2411,162 @@ impl crate::emacs_core::eval::Context {
     /// Mirrors GNU Emacs `read_char()` (keyboard.c:2489).
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
+    fn drain_ready_input_event_for_read_char(&mut self) -> Option<InputEvent> {
+        if let Some(event) = self.command_loop.keyboard.pending_input_events.pop_front() {
+            self.timer_stop_idle();
+            return Some(event);
+        }
+
+        let Some(ref rx) = self.input_rx else {
+            return None;
+        };
+        match rx.try_recv() {
+            Ok(event) => {
+                self.timer_stop_idle();
+                Some(event)
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => None,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                self.command_loop.running = false;
+                None
+            }
+        }
+    }
+
+    fn handle_read_char_input_event(
+        &mut self,
+        event: InputEvent,
+    ) -> Result<Option<Value>, crate::emacs_core::error::Flow> {
+        if input_event_triggers_throw_on_input(&event)
+            && self.interrupt_for_input_event_if_requested(event.clone())?
+        {
+            return Ok(None);
+        }
+
+        match event {
+            InputEvent::CloseRequested => {
+                self.command_loop.running = false;
+                Err(crate::emacs_core::error::signal("quit", vec![]))
+            }
+            InputEvent::Resize {
+                width,
+                height,
+                emacs_frame_id,
+            } => {
+                self.apply_resize_input_event(width, height, emacs_frame_id, true);
+                self.redisplay();
+                self.timer_resume_idle();
+                Ok(None)
+            }
+            InputEvent::Focus {
+                focused,
+                emacs_frame_id,
+            } => {
+                self.timer_resume_idle();
+                if let Some(event) = self.make_lispy_focus_event(focused, emacs_frame_id) {
+                    if self.execute_special_event_if_bound(event)? {
+                        return Ok(None);
+                    }
+                    return Ok(Some(event));
+                }
+                Ok(None)
+            }
+            InputEvent::MonitorsChanged { monitors } => {
+                self.timer_resume_idle();
+                crate::emacs_core::builtins::set_neomacs_monitor_info(monitors);
+                let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+                    self,
+                    "display-monitors-changed-functions",
+                );
+                let terminal = crate::emacs_core::terminal::pure::terminal_handle_value();
+                let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
+                    self,
+                    hook_sym,
+                    &[terminal],
+                )?;
+                Ok(None)
+            }
+            InputEvent::SelectWindow { window_id } => {
+                self.timer_resume_idle();
+                Ok(self.make_lispy_select_window_event(window_id))
+            }
+            InputEvent::KeyPress(ref key) => {
+                tracing::debug!("read_char: received KeyPress {:?}", key);
+                self.clear_current_message();
+                let emacs_event = key.to_emacs_event_value();
+                if self.event_is_quit_char(&emacs_event) {
+                    self.request_quit_from_keyboard_input();
+                }
+                self.command_loop.store_kbd_macro_event(emacs_event);
+                Ok(Some(emacs_event))
+            }
+            InputEvent::MousePress {
+                button,
+                x,
+                y,
+                modifiers,
+                target_frame_id,
+            } => {
+                self.clear_current_message();
+                let event = Self::make_mouse_event(
+                    &button,
+                    x,
+                    y,
+                    target_frame_id,
+                    &modifiers,
+                    "down-mouse",
+                    self,
+                );
+                self.command_loop.store_kbd_macro_event(event);
+                Ok(Some(event))
+            }
+            InputEvent::MouseRelease {
+                button,
+                x,
+                y,
+                target_frame_id,
+            } => {
+                self.clear_current_message();
+                let event = Self::make_mouse_event(
+                    &button,
+                    x,
+                    y,
+                    target_frame_id,
+                    &Modifiers::none(),
+                    "mouse",
+                    self,
+                );
+                self.command_loop.store_kbd_macro_event(event);
+                Ok(Some(event))
+            }
+            InputEvent::MouseScroll {
+                delta_x: _,
+                delta_y,
+                x,
+                y,
+                modifiers,
+                target_frame_id,
+            } => {
+                let dir = if delta_y > 0.0 {
+                    "wheel-up"
+                } else {
+                    "wheel-down"
+                };
+                let mut sym = String::new();
+                Self::append_modifier_prefix(&modifiers, &mut sym);
+                sym.push_str(dir);
+                let position = Self::make_mouse_position(x, y, target_frame_id, self);
+                let event = Value::list(vec![Value::symbol(&sym), position]);
+                self.command_loop.store_kbd_macro_event(event);
+                Ok(Some(event))
+            }
+            InputEvent::MouseMove { .. } => {
+                self.timer_resume_idle();
+                Ok(None)
+            }
+        }
+    }
+
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
         loop {
             self.sync_keyboard_terminal_owner();
@@ -2433,10 +2589,18 @@ impl crate::emacs_core::eval::Context {
                 return Ok(event);
             }
 
-            self.sync_pending_resize_events();
+            if self.sync_pending_resize_events() {
+                self.redisplay();
+            }
+            if let Some(event) = self.drain_ready_input_event_for_read_char() {
+                if let Some(value) = self.handle_read_char_input_event(event)? {
+                    return Ok(value);
+                }
+                continue;
+            }
+
             self.redisplay();
-            self.fire_pending_timers();
-            self.poll_process_output();
+            let _ = self.service_wait_path_once(None, false, true, true);
 
             tracing::debug!(
                 "read_char: blocking on input (input_rx={})...",
@@ -2447,197 +2611,65 @@ impl crate::emacs_core::eval::Context {
                 self.redisplay();
             }
 
-            let event =
-                if let Some(event) = self.command_loop.keyboard.pending_input_events.pop_front() {
-                    self.timer_stop_idle();
-                    event
-                } else {
-                    let rx = match self.input_rx {
-                        Some(ref rx) => rx.clone(),
-                        None => {
-                            tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
-                            return Ok(Value::Nil);
-                        }
-                    };
-
-                    self.timer_start_idle();
-                    let timeout = self.next_input_wait_timeout();
-                    if cfg!(test) {
-                        eprintln!(
-                            "read_char wait timeout={:?} idle={:?}",
-                            timeout,
-                            self.current_idle_duration()
-                        );
-                    }
-
-                    self.waiting_for_user_input = true;
-                    let wait_result = if let Some(timeout) = timeout {
-                        rx.recv_timeout(timeout)
-                    } else {
-                        rx.recv()
-                            .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
-                    };
-                    self.waiting_for_user_input = false;
-
-                    match wait_result {
-                        Ok(event) => {
-                            if cfg!(test) {
-                                eprintln!("read_char recv event={:?}", event);
-                            }
-                            self.timer_stop_idle();
-                            event
-                        }
-                        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                            if cfg!(test) {
-                                eprintln!(
-                                    "read_char timeout idle={:?} ordinary={:?} idle-timer={:?}",
-                                    self.current_idle_duration(),
-                                    self.next_ordinary_gnu_timer_timeout(),
-                                    self.next_idle_gnu_timer_timeout()
-                                );
-                            }
-                            self.fire_pending_timers();
-                            self.poll_process_output();
-                            continue;
-                        }
-                        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                            self.command_loop.running = false;
-                            return Err(crate::emacs_core::error::signal("quit", vec![]));
-                        }
-                    }
-                };
-
-            self.fire_pending_timers();
-            self.poll_process_output();
-
-            if input_event_triggers_throw_on_input(&event)
-                && self.interrupt_for_input_event_if_requested(event.clone())?
-            {
+            if let Some(event) = self.drain_ready_input_event_for_read_char() {
+                if let Some(value) = self.handle_read_char_input_event(event)? {
+                    return Ok(value);
+                }
                 continue;
             }
 
-            match event {
-                InputEvent::CloseRequested => {
+            let rx = match self.input_rx {
+                Some(ref rx) => rx.clone(),
+                None => {
+                    tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
+                    return Ok(Value::Nil);
+                }
+            };
+
+            self.timer_start_idle();
+            let timeout = self.next_input_wait_timeout();
+            if cfg!(test) {
+                eprintln!(
+                    "read_char wait timeout={:?} idle={:?}",
+                    timeout,
+                    self.current_idle_duration()
+                );
+            }
+
+            self.waiting_for_user_input = true;
+            let wait_result = if let Some(timeout) = timeout {
+                rx.recv_timeout(timeout)
+            } else {
+                rx.recv()
+                    .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
+            };
+            self.waiting_for_user_input = false;
+
+            match wait_result {
+                Ok(event) => {
+                    if cfg!(test) {
+                        eprintln!("read_char recv event={:?}", event);
+                    }
+                    self.timer_stop_idle();
+                    if let Some(value) = self.handle_read_char_input_event(event)? {
+                        return Ok(value);
+                    }
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    if cfg!(test) {
+                        eprintln!(
+                            "read_char timeout idle={:?} ordinary={:?} idle-timer={:?}",
+                            self.current_idle_duration(),
+                            self.next_ordinary_gnu_timer_timeout(),
+                            self.next_idle_gnu_timer_timeout()
+                        );
+                    }
+                    let _ = self.service_wait_path_once(None, false, true, true);
+                    continue;
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                     self.command_loop.running = false;
                     return Err(crate::emacs_core::error::signal("quit", vec![]));
-                }
-                InputEvent::Resize {
-                    width,
-                    height,
-                    emacs_frame_id,
-                } => {
-                    self.apply_resize_input_event(width, height, emacs_frame_id, true);
-                    self.timer_resume_idle();
-                    continue;
-                }
-                InputEvent::Focus {
-                    focused,
-                    emacs_frame_id,
-                } => {
-                    self.timer_resume_idle();
-                    if let Some(event) = self.make_lispy_focus_event(focused, emacs_frame_id) {
-                        if self.execute_special_event_if_bound(event)? {
-                            continue;
-                        }
-                        return Ok(event);
-                    }
-                    continue;
-                }
-                InputEvent::MonitorsChanged { monitors } => {
-                    self.timer_resume_idle();
-                    crate::emacs_core::builtins::set_neomacs_monitor_info(monitors);
-                    let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
-                        self,
-                        "display-monitors-changed-functions",
-                    );
-                    let terminal = crate::emacs_core::terminal::pure::terminal_handle_value();
-                    let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
-                        self,
-                        hook_sym,
-                        &[terminal],
-                    )?;
-                    continue;
-                }
-                InputEvent::SelectWindow { window_id } => {
-                    self.timer_resume_idle();
-                    if let Some(event) = self.make_lispy_select_window_event(window_id) {
-                        return Ok(event);
-                    }
-                    continue;
-                }
-                InputEvent::KeyPress(ref key) => {
-                    tracing::debug!("read_char: received KeyPress {:?}", key);
-                    self.clear_current_message();
-                    let emacs_event = key.to_emacs_event_value();
-                    if self.event_is_quit_char(&emacs_event) {
-                        self.request_quit_from_keyboard_input();
-                    }
-                    self.command_loop.store_kbd_macro_event(emacs_event);
-                    return Ok(emacs_event);
-                }
-                InputEvent::MousePress {
-                    button,
-                    x,
-                    y,
-                    modifiers,
-                    target_frame_id,
-                } => {
-                    self.clear_current_message();
-                    let event = Self::make_mouse_event(
-                        &button,
-                        x,
-                        y,
-                        target_frame_id,
-                        &modifiers,
-                        "down-mouse",
-                        self,
-                    );
-                    self.command_loop.store_kbd_macro_event(event);
-                    return Ok(event);
-                }
-                InputEvent::MouseRelease {
-                    button,
-                    x,
-                    y,
-                    target_frame_id,
-                } => {
-                    self.clear_current_message();
-                    let event = Self::make_mouse_event(
-                        &button,
-                        x,
-                        y,
-                        target_frame_id,
-                        &Modifiers::none(),
-                        "mouse",
-                        self,
-                    );
-                    self.command_loop.store_kbd_macro_event(event);
-                    return Ok(event);
-                }
-                InputEvent::MouseScroll {
-                    delta_x: _,
-                    delta_y,
-                    x,
-                    y,
-                    modifiers,
-                    target_frame_id,
-                } => {
-                    let dir = if delta_y > 0.0 {
-                        "wheel-up"
-                    } else {
-                        "wheel-down"
-                    };
-                    let mut sym = String::new();
-                    Self::append_modifier_prefix(&modifiers, &mut sym);
-                    sym.push_str(dir);
-                    let position = Self::make_mouse_position(x, y, target_frame_id, self);
-                    let event = Value::list(vec![Value::symbol(&sym), position]);
-                    self.command_loop.store_kbd_macro_event(event);
-                    return Ok(event);
-                }
-                InputEvent::MouseMove { .. } => {
-                    self.timer_resume_idle();
-                    continue;
                 }
             }
         }
