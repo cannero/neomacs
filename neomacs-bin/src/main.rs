@@ -652,6 +652,13 @@ fn font_size_px_for_face(face: &neovm_core::face::Face) -> f32 {
 }
 
 fn main() {
+    // Always enable full backtraces for debugging stale ObjId crashes.
+    if std::env::var("RUST_BACKTRACE").is_err() {
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "full");
+        }
+    }
+
     // Increase the stack size to 64 MB, matching GNU Emacs which adjusts
     // RLIMIT_STACK in main(). Deep Elisp evaluation chains (startup.el →
     // normal-top-level → command-line → init → Doom hooks) can exhaust
