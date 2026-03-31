@@ -763,41 +763,108 @@ impl LispHashTable {
 }
 
 // ---------------------------------------------------------------------------
+// Conversion traits for flexible constructors
+// ---------------------------------------------------------------------------
+
+/// Trait for types that can be converted to a symbol Value.
+/// Implemented by `&str`, `String`, `SymId`.
+pub trait IntoSymbol {
+    fn into_symbol(self) -> Value;
+}
+
+impl IntoSymbol for SymId {
+    fn into_symbol(self) -> Value {
+        TaggedValue::from_sym_id(self)
+    }
+}
+
+impl IntoSymbol for &str {
+    fn into_symbol(self) -> Value {
+        if self == "nil" {
+            Value::NIL
+        } else if self == "t" {
+            Value::T
+        } else if self.starts_with(':') {
+            add_wrapping(&SYMBOLS_CONSED, 1);
+            TaggedValue::from_kw_id(intern(self))
+        } else {
+            add_wrapping(&SYMBOLS_CONSED, 1);
+            TaggedValue::from_sym_id(intern(self))
+        }
+    }
+}
+
+impl IntoSymbol for String {
+    fn into_symbol(self) -> Value {
+        self.as_str().into_symbol()
+    }
+}
+
+impl IntoSymbol for &String {
+    fn into_symbol(self) -> Value {
+        self.as_str().into_symbol()
+    }
+}
+
+impl IntoSymbol for &&str {
+    fn into_symbol(self) -> Value {
+        (*self).into_symbol()
+    }
+}
+
+impl IntoSymbol for &&String {
+    fn into_symbol(self) -> Value {
+        self.as_str().into_symbol()
+    }
+}
+
+/// Trait for types that can be converted to a keyword Value.
+pub trait IntoKeyword {
+    fn into_keyword(self) -> Value;
+}
+
+impl IntoKeyword for SymId {
+    fn into_keyword(self) -> Value {
+        TaggedValue::from_kw_id(self)
+    }
+}
+
+impl IntoKeyword for &str {
+    fn into_keyword(self) -> Value {
+        add_wrapping(&SYMBOLS_CONSED, 1);
+        TaggedValue::from_kw_id(intern(self))
+    }
+}
+
+impl IntoKeyword for String {
+    fn into_keyword(self) -> Value {
+        self.as_str().into_keyword()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Convenience constructors on TaggedValue
 // ---------------------------------------------------------------------------
 
 impl TaggedValue {
-    /// Create a symbol by interning a name string, with nil/t/keyword canonicalization.
-    /// This is the old `Value::symbol("name")` API.
-    pub fn symbol(s: impl AsRef<str>) -> Self {
-        Self::make_symbol(s)
+    /// Create a symbol from a string (with nil/t/keyword canonicalization) or SymId.
+    pub fn symbol(s: impl IntoSymbol) -> Self {
+        s.into_symbol()
     }
 
     /// Create a symbol by interning a name string, with nil/t/keyword canonicalization.
     pub fn make_symbol(s: impl AsRef<str>) -> Self {
-        let s = s.as_ref();
-        if s == "nil" {
-            Value::NIL
-        } else if s == "t" {
-            Value::T
-        } else if s.starts_with(':') {
-            add_wrapping(&SYMBOLS_CONSED, 1);
-            TaggedValue::from_kw_id(intern(s))
-        } else {
-            add_wrapping(&SYMBOLS_CONSED, 1);
-            TaggedValue::from_sym_id(intern(s))
-        }
+        s.as_ref().into_symbol()
     }
 
-    /// Create a keyword by interning a name string (old API name).
-    pub fn keyword(s: impl AsRef<str>) -> Self {
-        Self::make_keyword(s)
+    /// Create a keyword from a string or SymId.
+    pub fn keyword(s: impl IntoKeyword) -> Self {
+        s.into_keyword()
     }
 
     /// Create a keyword by interning a name string.
     pub fn make_keyword(s: impl AsRef<str>) -> Self {
-        add_wrapping(&SYMBOLS_CONSED, 1);
-        TaggedValue::from_kw_id(intern(s.as_ref()))
+        s.as_ref().into_keyword()
     }
 
     /// Convert bool to Value (T or NIL).
@@ -1370,7 +1437,7 @@ impl TaggedValue {
                 HashKey::EqualVec(keys)
             }
             ValueKind::Veclike(VecLikeType::Marker) => {
-                super::marker::marker_equal_hash_key_tagged(*self)
+                super::marker::marker_equal_hash_key_value(self)
             }
             ValueKind::Veclike(VecLikeType::Lambda) => {
                 let ptr = self.bits();
@@ -1465,8 +1532,8 @@ fn equal_value_inner(
         (ValueKind::Keyword(a), ValueKind::Keyword(b)) => a == b,
         (ValueKind::String, ValueKind::String) => left.as_str() == right.as_str(),
         (ValueKind::Veclike(VecLikeType::Marker), ValueKind::Veclike(VecLikeType::Marker)) => {
-            super::marker::marker_logical_fields_tagged(left)
-                == super::marker::marker_logical_fields_tagged(right)
+            super::marker::marker_logical_fields(left)
+                == super::marker::marker_logical_fields(right)
         }
         (ValueKind::Cons, ValueKind::Cons) => {
             let pair = (left.bits(), right.bits());

@@ -131,6 +131,20 @@ pub(crate) fn marker_equal_hash_key(id: crate::gc::ObjId) -> HashKey {
     ))
 }
 
+/// Tagged-pointer version: compute equal hash key from a marker Value.
+pub(crate) fn marker_equal_hash_key_value(v: &Value) -> HashKey {
+    if let Some(marker) = v.as_marker_data() {
+        HashKey::Text(format!(
+            "marker:{:?}:{:?}:{}",
+            marker.buffer.map(|buffer| buffer.0),
+            marker.position,
+            marker.insertion_type
+        ))
+    } else {
+        HashKey::Ptr(v.bits())
+    }
+}
+
 fn marker_id_value(v: &Value) -> Option<u64> {
     if !v.is_marker() {
         return None;

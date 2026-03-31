@@ -1012,9 +1012,7 @@ impl<'a> Vm<'a> {
                     } else {
                         match call_args[0].kind() {
                             ValueKind::Cons => {
-                                let pair_car = call_args[0].cons_car();
-                                let pair_cdr = call_args[0].cons_cdr();
-                                stack.push(pair_car);
+                                stack.push(call_args[0].cons_car());
                             }
                             // Closures are cons lists in official Emacs.
                             ValueKind::Veclike(VecLikeType::Lambda) => {
@@ -1044,9 +1042,7 @@ impl<'a> Vm<'a> {
                     } else {
                         match call_args[0].kind() {
                             ValueKind::Cons => {
-                                let pair_car = call_args[0].cons_car();
-                                let pair_cdr = call_args[0].cons_cdr();
-                                stack.push(pair_cdr);
+                                stack.push(call_args[0].cons_cdr());
                             }
                             // Closures are cons lists in official Emacs.
                             ValueKind::Veclike(VecLikeType::Lambda) => {
@@ -2632,7 +2628,12 @@ impl<'a> Vm<'a> {
                 }
             }
             ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-                let values = sequence.as_vector_data().unwrap().clone();
+                let is_record = matches!(sequence.kind(), ValueKind::Veclike(VecLikeType::Record));
+                let values = if is_record {
+                    sequence.as_record_data().unwrap().clone()
+                } else {
+                    sequence.as_vector_data().unwrap().clone()
+                };
                 for value in &values {
                     self.ctx.vm_gc_roots.push(*value);
                 }
@@ -2646,17 +2647,21 @@ impl<'a> Vm<'a> {
                     )?;
 
                 if options.in_place {
-                    if let Some(data) = sequence.as_vector_data_mut() {
-                        *data = sorted_values;
+                    if is_record {
+                        if let Some(data) = sequence.as_record_data_mut() {
+                            *data = sorted_values;
+                        }
+                    } else {
+                        if let Some(data) = sequence.as_vector_data_mut() {
+                            *data = sorted_values;
+                        }
                     }
                     Ok(sequence)
                 } else {
-                    match sequence.kind() {
-                        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(sorted_values)),
-                        ValueKind::Veclike(VecLikeType::Record) => {
-                            Ok(Value::make_record(sorted_values))
-                        }
-                        _ => unreachable!(),
+                    if is_record {
+                        Ok(Value::make_record(sorted_values))
+                    } else {
+                        Ok(Value::vector(sorted_values))
                     }
                 }
             }

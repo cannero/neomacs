@@ -471,7 +471,7 @@ fn symbol_sets_constant_error(sym_id: SymId) -> Option<&'static str> {
 }
 
 pub(crate) fn sync_features_variable_in_state(obarray: &mut Obarray, features: &[SymId]) {
-    let values: Vec<Value> = features.iter().map(|id| Value::symbol(*id)).collect();
+    let values: Vec<Value> = features.iter().map(|id| Value::from_sym_id(*id)).collect();
     obarray.set_symbol_value("features", Value::list(values));
 }
 
@@ -5684,7 +5684,7 @@ impl Context {
         if self.function_value_is_advice_wrapper(&function)
             && let Some(symbol) = self.advice_wrapper_symbol_alias(&function)
         {
-            return Value::symbol(symbol);
+            return Value::from_sym_id(symbol);
         }
         function
     }
@@ -6253,7 +6253,7 @@ impl Context {
         // Root binding values during evaluation so GC triggered by later
         // initializers doesn't collect earlier ones.
         let saved_roots = self.temp_roots.len();
-        match tail[0] {
+        match &tail[0] {
             Expr::List(entries) => {
                 for binding in entries {
                     match binding {
@@ -6315,12 +6315,12 @@ impl Context {
                     }
                 }
             }
-            Expr::Symbol(id) if resolve_sym(id) == "nil" => {} // (let nil ...)
+            Expr::Symbol(id) if resolve_sym(*id) == "nil" => {} // (let nil ...)
             Expr::DottedList(_, last) => {
                 self.temp_roots.truncate(saved_roots);
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("listp"), quote_to_value(last)],
+                    vec![Value::symbol("listp"), quote_to_value(last.as_ref())],
                 ));
             }
             other => {
@@ -6379,11 +6379,11 @@ impl Context {
 
         let entries = match &tail[0] {
             Expr::List(entries) => entries.clone(),
-            Expr::Symbol(id) if resolve_sym(id) == "nil" => Vec::new(),
+            Expr::Symbol(id) if resolve_sym(*id) == "nil" => Vec::new(), // &tail[0] gives &&Expr; id is &SymId
             Expr::DottedList(_, last) => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("listp"), quote_to_value(last)],
+                    vec![Value::symbol("listp"), quote_to_value(last.as_ref())],
                 ));
             }
             other => {
@@ -6483,8 +6483,8 @@ impl Context {
         let mut i = 0;
         while i < tail.len() {
             let (sym_id, name) = match &tail[i] {
-                Expr::Symbol(id) => (*id, resolve_sym(id)),
-                Expr::Keyword(id) => (*id, resolve_sym(id)),
+                Expr::Symbol(id) => (*id, resolve_sym(*id)), // &tail[i] match
+                Expr::Keyword(id) => (*id, resolve_sym(*id)), // &tail[i] match
                 _ => {
                     return Err(signal(
                         "wrong-type-argument",
@@ -6656,7 +6656,7 @@ impl Context {
         {
             // Mirror GNU eval.c: simple `(defvar foo)` inside a lexical scope
             // only declares `foo` dynamically within the current lexical env.
-            self.lexenv = Value::cons(Value::symbol(*id), self.lexenv);
+            self.lexenv = Value::cons(Value::from_sym_id(*id), self.lexenv);
         }
         Ok(value_from_symbol_id(*id))
     }
@@ -6677,7 +6677,7 @@ impl Context {
                 vec![Value::symbol("symbolp"), quote_to_value(&tail[0])],
             ));
         };
-        let name = resolve_sym(id);
+        let name = resolve_sym(*id);
         let value = self.eval(&tail[1])?;
         // GNU Emacs defconst-1 path:
         // 1) define variable metadata, 2) set default value, 3) mark risky local.
@@ -6803,13 +6803,13 @@ impl Context {
             match handler {
                 Expr::List(items) if !items.is_empty() => {
                     if let Expr::Keyword(kw) = &items[0] {
-                        if resolve_sym(kw) == ":success" {
+                        if resolve_sym(*kw) == ":success" {
                             success_handler_idx = Some(i);
                         }
                     }
                 }
                 Expr::List(_) => {}
-                Expr::Symbol(id) if resolve_sym(id) == "nil" => {}
+                Expr::Symbol(id) if resolve_sym(*id) == "nil" => {}
                 _ => {
                     return Err(signal(
                         "error",
@@ -6827,7 +6827,7 @@ impl Context {
             if success_handler_idx == Some(i) {
                 continue;
             }
-            if matches!(handler, Expr::Symbol(id) if resolve_sym(id) == "nil") {
+            if matches!(handler, Expr::Symbol(id) if resolve_sym(*id) == "nil") {
                 continue;
             }
             let Expr::List(handler_items) = handler else {
@@ -7491,7 +7491,7 @@ impl Context {
             if let Expr::List(items) = expr {
                 if items.len() == 2 {
                     if let Some(Expr::Keyword(kw)) = items.first() {
-                        if resolve_sym(kw) == ":documentation" {
+                        if resolve_sym(*kw) == ":documentation" {
                             let form_val = self.eval(&items[1])?;
                             (Some(form_val), body_start + 1)
                         } else {
@@ -7513,7 +7513,7 @@ impl Context {
         let mut body_start = body_start;
         while let Some(Expr::List(items)) = tail.get(body_start) {
             if items.first().is_some_and(
-                |head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "declare"),
+                |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "declare"),
             ) {
                 body_start += 1;
             } else {
@@ -7531,7 +7531,7 @@ impl Context {
         let mut iform_value = Value::NIL;
         if let Some(Expr::List(items)) = tail.get(body_start) {
             if items.first().is_some_and(
-                |head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "interactive"),
+                |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"),
             ) {
                 iform_value = quote_to_value(&tail[body_start]);
                 body_start += 1;
@@ -7633,7 +7633,7 @@ impl Context {
 
     fn parse_lambda_params(&self, expr: &Expr) -> Result<LambdaParams, Flow> {
         match expr {
-            Expr::Symbol(id) if resolve_sym(id) == "nil" => Ok(LambdaParams::simple(vec![])),
+            Expr::Symbol(id) if resolve_sym(*id) == "nil" => Ok(LambdaParams::simple(vec![])),
             Expr::List(items) => {
                 let mut required = Vec::new();
                 let mut optional = Vec::new();
@@ -9225,9 +9225,9 @@ pub fn quote_to_value(expr: &Expr) -> Value {
         Expr::Keyword(id) => Value::from_kw_id(*id),
         Expr::Bool(true) => Value::T,
         Expr::Bool(false) => Value::NIL,
-        Expr::Symbol(id) if resolve_sym(id) == "nil" => Value::NIL,
-        Expr::Symbol(id) if resolve_sym(id) == "t" => Value::T,
-        Expr::Symbol(id) => Value::symbol(*id),
+        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::NIL,
+        Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::T,
+        Expr::Symbol(id) => Value::from_sym_id(*id),
         Expr::List(items) => {
             let quoted = items.iter().map(quote_to_value).collect::<Vec<_>>();
             Value::list(quoted)

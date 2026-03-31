@@ -474,6 +474,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             let tid = value.as_timer_id().unwrap();
             write!(out, "#<timer {}>", tid).unwrap();
         }
+        ValueKind::Unknown => write!(out, "#<unknown {:#x}>", value.0).unwrap(),
     }
 }
 
@@ -1046,6 +1047,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
         ValueKind::Veclike(VecLikeType::Timer) => {
             format!("#<timer {}>", value.as_timer_id().unwrap())
         }
+        ValueKind::Unknown => format!("#<unknown {:#x}>", value.0),
     }
 }
 
@@ -1211,6 +1213,9 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         }
         ValueKind::Veclike(VecLikeType::Timer) => {
             out.extend_from_slice(format!("#<timer {}>", value.as_timer_id().unwrap()).as_bytes());
+        }
+        ValueKind::Unknown => {
+            out.extend_from_slice(format!("#<unknown {:#x}>", value.0).as_bytes());
         }
     }
 }
@@ -1401,12 +1406,12 @@ fn ensure_decimal_point(mut s: String) -> String {
 fn format_params(params: &super::value::LambdaParams) -> String {
     let mut parts = Vec::new();
     for p in &params.required {
-        parts.push(resolve_sym(p).to_string());
+        parts.push(resolve_sym(*p).to_string());
     }
     if !params.optional.is_empty() {
         parts.push("&optional".to_string());
         for p in &params.optional {
-            parts.push(resolve_sym(p).to_string());
+            parts.push(resolve_sym(*p).to_string());
         }
     }
     if let Some(rest) = params.rest {

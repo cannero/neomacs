@@ -350,7 +350,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
 
     let mut i = 0;
     while i < args.len() {
-        let Some(option) = &args[i].as_keyword_id() else {
+        let Some(option) = args[i].as_keyword_id() else {
             return Err(invalid_hash_table_argument_list(args[i]));
         };
 
@@ -459,7 +459,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 if i + 1 >= args.len() {
                     i += 1;
                 } else if args[i + 1].as_keyword_id().is_some_and(|kw| matches!(
-                    resolve_sym(&kw),
+                    resolve_sym(kw),
                     ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
                 )) {
                     i += 1;
@@ -476,7 +476,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 if i + 1 >= args.len() {
                     i += 1;
                 } else if args[i + 1].as_keyword_id().is_some_and(|kw| matches!(
-                    resolve_sym(&kw),
+                    resolve_sym(kw),
                     ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
                 )) {
                     i += 1;

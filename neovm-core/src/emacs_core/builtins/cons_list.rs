@@ -180,17 +180,17 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
 fn lambda_params_to_value(params: &LambdaParams) -> Value {
     let mut elements = Vec::new();
     for p in &params.required {
-        elements.push(Value::symbol(*p));
+        elements.push(Value::from_sym_id(*p));
     }
     if !params.optional.is_empty() {
         elements.push(Value::symbol("&optional"));
         for p in &params.optional {
-            elements.push(Value::symbol(*p));
+            elements.push(Value::from_sym_id(*p));
         }
     }
     if let Some(ref rest) = params.rest {
         elements.push(Value::symbol("&rest"));
-        elements.push(Value::symbol(*rest));
+        elements.push(Value::from_sym_id(*rest));
     }
     Value::list(elements)
 }

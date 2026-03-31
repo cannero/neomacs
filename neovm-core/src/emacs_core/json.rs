@@ -359,9 +359,9 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
 fn hash_key_to_string(key: &HashKey) -> Result<String, Flow> {
     match key {
         HashKey::Text(s) => Ok(s.clone()),
-        HashKey::Symbol(id) => Ok(resolve_sym(id).to_owned()),
+        HashKey::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
         HashKey::Keyword(id) => {
-            let s = resolve_sym(id);
+            let s = resolve_sym(*id);
             // Strip leading colon if present.
             if let Some(stripped) = s.strip_prefix(':') {
                 Ok(stripped.to_string())
