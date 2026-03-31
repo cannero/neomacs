@@ -91,10 +91,10 @@ fn expect_int_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Fl
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        marker if super::marker::is_marker(marker) => {
-            super::marker::marker_position_as_int_eval(eval, marker)
+        _ if super::marker::is_marker(value) => {
+            super::marker::marker_position_as_int_eval(eval, value)
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *value],
         )),
@@ -105,8 +105,8 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        marker if super::marker::is_marker(marker) => super::marker::marker_position_as_int(marker),
-        other => Err(signal(
+        _ if super::marker::is_marker(value) => super::marker::marker_position_as_int(value),
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -117,10 +117,10 @@ fn expect_integer_or_marker_eval(eval: &super::eval::Context, value: &Value) -> 
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        marker if super::marker::is_marker(marker) => {
-            super::marker::marker_position_as_int_eval(eval, marker)
+        _ if super::marker::is_marker(value) => {
+            super::marker::marker_position_as_int_eval(eval, value)
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -134,10 +134,10 @@ fn expect_integer_or_marker_in_buffers(
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        marker if super::marker::is_marker(marker) => {
-            super::marker::marker_position_as_int_with_buffers(buffers, marker)
+        _ if super::marker::is_marker(value) => {
+            super::marker::marker_position_as_int_with_buffers(buffers, value)
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -151,9 +151,9 @@ pub(crate) fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
         None => match value.kind() {
             ValueKind::String => Ok(value.as_str().unwrap().to_string()),
             ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
-            other => Err(signal(
+            _ => Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), value],
+                vec![Value::symbol("symbolp"), *value],
             )),
         },
     }
@@ -369,11 +369,17 @@ fn resolve_buffer_id_in_buffers(
     object: Option<&Value>,
 ) -> Result<BufferId, Flow> {
     match object {
-        None | Some(ValueKind::Nil) => buffers
+        None => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(*id),
+        Some(v) if v.is_nil() => buffers
+            .current_buffer()
+            .map(|b| b.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
+        Some(v) if v.is_buffer() => v
+            .as_buffer_id()
+            .ok_or_else(|| signal("error", vec![Value::string("Invalid buffer")])),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("bufferp"), *other],
@@ -388,13 +394,15 @@ fn current_buffer_id_in_buffers(buffers: &BufferManager) -> Result<BufferId, Flo
 }
 
 fn expect_overlay(value: &Value) -> Result<crate::gc::ObjId, Flow> {
-    match value.kind() {
-        ValueKind::Veclike(VecLikeType::Overlay) => Ok(*id),
-        _ => Err(signal(
+    if !value.is_overlay() {
+        return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("overlayp"), *value],
-        )),
+        ));
     }
+    lookup_overlay_obj_id(value).ok_or_else(|| {
+        signal("error", vec![Value::string("Overlay has no associated ObjId")])
+    })
 }
 
 fn resolve_overlay_buffer_id(overlay: crate::gc::ObjId) -> Option<BufferId> {
@@ -421,10 +429,10 @@ fn ensure_marker_points_into_buffer(
     ))
 }
 
-/// Check if the OBJECT argument is a string.  Returns Some(ObjId) if so.
-pub(crate) fn is_string_object(object: Option<&Value>) -> Option<crate::gc::types::ObjId> {
+/// Check if the OBJECT argument is a string.  Returns Some(Value) if so.
+pub(crate) fn is_string_object(object: Option<&Value>) -> Option<Value> {
     match object {
-        Some(ValueKind::String) => Some(*id),
+        Some(v) if v.is_string() => Some(*v),
         _ => None,
     }
 }
@@ -442,8 +450,8 @@ pub(crate) fn string_byte_to_elisp_pos(s: &str, byte_pos: usize) -> i64 {
 }
 
 /// Write back a modified TextPropertyTable to string text properties.
-pub(crate) fn save_string_props(id: crate::gc::types::ObjId, table: TextPropertyTable) {
-    set_string_text_properties_table(id, table);
+pub(crate) fn save_string_props_for_value(value: Value, table: TextPropertyTable) {
+    set_string_text_properties_table_for_value(value, table);
 }
 
 /// Iterate a plist (alternating key value key value ...) from a list or vec.
@@ -499,13 +507,13 @@ pub(crate) fn builtin_put_text_property_in_buffers(
     let prop = expect_symbol_name(&args[2])?;
     let val = args[3];
 
-    if let Some(str_id) = is_string_object(args.get(4)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(4)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
         table.put_property(byte_beg, byte_end, &prop, val);
-        save_string_props(str_id, table);
+        save_string_props_for_value(str_val, table);
         return Ok(Value::NIL);
     }
 
@@ -538,9 +546,9 @@ pub(crate) fn builtin_get_text_property_in_state(
     let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
-    if let Some(str_id) = is_string_object(args.get(2)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        if let Some(table) = get_string_text_properties_table(str_id) {
+    if let Some(str_val) = is_string_object(args.get(2)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        if let Some(table) = get_string_text_properties_table_for_value(str_val) {
             let byte_pos = string_elisp_pos_to_byte(&s, pos);
             return Ok(lookup_string_text_property(
                 obarray, buffers, &table, byte_pos, &prop,
@@ -655,9 +663,9 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
     let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let pairs = plist_pairs(&args[2])?;
 
-    if let Some(str_id) = is_string_object(args.get(3)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(3)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
         let mut any_changed = false;
@@ -666,7 +674,7 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
                 any_changed = true;
             }
         }
-        save_string_props(str_id, table);
+        save_string_props_for_value(str_val, table);
         return Ok(if any_changed { Value::T } else { Value::NIL });
     }
 
@@ -732,24 +740,30 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
 
     let object = args.get(4);
 
-    if let Some(str_id) = is_string_object(object) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(object) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
         let existing = table.get_property(byte_beg, "face").cloned();
         let merged = merge_face_property(existing, new_face, append);
         table.put_property(byte_beg, byte_end, "face", merged);
-        save_string_props(str_id, table);
+        save_string_props_for_value(str_val, table);
         return Ok(Value::NIL);
     }
 
     let buf_id = match object {
-        None | Some(ValueKind::Nil) => buffers
+        None => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(*id),
+        Some(v) if v.is_nil() => buffers
+            .current_buffer()
+            .map(|b| b.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
+        Some(v) if v.is_buffer() => v
+            .as_buffer_id()
+            .ok_or_else(|| signal("error", vec![Value::string("Invalid buffer")])),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("buffer-or-string-p"), *other],
@@ -785,9 +799,9 @@ pub(crate) fn builtin_remove_text_properties_in_buffers(
     let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let pairs = plist_pairs(&args[2])?;
 
-    if let Some(str_id) = is_string_object(args.get(3)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(3)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
         let mut any_removed = false;
@@ -796,7 +810,7 @@ pub(crate) fn builtin_remove_text_properties_in_buffers(
                 any_removed = true;
             }
         }
-        save_string_props(str_id, table);
+        save_string_props_for_value(str_val, table);
         return Ok(if any_removed { Value::T } else { Value::NIL });
     }
 
@@ -842,16 +856,16 @@ pub(crate) fn builtin_set_text_properties_in_buffers(
         plist_pairs(&args[2])?
     };
 
-    if let Some(str_id) = is_string_object(args.get(3)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(3)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
         table.remove_all_properties(byte_beg, byte_end);
         for (name, val) in pairs {
             table.put_property(byte_beg, byte_end, &name, val);
         }
-        save_string_props(str_id, table);
+        save_string_props_for_value(str_val, table);
         return Ok(Value::T);
     }
 
@@ -888,9 +902,9 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
     let names = list_to_vec(&args[2])
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[2]]))?;
 
-    if let Some(str_id) = is_string_object(args.get(3)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(3)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
         let mut changed = false;
@@ -901,7 +915,7 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
             }
             table.remove_property(byte_beg, byte_end, &name);
         }
-        save_string_props(str_id, table);
+        save_string_props_for_value(str_val, table);
         return Ok(if changed { Value::T } else { Value::NIL });
     }
 
@@ -951,9 +965,9 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
     expect_max_args("text-properties-at", &args, 2)?;
     let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
-    if let Some(str_id) = is_string_object(args.get(1)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        if let Some(table) = get_string_text_properties_table(str_id) {
+    if let Some(str_val) = is_string_object(args.get(1)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        if let Some(table) = get_string_text_properties_table_for_value(str_val) {
             let byte_pos = string_elisp_pos_to_byte(&s, pos);
             let props = table.get_properties_ordered(byte_pos);
             return Ok(ordered_pairs_to_plist(&props));
@@ -989,9 +1003,9 @@ pub(crate) fn builtin_next_single_property_change_in_state(
     let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
-    if let Some(str_id) = is_string_object(args.get(2)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(2)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(3) {
             Some(v) if !v.is_nil() => {
@@ -1102,9 +1116,9 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
     let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
-    if let Some(str_id) = is_string_object(args.get(2)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(2)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(3) {
             Some(v) if !v.is_nil() => {
@@ -1215,9 +1229,9 @@ pub(crate) fn builtin_next_property_change_in_buffers(
     expect_max_args("next-property-change", &args, 3)?;
     let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
-    if let Some(str_id) = is_string_object(args.get(1)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(1)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let limit_arg = args.get(2);
         // Keep original limit value for returning (don't clamp to string length)
@@ -1319,9 +1333,9 @@ pub(crate) fn builtin_text_property_any_in_state(
     let prop = expect_symbol_name(&args[2])?;
     let val = &args[3];
 
-    if let Some(str_id) = is_string_object(args.get(4)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(4)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
         let mut cursor = byte_beg;
@@ -1383,9 +1397,9 @@ pub(crate) fn builtin_text_property_not_all_in_state(
     let prop = expect_symbol_name(&args[2])?;
     let val = &args[3];
 
-    if let Some(str_id) = is_string_object(args.get(4)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = is_string_object(args.get(4)) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
         let mut cursor = byte_beg;
@@ -1460,7 +1474,7 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_state(
         if let Some((value, ov_id)) =
             buffer_overlay_property_at_byte_pos(obarray, buffers, buf, byte_pos, &prop)
         {
-            return Ok(Value::cons(value, Value::Overlay(ov_id)));
+            return Ok(Value::cons(value, overlay_id_to_value(ov_id)));
         }
     }
 
@@ -1592,7 +1606,7 @@ pub(crate) fn builtin_make_overlay_in_buffers(
         })
     });
     buf.overlays.insert_overlay(overlay);
-    Ok(Value::Overlay(overlay))
+    Ok(overlay_id_to_value(overlay))
 }
 
 /// (delete-overlay OVERLAY)
@@ -1686,7 +1700,7 @@ pub(crate) fn builtin_overlayp(_eval: &mut super::eval::Context, args: Vec<Value
 
 pub(crate) fn builtin_overlayp_pure(args: Vec<Value>) -> EvalResult {
     expect_args("overlayp", &args, 1)?;
-    if matches!(args[0], ValueKind::Veclike(VecLikeType::Overlay)) {
+    if args[0].is_overlay() {
         return Ok(Value::T);
     }
     Ok(Value::NIL)
@@ -1714,7 +1728,7 @@ pub(crate) fn builtin_overlays_at_in_buffers(
     if args.get(1).is_some_and(|value| value.is_truthy()) {
         buf.overlays.sort_overlay_ids_by_priority_desc(&mut ids);
     }
-    let overlays: Vec<Value> = ids.into_iter().map(Value::Overlay).collect();
+    let overlays: Vec<Value> = ids.into_iter().map(overlay_id_to_value).collect();
     Ok(Value::list(overlays))
 }
 
@@ -1740,7 +1754,7 @@ pub(crate) fn builtin_overlays_in_in_buffers(
     let ids = buf
         .overlays
         .overlays_in_region(byte_beg, byte_end, buf.point_max_byte());
-    let overlays: Vec<Value> = ids.into_iter().map(Value::Overlay).collect();
+    let overlays: Vec<Value> = ids.into_iter().map(overlay_id_to_value).collect();
     Ok(Value::list(overlays))
 }
 

@@ -398,7 +398,7 @@ fn first_form_byte_code_literal_value(
     let Expr::Symbol(id) = &items[0] else {
         return None;
     };
-    if resolve_sym(id) != "byte-code-literal" {
+    if resolve_sym(*id) != "byte-code-literal" {
         return None;
     }
     let Expr::Vector(values) = &items[1] else {
@@ -424,7 +424,7 @@ fn first_form_hash_table_literal_value(
     let Expr::Symbol(id) = &items[0] else {
         return None;
     };
-    if resolve_sym(id) != "make-hash-table-from-literal" {
+    if resolve_sym(*id) != "make-hash-table-from-literal" {
         return None;
     }
     let Expr::List(quoted) = &items[1] else {
@@ -433,13 +433,13 @@ fn first_form_hash_table_literal_value(
     if quoted.len() != 2 {
         return None;
     }
-    if !matches!(&quoted[0], Expr::Symbol(id) if resolve_sym(id) == "quote") {
+    if !matches!(&quoted[0], Expr::Symbol(id) if resolve_sym(*id) == "quote") {
         return None;
     }
     let Expr::List(spec) = &quoted[1] else {
         return None;
     };
-    if !matches!(spec.first(), Some(Expr::Symbol(id)) if resolve_sym(id) == "hash-table") {
+    if !matches!(spec.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "hash-table") {
         return None;
     }
 
@@ -458,7 +458,7 @@ fn first_form_hash_table_literal_value(
             continue;
         };
         let value = super::eval::Context::quote_to_runtime_value_in_state(obarray, &spec[i + 1]);
-        match resolve_sym(key_id) {
+        match resolve_sym(*key_id) {
             "size" => {
                 size = value.as_int()?;
             }

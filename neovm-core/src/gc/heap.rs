@@ -3,7 +3,7 @@
 use super::types::{HeapObject, MarkerData, ObjId, OverlayData};
 use crate::buffer::BufferId;
 use crate::emacs_core::bytecode::ByteCodeFunction;
-use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value, ValueKind, VecLikeType};
+use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value, ValueKind};
 use std::collections::HashSet;
 
 /// GC collection phase (tri-color incremental).
@@ -258,14 +258,11 @@ impl LispHeap {
     }
 
     /// Extract ObjId from a Value, if it contains one.
-    fn value_objid(val: &Value) -> Option<ObjId> {
-        match val.kind() {
-            ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record)
-            | ValueKind::Veclike(VecLikeType::HashTable) | ValueKind::String | ValueKind::Veclike(VecLikeType::Lambda)
-            | ValueKind::Veclike(VecLikeType::Macro) | ValueKind::Veclike(VecLikeType::ByteCode) | ValueKind::Veclike(VecLikeType::Overlay)
-            | ValueKind::Veclike(VecLikeType::Marker) => Some(*id),
-            _ => None,
-        }
+    ///
+    /// After the tagged-pointer migration, Values no longer contain ObjIds.
+    /// The tagged heap manages its own tracing. This always returns None.
+    fn value_objid(_val: &Value) -> Option<ObjId> {
+        None
     }
 
     #[inline]
@@ -577,8 +574,8 @@ impl LispHeap {
             match cursor.kind() {
                 ValueKind::Nil => return Some(result),
                 ValueKind::Cons => {
-                    result.push(self.cons_car(id));
-                    cursor = self.cons_cdr(id);
+                    result.push(cursor.cons_car());
+                    cursor = cursor.cons_cdr();
                 }
                 _ => return None,
             }
@@ -593,7 +590,7 @@ impl LispHeap {
                 ValueKind::Nil => return Some(len),
                 ValueKind::Cons => {
                     len += 1;
-                    cursor = self.cons_cdr(id);
+                    cursor = cursor.cons_cdr();
                 }
                 _ => return None,
             }
@@ -605,35 +602,8 @@ impl LispHeap {
     // -----------------------------------------------------------------------
 
     pub fn equal_value(&self, a: &Value, b: &Value, depth: usize) -> bool {
-        if depth > 4096 {
-            return false;
-        }
-        match (a.kind(), b.kind()) {
-            (ValueKind::Cons, ValueKind::Cons) => {
-                if ai == bi {
-                    return true;
-                }
-                let a_car = self.cons_car(*ai);
-                let a_cdr = self.cons_cdr(*ai);
-                let b_car = self.cons_car(*bi);
-                let b_cdr = self.cons_cdr(*bi);
-                self.equal_value(&a_car, &b_car, depth + 1)
-                    && self.equal_value(&a_cdr, &b_cdr, depth + 1)
-            }
-            (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) | (ValueKind::Veclike(VecLikeType::Record), ValueKind::Veclike(VecLikeType::Record)) => {
-                if ai == bi {
-                    return true;
-                }
-                let av = self.get_vector(*ai);
-                let bv = self.get_vector(*bi);
-                av.len() == bv.len()
-                    && av
-                        .iter()
-                        .zip(bv.iter())
-                        .all(|(x, y)| self.equal_value(x, y, depth + 1))
-            }
-            _ => crate::emacs_core::value::equal_value(a, b, depth),
-        }
+        // Delegate entirely to the tagged-pointer-aware equal_value.
+        crate::emacs_core::value::equal_value(a, b, depth)
     }
 
     // -----------------------------------------------------------------------
@@ -922,47 +892,21 @@ impl LispHeap {
         }
     }
 
-    fn push_value_ids(val: &Value, worklist: &mut Vec<ObjId>) {
-        match val.kind() {
-            ValueKind::Cons
-            | ValueKind::Veclike(VecLikeType::Vector)
-            | ValueKind::Veclike(VecLikeType::Record)
-            | ValueKind::Veclike(VecLikeType::HashTable)
-            | ValueKind::String
-            | ValueKind::Veclike(VecLikeType::Lambda)
-            | ValueKind::Veclike(VecLikeType::Macro)
-            | ValueKind::Veclike(VecLikeType::ByteCode)
-            | ValueKind::Veclike(VecLikeType::Overlay)
-            | ValueKind::Veclike(VecLikeType::Marker) => worklist.push(*id),
-            _ => {}
-        }
+    /// Push ObjIds referenced by a Value onto the worklist.
+    ///
+    /// After the tagged-pointer migration, Values no longer contain ObjIds
+    /// (they use direct heap pointers). The tagged heap traces its own objects.
+    /// This is now a no-op for the old heap's GC.
+    fn push_value_ids(_val: &Value, _worklist: &mut Vec<ObjId>) {
+        // No-op: tagged pointer Values don't contain ObjIds.
     }
 
     /// Extract ObjIds from a HashKey and push them onto the worklist.
-    /// HashKey can contain ObjIds in Str, ObjId, EqualCons, and EqualVec variants.
-    fn push_hash_key_ids(key: &crate::emacs_core::value::HashKey, worklist: &mut Vec<ObjId>) {
-        use crate::emacs_core::value::HashKey;
-        match key {
-            HashKey::Str(id) => worklist.push(*id),
-            HashKey::ObjId(index, generation) => {
-                worklist.push(ObjId {
-                    index: *index,
-                    generation: *generation,
-                });
-            }
-            HashKey::EqualCons(car, cdr) => {
-                Self::push_hash_key_ids(car, worklist);
-                Self::push_hash_key_ids(cdr, worklist);
-            }
-            HashKey::EqualVec(items) => {
-                for item in items.iter() {
-                    Self::push_hash_key_ids(item, worklist);
-                }
-            }
-            // Nil, True, Int, Float, FloatEq, Symbol, Keyword, Char,
-            // Window, Frame, Ptr — no heap references
-            _ => {}
-        }
+    ///
+    /// After the tagged-pointer migration, HashKey no longer contains ObjIds
+    /// (Str/ObjId variants were replaced with Text/Ptr). This is now a no-op.
+    fn push_hash_key_ids(_key: &crate::emacs_core::value::HashKey, _worklist: &mut Vec<ObjId>) {
+        // No-op: HashKey no longer contains ObjIds.
     }
 
     /// Trace all Value children inside a HeapObject, pushing their ObjIds onto
