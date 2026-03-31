@@ -18,7 +18,7 @@
 //! are implemented from scratch with simple recursive descent.
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{intern, resolve_sym};
+use super::intern::resolve_sym;
 use super::value::*;
 use crate::buffer::BufferManager;
 
@@ -55,7 +55,7 @@ impl Default for SerializeOpts {
     fn default() -> Self {
         Self {
             null_object: Value::NIL,
-            false_object: Value::keyword(intern(":false")),
+            false_object: Value::keyword(":false"),
         }
     }
 }
@@ -78,8 +78,8 @@ impl Default for ParseOpts {
         Self {
             object_type: ObjectType::HashTable,
             array_type: ArrayType::Vector,
-            null_object: Value::keyword(intern(":null")),
-            false_object: Value::keyword(intern(":false")),
+            null_object: Value::keyword(":null"),
+            false_object: Value::keyword(":false"),
         }
     }
 }
@@ -222,10 +222,10 @@ fn value_matches(a: &Value, b: &Value) -> bool {
         (ValueKind::Nil, ValueKind::Nil) => true,
         (ValueKind::T, ValueKind::T) => true,
         (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => x == y,
-        (ValueKind::Float, ValueKind::Float) => x.to_bits() == y.to_bits(),
+        (ValueKind::Float, ValueKind::Float) => a.xfloat().to_bits() == b.xfloat().to_bits(),
         (ValueKind::Symbol(x), ValueKind::Symbol(y)) => x == y,
         (ValueKind::Keyword(x), ValueKind::Keyword(y)) => x == y,
-        (ValueKind::String, ValueKind::String) => with_heap(|h| h.get_string(*x) == h.get_string(*y)),
+        (ValueKind::String, ValueKind::String) => a.as_str() == b.as_str(),
         (ValueKind::Char(x), ValueKind::Char(y)) => x == y,
         _ => false,
     }
@@ -250,13 +250,14 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
         return Ok("false".to_string());
     }
 
-    match value {
+    match value.kind() {
         // t → true (checked after false sentinel, which is usually :false not t)
         ValueKind::T => Ok("true".to_string()),
 
         ValueKind::Fixnum(n) => Ok(n.to_string()),
 
         ValueKind::Float => {
+            let f = value.xfloat();
             if f.is_nan() || f.is_infinite() {
                 return Err(signal(
                     "json-serialize-error",
@@ -275,12 +276,12 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
         }
 
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
-            Ok(json_encode_string(&s))
+            let s = value.as_str().unwrap();
+            Ok(json_encode_string(s))
         }
 
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_vector_data().unwrap().clone();
             let mut parts = Vec::with_capacity(items.len());
             for item in items.iter() {
                 parts.push(serialize_to_json(item, opts, depth + 1)?);
@@ -289,7 +290,7 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
         }
 
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = value.as_hash_table().unwrap().clone();
             let mut parts = Vec::with_capacity(table.data.len());
             for (key, val) in &table.data {
                 let key_str = hash_key_to_string(key)?;
@@ -304,6 +305,7 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
             let items = list_to_vec(value).ok_or_else(|| {
                 signal("wrong-type-argument", vec![Value::symbol("listp"), *value])
             })?;
+
             let mut parts = Vec::with_capacity(items.len());
             for item in &items {
                 match item.kind() {
@@ -343,11 +345,11 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
             Ok("null".to_string())
         }
 
-        other => Err(signal(
+        _ => Err(signal(
             "json-serialize-error",
             vec![Value::string(format!(
                 "Value cannot be serialized to JSON: {}",
-                super::print::print_value(other)
+                super::print::print_value(value)
             ))],
         )),
     }
@@ -356,7 +358,7 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
 /// Convert a HashKey to a string suitable as a JSON object key.
 fn hash_key_to_string(key: &HashKey) -> Result<String, Flow> {
     match key {
-        HashKey::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        HashKey::Text(s) => Ok(s.clone()),
         HashKey::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         HashKey::Keyword(id) => {
             let s = resolve_sym(id);
@@ -387,7 +389,7 @@ fn symbol_object_key(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value],
         )),
@@ -889,49 +891,41 @@ impl<'a> JsonParser<'a> {
             return Ok(ht);
         }
 
-        if let Value::HashTable(ref table_arc) = ht {
-            loop {
-                self.skip_ws();
-                let key = self.parse_string_raw()?;
-                self.expect_byte(b':')?;
-                let val = self.parse_value()?;
+        loop {
+            self.skip_ws();
+            let key = self.parse_string_raw()?;
+            self.expect_byte(b':')?;
+            let val = self.parse_value()?;
 
-                {
-                    let key_val = Value::string(key);
-                    let str_id = match key_val.kind() {
-                        ValueKind::String => id,
-                        _ => unreachable!(),
-                    };
-                    let hash_key = HashKey::Str(str_id);
-                    with_heap_mut(|h| {
-                        let table = h.get_hash_table_mut(*table_arc);
-                        let inserting_new_key = !table.data.contains_key(&hash_key);
-                        table.data.insert(hash_key.clone(), val);
-                        if inserting_new_key {
-                            table.key_snapshots.insert(hash_key.clone(), key_val);
-                            table.insertion_order.push(hash_key);
-                        }
-                    });
+            {
+                let key_val = Value::string(&key);
+                let hash_key = HashKey::Text(key);
+                let table = ht.as_hash_table_mut().unwrap();
+                let inserting_new_key = !table.data.contains_key(&hash_key);
+                table.data.insert(hash_key.clone(), val);
+                if inserting_new_key {
+                    table.key_snapshots.insert(hash_key.clone(), key_val);
+                    table.insertion_order.push(hash_key);
                 }
+            }
 
-                self.skip_ws();
-                match self.peek() {
-                    Some(b',') => {
-                        self.advance();
-                    }
-                    Some(b'}') => {
-                        self.advance();
-                        break;
-                    }
-                    _ => {
-                        return Err(signal(
-                            "json-parse-error",
-                            vec![Value::string(format!(
-                                "Expected ',' or '}}' at position {}",
-                                self.pos
-                            ))],
-                        ));
-                    }
+            self.skip_ws();
+            match self.peek() {
+                Some(b',') => {
+                    self.advance();
+                }
+                Some(b'}') => {
+                    self.advance();
+                    break;
+                }
+                _ => {
+                    return Err(signal(
+                        "json-parse-error",
+                        vec![Value::string(format!(
+                            "Expected ',' or '}}' at position {}",
+                            self.pos
+                        ))],
+                    ));
                 }
             }
         }
@@ -1049,7 +1043,7 @@ pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("json-parse-string", &args, 1)?;
     let input = match args[0].kind() {
         ValueKind::String => args[0].as_str().unwrap().to_owned(),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],

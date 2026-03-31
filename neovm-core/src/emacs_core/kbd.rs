@@ -7,10 +7,9 @@
 //! - string return when all events are plain chars, otherwise vector.
 
 use super::{
-use crate::emacs_core::value::{ValueKind, VecLikeType};
     intern::resolve_sym,
     keymap::KeyEvent,
-    value::{Value, read_cons, with_heap},
+    value::{Value, ValueKind, VecLikeType, read_cons, with_heap},
 };
 
 const CHAR_META: i64 = 0x8000000;

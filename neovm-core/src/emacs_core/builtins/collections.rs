@@ -25,39 +25,37 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = idx_fixnum as usize;
-            with_heap(|h| {
-                let items = h.get_vector(*v);
-                let is_bool_vector = items.len() >= 2
-                    && matches!(&items[0], ValueKind::Symbol(id) if resolve_sym(id) == "--bool-vector--");
-                if is_bool_vector {
-                    let len = match items.get(1).kind() {
-                        Some(ValueKind::Fixnum(n)) if n >= 0 => n as usize,
-                        _ => {
-                            return Err(signal(
-                                "wrong-type-argument",
-                                vec![Value::symbol("bool-vector-p"), args[0]],
-                            ));
-                        }
-                    };
-                    if idx >= len {
-                        return Err(signal("args-out-of-range", vec![args[0], args[1]]));
+            let items = args[0].as_vector_data().unwrap();
+            let is_bool_vector = items.len() >= 2
+                && items[0].as_symbol_name() == Some("--bool-vector--");
+            if is_bool_vector {
+                let len = match items.get(1).map(|v| v.kind()) {
+                    Some(ValueKind::Fixnum(n)) if n >= 0 => n as usize,
+                    _ => {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("bool-vector-p"), args[0]],
+                        ));
                     }
-                    let bit = items
-                        .get(idx + 2)
-                        .copied()
-                        .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))?;
-                    let truthy = match bit.kind() {
-                        ValueKind::Fixnum(n) => n != 0,
-                        ValueKind::Nil => false,
-                        other => bit.is_truthy(),
-                    };
-                    return Ok(Value::bool_val(truthy));
+                };
+                if idx >= len {
+                    return Err(signal("args-out-of-range", vec![args[0], args[1]]));
                 }
-                items
-                    .get(idx)
+                let bit = items
+                    .get(idx + 2)
                     .copied()
-                    .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
-            })
+                    .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))?;
+                let truthy = match bit.kind() {
+                    ValueKind::Fixnum(n) => n != 0,
+                    ValueKind::Nil => false,
+                    _ => bit.is_truthy(),
+                };
+                return Ok(Value::bool_val(truthy));
+            }
+            items
+                .get(idx)
+                .copied()
+                .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
         }
         ValueKind::String => {
             let idx = idx_fixnum as usize;
@@ -106,12 +104,8 @@ pub(crate) fn aset_string_replacement(
     };
 
     let idx = expect_fixnum(index)? as usize;
-    let (original_str, multibyte) = with_heap(|h| {
-        (
-            h.get_string(*original).to_owned(),
-            h.string_is_multibyte(*original),
-        )
-    });
+    let original_str = array.as_str().unwrap().to_owned();
+    let multibyte = array.string_is_multibyte();
     let mut codes = decode_storage_char_codes(&original_str);
     if idx >= codes.len() {
         return Err(signal("args-out-of-range", vec![*array, *index]));
@@ -137,7 +131,9 @@ pub(crate) fn aset_string_replacement(
         rebuilt.push_str(&encoded);
     }
     // Modify the string in-place on the heap so identity (eq) is preserved.
-    with_heap_mut(|h| *h.get_string_mut(*original) = rebuilt);
+    let s = array.as_lisp_string_mut().unwrap().make_mut();
+    s.clear();
+    s.push_str(&rebuilt);
     Ok(*array)
 }
 
@@ -150,20 +146,18 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = expect_fixnum(&args[1])? as usize;
-            let (is_bool_vector, vec_len, bool_len) = with_heap(|h| {
-                let items = h.get_vector(*v);
-                let bv = items.len() >= 2
-                    && matches!(&items[0], ValueKind::Symbol(id) if resolve_sym(id) == "--bool-vector--");
-                let bl = if bv {
-                    match items.get(1).kind() {
-                        Some(ValueKind::Fixnum(n)) if n >= 0 => Some(n as usize),
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                (bv, items.len(), bl)
-            });
+            let items = args[0].as_vector_data().unwrap();
+            let is_bool_vector = items.len() >= 2
+                && items[0].as_symbol_name() == Some("--bool-vector--");
+            let bool_len = if is_bool_vector {
+                match items.get(1).map(|v| v.kind()) {
+                    Some(ValueKind::Fixnum(n)) if n >= 0 => Some(n as usize),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let vec_len = items.len();
             if is_bool_vector {
                 let len = match bool_len {
                     Some(n) => n,
@@ -182,13 +176,13 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
                     return Err(signal("args-out-of-range", vec![args[0], args[1]]));
                 }
                 let val = Value::fixnum(if args[2].is_truthy() { 1 } else { 0 });
-                with_heap_mut(|h| h.get_vector_mut(*v)[store_idx] = val);
+                args[0].as_vector_data_mut().unwrap()[store_idx] = val;
                 return Ok(args[2]);
             }
             if idx >= vec_len {
                 return Err(signal("args-out-of-range", vec![args[0], args[1]]));
             }
-            with_heap_mut(|h| h.get_vector_mut(*v)[idx] = args[2]);
+            args[0].as_vector_data_mut().unwrap()[idx] = args[2];
             Ok(args[2])
         }
         ValueKind::String => {
@@ -214,7 +208,7 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
                     out.push(pair_car);
                     cursor = pair_cdr;
                 }
-                tail => {
+                _tail => {
                     return Err(signal(
                         "wrong-type-argument",
                         vec![Value::symbol("listp"), cursor],
@@ -413,7 +407,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 seen_size = true;
                 size = match value.kind() {
                     ValueKind::Nil => 0,
-                    ValueKind::Fixnum(n) if *n >= 0 => *n,
+                    ValueKind::Fixnum(n) if n >= 0 => n,
                     _ => {
                         return Err(signal(
                             "error",
@@ -464,13 +458,10 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 seen_rehash_size = true;
                 if i + 1 >= args.len() {
                     i += 1;
-                } else if matches!(
-                    &args[i + 1],
-                    ValueKind::Keyword(option) if matches!(
-                        resolve_sym(option),
-                        ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
-                    )
-                ) {
+                } else if args[i + 1].as_keyword_id().is_some_and(|kw| matches!(
+                    resolve_sym(&kw),
+                    ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
+                )) {
                     i += 1;
                 } else {
                     i += 2;
@@ -484,13 +475,10 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 seen_rehash_threshold = true;
                 if i + 1 >= args.len() {
                     i += 1;
-                } else if matches!(
-                    &args[i + 1],
-                    ValueKind::Keyword(option) if matches!(
-                        resolve_sym(option),
-                        ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
-                    )
-                ) {
+                } else if args[i + 1].as_keyword_id().is_some_and(|kw| matches!(
+                    resolve_sym(&kw),
+                    ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
+                )) {
                     i += 1;
                 } else {
                     i += 2;
@@ -502,7 +490,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
     }
     let table = Value::hash_table_with_options(test, size, weakness, 1.5, 0.8125);
     if table.is_hash_table() {
-        with_heap_mut(|h| h.get_hash_table_mut(*table_ref).test_name = test_name);
+        table.as_hash_table_mut().unwrap().test_name = test_name;
     }
     Ok(table)
 }
@@ -527,18 +515,16 @@ pub(crate) fn builtin_puthash(args: Vec<Value>) -> EvalResult {
     expect_args("puthash", &args, 3)?;
     match args[2].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let test = with_heap(|h| h.get_hash_table(*ht_id).test.clone());
+            let test = args[2].as_hash_table().unwrap().test.clone();
             let key = args[0].to_hash_key(&test);
-            with_heap_mut(|h| {
-                let ht = h.get_hash_table_mut(*ht_id);
-                let inserting_new_key = !ht.data.contains_key(&key);
-                maybe_resize_hash_table_for_insert(ht, inserting_new_key);
-                ht.data.insert(key.clone(), args[1]);
-                if inserting_new_key {
-                    ht.key_snapshots.insert(key.clone(), args[0]);
-                    ht.insertion_order.push(key);
-                }
-            });
+            let ht = args[2].as_hash_table_mut().unwrap();
+            let inserting_new_key = !ht.data.contains_key(&key);
+            maybe_resize_hash_table_for_insert(ht, inserting_new_key);
+            ht.data.insert(key.clone(), args[1]);
+            if inserting_new_key {
+                ht.key_snapshots.insert(key.clone(), args[0]);
+                ht.insertion_order.push(key);
+            }
             Ok(args[1])
         }
         _ => Err(signal(
@@ -552,14 +538,12 @@ pub(crate) fn builtin_remhash(args: Vec<Value>) -> EvalResult {
     expect_args("remhash", &args, 2)?;
     match args[1].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let test = with_heap(|h| h.get_hash_table(*ht_id).test.clone());
+            let test = args[1].as_hash_table().unwrap().test.clone();
             let key = args[0].to_hash_key(&test);
-            with_heap_mut(|h| {
-                let ht = h.get_hash_table_mut(*ht_id);
-                ht.data.remove(&key);
-                ht.key_snapshots.remove(&key);
-                ht.insertion_order.retain(|k| k != &key);
-            });
+            let ht = args[1].as_hash_table_mut().unwrap();
+            ht.data.remove(&key);
+            ht.key_snapshots.remove(&key);
+            ht.insertion_order.retain(|k| k != &key);
             Ok(Value::NIL)
         }
         _ => Err(signal(
@@ -573,12 +557,10 @@ pub(crate) fn builtin_clrhash(args: Vec<Value>) -> EvalResult {
     expect_args("clrhash", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            with_heap_mut(|h| {
-                let ht = h.get_hash_table_mut(*ht_id);
-                ht.data.clear();
-                ht.key_snapshots.clear();
-                ht.insertion_order.clear();
-            });
+            let ht = args[0].as_hash_table_mut().unwrap();
+            ht.data.clear();
+            ht.key_snapshots.clear();
+            ht.insertion_order.clear();
             Ok(Value::NIL)
         }
         _ => Err(signal(
@@ -592,7 +574,7 @@ pub(crate) fn builtin_hash_table_count(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-count", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => Ok(Value::fixnum(
-            with_heap(|h| h.get_hash_table(*ht).data.len()) as i64
+            args[0].as_hash_table().unwrap().data.len() as i64
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -623,7 +605,7 @@ pub(crate) fn builtin_char_to_string(args: Vec<Value>) -> EvalResult {
                 ))
             }
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), args[0]],
         )),
@@ -658,15 +640,15 @@ pub(crate) fn builtin_plist_get(args: Vec<Value>) -> EvalResult {
                     // Next element is the value
                     match pair_cdr.kind() {
                         ValueKind::Cons => {
-                            return Ok(cursor.cons_car());
+                            return Ok(pair_cdr.cons_car());
                         }
                         _ => return Ok(Value::NIL),
                     }
                 }
                 // Skip the value entry
-                match pair.cdr.kind() {
+                match pair_cdr.kind() {
                     ValueKind::Cons => {
-                        cursor = pair.cdr.cons_cdr();
+                        cursor = pair_cdr.cons_cdr();
                     }
                     _ => return Ok(Value::NIL),
                 }
@@ -689,24 +671,22 @@ pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
     }
 
     let mut cursor = plist;
-    let mut last_value_cell = None;
+    let mut last_value_cell: Option<Value> = None;
 
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
-                let (entry_key, entry_rest) = {
-                    let pair_car = cursor.cons_car();
-                    let pair_cdr = cursor.cons_cdr();
-                    (pair_car, pair_cdr)
-                };
+                let entry_key = cursor.cons_car();
+                let entry_rest = cursor.cons_cdr();
 
                 match entry_rest.kind() {
                     ValueKind::Cons => {
                         if eq_value(&entry_key, &key) {
-                            cursor.set_car(new_val);
+                            entry_rest.set_car(new_val);
                             return Ok(plist);
                         }
-                        cursor = cursor.cons_cdr();
+                        let value_cell = entry_rest;
+                        cursor = entry_rest.cons_cdr();
                         last_value_cell = Some(value_cell);
                     }
                     _ => {
@@ -720,7 +700,7 @@ pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
             ValueKind::Nil => {
                 if let Some(value_cell) = last_value_cell {
                     let new_tail = Value::cons(key, Value::cons(new_val, Value::NIL));
-                    cursor.set_cdr(new_tail);
+                    value_cell.set_cdr(new_tail);
                     return Ok(plist);
                 }
                 return Ok(Value::list(vec![key, new_val]));
@@ -763,11 +743,8 @@ pub(crate) fn builtin_plist_member(
         loop {
             match cursor.kind() {
                 ValueKind::Cons => {
-                    let (entry_key, entry_rest) = {
-                        let pair_car = cursor.cons_car();
-                        let pair_cdr = cursor.cons_cdr();
-                        (pair_car, pair_cdr)
-                    };
+                    let entry_key = cursor.cons_car();
+                    let entry_rest = cursor.cons_cdr();
 
                     let matches = if let Some(predicate) = &predicate {
                         ctx.apply(*predicate, vec![entry_key, prop])?.is_truthy()
@@ -775,12 +752,12 @@ pub(crate) fn builtin_plist_member(
                         eq_value(&entry_key, &prop)
                     };
                     if matches {
-                        return Ok(ValueKind::Cons);
+                        return Ok(cursor);
                     }
 
                     match entry_rest.kind() {
                         ValueKind::Cons => {
-                            cursor = cursor.cons_cdr();
+                            cursor = entry_rest.cons_cdr();
                         }
                         _ => {
                             return Err(signal(
@@ -817,19 +794,16 @@ pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
-                let (entry_key, entry_rest) = {
-                    let pair_car = cursor.cons_car();
-                    let pair_cdr = cursor.cons_cdr();
-                    (pair_car, pair_cdr)
-                };
+                let entry_key = cursor.cons_car();
+                let entry_rest = cursor.cons_cdr();
 
                 if eq_value(&entry_key, &prop) {
-                    return Ok(ValueKind::Cons);
+                    return Ok(cursor);
                 }
 
                 match entry_rest.kind() {
                     ValueKind::Cons => {
-                        cursor = cursor.cons_cdr();
+                        cursor = entry_rest.cons_cdr();
                     }
                     _ => {
                         return Err(signal(

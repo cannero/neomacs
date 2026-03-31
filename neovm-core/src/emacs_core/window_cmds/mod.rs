@@ -5334,7 +5334,7 @@ fn make_frame_plain(
                 if item.is_cons() {
                     let pair_car = item.cons_car();
                     let pair_cdr = item.cons_cdr();
-                    if let Some(key) = &pair_car.as_symbol_id() {
+                    if let Some(key) = pair_car.as_symbol_id() {
                         match resolve_sym(key) {
                             "width" => {
                                 if let Some(n) = pair_cdr.as_int() {
@@ -5919,7 +5919,7 @@ pub(crate) fn builtin_modify_frame_parameters(
         if item.is_cons() {
             let pair_car = item.cons_car();
             let pair_cdr = item.cons_cdr();
-            if let Some(key) = &pair_car.as_symbol_id() {
+            if let Some(key) = pair_car.as_symbol_id() {
                 let key_name = resolve_sym(key).to_owned();
                 match key_name.as_str() {
                     "name" => {

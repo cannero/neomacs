@@ -19,9 +19,9 @@ pub(crate) fn builtin_get_pos_property_impl(
     let pos = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let prop = super::textprop::expect_symbol_name(&args[1])?;
 
-    if let Some(str_id) = super::textprop::is_string_object(args.get(2)) {
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        if let Some(table) = get_string_text_properties_table(str_id) {
+    if let Some(str_val) = args.get(2).filter(|v| v.is_string()) {
+        let s = str_val.as_str().unwrap().to_owned();
+        if let Some(table) = get_string_text_properties_table_for_value(*str_val) {
             let byte_pos = super::textprop::string_elisp_pos_to_byte(&s, pos);
             return Ok(super::textprop::builtin_get_text_property_in_state(
                 obarray,
@@ -29,7 +29,7 @@ pub(crate) fn builtin_get_pos_property_impl(
                 vec![
                     Value::fixnum(pos),
                     Value::symbol(prop.clone()),
-                    ValueKind::String,
+                    *str_val,
                 ],
             )?);
         }
@@ -37,11 +37,15 @@ pub(crate) fn builtin_get_pos_property_impl(
     }
 
     let buf_id = match args.get(2) {
-        None | Some(ValueKind::Nil) => buffers
+        None => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(*id),
+        Some(v) if v.is_nil() => buffers
+            .current_buffer()
+            .map(|b| b.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
+        Some(v) if v.is_buffer() => Ok(v.as_buffer_id().unwrap()),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("buffer-or-string-p"), *other],
@@ -87,7 +91,7 @@ pub(crate) fn builtin_next_char_property_change_in_buffers(
 ) -> EvalResult {
     expect_min_args("next-char-property-change", &args, 1)?;
     expect_max_args("next-char-property-change", &args, 2)?;
-    let result = match args.len().kind() {
+    let result = match args.len() {
         1 => super::textprop::builtin_next_property_change_in_buffers(buffers, args)?,
         2 => super::textprop::builtin_next_property_change_in_buffers(
             buffers,
@@ -132,10 +136,9 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
     let pos = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
     // --- String OBJECT ---
-    if let Some(ValueKind::String) = args.get(1) {
-        let str_id = *str_id;
-        let s = with_heap(|h| h.get_string(str_id).to_owned());
-        let table = get_string_text_properties_table(str_id).unwrap_or_default();
+    if let Some(str_val) = args.get(1).filter(|v| v.is_string()) {
+        let s = str_val.as_str().unwrap().to_owned();
+        let table = get_string_text_properties_table_for_value(*str_val).unwrap_or_default();
         let byte_pos = textprop::string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(2) {
             Some(v) if !v.is_nil() => {
@@ -185,11 +188,15 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
 
     // --- Buffer OBJECT ---
     let buf_id = match args.get(1) {
-        None | Some(ValueKind::Nil) => buffers
+        None => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(*id),
+        Some(v) if v.is_nil() => buffers
+            .current_buffer()
+            .map(|b| b.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
+        Some(v) if v.is_buffer() => Ok(v.as_buffer_id().unwrap()),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("buffer-or-string-p"), *other],
@@ -289,14 +296,14 @@ pub(crate) fn builtin_next_single_char_property_change_in_buffers(
     expect_min_args("next-single-char-property-change", &args, 2)?;
     expect_max_args("next-single-char-property-change", &args, 4)?;
 
-    if let Some(ValueKind::String) = args.get(2) {
+    if let Some(str_val) = args.get(2).filter(|v| v.is_string()) {
         if let Some(limit) = args.get(3) {
             if !limit.is_nil() {
                 return Ok(Value::fixnum(expect_integer_or_marker(limit)?));
             }
         }
         return Ok(Value::fixnum(
-            with_heap(|h| h.get_string(*id).chars().count()) as i64
+            str_val.as_str().unwrap().chars().count() as i64
         ));
     }
 
@@ -310,9 +317,9 @@ pub(crate) fn builtin_next_single_char_property_change_in_buffers(
     }
 
     let upper = match args.get(2) {
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => {
+        Some(v) if v.is_buffer() => {
             let buf = buffers
-                .get(*id)
+                .get(v.as_buffer_id().unwrap())
                 .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
             buf.point_max_char() as i64 + 1
         }
@@ -341,7 +348,7 @@ pub(crate) fn builtin_previous_single_char_property_change_in_buffers(
     expect_min_args("previous-single-char-property-change", &args, 2)?;
     expect_max_args("previous-single-char-property-change", &args, 4)?;
 
-    if let Some(ValueKind::String) = args.get(2) {
+    if args.get(2).is_some_and(|v| v.is_string()) {
         if let Some(limit) = args.get(3) {
             if !limit.is_nil() {
                 return Ok(Value::fixnum(expect_integer_or_marker(limit)?));
@@ -360,9 +367,9 @@ pub(crate) fn builtin_previous_single_char_property_change_in_buffers(
     }
 
     let lower = match args.get(2) {
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => {
+        Some(v) if v.is_buffer() => {
             let buf = buffers
-                .get(*id)
+                .get(v.as_buffer_id().unwrap())
                 .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
             buf.point_min_char() as i64 + 1
         }
@@ -450,7 +457,7 @@ pub(crate) fn plan_defalias_in_obarray(
         ValueKind::Nil => Value::NIL,
         ValueKind::T => Value::T,
         ValueKind::Keyword(_) => args[0],
-        _ => Value::symbol(symbol),
+        _ => Value::from_sym_id(symbol),
     };
     let hook = obarray
         .get_property_id(symbol, intern("defalias-fset-function"))
@@ -683,7 +690,7 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
             .as_ref()
             .and_then(|value| assq_cdr(value, name));
         let default_rear_nonsticky = default_entry.as_ref().is_some_and(|v| v.is_truthy());
-        let default_front_sticky = matches!(default_entry, Some(Value::NIL));
+        let default_front_sticky = default_entry.is_some_and(|v| v.is_nil());
 
         let mut use_left =
             left_present && !(matches_rear_nonsticky(left_rear, name) || default_rear_nonsticky);
@@ -724,7 +731,7 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
             .as_ref()
             .and_then(|value| assq_cdr(value, name));
         let default_rear_nonsticky = default_entry.as_ref().is_some_and(|v| v.is_truthy());
-        let default_front_sticky = matches!(default_entry, Some(Value::NIL));
+        let default_front_sticky = default_entry.is_some_and(|v| v.is_nil());
         let left_nonsticky = matches_rear_nonsticky(left_rear, name);
         let right_sticky = matches_front_sticky(right_front, name) || default_front_sticky;
 
@@ -869,7 +876,8 @@ pub(crate) fn builtin_barf_if_buffer_read_only_impl(
 ) -> EvalResult {
     expect_max_args("barf-if-buffer-read-only", &args, 1)?;
     let position = match args.first() {
-        None | Some(ValueKind::Nil) => None,
+        None => None,
+        Some(v) if v.is_nil() => None,
         Some(value) => Some(expect_fixnum(value)?),
     };
 
@@ -960,6 +968,7 @@ fn write_print_output_to_target(
     match target.kind() {
         ValueKind::T | ValueKind::Nil => Ok(()),
         ValueKind::Veclike(VecLikeType::Buffer) => {
+            let id = target.as_buffer_id().unwrap();
             if buffers.get(id).is_none() {
                 return Err(signal(
                     "error",
@@ -986,14 +995,14 @@ fn write_print_output_to_target(
             let _ = buffers.insert_into_buffer(id, text);
             Ok(())
         }
-        other if super::marker::is_marker(&other) => {
-            let Some((Some(buffer_id), _, _)) = super::marker::marker_logical_fields(&other) else {
+        _other if super::marker::is_marker(&target) => {
+            let Some((Some(buffer_id), _, _)) = super::marker::marker_logical_fields(&target) else {
                 return Err(signal(
                     "error",
                     vec![Value::string("Marker does not point anywhere")],
                 ));
             };
-            let marker_pos = super::marker::marker_position_as_int_with_buffers(buffers, &other)?;
+            let marker_pos = super::marker::marker_position_as_int_with_buffers(buffers, &target)?;
             let Some(buffer) = buffers.get(buffer_id) else {
                 return Err(signal(
                     "error",
@@ -1029,7 +1038,7 @@ fn write_print_output_to_target(
                 })?;
             let _ = super::marker::builtin_set_marker_in_buffers(
                 buffers,
-                vec![other, Value::fixnum(new_marker_pos), ValueKind::Veclike(VecLikeType::Buffer)],
+                vec![target, Value::fixnum(new_marker_pos), Value::make_buffer(buffer_id)],
             )?;
 
             if let Some(saved_id) = saved_current {
@@ -1085,6 +1094,7 @@ fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result
     match target.kind() {
         ValueKind::T | ValueKind::Nil => Ok(()),
         ValueKind::Veclike(VecLikeType::Buffer) => {
+            let id = target.as_buffer_id().unwrap();
             if eval.buffers.get(id).is_none() {
                 return Err(signal(
                     "error",
@@ -1221,10 +1231,11 @@ pub(crate) fn print_value_princ_in_state(
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            if let Some(buf) = ctx.buffers.get(*id) {
+            let id = value.as_buffer_id().unwrap();
+            if let Some(buf) = ctx.buffers.get(id) {
                 return buf.name.clone();
             }
-            if ctx.buffers.dead_buffer_last_name(*id).is_some() {
+            if ctx.buffers.dead_buffer_last_name(id).is_some() {
                 return "#<killed buffer>".to_string();
             }
             super::error::print_value_in_state(ctx, value)
@@ -1482,6 +1493,7 @@ pub(crate) fn finish_write_char_in_eval(
         ValueKind::T | ValueKind::Nil => {}
         ValueKind::Veclike(VecLikeType::Buffer) => {
             if let Some(text) = write_char_rendered_text(char_code) {
+                let id = target.as_buffer_id().unwrap();
                 if eval.buffers.get(id).is_none() {
                     return Err(signal(
                         "error",
@@ -1562,15 +1574,11 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
 
     // Create a copy of the string
     let new_str = Value::string(&s);
-    let new_id = match new_str.kind() {
-        ValueKind::String => *id,
-        _ => unreachable!(),
-    };
 
     // Copy existing text properties from source string
     if args[0].is_string() {
-        if let Some(src_table) = get_string_text_properties_table(*src_id) {
-            set_string_text_properties_table(new_id, src_table);
+        if let Some(src_table) = get_string_text_properties_table_for_value(args[0]) {
+            set_string_text_properties_table_for_value(new_str, src_table);
         }
     }
 
@@ -1582,7 +1590,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     // `put_property` prepends new properties.
     if args.len() > 1 {
         let byte_len = s.len();
-        let mut table = get_string_text_properties_table(new_id)
+        let mut table = get_string_text_properties_table_for_value(new_str)
             .unwrap_or_else(|| crate::buffer::text_props::TextPropertyTable::new());
         let pairs = &args[1..];
         // Collect chunks and iterate in reverse to match GNU's reversal behavior
@@ -1591,15 +1599,15 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
             if chunk.len() == 2 {
                 if let Some(name) = chunk[0].as_symbol_name() {
                     table.put_property(0, byte_len, name, chunk[1]);
-                } else if let Some(name) = match &chunk[0] {
-                    Value::keyword(id) => Some(resolve_sym(id).to_owned()),
+                } else if let Some(name) = match chunk[0].kind() {
+                    ValueKind::Keyword(id) => Some(resolve_sym(id).to_owned()),
                     _ => None,
                 } {
                     table.put_property(0, byte_len, &name, chunk[1]);
                 }
             }
         }
-        set_string_text_properties_table(new_id, table);
+        set_string_text_properties_table_for_value(new_str, table);
     }
 
     Ok(new_str)

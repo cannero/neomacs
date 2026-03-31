@@ -426,7 +426,7 @@ fn command_modes_from_expr_body(body: &[Expr]) -> Option<Value> {
         let Some(Expr::Symbol(head_id)) = items.first() else {
             continue;
         };
-        if resolve_sym(head_id) != "interactive" {
+        if resolve_sym(*head_id) != "interactive" {
             continue;
         }
         let modes = items.iter().skip(2).map(quote_to_value).collect::<Vec<_>>();
@@ -483,7 +483,7 @@ fn command_modes_from_quoted_lambda(value: &Value) -> Result<Option<Value>, Flow
     }
 
     let mut body_index = 2;
-    if matches!(items.get(body_index), Some(ValueKind::String)) {
+    if items.get(body_index).is_some_and(|v| v.is_string()) {
         body_index += 1;
     }
     while items.get(body_index).is_some_and(value_is_declare_form) {
@@ -543,28 +543,36 @@ pub(crate) fn builtin_command_modes_impl(obarray: &Obarray, args: &[Value]) -> E
     match function.kind() {
         ValueKind::Subr(_) => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-            let body = with_heap(|h| h.get_lambda(id).body.clone());
+            let Some(lambda) = function.get_lambda_data() else {
+                return Ok(Value::NIL);
+            };
+            let body = lambda.body.clone();
             Ok(command_modes_from_expr_body(&body).unwrap_or(Value::NIL))
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
-            let interactive = with_heap(|h| h.get_bytecode(id).interactive);
-            let Some(ValueKind::Veclike(VecLikeType::Vector)) = interactive else {
+            let Some(bc) = function.get_bytecode_data() else {
                 return Ok(Value::NIL);
             };
-            Ok(with_heap(|h| {
-                if h.vector_len(vec_id) > 1 {
-                    unquote_command_modes_value(h.vector_ref(vec_id, 1))
-                } else {
-                    Value::NIL
-                }
-            }))
+            let interactive = bc.interactive;
+            let Some(ref int_val) = interactive else {
+                return Ok(Value::NIL);
+            };
+            if !int_val.is_vector() {
+                return Ok(Value::NIL);
+            }
+            let vec_data = int_val.as_vector_data().unwrap();
+            Ok(if vec_data.len() > 1 {
+                unquote_command_modes_value(vec_data[1])
+            } else {
+                Value::NIL
+            })
         }
         ValueKind::Cons if super::autoload::is_autoload_value(&function) => {
             let Some(items) = value_list_to_vec(&function) else {
                 return Ok(Value::NIL);
             };
             Ok(match items.get(3).copied() {
-                Some(ValueKind::Cons) => items[3],
+                Some(v) if v.is_cons() => v,
                 _ => Value::NIL,
             })
         }
@@ -605,9 +613,8 @@ pub(crate) fn builtin_command_remapping_impl(
     if let Some(keymap_arg) = args.get(2) {
         match keymap_arg.kind() {
             ValueKind::Cons => {
-                let keymap_value = Value::Cons(*keymap);
                 if let Some(target) =
-                    command_remapping_lookup_in_lisp_keymap(&keymap_value, &command_name)
+                    command_remapping_lookup_in_lisp_keymap(keymap_arg, &command_name)
                 {
                     return Ok(command_remapping_normalize_target(target));
                 }
@@ -800,7 +807,7 @@ fn builtin_command_name(name: &str) -> bool {
 fn expr_is_interactive_form(expr: &Expr) -> bool {
     match expr {
         Expr::List(items) => items.first().is_some_and(
-            |head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "interactive"),
+            |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"),
         ),
         _ => false,
     }
@@ -810,7 +817,7 @@ fn expr_is_declare_form(expr: &Expr) -> bool {
     match expr {
         Expr::List(items) => items
             .first()
-            .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "declare")),
+            .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "declare")),
         _ => false,
     }
 }
@@ -866,7 +873,7 @@ fn value_is_interactive_autoload(value: &Value) -> bool {
     let Some(items) = value_list_to_vec(value) else {
         return false;
     };
-    !matches!(items.get(3), None | Some(Value::NIL))
+    items.get(3).is_some_and(|v| !v.is_nil())
 }
 
 fn quoted_lambda_has_interactive_form(value: &Value) -> bool {
@@ -878,7 +885,7 @@ fn quoted_lambda_has_interactive_form(value: &Value) -> bool {
     }
 
     let mut body_index = 2;
-    if matches!(items.get(body_index), Some(ValueKind::String)) {
+    if items.get(body_index).is_some_and(|v| v.is_string()) {
         body_index += 1;
     }
     while items.get(body_index).is_some_and(value_is_declare_form) {
@@ -1042,12 +1049,15 @@ impl InteractiveInvocationContext {
 
     fn from_keys_arg_in_state(read_command_keys: &[Value], keys: Option<&Value>) -> Self {
         let mut context = Self::default();
-        if let Some(ValueKind::Veclike(VecLikeType::Vector)) = keys {
-            let values = with_heap(|h| h.get_vector(*values).clone());
-            if !values.is_empty() {
-                context.command_keys = values.clone();
-                context.has_command_keys_context = true;
-                return context;
+        if let Some(keys_val) = keys {
+            if keys_val.is_vector() {
+                if let Some(vec_data) = keys_val.as_vector_data() {
+                    if !vec_data.is_empty() {
+                        context.command_keys = vec_data.clone();
+                        context.has_command_keys_context = true;
+                        return context;
+                    }
+                }
             }
         }
         if !read_command_keys.is_empty() {
@@ -1061,10 +1071,13 @@ impl InteractiveInvocationContext {
 fn interactive_event_symbol_name(event: &Value) -> Option<&'static str> {
     match event.kind() {
         ValueKind::Symbol(id) => Some(resolve_sym(id)),
-        ValueKind::Cons => match event.cons_car() {
-            ValueKind::Symbol(id) => Some(resolve_sym(id)),
-            _ => None,
-        },
+        ValueKind::Cons => {
+            let car = event.cons_car();
+            match car.kind() {
+                ValueKind::Symbol(id) => Some(resolve_sym(id)),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -1109,7 +1122,9 @@ fn interactive_event_is_down_event(event: &Value) -> bool {
 
 fn interactive_last_key_sequence_event(sequence: &Value) -> Option<Value> {
     match sequence.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => super::value::with_heap(|h| h.get_vector(*id).last().copied()),
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            sequence.as_vector_data().and_then(|v| v.last().copied())
+        }
         _ => None,
     }
 }
@@ -1193,7 +1208,7 @@ fn prefix_numeric_value(value: &Value) -> i64 {
     match value.kind() {
         ValueKind::Nil => 1,
         ValueKind::Fixnum(n) => n,
-        ValueKind::Float => *f as i64,
+        ValueKind::Float => value.xfloat() as i64,
         ValueKind::Char(c) => c as i64,
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Cons => {
@@ -1204,7 +1219,7 @@ fn prefix_numeric_value(value: &Value) -> i64 {
             };
             match car.kind() {
                 ValueKind::Fixnum(n) => n,
-                ValueKind::Float => f as i64,
+                ValueKind::Float => car.xfloat() as i64,
                 ValueKind::Char(c) => c as i64,
                 _ => 1,
             }
@@ -1346,7 +1361,7 @@ fn interactive_args_from_string_code_in_state(
 
     let mut args = Vec::new();
     for (letter, _prompt) in parsed.entries {
-        match letter.kind() {
+        match letter {
             'd' => args.push(interactive_point_arg_in_buffers(buffers)?),
             'e' => {
                 if let Some(event) =
@@ -1413,7 +1428,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
 
     let mut args = Vec::new();
     for (letter, prompt) in parsed.entries {
-        match letter.kind() {
+        match letter {
             'a' | 'C' => {
                 let letter_args = [Value::string(prompt)];
                 super::minibuffer::builtin_read_command_in_runtime(shared, &letter_args)?;
@@ -1721,7 +1736,7 @@ fn default_command_execute_args_in_state(
         "split-window-below" | "split-window-right" => {
             let win = frames
                 .selected_frame()
-                .map(|f| Value::Window(f.selected_window.0))
+                .map(|f| Value::make_window(f.selected_window.0))
                 .unwrap_or(Value::NIL);
             Ok(vec![Value::NIL, win])
         }
@@ -1942,9 +1957,11 @@ fn interactive_event_target_window(event: &Value) -> Option<Value> {
         position = *first_position;
     }
     let position_slots = crate::emacs_core::value::list_to_vec(&position)?;
-    match *position_slots.first()?.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(Value::make_window(id)),
-        _ => None,
+    let first = *position_slots.first()?;
+    if first.is_window() {
+        Some(first)
+    } else {
+        None
     }
 }
 
@@ -1972,7 +1989,10 @@ fn interactive_select_window_from_prefix_context(
     if !window_value.is_window() {
         return Ok(());
     };
-    let window_id = crate::window::WindowId(window_id);
+    let Some(wid) = window_value.as_window_id() else {
+        return Ok(());
+    };
+    let window_id = crate::window::WindowId(wid);
     if interactive_inactive_minibuffer_target_p(eval, window_id) {
         return Err(signal(
             "error",
@@ -2075,7 +2095,7 @@ fn parse_interactive_spec(expr: &Expr) -> Option<ParsedInteractiveSpec> {
     };
     if !items
         .first()
-        .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "interactive"))
+        .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"))
     {
         return None;
     }
@@ -2190,7 +2210,7 @@ fn interactive_args_from_string_code(
 
     let mut args = Vec::new();
     for (letter, prompt) in parsed.entries {
-        match letter.kind() {
+        match letter {
             'a' => args.push(super::minibuffer::builtin_read_command(
                 eval,
                 vec![Value::string(prompt)],
@@ -2396,13 +2416,15 @@ fn resolve_interactive_invocation_args(
         if let Some(spec) = &bc.interactive {
             // If it's a vector [spec, modes], extract just the spec
             let spec_val = if spec.is_vector() {
-                super::value::with_heap(|h| {
-                    if h.vector_len(*vid) > 0 {
-                        h.vector_ref(*vid, 0)
+                if let Some(vec_data) = spec.as_vector_data() {
+                    if !vec_data.is_empty() {
+                        vec_data[0]
                     } else {
                         *spec
                     }
-                })
+                } else {
+                    *spec
+                }
             } else {
                 *spec
             };
@@ -2642,13 +2664,15 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
         && let Some(spec) = &bc.interactive
     {
         let spec_val = if spec.is_vector() {
-            super::value::with_heap(|h| {
-                if h.vector_len(*vid) > 0 {
-                    h.vector_ref(*vid, 0)
+            if let Some(vec_data) = spec.as_vector_data() {
+                if !vec_data.is_empty() {
+                    vec_data[0]
                 } else {
                     *spec
                 }
-            })
+            } else {
+                *spec
+            }
         } else {
             *spec
         };
@@ -2734,13 +2758,15 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
         && let Some(spec) = &bc.interactive
     {
         let spec_val = if spec.is_vector() {
-            super::value::with_heap(|h| {
-                if h.vector_len(*vid) > 0 {
-                    h.vector_ref(*vid, 0)
+            if let Some(vec_data) = spec.as_vector_data() {
+                if !vec_data.is_empty() {
+                    vec_data[0]
                 } else {
                     *spec
                 }
-            })
+            } else {
+                *spec
+            }
         } else {
             *spec
         };
@@ -3154,7 +3180,7 @@ fn binding_matches_definition(binding: &Value, definition: &Value) -> bool {
         return bname == dname;
     }
     // Subr comparison
-    if let (Value::subr(bid), Value::subr(did)) = (binding, definition) {
+    if let (Some(bid), Some(did)) = (binding.as_subr_id(), definition.as_subr_id()) {
         return bid == did;
     }
     // Check if binding is a symbol matching a Subr definition name

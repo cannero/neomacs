@@ -307,9 +307,9 @@ pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
             )),
         },
         ValueKind::String => Ok(Value::fixnum(
-            with_heap(|h| storage_char_len(h.get_string(*id))) as i64,
+            storage_char_len(args[0].as_str().unwrap()) as i64,
         )),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(Value::fixnum(vector_sequence_length(&args[0], *v))),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(Value::fixnum(vector_sequence_length(&args[0]))),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],
@@ -317,10 +317,10 @@ pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
     }
 }
 
-fn vector_sequence_length(sequence: &Value, vector: ObjId) -> i64 {
+fn vector_sequence_length(sequence: &Value) -> i64 {
     super::chartable::bool_vector_length(sequence)
         .or_else(|| super::chartable::char_table_length(sequence))
-        .unwrap_or_else(|| with_heap(|h| h.vector_len(vector)) as i64)
+        .unwrap_or_else(|| sequence.as_vector_data().unwrap().len() as i64)
 }
 
 fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow> {
@@ -329,8 +329,8 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() < target)
         }
-        ValueKind::String => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) < target),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence, *v) < target),
+        ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) < target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence) < target),
         ValueKind::Cons => {
             if target <= 0 {
                 return Ok(false);
@@ -348,7 +348,7 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
             }
             Ok(false)
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *sequence],
         )),
@@ -361,8 +361,8 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() == target)
         }
-        ValueKind::String => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) == target),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence, *v) == target),
+        ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) == target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence) == target),
         ValueKind::Cons => {
             if target < 0 {
                 return Ok(false);
@@ -380,7 +380,7 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
             }
             Ok(!cursor.is_cons())
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *sequence],
         )),
@@ -393,8 +393,8 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() > target)
         }
-        ValueKind::String => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) > target),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence, *v) > target),
+        ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) > target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence) > target),
         ValueKind::Cons => {
             if target < 0 {
                 return Ok(true);
@@ -415,7 +415,7 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
             }
             Ok(true)
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *sequence],
         )),
@@ -447,7 +447,7 @@ pub(crate) fn builtin_nth(args: Vec<Value>) -> EvalResult {
     match tail.kind() {
         ValueKind::Cons => Ok(tail.cons_car()),
         ValueKind::Nil => Ok(Value::NIL),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), tail],
         )),
@@ -462,7 +462,7 @@ fn nthcdr_impl(n: i64, list: Value) -> EvalResult {
     // Convert Lambda to cons list for traversal.
     let mut cursor = match list.kind() {
         ValueKind::Veclike(VecLikeType::Lambda) => lambda_to_cons_list(&list).unwrap_or(Value::NIL),
-        other => list,
+        _ => list,
     };
     for _ in 0..(n as usize) {
         match cursor.kind() {
@@ -499,7 +499,7 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
                     out.push(pair_car);
                     cursor = pair_cdr;
                 }
-                tail => {
+                _ => {
                     return Err(signal(
                         "wrong-type-argument",
                         vec![Value::symbol("listp"), cursor],
@@ -624,7 +624,7 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
                     ValueKind::Cons => {
                         let next = current.cons_cdr();
                         current.set_cdr(prev);
-                        prev = ValueKind::Cons;
+                        prev = current;
                         current = next;
                     }
                     _ => unreachable!("proper-list check should reject dotted tails"),
@@ -632,7 +632,7 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            with_heap_mut(|h| h.get_vector_mut(*v).reverse());
+            args[0].as_vector_data_mut().unwrap().reverse();
             Ok(args[0])
         }
         ValueKind::String => builtin_reverse(args),
@@ -655,8 +655,7 @@ pub(crate) fn builtin_member(args: Vec<Value>) -> EvalResult {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
                 if equal_value(target, &pair_car, 0) {
-                    drop(pair);
-                    return Ok(ValueKind::Cons);
+                    return Ok(cursor);
                 }
                 cursor = pair_cdr;
             }
@@ -682,8 +681,7 @@ pub(crate) fn builtin_memq(args: Vec<Value>) -> EvalResult {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
                 if eq_value(target, &pair_car) {
-                    drop(pair);
-                    return Ok(ValueKind::Cons);
+                    return Ok(cursor);
                 }
                 cursor = pair_cdr;
             }
@@ -709,8 +707,7 @@ pub(crate) fn builtin_memql(args: Vec<Value>) -> EvalResult {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
                 if eql_value(target, &pair_car) {
-                    drop(pair);
-                    return Ok(ValueKind::Cons);
+                    return Ok(cursor);
                 }
                 cursor = pair_cdr;
             }
@@ -744,13 +741,12 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                         ValueKind::Cons => {
                             let pair_car = cursor.cons_car();
                             let pair_cdr = cursor.cons_cdr();
-                            if let ValueKind::Cons = pair_car {
-                                let entry_pair_car = cursor.cons_car();
-                                let entry_pair_cdr = cursor.cons_cdr();
+                            if let ValueKind::Cons = pair_car.kind() {
+                                let entry_key = pair_car.cons_car();
                                 let matches = if let Some(test_fn) = &test_fn {
-                                    ctx.apply(*test_fn, vec![entry_pair_car, *key])?.is_truthy()
+                                    ctx.apply(*test_fn, vec![entry_key, *key])?.is_truthy()
                                 } else {
-                                    equal_value(key, &entry_pair_car, 0)
+                                    equal_value(key, &entry_key, 0)
                                 };
                                 if matches {
                                     return Ok(pair_car);
@@ -778,10 +774,9 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                     ValueKind::Cons => {
                         let pair_car = cursor.cons_car();
                         let pair_cdr = cursor.cons_cdr();
-                        if let ValueKind::Cons = pair_car {
-                            let entry_pair_car = cursor.cons_car();
-                            let entry_pair_cdr = cursor.cons_cdr();
-                            if equal_value(key, &entry_pair_car, 0) {
+                        if let ValueKind::Cons = pair_car.kind() {
+                            let entry_key = pair_car.cons_car();
+                            if equal_value(key, &entry_key, 0) {
                                 return Ok(pair_car);
                             }
                         }
@@ -810,10 +805,9 @@ pub(crate) fn builtin_assq(args: Vec<Value>) -> EvalResult {
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if let ValueKind::Cons = pair_car {
-                    let entry_pair_car = cursor.cons_car();
-                    let entry_pair_cdr = cursor.cons_cdr();
-                    if eq_value(key, &entry_pair_car) {
+                if let ValueKind::Cons = pair_car.kind() {
+                    let entry_key = pair_car.cons_car();
+                    if eq_value(key, &entry_key) {
                         return Ok(pair_car);
                     }
                 }
@@ -845,7 +839,7 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
                         items.push(pair_car);
                         cursor = pair_cdr;
                     }
-                    tail => {
+                    _ => {
                         return Err(signal(
                             "wrong-type-argument",
                             vec![Value::symbol("listp"), cursor],
@@ -864,8 +858,8 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             let new_val = Value::string(&s);
             // Copy text properties
             if new_val.is_string() {
-                if let Some(table) = get_string_text_properties_table(*id) {
-                    set_string_text_properties_table(*new_id, table);
+                if let Some(table) = get_string_text_properties_table_for_value(args[0]) {
+                    set_string_text_properties_table_for_value(new_val, table);
                 }
             }
             Ok(new_val)
@@ -880,10 +874,9 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Veclike(VecLikeType::Record) => {
             let items = args[0].as_record_data().unwrap().clone();
-            let id = with_heap_mut(|h| h.alloc_vector(items));
-            Ok(ValueKind::Veclike(VecLikeType::Record))
+            Ok(Value::make_record(items))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],
         )),
@@ -905,7 +898,7 @@ where
             ValueKind::Cons => {
                 probe = probe.cons_cdr();
             }
-            tail => {
+            _ => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("listp"), probe],
@@ -921,7 +914,6 @@ where
             ValueKind::Cons => {
                 let remove = {
                     let pair_car = head.cons_car();
-                    let pair_cdr = head.cons_cdr();
                     should_delete(&pair_car)?
                 };
                 if remove {
@@ -934,27 +926,26 @@ where
         }
     }
 
-    let mut prev = match &head {
-        Value::Cons(cell) => *cell,
-        Value::NIL => return Ok(Value::NIL),
-        _ => unreachable!("head must be list"),
-    };
+    if head.is_nil() {
+        return Ok(Value::NIL);
+    }
+
+    let mut prev = head;
 
     loop {
-        let next = with_heap(|h| h.cons_cdr(prev));
+        let next = prev.cons_cdr();
         match next.kind() {
             ValueKind::Nil => break,
             ValueKind::Cons => {
                 let remove = {
                     let pair_car = next.cons_car();
-                    let pair_cdr = next.cons_cdr();
                     should_delete(&pair_car)?
                 };
                 if remove {
                     let after = next.cons_cdr();
-                    next.set_cdr(after);
+                    prev.set_cdr(after);
                 } else {
-                    prev = next_cell;
+                    prev = next;
                 }
             }
             _ => unreachable!("list shape checked above"),
@@ -1011,7 +1002,7 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
             }
             builtin_concat(vec![Value::list(kept)])
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[1]],
         )),
@@ -1036,7 +1027,7 @@ pub(crate) fn builtin_elt(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Cons | ValueKind::Nil | ValueKind::Veclike(VecLikeType::Lambda) => builtin_nth(vec![args[1], args[0]]),
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) | ValueKind::String => builtin_aref(vec![args[0], args[1]]),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],
         )),
@@ -1049,14 +1040,14 @@ pub(crate) fn builtin_nconc(args: Vec<Value>) -> EvalResult {
     }
 
     let mut result_head: Option<Value> = None;
-    let mut last_cons: Option<Value> = None;
+    let mut last_tail: Option<Value> = None;
 
     for (index, arg) in args.iter().enumerate() {
         let is_last = index + 1 == args.len();
 
         if is_last {
-            if let Some(Value::Cons(cell)) = &last_cons {
-                with_heap_mut(|h| h.set_cdr(*cell, *arg));
+            if let Some(prev) = last_tail {
+                prev.set_cdr(*arg);
                 return Ok(result_head.unwrap_or(*arg));
             }
             return Ok(*arg);
@@ -1068,17 +1059,17 @@ pub(crate) fn builtin_nconc(args: Vec<Value>) -> EvalResult {
                 if result_head.is_none() {
                     result_head = Some(*arg);
                 }
-                if let Some(ValueKind::Cons) = &last_cons {
-                    arg.set_cdr(*arg);
+                if let Some(prev) = last_tail {
+                    prev.set_cdr(*arg);
                 }
 
-                let mut tail = *head;
+                let mut tail = *arg;
                 loop {
-                    let next = arg.cons_cdr();
+                    let next = tail.cons_cdr();
                     match next.kind() {
-                        ValueKind::Cons => tail = next_cell,
+                        ValueKind::Cons => tail = next,
                         _ => {
-                            last_cons = Some(ValueKind::Cons);
+                            last_tail = Some(tail);
                             break;
                         }
                     }

@@ -577,7 +577,7 @@ pub(crate) fn builtin_fontp(args: Vec<Value>) -> EvalResult {
 /// Returns a vector `[:font-spec :family "Monospace" :weight normal :size 12]`.
 pub(crate) fn builtin_font_spec(args: Vec<Value>) -> EvalResult {
     let mut elems: Vec<Value> = Vec::with_capacity(1 + args.len());
-    elems.push(Value::keyword(intern(FONT_SPEC_TAG)));
+    elems.push(Value::keyword(FONT_SPEC_TAG));
 
     for pair_index in (0..args.len()).step_by(2) {
         let key = &args[pair_index];
@@ -1910,7 +1910,7 @@ fn merge_defaults_overrides_into_selected(face_name: &str) {
                 .entry(face_name.to_string())
                 .or_default();
             for (attr, value) in attrs {
-                if (value.is_symbol_named("unspecified") || value.is_symbol_named("relative")) {
+                if value.is_symbol_named("unspecified") || value.is_symbol_named("relative") {
                     continue;
                 }
                 selected.insert(attr, value);

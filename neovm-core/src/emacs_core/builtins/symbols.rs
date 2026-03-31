@@ -1164,7 +1164,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
                 if let Some((resolved_id2, global2)) =
                     runtime.resolve_indirect_symbol_by_id(head_id)
                 {
-                    let is_macro2 = matches!(global2, ValueKind::Veclike(VecLikeType::Macro))
+                    let is_macro2 = matches!(global2.kind(), ValueKind::Veclike(VecLikeType::Macro))
                         || (global2.is_cons() && global2.cons_car().is_symbol_named("macro"));
                     if is_macro2 {
                         function = Some(if global2.is_cons() {
@@ -1343,7 +1343,8 @@ pub(crate) fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
         match current.kind() {
             ValueKind::Nil => return None,
             ValueKind::Cons => {
-                let (car, cdr) = with_heap(|h| (h.cons_car(id), h.cons_cdr(id)));
+                let car = current.cons_car();
+                let cdr = current.cons_cdr();
                 if let Some(sym_name) = car.as_symbol_name() {
                     if sym_name == name {
                         return Some(car);
@@ -1376,17 +1377,17 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
     let name = expect_string(&args[0])?;
 
     // Custom obarray path
-    if let Some(ValueKind::Veclike(VecLikeType::Vector)) = args
+    if let Some(obarray_val) = args
         .get(1)
-        .filter(|v| !v.is_nil() && !is_global_obarray_proxy(eval, v))
+        .filter(|v| !v.is_nil() && v.is_vector() && !is_global_obarray_proxy(eval, v))
     {
-        let vec_id = *vec_id;
-        let vec_len = with_heap(|h| h.get_vector(vec_id).len());
+        let vec_data = obarray_val.as_vector_data().unwrap();
+        let vec_len = vec_data.len();
         if vec_len == 0 {
             return Err(signal("args-out-of-range", vec![Value::fixnum(0)]));
         }
         let bucket_idx = obarray_hash(&name, vec_len);
-        let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
+        let bucket = vec_data[bucket_idx];
 
         // Check if already interned
         if let Some(sym) = obarray_bucket_find(bucket, &name) {
@@ -1394,11 +1395,9 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
         }
 
         // Not found: create symbol and prepend to bucket chain
-        let sym = Value::symbol(intern_uninterned(&name));
+        let sym = Value::from_sym_id(intern_uninterned(&name));
         let new_bucket = Value::cons(sym, bucket);
-        with_heap_mut(|h| {
-            h.get_vector_mut(vec_id)[bucket_idx] = new_bucket;
-        });
+        obarray_val.as_vector_data_mut().unwrap()[bucket_idx] = new_bucket;
         return Ok(sym);
     }
 
@@ -1431,26 +1430,26 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     }
 
     // Custom obarray path
-    if let Some(ValueKind::Veclike(VecLikeType::Vector)) = args.get(1).filter(|v| !v.is_nil()) {
-        let vec_id = *vec_id;
+    if let Some(obarray_val) = args.get(1).filter(|v| !v.is_nil() && v.is_vector()) {
         let name = match args[0].kind() {
             ValueKind::String => args[0].as_str().unwrap().to_owned(),
             ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
             ValueKind::Nil => "nil".to_owned(),
             ValueKind::T => "t".to_owned(),
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), args[0]],
                 ));
             }
         };
-        let vec_len = with_heap(|h| h.get_vector(vec_id).len());
+        let vec_data = obarray_val.as_vector_data().unwrap();
+        let vec_len = vec_data.len();
         if vec_len == 0 {
             return Ok(Value::NIL);
         }
         let bucket_idx = obarray_hash(&name, vec_len);
-        let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
+        let bucket = vec_data[bucket_idx];
         return Ok(obarray_bucket_find(bucket, &name).unwrap_or(Value::NIL));
     }
 
@@ -1460,7 +1459,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
         ValueKind::Nil => "nil".to_owned(),
         ValueKind::T => "t".to_owned(),
         ValueKind::Keyword(id) | ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        other => {
+        _other => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
@@ -1484,36 +1483,34 @@ pub(crate) fn builtin_obarray_make(args: Vec<Value>) -> EvalResult {
     Ok(Value::vector(vec![Value::NIL; size]))
 }
 
-pub(crate) fn expect_obarray_vector_id(value: &Value) -> Result<ObjId, Flow> {
+pub(crate) fn expect_obarray_vector_id(value: &Value) -> Result<Value, Flow> {
     if !value.is_vector() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("obarrayp"), *value],
         ));
     };
-    let is_obarray = with_heap(|h| {
-        h.get_vector(*id)
-            .iter()
-            .all(|slot| slot.is_nil() || slot.is_cons())
-    });
+    let is_obarray = value
+        .as_vector_data()
+        .unwrap()
+        .iter()
+        .all(|slot| slot.is_nil() || slot.is_cons());
     if !is_obarray {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("obarrayp"), *value],
         ));
     }
-    Ok(*id)
+    Ok(*value)
 }
 
 pub(crate) fn builtin_obarray_clear(args: Vec<Value>) -> EvalResult {
     expect_args("obarray-clear", &args, 1)?;
-    let id = expect_obarray_vector_id(&args[0])?;
-    with_heap_mut(|h| {
-        let vec = h.get_vector_mut(id);
-        for slot in vec.iter_mut() {
-            *slot = Value::NIL;
-        }
-    });
+    let obarray_val = expect_obarray_vector_id(&args[0])?;
+    let vec = obarray_val.as_vector_data_mut().unwrap();
+    for slot in vec.iter_mut() {
+        *slot = Value::NIL;
+    }
     Ok(Value::NIL)
 }
 
@@ -1621,21 +1618,22 @@ pub(crate) fn builtin_vertical_motion(
     expect_range_args("vertical-motion", &args, 1, 3)?;
     // First arg can be LINES (integer) or (COLS . LINES) cons pair.
     // When (COLS . LINES), move LINES then position at column COLS.
-    let (cols, lines) = match args[0] {
-        Value::fixnum(n) => (None, n),
-        Value::Cons(cell) => {
-            let pair = super::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            let cols_val = match pair.car.kind() {
+    let (cols, lines): (Option<i64>, i64) = match args[0].kind() {
+        ValueKind::Fixnum(n) => (None, n),
+        ValueKind::Cons => {
+            let car = args[0].cons_car();
+            let cdr = args[0].cons_cdr();
+            let cols_val = match car.kind() {
                 ValueKind::Fixnum(n) => Some(n),
-                ValueKind::Float => Some(f as i64),
+                ValueKind::Float => Some(car.xfloat() as i64),
                 _ => None,
             };
-            let lines_val = match pair.cdr.kind() {
+            let lines_val = match cdr.kind() {
                 ValueKind::Fixnum(n) => n,
                 _ => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("fixnump"), pair.cdr],
+                        vec![Value::symbol("fixnump"), cdr],
                     ));
                 }
             };
@@ -1844,8 +1842,7 @@ pub(crate) fn builtin_make_record(args: Vec<Value>) -> EvalResult {
     for _ in 0..length {
         items.push(args[2]); // init value
     }
-    let id = with_heap_mut(|h| h.alloc_vector(items));
-    Ok(Value::Record(id))
+    Ok(Value::make_record(items))
 }
 
 pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
@@ -1859,8 +1856,12 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();
-            if let Some(Value::fixnum(pos)) = items.get(2) {
-                Ok(Value::fixnum(pos))
+            if let Some(pos_val) = items.get(2) {
+                if let Some(pos) = pos_val.as_fixnum() {
+                    Ok(Value::fixnum(pos))
+                } else {
+                    Ok(Value::fixnum(0))
+                }
             } else {
                 Ok(Value::fixnum(0))
             }
@@ -2007,10 +2008,7 @@ pub(crate) fn builtin_native_comp_unit_file(args: Vec<Value>) -> EvalResult {
     let is_native_comp_unit = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();
-            matches!(
-                items.first(),
-                Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "native-comp-unit"
-            )
+            items.first().is_some_and(|v| v.as_symbol_name() == Some(":native-comp-unit"))
         }
         _ => false,
     };
@@ -2028,10 +2026,7 @@ pub(crate) fn builtin_native_comp_unit_set_file(args: Vec<Value>) -> EvalResult 
     let is_native_comp_unit = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();
-            matches!(
-                items.first(),
-                Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "native-comp-unit"
-            )
+            items.first().is_some_and(|v| v.as_symbol_name() == Some(":native-comp-unit"))
         }
         _ => false,
     };
@@ -2094,10 +2089,7 @@ pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
     let is_font_entity = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();
-            matches!(
-                items.first(),
-                Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "font-entity"
-            )
+            items.first().is_some_and(|v| v.as_symbol_name() == Some(":font-entity"))
         }
         _ => false,
     };
@@ -2213,8 +2205,7 @@ pub(crate) fn builtin_record(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("record"), Value::fixnum(0)],
         ));
     }
-    let id = with_heap_mut(|h| h.alloc_vector(args));
-    Ok(Value::Record(id))
+    Ok(Value::make_record(args))
 }
 
 pub(crate) fn builtin_recordp(args: Vec<Value>) -> EvalResult {
@@ -2296,7 +2287,7 @@ pub(crate) fn builtin_remove_pos_from_symbol(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_resize_mini_window_internal(args: Vec<Value>) -> EvalResult {
     expect_args("resize-mini-window-internal", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Window) if id >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Err(signal(
+        ValueKind::Veclike(VecLikeType::Window) if args[0].as_window_id().unwrap() >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Err(signal(
             "error",
             vec![Value::string("Cannot resize mini window")],
         )),
@@ -2335,7 +2326,7 @@ pub(crate) fn builtin_set_charset_plist(args: Vec<Value>) -> EvalResult {
     expect_args("set-charset-plist", &args, 2)?;
     let name = match args[0].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        other => {
+        _other => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("charsetp"), args[0]],
@@ -2438,7 +2429,7 @@ pub(crate) fn builtin_set_fringe_bitmap_face(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_set_minibuffer_window(args: Vec<Value>) -> EvalResult {
     expect_args("set-minibuffer-window", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Window) if id >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Ok(Value::NIL),
+        ValueKind::Veclike(VecLikeType::Window) if args[0].as_window_id().unwrap() >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Window) => Err(signal(
             "error",
             vec![Value::string("Window is not a minibuffer window")],
@@ -2693,39 +2684,40 @@ pub(crate) fn compare_value_lt(
     }
 
     match (lhs.kind(), rhs.kind()) {
-        (ValueKind::String, ValueKind::String) => Ok(with_heap(|h| {
-            h.get_string(*left_id).cmp(h.get_string(*right_id))
-        })),
+        (ValueKind::String, ValueKind::String) => {
+            let left_str = lhs.as_str().unwrap();
+            let right_str = rhs.as_str().unwrap();
+            Ok(left_str.cmp(right_str))
+        }
         (ValueKind::Cons, ValueKind::Cons) => {
-            let left_pair = read_cons(*left_id);  // TODO(tagged): replace read_cons with cons accessors
-            let right_pair = read_cons(*right_id);  // TODO(tagged): replace read_cons with cons accessors
+            let left_car = lhs.cons_car();
+            let left_cdr = lhs.cons_cdr();
+            let right_car = rhs.cons_car();
+            let right_cdr = rhs.cons_cdr();
 
-            let car_cmp = compare_value_lt(&left_pair.car, &right_pair.car)?;
+            let car_cmp = compare_value_lt(&left_car, &right_car)?;
             if car_cmp != std::cmp::Ordering::Equal {
                 return Ok(car_cmp);
             }
 
-            match (left_pair.cdr.kind(), right_pair.cdr.kind()) {
+            match (left_cdr.kind(), right_cdr.kind()) {
                 (ValueKind::Nil, ValueKind::Cons) => Ok(std::cmp::Ordering::Less),
                 (ValueKind::Cons, ValueKind::Nil) => Ok(std::cmp::Ordering::Greater),
-                _ => compare_value_lt(&left_pair.cdr, &right_pair.cdr),
+                _ => compare_value_lt(&left_cdr, &right_cdr),
             }
         }
         (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => {
-            let (pairs, left_len, right_len) = with_heap(|h| {
-                let lv = h.get_vector(*left_id);
-                let rv = h.get_vector(*right_id);
-                let pairs: Vec<(Value, Value)> =
-                    lv.iter().copied().zip(rv.iter().copied()).collect();
-                (pairs, lv.len(), rv.len())
-            });
+            let lv = lhs.as_vector_data().unwrap().clone();
+            let rv = rhs.as_vector_data().unwrap().clone();
+            let pairs: Vec<(Value, Value)> =
+                lv.iter().copied().zip(rv.iter().copied()).collect();
             for (l, r) in &pairs {
                 let cmp = compare_value_lt(l, r)?;
                 if cmp != std::cmp::Ordering::Equal {
                     return Ok(cmp);
                 }
             }
-            Ok(left_len.cmp(&right_len))
+            Ok(lv.len().cmp(&rv.len()))
         }
         _ => Err((*lhs, *rhs)),
     }
@@ -2735,7 +2727,7 @@ fn as_number_for_value_lt(value: &Value) -> Option<f64> {
     match value.kind() {
         ValueKind::Fixnum(n) => Some(n as f64),
         ValueKind::Char(c) => Some(c as u32 as f64),
-        ValueKind::Float => Some(*f),
+        ValueKind::Float => Some(value.xfloat()),
         _ => None,
     }
 }
@@ -2820,7 +2812,7 @@ fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> 
         matches!(
             expr,
             super::expr::Expr::List(items)
-                if matches!(items.first(), Some(super::expr::Expr::Symbol(head_id)) if resolve_sym(head_id) == "declare")
+                if matches!(items.first(), Some(super::expr::Expr::Symbol(head_id)) if resolve_sym(*head_id) == "declare")
         )
     }
 
@@ -2839,7 +2831,7 @@ fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> 
         let super::expr::Expr::Symbol(head_id) = items.first()? else {
             continue;
         };
-        if resolve_sym(head_id) != "interactive" {
+        if resolve_sym(*head_id) != "interactive" {
             continue;
         }
         let mut interactive = vec![Value::symbol("interactive")];
@@ -2876,7 +2868,7 @@ fn interactive_form_from_quoted_interactive_form(form: &Value) -> Result<Option<
                 arg_pair_car,
             ])))
         }
-        tail => Err(signal(
+        _tail => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), pair_cdr],
         )),
@@ -2895,9 +2887,8 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
     if !lambda_pair_cdr.is_cons() {
         return Ok(None);
     };
-    let params_pair_car = lambda_pair.cdr.cons_car();
-    let params_pair_cdr = lambda_pair.cdr.cons_cdr();
-    let body = params_pair_cdr;
+    let _params = lambda_pair_cdr.cons_car();
+    let body = lambda_pair_cdr.cons_cdr();
     let mut cursor = body;
     let mut can_skip_doc = true;
 
@@ -2930,19 +2921,16 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
 }
 
 fn interactive_form_from_bytecode_value(function: Value) -> Option<Value> {
-    if !function.is_bytecode() {
-        return None;
-    };
-    let spec = with_heap(|h| h.get_bytecode(id).interactive);
+    let bc = function.get_bytecode_data()?;
+    let spec = bc.interactive;
     spec.map(|s| {
         let spec_val = if s.is_vector() {
-            with_heap(|h| {
-                if h.vector_len(vid) > 0 {
-                    h.vector_ref(vid, 0)
-                } else {
-                    s
-                }
-            })
+            let vec_data = s.as_vector_data().unwrap();
+            if !vec_data.is_empty() {
+                vec_data[0]
+            } else {
+                s
+            }
         } else {
             s
         };
@@ -3393,7 +3381,7 @@ pub(crate) fn builtin_internal_handle_focus_in(
             vec![Value::string("invalid focus-in event")],
         ));
     };
-    let frame_value = pair.cdr.cons_car();
+    let frame_value = pair_cdr.cons_car();
     if !frame_value.is_frame() {
         return Err(signal(
             "error",
@@ -3401,7 +3389,7 @@ pub(crate) fn builtin_internal_handle_focus_in(
         ));
     };
 
-    let frame_id = crate::window::FrameId(frame_raw);
+    let frame_id = crate::window::FrameId(frame_value.as_frame_id().unwrap());
     if let Some(frame) = eval.frames.get(frame_id) {
         eval.command_loop
             .keyboard
@@ -3966,7 +3954,7 @@ pub(crate) fn make_interpreted_closure_from_parts(
     let (docstring, doc_form) = match docstring_value.kind() {
         ValueKind::String => (Some(docstring_value.as_str().unwrap().to_owned()), None),
         ValueKind::Nil => (None, None),
-        other => (None, Some(docstring_value)),
+        _other => (None, Some(docstring_value)),
     };
 
     // GNU Emacs (eval.c:535-555): Fmake_interpreted_closure stores the
@@ -4126,8 +4114,8 @@ fn try_convert_hash_table_literal(val: Value) -> Option<Value> {
         return None;
     };
 
-    with_heap_mut(|heap| {
-        let table = heap.get_hash_table_mut(table_ref);
+    {
+        let table = table_value.as_hash_table_mut().unwrap();
         table.test_name = test_name;
         if let Some(data) = data_value.and_then(|value| list_to_vec(&value)) {
             let mut idx = 0_usize;
@@ -4144,7 +4132,7 @@ fn try_convert_hash_table_literal(val: Value) -> Option<Value> {
                 idx += 2;
             }
         }
-    });
+    }
 
     Some(table_value)
 }
@@ -4254,7 +4242,7 @@ fn parse_lambda_params_from_expr(expr: &super::super::expr::Expr) -> Result<Lamb
     use super::super::expr::Expr;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
     match expr {
-        Expr::Symbol(id) if resolve_sym(id) == "nil" => Ok(LambdaParams::simple(vec![])),
+        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Ok(LambdaParams::simple(vec![])),
         Expr::List(items) => {
             let mut required = Vec::new();
             let mut optional = Vec::new();
@@ -4265,7 +4253,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 let Expr::Symbol(id) = item else {
                     return Err(signal("wrong-type-argument", vec![]));
                 };
-                let name = resolve_sym(id);
+                let name = resolve_sym(*id);
                 match name {
                     "&optional" => {
                         mode = 1;

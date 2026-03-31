@@ -64,7 +64,7 @@ pub(crate) fn expect_range_args(
 pub(crate) fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
     match value.kind() {
         ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(*value),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value],
         )),
@@ -118,7 +118,9 @@ pub(crate) fn live_frame_designator_p_in_state(
 ) -> bool {
     match value.kind() {
         ValueKind::Fixnum(id) if id >= 0 => frames.get(FrameId(id as u64)).is_some(),
-        ValueKind::Veclike(VecLikeType::Frame) => frames.get(FrameId(*id)).is_some(),
+        ValueKind::Veclike(VecLikeType::Frame) => {
+            frames.get(FrameId(value.as_frame_id().unwrap())).is_some()
+        }
         _ => false,
     }
 }
@@ -160,7 +162,7 @@ fn display_does_not_exist_error(display: &str) -> Flow {
 
 fn format_get_device_terminal_arg_eval(eval: &super::eval::Context, value: &Value) -> String {
     let window_id = match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(value.as_window_id().unwrap())),
         _ => None,
     };
 
@@ -193,10 +195,10 @@ fn invalid_get_device_terminal_error_eval(eval: &super::eval::Context, value: &V
 }
 
 fn terminal_not_x_display_error(value: &Value) -> Option<Flow> {
-    terminal_handle_id(value).map(|id| {
+    terminal_handle_id(value).map(|tid| {
         signal(
             "error",
-            vec![Value::string(format!("Terminal {id} is not an X display"))],
+            vec![Value::string(format!("Terminal {tid} is not an X display"))],
         )
     })
 }
@@ -205,7 +207,7 @@ pub(crate) fn expect_frame_designator(value: &Value) -> Result<(), Flow> {
     match value.kind() {
         ValueKind::Fixnum(id) if id >= 0 => Ok(()),
         ValueKind::Veclike(VecLikeType::Frame) => Ok(()),
-        v if v.is_nil() => Ok(()),
+        ValueKind::Nil => Ok(()),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), *value],
@@ -214,31 +216,28 @@ pub(crate) fn expect_frame_designator(value: &Value) -> Result<(), Flow> {
 }
 
 fn expect_display_designator(value: &Value) -> Result<(), Flow> {
-    match value.kind() {
-        ValueKind::Nil => Ok(()),
-        display if terminal_designator_p(display) => Ok(()),
-        ValueKind::String => {
-            let display = value.as_str().unwrap();
-            Err(display_does_not_exist_error(display))
-        }
-        _ => Err(invalid_get_device_terminal_error(value)),
+    if value.is_nil() || terminal_designator_p(value) {
+        return Ok(());
     }
+    if value.is_string() {
+        let display = value.as_str().unwrap();
+        return Err(display_does_not_exist_error(display));
+    }
+    Err(invalid_get_device_terminal_error(value))
 }
 
 pub(crate) fn expect_display_designator_in_state(
     frames: &crate::window::FrameManager,
     value: &Value,
 ) -> Result<(), Flow> {
-    match value.kind() {
-        ValueKind::Nil => Ok(()),
-        display if terminal_designator_p(display) => Ok(()),
-        display if live_frame_designator_p_in_state(frames, display) => Ok(()),
-        ValueKind::String => {
-            let display = value.as_str().unwrap();
-            Err(display_does_not_exist_error(display))
-        }
-        _ => Err(invalid_get_device_terminal_error(value)),
+    if value.is_nil() || terminal_designator_p(value) || live_frame_designator_p_in_state(frames, value) {
+        return Ok(());
     }
+    if value.is_string() {
+        let display = value.as_str().unwrap();
+        return Err(display_does_not_exist_error(display));
+    }
+    Err(invalid_get_device_terminal_error(value))
 }
 
 pub(crate) fn live_frame_designator_p(eval: &mut super::eval::Context, value: &Value) -> bool {
@@ -326,7 +325,7 @@ fn x_display_query_first_arg_error(value: &Value) -> Flow {
         ValueKind::Nil => x_windows_not_initialized_error(),
         ValueKind::String => x_display_open_error(value.as_str().unwrap()),
         ValueKind::Veclike(VecLikeType::Frame) => x_window_system_frame_error(),
-        other => {
+        _ => {
             if let Some(err) = terminal_not_x_display_error(value) {
                 err
             } else {
@@ -375,16 +374,20 @@ pub(crate) fn display_window_system_symbol_eval(
     display: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match display {
-        None | Some(ValueKind::Nil) => {
+        None => {
             Ok(selected_frame_window_system_symbol(eval)
                 .or_else(|| global_window_system_symbol(eval)))
         }
-        Some(display) if terminal_designator_p(display) => Ok(None),
-        Some(display) if live_frame_designator_p(eval, display) => {
-            frame_window_system_symbol(eval, Some(display))
+        Some(d) if d.is_nil() => {
+            Ok(selected_frame_window_system_symbol(eval)
+                .or_else(|| global_window_system_symbol(eval)))
         }
-        Some(ValueKind::String) => Err(display_does_not_exist_error(
-            display.unwrap().as_str().unwrap(),
+        Some(d) if terminal_designator_p(d) => Ok(None),
+        Some(d) if live_frame_designator_p(eval, d) => {
+            frame_window_system_symbol(eval, Some(d))
+        }
+        Some(d) if d.is_string() => Err(display_does_not_exist_error(
+            d.as_str().unwrap(),
         )),
         Some(other) => Err(invalid_get_device_terminal_error_eval(eval, other)),
     }
@@ -395,17 +398,20 @@ fn frame_window_system_symbol_read_only_in_state(
     frame: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match frame {
-        None | Some(ValueKind::Nil) => Ok(selected_frame_window_system_symbol_in_state(frames)),
-        Some(ValueKind::Fixnum(id)) if *id >= 0 => Ok(frames
-            .get(FrameId(*id as u64))
-            .and_then(|frame| frame.effective_window_system())),
-        Some(ValueKind::Veclike(VecLikeType::Frame)) => Ok(frames
-            .get(FrameId(*id))
-            .and_then(|frame| frame.effective_window_system())),
-        Some(other) => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("framep"), *other],
-        )),
+        None => Ok(selected_frame_window_system_symbol_in_state(frames)),
+        Some(v) if v.is_nil() => Ok(selected_frame_window_system_symbol_in_state(frames)),
+        Some(v) => match v.kind() {
+            ValueKind::Fixnum(id) if id >= 0 => Ok(frames
+                .get(FrameId(id as u64))
+                .and_then(|frame| frame.effective_window_system())),
+            ValueKind::Veclike(VecLikeType::Frame) => Ok(frames
+                .get(FrameId(v.as_frame_id().unwrap()))
+                .and_then(|frame| frame.effective_window_system())),
+            _ => Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("framep"), *v],
+            )),
+        },
     }
 }
 
@@ -416,16 +422,20 @@ pub(crate) fn display_window_system_symbol_in_state(
     display: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match display {
-        None | Some(ValueKind::Nil) => Ok(frame_window_system_symbol_read_only_in_state(
+        None => Ok(frame_window_system_symbol_read_only_in_state(
             frames, display,
         )?
         .or_else(|| global_window_system_symbol_in_state(obarray, dynamic))),
-        Some(display) if terminal_designator_p(display) => Ok(None),
-        Some(display) if live_frame_designator_p_in_state(frames, display) => {
-            frame_window_system_symbol_read_only_in_state(frames, Some(display))
+        Some(d) if d.is_nil() => Ok(frame_window_system_symbol_read_only_in_state(
+            frames, display,
+        )?
+        .or_else(|| global_window_system_symbol_in_state(obarray, dynamic))),
+        Some(d) if terminal_designator_p(d) => Ok(None),
+        Some(d) if live_frame_designator_p_in_state(frames, d) => {
+            frame_window_system_symbol_read_only_in_state(frames, Some(d))
         }
-        Some(ValueKind::String) => Err(display_does_not_exist_error(
-            display.unwrap().as_str().unwrap(),
+        Some(d) if d.is_string() => Err(display_does_not_exist_error(
+            d.as_str().unwrap(),
         )),
         Some(other) => Err(invalid_get_device_terminal_error(other)),
     }
@@ -447,7 +457,7 @@ fn gui_x_query_target_eval(
         return Ok(false);
     }
     Ok(match args.first() {
-        None | Some(Value::NIL) => true,
+        None | Some(&Value::NIL) => true,
         Some(display) => live_frame_designator_p(eval, display),
     })
 }
@@ -466,7 +476,7 @@ fn gui_x_query_target_in_state(
         return Ok(false);
     }
     Ok(match args.first() {
-        None | Some(Value::NIL) => true,
+        None | Some(&Value::NIL) => true,
         Some(display) => live_frame_designator_p_in_state(frames, display),
     })
 }
@@ -596,10 +606,11 @@ fn parse_x_geometry(spec: &str) -> Option<Value> {
 fn display_optional_capability_p(name: &str, args: &[Value]) -> EvalResult {
     expect_max_args(name, args, 1)?;
     match args.first() {
-        None | Some(ValueKind::Nil) => Ok(Value::NIL),
+        None => Ok(Value::NIL),
+        Some(v) if v.is_nil() => Ok(Value::NIL),
         Some(display) if is_terminal_handle(display) => Ok(Value::NIL),
-        Some(ValueKind::String) => {
-            let display = args[0].as_str().unwrap();
+        Some(v) if v.is_string() => {
+            let display = v.as_str().unwrap();
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} does not exist"))],
@@ -616,11 +627,12 @@ fn display_optional_capability_p_eval(
 ) -> EvalResult {
     expect_max_args(name, args, 1)?;
     match args.first() {
-        None | Some(ValueKind::Nil) => Ok(Value::NIL),
+        None => Ok(Value::NIL),
+        Some(v) if v.is_nil() => Ok(Value::NIL),
         Some(display) if is_terminal_handle(display) => Ok(Value::NIL),
         Some(display) if live_frame_designator_p(eval, display) => Ok(Value::NIL),
-        Some(ValueKind::String) => {
-            let display = args[0].as_str().unwrap();
+        Some(v) if v.is_string() => {
+            let display = v.as_str().unwrap();
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} does not exist"))],
@@ -633,7 +645,8 @@ fn display_optional_capability_p_eval(
 fn x_optional_display_query_error(name: &str, args: &[Value]) -> EvalResult {
     expect_max_args(name, args, 1)?;
     match args.first() {
-        None | Some(ValueKind::Nil) => Err(x_windows_not_initialized_error()),
+        None => Err(x_windows_not_initialized_error()),
+        Some(v) if v.is_nil() => Err(x_windows_not_initialized_error()),
         Some(display) if is_terminal_handle(display) => {
             if let Some(err) = terminal_not_x_display_error(display) {
                 Err(err)
@@ -641,8 +654,8 @@ fn x_optional_display_query_error(name: &str, args: &[Value]) -> EvalResult {
                 Err(invalid_get_device_terminal_error(display))
             }
         }
-        Some(ValueKind::String) => {
-            let display = args[0].as_str().unwrap();
+        Some(v) if v.is_string() => {
+            let display = v.as_str().unwrap();
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
@@ -876,7 +889,7 @@ pub(crate) fn builtin_window_system(
 ) -> EvalResult {
     expect_max_args("window-system", &args, 1)?;
     match args.first() {
-        None | Some(ValueKind::Nil) => {
+        None | Some(&Value::NIL) => {
             if let Some(window_system) =
                 selected_frame_window_system_symbol_in_state(&mut eval.frames)
             {
@@ -1030,17 +1043,13 @@ pub(crate) fn builtin_x_popup_dialog(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    let (title, rest) = match contents {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            (pair.car, pair.cdr)
-        }
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), *other],
-            ));
-        }
+    let (title, rest) = if contents.is_cons() {
+        (contents.cons_car(), contents.cons_cdr())
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), *contents],
+        ));
     };
 
     if !title.is_string() {
@@ -1070,17 +1079,13 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
         return Ok(Value::NIL);
     }
 
-    let (position_car, position_cdr) = match position {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            (pair.car, pair.cdr)
-        }
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), *other],
-            ));
-        }
+    let (position_car, position_cdr) = if position.is_cons() {
+        (position.cons_car(), position.cons_cdr())
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), *position],
+        ));
     };
 
     if !position_car.is_list() {
@@ -1134,17 +1139,13 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    let (title, rest) = match menu {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            (pair.car, pair.cdr)
-        }
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), *other],
-            ));
-        }
+    let (title, rest) = if menu.is_cons() {
+        (menu.cons_car(), menu.cons_cdr())
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), *menu],
+        ));
     };
 
     if !title.is_string() {
@@ -1158,32 +1159,24 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
         return Ok(Value::NIL);
     }
 
-    let pane = match rest.kind() {
-        ValueKind::Cons => {
-            let pair_car = rest.cons_car();
-            let pair_cdr = rest.cons_cdr();
-            pair_car
-        }
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), rest],
-            ));
-        }
+    let pane = if rest.is_cons() {
+        rest.cons_car()
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), rest],
+        ));
     };
 
-    let (pane_title, pane_items) = match pane {
-        Value::Cons(cell) => {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            (pair.car, pair.cdr)
-        }
-        Value::NIL => (Value::NIL, Value::NIL),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), other],
-            ));
-        }
+    let (pane_title, pane_items) = if pane.is_cons() {
+        (pane.cons_car(), pane.cons_cdr())
+    } else if pane.is_nil() {
+        (Value::NIL, Value::NIL)
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), pane],
+        ));
     };
 
     if !pane_title.is_string() {
@@ -1226,7 +1219,7 @@ pub(crate) fn builtin_x_export_frames(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-export-frames", &args, 2)?;
     match args.first() {
         None => Err(x_window_system_frame_error()),
-        Some(frame) if frame.is_nil() || matches!(frame, ValueKind::Veclike(VecLikeType::Frame)) => {
+        Some(frame) if frame.is_nil() || frame.is_frame() => {
             Err(x_window_system_frame_error())
         }
         Some(other) => Err(signal(
@@ -1262,7 +1255,7 @@ pub(crate) fn builtin_x_get_modifier_masks(args: Vec<Value>) -> EvalResult {
     match args.first() {
         None => Err(x_windows_not_initialized_error()),
         Some(display) if display.is_nil() => Err(x_windows_not_initialized_error()),
-        Some(ValueKind::Veclike(VecLikeType::Frame)) => Err(x_window_system_frame_error()),
+        Some(v) if v.is_frame() => Err(x_window_system_frame_error()),
         Some(display) => Err(x_display_query_first_arg_error(display)),
     }
 }
@@ -1294,7 +1287,7 @@ pub(crate) fn builtin_x_setup_function_keys(args: Vec<Value>) -> EvalResult {
             "wrong-type-argument",
             vec![Value::symbol("terminal-live-p"), args[0]],
         )),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), args[0]],
         )),
@@ -1313,7 +1306,7 @@ pub(crate) fn builtin_x_wm_set_size_hint(args: Vec<Value>) -> EvalResult {
     match args.first() {
         None => Err(x_window_system_frame_error()),
         Some(frame) if frame.is_nil() => Err(x_window_system_frame_error()),
-        Some(ValueKind::Veclike(VecLikeType::Frame)) => Err(x_window_system_frame_error()),
+        Some(v) if v.is_frame() => Err(x_window_system_frame_error()),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), *other],
@@ -1397,7 +1390,7 @@ pub(crate) fn builtin_x_parse_geometry(args: Vec<Value>) -> EvalResult {
             let spec = args[0].as_str().unwrap().to_owned();
             Ok(parse_x_geometry(&spec).unwrap_or(Value::NIL))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
         )),
@@ -1692,7 +1685,7 @@ pub(crate) fn builtin_x_open_connection(
                 vec![Value::string(format!("Display {display} can’t be opened"))],
             ))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
         )),
@@ -1727,8 +1720,8 @@ pub(crate) fn builtin_x_close_connection(
                 vec![Value::string(format!("Display {display} can’t be opened"))],
             ))
         }
-        other => {
-            if let Some(err) = terminal_not_x_display_error(args[0]) {
+        _ => {
+            if let Some(err) = terminal_not_x_display_error(&args[0]) {
                 Err(err)
             } else {
                 Err(signal(
@@ -1758,7 +1751,11 @@ pub(crate) fn builtin_x_display_pixel_width(
         }
     }
     match args.first() {
-        None | Some(ValueKind::Nil) => Err(signal(
+        None => Err(signal(
+            "error",
+            vec![Value::string("X windows are not in use or not initialized")],
+        )),
+        Some(v) if v.is_nil() => Err(signal(
             "error",
             vec![Value::string("X windows are not in use or not initialized")],
         )),
@@ -1769,8 +1766,8 @@ pub(crate) fn builtin_x_display_pixel_width(
                 Err(invalid_get_device_terminal_error(display))
             }
         }
-        Some(ValueKind::String) => {
-            let display = args[0].as_str().unwrap();
+        Some(v) if v.is_string() => {
+            let display = v.as_str().unwrap();
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
@@ -1801,7 +1798,11 @@ pub(crate) fn builtin_x_display_pixel_height(
         }
     }
     match args.first() {
-        None | Some(ValueKind::Nil) => Err(signal(
+        None => Err(signal(
+            "error",
+            vec![Value::string("X windows are not in use or not initialized")],
+        )),
+        Some(v) if v.is_nil() => Err(signal(
             "error",
             vec![Value::string("X windows are not in use or not initialized")],
         )),
@@ -1812,8 +1813,8 @@ pub(crate) fn builtin_x_display_pixel_height(
                 Err(invalid_get_device_terminal_error(display))
             }
         }
-        Some(ValueKind::String) => {
-            let display = args[0].as_str().unwrap();
+        Some(v) if v.is_string() => {
+            let display = v.as_str().unwrap();
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],

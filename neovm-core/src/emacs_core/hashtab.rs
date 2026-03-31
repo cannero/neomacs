@@ -11,6 +11,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::print::print_value;
 use super::value::*;
+use crate::tagged::gc::with_tagged_heap;
 use std::collections::{BTreeMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 
@@ -89,22 +90,20 @@ fn hash_key_to_value(key: &HashKey) -> Value {
         HashKey::True => Value::T,
         HashKey::Int(n) => Value::fixnum(*n),
         HashKey::Float(bits) => Value::make_float(f64::from_bits(*bits)),
-        HashKey::FloatEq(bits, id) => Value::make_float(f64::from_bits(*bits)) /* TODO(tagged): dropped float id `*id` */,
-        HashKey::Symbol(id) => Value::symbol(*id),
-        HashKey::Keyword(id) => Value::keyword(*id),
-        HashKey::Str(id) => Value::Str(*id),
+        HashKey::FloatEq(bits, _id) => Value::make_float(f64::from_bits(*bits)),
+        HashKey::Symbol(id) => Value::from_sym_id(*id),
+        HashKey::Keyword(id) => Value::keyword(resolve_sym(*id)),
+        HashKey::Text(text) => Value::string(text.clone()),
         HashKey::Char(c) => Value::char(*c),
         HashKey::Window(id) => Value::make_window(*id),
         HashKey::Frame(id) => Value::make_frame(*id),
         HashKey::Ptr(_) => Value::NIL, // can't reconstruct from pointer
-        HashKey::ObjId(_, _) => Value::NIL, // can't reconstruct from ObjId alone
         HashKey::EqualCons(car, cdr) => Value::cons(hash_key_to_value(car), hash_key_to_value(cdr)),
         HashKey::EqualVec(items) => {
             let vals: Vec<Value> = items.iter().map(hash_key_to_value).collect();
             Value::vector(vals)
         }
         HashKey::Cycle(index) => Value::string(format!("#{}", index)),
-        HashKey::Text(text) => Value::string(text.clone()),
     }
 }
 
@@ -208,8 +207,8 @@ fn emacs_sxhash_list(value: &Value, depth: usize) -> u64 {
     hash
 }
 
-fn emacs_sxhash_vector(vec: &crate::gc::types::ObjId, depth: usize) -> u64 {
-    let items = with_heap(|h| h.get_vector(*vec).clone());
+fn emacs_sxhash_vector(value: &Value, depth: usize) -> u64 {
+    let items = value.as_vector_data().unwrap();
     let mut hash = items.len() as u64;
     let count = items.len().min(SXHASH_MAX_LEN);
     for item in items.iter().take(count) {
@@ -225,12 +224,10 @@ fn emacs_sxhash_obj(value: &Value, depth: usize) -> Option<u64> {
     match value.kind() {
         ValueKind::Fixnum(n) => Some(n as u64),
         ValueKind::Char(c) => Some((c as u32) as u64),
-        ValueKind::Float => Some(f.to_bits()),
-        ValueKind::String => Some(with_heap(|h| {
-            emacs_hash_char_array(h.get_string(*id).as_bytes())
-        })),
+        ValueKind::Float => Some(value.xfloat().to_bits()),
+        ValueKind::String => Some(emacs_hash_char_array(value.as_str().unwrap().as_bytes())),
         ValueKind::Cons => Some(emacs_sxhash_list(value, depth)),
-        ValueKind::Veclike(VecLikeType::Vector) => Some(emacs_sxhash_vector(vec, depth)),
+        ValueKind::Veclike(VecLikeType::Vector) => Some(emacs_sxhash_vector(value, depth)),
         _ => None,
     }
 }
@@ -287,7 +284,7 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
         }
         ValueKind::Float => {
             3_u8.hash(hasher);
-            f.to_bits().hash(hasher);
+            value.xfloat().to_bits().hash(hasher);
         }
         ValueKind::Symbol(id) => {
             4_u8.hash(hasher);
@@ -299,7 +296,7 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
         }
         ValueKind::String => {
             6_u8.hash(hasher);
-            with_heap(|h| h.get_string(*id).hash(hasher));
+            value.as_str().unwrap().hash(hasher);
         }
         ValueKind::Cons => {
             7_u8.hash(hasher);
@@ -318,19 +315,19 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
         }
         ValueKind::Veclike(VecLikeType::Window) => {
             9_u8.hash(hasher);
-            id.hash(hasher);
+            value.bits().hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::Frame) => {
             10_u8.hash(hasher);
-            id.hash(hasher);
+            value.bits().hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             11_u8.hash(hasher);
-            id.0.hash(hasher);
+            value.bits().hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::Timer) => {
             12_u8.hash(hasher);
-            id.hash(hasher);
+            value.bits().hash(hasher);
         }
         ValueKind::Subr(id) => {
             13_u8.hash(hasher);
@@ -338,39 +335,44 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
         }
         ValueKind::Veclike(VecLikeType::Lambda) => {
             14_u8.hash(hasher);
-            id.hash(hasher);
+            value.bits().hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
             15_u8.hash(hasher);
-            id.hash(hasher);
+            value.bits().hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::HashTable) => {
             16_u8.hash(hasher);
-            table.index.hash(hasher);
-            table.generation.hash(hasher);
+            value.bits().hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             17_u8.hash(hasher);
-            id.hash(hasher);
+            value.bits().hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::Marker) => {
             18_u8.hash(hasher);
-            super::marker::marker_equal_hash_key(*id).hash(hasher);
+            // Hash based on marker identity via pointer bits.
+            value.bits().hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::Overlay) => {
             19_u8.hash(hasher);
-            id.hash(hasher);
+            value.bits().hash(hasher);
+        }
+        _ => {
+            // Unknown or other types: hash by pointer bits
+            20_u8.hash(hasher);
+            value.bits().hash(hasher);
         }
     }
 }
 
 fn sxhash_emacs_uint_for(value: &Value, test: HashTableTest) -> u64 {
-    match test.kind() {
+    match test {
         HashTableTest::Equal => emacs_sxhash_obj_with_fallback(value, 0),
         HashTableTest::Eq | HashTableTest::Eql => match value.kind() {
             ValueKind::Fixnum(n) => sxhash_eq_fixnum_uint(n as u64),
             ValueKind::Char(c) => sxhash_eq_fixnum_uint((c as u32) as u64),
-            ValueKind::Float if matches!(test, HashTableTest::Eql) => f.to_bits(),
+            ValueKind::Float if matches!(test, HashTableTest::Eql) => value.xfloat().to_bits(),
             _ => fallback_sxhash_emacs_uint(value, test),
         },
     }
@@ -398,9 +400,6 @@ fn internal_hash_table_diagnostic_hash(key: &HashKey, test: HashTableTest) -> u3
             // Eq tables carry pointer-identity keys; preserve that identity in
             // diagnostic hash output instead of collapsing through `nil`.
             HashKey::Ptr(ptr) => reduce_emacs_uint_to_hash_hash(*ptr as u64),
-            HashKey::ObjId(index, generation) => {
-                reduce_emacs_uint_to_hash_hash((*index as u64) ^ ((*generation as u64) << 32))
-            }
             _ => {
                 let value = hash_key_to_value(key);
                 reduce_emacs_uint_to_hash_hash(sxhash_emacs_uint_for(&value, HashTableTest::Eq))
@@ -408,9 +407,6 @@ fn internal_hash_table_diagnostic_hash(key: &HashKey, test: HashTableTest) -> u3
         },
         HashTableTest::Eql => match key {
             HashKey::Ptr(ptr) => reduce_emacs_uint_to_hash_hash(*ptr as u64),
-            HashKey::ObjId(index, generation) => {
-                reduce_emacs_uint_to_hash_hash((*index as u64) ^ ((*generation as u64) << 32))
-            }
             _ => {
                 let value = hash_key_to_value(key);
                 reduce_emacs_uint_to_hash_hash(sxhash_emacs_uint_for(&value, HashTableTest::Eql))
@@ -420,8 +416,8 @@ fn internal_hash_table_diagnostic_hash(key: &HashKey, test: HashTableTest) -> u3
             HashKey::Float(bits) => reduce_emacs_uint_to_hash_hash(*bits),
             HashKey::Int(n) => reduce_emacs_uint_to_hash_hash(*n as u64),
             HashKey::Char(c) => reduce_emacs_uint_to_hash_hash((*c as u32) as u64),
-            HashKey::Str(id) => {
-                let hash = with_heap(|h| emacs_hash_char_array(h.get_string(*id).as_bytes()));
+            HashKey::Text(text) => {
+                let hash = emacs_hash_char_array(text.as_bytes());
                 reduce_emacs_uint_to_hash_hash(hash)
             }
             _ => {
@@ -467,7 +463,7 @@ pub(crate) fn builtin_hash_table_test(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = args[0].as_hash_table().unwrap().clone();
             if let Some(id) = table.test_name {
-                Ok(ValueKind::Symbol(id))
+                Ok(Value::from_sym_id(id))
             } else {
                 let sym = match table.test {
                     HashTableTest::Eq => "eq",
@@ -477,7 +473,7 @@ pub(crate) fn builtin_hash_table_test(args: Vec<Value>) -> EvalResult {
                 Ok(Value::symbol(sym))
             }
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -492,7 +488,7 @@ pub(crate) fn builtin_hash_table_size(args: Vec<Value>) -> EvalResult {
             let table = args[0].as_hash_table().unwrap().clone();
             Ok(Value::fixnum(table.size))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -505,9 +501,9 @@ pub(crate) fn builtin_hash_table_rehash_size(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = args[0].as_hash_table().unwrap().clone();
-            Ok(Value::make_float(table.rehash_size))  // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(table.rehash_size))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -520,9 +516,9 @@ pub(crate) fn builtin_hash_table_rehash_threshold(args: Vec<Value>) -> EvalResul
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = args[0].as_hash_table().unwrap().clone();
-            Ok(Value::make_float(table.rehash_threshold))  // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(table.rehash_threshold))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -543,7 +539,7 @@ pub(crate) fn builtin_hash_table_weakness(args: Vec<Value>) -> EvalResult {
                 Some(HashTableWeakness::KeyAndValue) => Value::symbol("key-and-value"),
             })
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -556,10 +552,9 @@ pub(crate) fn builtin_copy_hash_table(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let new_table = args[0].as_hash_table().unwrap().clone();
-            let id = with_heap_mut(|h| h.alloc_hash_table_raw(new_table));
-            Ok(ValueKind::Veclike(VecLikeType::HashTable))
+            Ok(with_tagged_heap(|h| h.alloc_hash_table(new_table)))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -581,7 +576,7 @@ pub(crate) fn builtin_hash_table_keys(args: Vec<Value>) -> EvalResult {
                 .collect();
             Ok(Value::list(keys))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -602,7 +597,7 @@ pub(crate) fn builtin_hash_table_values(args: Vec<Value>) -> EvalResult {
                 .collect();
             Ok(Value::list(values))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -645,7 +640,7 @@ pub(crate) fn builtin_internal_hash_table_index_size(args: Vec<Value>) -> EvalRe
                 internal_hash_table_index_size(&table).min(i64::MAX as usize) as i64,
             ))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -674,7 +669,7 @@ pub(crate) fn builtin_internal_hash_table_buckets(args: Vec<Value>) -> EvalResul
                 .collect();
             Ok(Value::list(rendered))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -703,7 +698,7 @@ pub(crate) fn builtin_internal_hash_table_histogram(args: Vec<Value>) -> EvalRes
                 .collect();
             Ok(Value::list(entries))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("hash-table-p"), args[0]],
         )),
@@ -751,7 +746,7 @@ pub(crate) fn collect_maphash_entries(
                 })
                 .collect()
         }
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("hash-table-p"), args[1]],
@@ -770,27 +765,30 @@ pub(crate) fn collect_mapatoms_symbols(
     validate_optional_obarray_arg(&args)?;
     let func = args[0];
 
-    if let Some(ValueKind::Veclike(VecLikeType::Vector)) = args
+    if let Some(custom_obarray) = args
         .get(1)
         .filter(|v| !v.is_nil() && !is_global_obarray_proxy_in_state(obarray, v))
     {
-        let all_slots = with_heap(|h| h.get_vector(*vec_id).clone());
-        let mut symbols = Vec::new();
-        for slot in &all_slots {
-            let mut current = *slot;
-            loop {
-                match current.kind() {
-                    ValueKind::Nil => break,
-                    ValueKind::Cons => {
-                        let (car, cdr) = with_heap(|h| (h.cons_car(id), h.cons_cdr(id)));
-                        symbols.push(car);
-                        current = cdr;
+        if custom_obarray.is_vector() {
+            let all_slots = custom_obarray.as_vector_data().unwrap().clone();
+            let mut symbols = Vec::new();
+            for slot in &all_slots {
+                let mut current = *slot;
+                loop {
+                    match current.kind() {
+                        ValueKind::Nil => break,
+                        ValueKind::Cons => {
+                            let car = current.cons_car();
+                            let cdr = current.cons_cdr();
+                            symbols.push(car);
+                            current = cdr;
+                        }
+                        _ => break,
                     }
-                    _ => break,
                 }
             }
+            return Ok((func, symbols));
         }
-        return Ok((func, symbols));
     }
 
     let symbols = obarray
@@ -808,7 +806,7 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     let name = match args[0].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::String => args[0].as_str().unwrap().to_owned(),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
@@ -817,55 +815,56 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     };
 
     // Custom obarray path
-    if let Some(ValueKind::Veclike(VecLikeType::Vector)) = args.get(1).filter(|v| !v.is_nil()) {
-        let vec_id = *vec_id;
-        let vec_len = with_heap(|h| h.get_vector(vec_id).len());
-        if vec_len == 0 {
-            return Ok(Value::NIL);
-        }
-        let bucket_idx =
-            name.bytes()
-                .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) as usize
-                % vec_len;
-        let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
+    if let Some(custom_obarray) = args.get(1).filter(|v| !v.is_nil()) {
+        if custom_obarray.is_vector() {
+            let vec_data = custom_obarray.as_vector_data().unwrap();
+            let vec_len = vec_data.len();
+            if vec_len == 0 {
+                return Ok(Value::NIL);
+            }
+            let bucket_idx =
+                name.bytes()
+                    .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) as usize
+                    % vec_len;
+            let bucket = vec_data[bucket_idx];
 
-        // Walk the bucket chain and rebuild without the matching symbol
-        let mut items = Vec::new();
-        let mut found = false;
-        let mut current = bucket;
-        loop {
-            match current.kind() {
-                ValueKind::Nil => break,
-                ValueKind::Cons => {
-                    let (car, cdr) = with_heap(|h| (h.cons_car(id), h.cons_cdr(id)));
-                    if !found {
-                        if let Some(sym_name) = car.as_symbol_name() {
-                            if sym_name == name {
-                                found = true;
-                                current = cdr;
-                                continue;
+            // Walk the bucket chain and rebuild without the matching symbol
+            let mut items = Vec::new();
+            let mut found = false;
+            let mut current = bucket;
+            loop {
+                match current.kind() {
+                    ValueKind::Nil => break,
+                    ValueKind::Cons => {
+                        let car = current.cons_car();
+                        let cdr = current.cons_cdr();
+                        if !found {
+                            if let Some(sym_name) = car.as_symbol_name() {
+                                if sym_name == name {
+                                    found = true;
+                                    current = cdr;
+                                    continue;
+                                }
                             }
                         }
+                        items.push(car);
+                        current = cdr;
                     }
-                    items.push(car);
-                    current = cdr;
+                    _ => break,
                 }
-                _ => break,
             }
-        }
 
-        if found {
-            // Rebuild the bucket chain
-            let new_bucket = items
-                .into_iter()
-                .rev()
-                .fold(Value::NIL, |acc, sym| Value::cons(sym, acc));
-            with_heap_mut(|h| {
-                h.get_vector_mut(vec_id)[bucket_idx] = new_bucket;
-            });
-            return Ok(Value::T);
+            if found {
+                // Rebuild the bucket chain
+                let new_bucket = items
+                    .into_iter()
+                    .rev()
+                    .fold(Value::NIL, |acc, sym| Value::cons(sym, acc));
+                custom_obarray.as_vector_data_mut().unwrap()[bucket_idx] = new_bucket;
+                return Ok(Value::T);
+            }
+            return Ok(Value::NIL);
         }
-        return Ok(Value::NIL);
     }
 
     // Global obarray path

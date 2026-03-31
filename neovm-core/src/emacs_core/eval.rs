@@ -367,7 +367,7 @@ fn rebuild_trimmed_interpreted_closure_env(
     for entry in template {
         match entry {
             InterpretedClosureEnvEntry::TopLevelSentinel => entries.push(Value::T),
-            InterpretedClosureEnvEntry::Special(sym) => entries.push(Value::symbol(*sym)),
+            InterpretedClosureEnvEntry::Special(sym) => entries.push(Value::from_sym_id(*sym)),
             InterpretedClosureEnvEntry::Binding(sym) => {
                 let cell = lexenv_assq(source_env, *sym)
                     .expect("cached interpreted-closure env binding should exist");
@@ -455,7 +455,7 @@ fn value_from_symbol_id(sym_id: SymId) -> Value {
             return Value::from_kw_id(sym_id);
         }
     }
-    Value::symbol(sym_id)
+    Value::from_sym_id(sym_id)
 }
 
 fn is_runtime_dynamically_special(obarray: &Obarray, sym_id: SymId) -> bool {
@@ -1405,7 +1405,7 @@ fn begin_macro_expansion_scope_in_state(
         if name == "t" || name == "nil" {
             continue;
         }
-        dynvars = Value::cons(Value::symbol(sym), dynvars);
+        dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
     }
     // Collect symbols from the specpdl (replaces dynamic frame iteration).
     for entry in specpdl.iter().rev() {
@@ -1414,11 +1414,11 @@ fn begin_macro_expansion_scope_in_state(
             | SpecBinding::LetLocal { sym_id, .. }
             | SpecBinding::LetDefault { sym_id, .. } => sym_id,
         };
-        let name = resolve_sym(sym_id);
+        let name = resolve_sym(*sym_id);
         if name == "t" || name == "nil" {
             continue;
         }
-        dynvars = Value::cons(Value::symbol(*sym_id), dynvars);
+        dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
     }
 
     obarray.set_symbol_value("lexical-binding", Value::bool_val(!lexenv.is_nil()));
@@ -1750,7 +1750,7 @@ impl Context {
 
         self.apply(
             hook,
-            vec![Value::symbol(sig.symbol), signal_hook_payload_value(sig)],
+            vec![Value::from_sym_id(sig.symbol), signal_hook_payload_value(sig)],
         )
         .map(|_| ())
     }
@@ -1772,7 +1772,7 @@ impl Context {
             symbol: intern("error"),
             data: vec![
                 Value::string("Invalid error symbol"),
-                Value::symbol(sig.symbol),
+                Value::from_sym_id(sig.symbol),
             ],
             raw_data: None,
             suppress_signal_hook: sig.suppress_signal_hook,
@@ -1835,7 +1835,7 @@ impl Context {
         self.obarray
             .get_property(sig.symbol_name(), "error-conditions")
             .copied()
-            .unwrap_or_else(|| Value::list(vec![Value::symbol(sig.symbol)]))
+            .unwrap_or_else(|| Value::list(vec![Value::from_sym_id(sig.symbol)]))
     }
 
     fn skip_debugger(&mut self, sig: &SignalData, conditions: &Value) -> Result<bool, Flow> {
@@ -5566,11 +5566,11 @@ impl Context {
         }
 
         if self.obarray.is_function_unbound_id(sym_id) {
-            return Err(signal("void-function", vec![Value::symbol(sym_id)]));
+            return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
         }
 
         let Some(function) = self.obarray.symbol_function_id(sym_id).cloned() else {
-            return Err(signal("void-function", vec![Value::symbol(sym_id)]));
+            return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
         };
 
         // Handle autoloads for non-canonical symbols the same as canonical
@@ -5592,7 +5592,7 @@ impl Context {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {
-                Err(signal("invalid-function", vec![Value::symbol(sym_id)]))
+                Err(signal("invalid-function", vec![Value::from_sym_id(sym_id)]))
             }
             _ => result,
         }
@@ -5620,11 +5620,11 @@ impl Context {
         }
 
         if self.obarray.is_function_unbound_id(sym_id) {
-            return Err(signal("void-function", vec![Value::symbol(sym_id)]));
+            return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
         }
 
         let Some(function) = self.obarray.symbol_function_id(sym_id).cloned() else {
-            return Err(signal("void-function", vec![Value::symbol(sym_id)]));
+            return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
         };
 
         if super::autoload::is_autoload_value(&function) {
@@ -5643,7 +5643,7 @@ impl Context {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {
-                Err(signal("invalid-function", vec![Value::symbol(sym_id)]))
+                Err(signal("invalid-function", vec![Value::from_sym_id(sym_id)]))
             }
             _ => result,
         }
@@ -5732,7 +5732,7 @@ impl Context {
                                 if matches!(
                                     items.first(),
                                     Some(Expr::Symbol(id))
-                                        if resolve_sym(id) == "lambda" || resolve_sym(id) == "closure"
+                                        if resolve_sym(*id) == "lambda" || resolve_sym(*id) == "closure"
                                 )
                         ) =>
                 {
@@ -5962,7 +5962,7 @@ impl Context {
         // Head is a list (possibly a lambda expression)
         if let Expr::List(lambda_form) = head {
             if let Some(Expr::Symbol(id)) = lambda_form.first() {
-                if resolve_sym(id) == "lambda" {
+                if resolve_sym(*id) == "lambda" {
                     let func = self.eval_lambda(&lambda_form[1..])?;
                     self.push_temp_root(func);
                     let (args, scope) = self.eval_args(tail)?;
@@ -6227,7 +6227,7 @@ impl Context {
             Expr::List(items) => {
                 // #'(lambda ...) — create closure
                 if let Some(Expr::Symbol(id)) = items.first() {
-                    if resolve_sym(id) == "lambda" {
+                    if resolve_sym(*id) == "lambda" {
                         return self.eval_lambda(&items[1..]);
                     }
                 }
@@ -8065,7 +8065,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let frame_args = args.clone();
-        self.with_runtime_backtrace_frame(Value::symbol(sym_id), &frame_args, |eval| {
+        self.with_runtime_backtrace_frame(Value::from_sym_id(sym_id), &frame_args, |eval| {
             eval.apply_named_callable_by_id_core(
                 sym_id,
                 args,

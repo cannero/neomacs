@@ -146,7 +146,7 @@ impl<'a> Vm<'a> {
     fn collect_flow_roots(flow: &Flow, out: &mut Vec<Value>) {
         match flow {
             Flow::Signal(sig) => {
-                out.push(Value::Symbol(sig.symbol));
+                out.push(Value::from_sym_id(sig.symbol));
                 out.extend(sig.data.iter().copied());
                 if let Some(raw) = sig.raw_data {
                     out.push(raw);
@@ -615,40 +615,37 @@ impl<'a> Vm<'a> {
                     let jump_table = stack.pop().unwrap_or(Value::NIL);
                     let dispatch = stack.pop().unwrap_or(Value::NIL);
 
-                    let table_id = match jump_table.kind() {
-                        ValueKind::Veclike(VecLikeType::HashTable) => table_id,
-                        other => {
-                            self.resume_nonlocal(
-                                func,
-                                stack,
-                                pc,
-                                handlers,
-                                specpdl,
-                                signal(
-                                    "wrong-type-argument",
-                                    vec![Value::symbol("hash-table-p"), jump_table],
-                                ),
-                            )?;
-                            continue;
-                        }
-                    };
+                    if !matches!(jump_table.kind(), ValueKind::Veclike(VecLikeType::HashTable)) {
+                        self.resume_nonlocal(
+                            func,
+                            stack,
+                            pc,
+                            handlers,
+                            specpdl,
+                            signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("hash-table-p"), jump_table],
+                            ),
+                        )?;
+                        continue;
+                    }
 
-                    let target = with_heap(|heap| {
-                        let table = heap.get_hash_table(table_id);
-                        let key = dispatch.to_hash_key(&table.test);
-                        table.data.get(&key).copied()
-                    });
+                    let ht = jump_table.as_hash_table().unwrap();
+                    let key = dispatch.to_hash_key(&ht.test);
+                    let target = ht.data.get(&key).copied();
 
                     match target {
-                        Some(ValueKind::Fixnum(addr)) => {
-                            *pc = vm_try!(resolve_switch_target(func, addr));
-                        }
-                        Some(other) => {
-                            vm_try!(Err(signal(
-                                "wrong-type-argument",
-                                vec![Value::symbol("integerp"), other],
-                            )));
-                        }
+                        Some(target_val) => match target_val.kind() {
+                            ValueKind::Fixnum(addr) => {
+                                *pc = vm_try!(resolve_switch_target(func, addr));
+                            }
+                            _ => {
+                                vm_try!(Err(signal(
+                                    "wrong-type-argument",
+                                    vec![Value::symbol("integerp"), target_val],
+                                )));
+                            }
+                        },
                         None => {}
                     }
                 }
@@ -1798,8 +1795,9 @@ impl<'a> Vm<'a> {
                         .obarray
                         .symbol_function(name)
                         .and_then(|bound| match bound.kind() {
-                            ValueKind::Symbol(tid) => Some(resolve_sym(tid).to_owned()),
-                            ValueKind::Subr(tid) => Some(resolve_sym(tid).to_owned()),
+                            ValueKind::Symbol(tid) | ValueKind::Subr(tid) => {
+                                Some(resolve_sym(tid).to_owned())
+                            }
                             _ => None,
                         });
                 Some((name.to_owned(), alias_target))
@@ -1810,9 +1808,12 @@ impl<'a> Vm<'a> {
 
     fn named_builtin_fast_path_allowed(&self, name: &str) -> bool {
         match self.ctx.obarray.symbol_function(name) {
-            Some(ValueKind::Subr(id)) => resolve_sym(id) == name,
-            Some(ValueKind::Nil) | None => true,
-            _ => false,
+            Some(val) => match val.kind() {
+                ValueKind::Subr(id) => resolve_sym(id) == name,
+                ValueKind::Nil => true,
+                _ => false,
+            },
+            None => true,
         }
     }
 
@@ -1957,65 +1958,61 @@ impl<'a> Vm<'a> {
 
         match value.kind() {
             ValueKind::Cons => {
-                let key = (cell.index as usize) ^ 0x1;
+                let key = value.bits() ^ 0x1;
                 if !visited.insert(key) {
                     return;
                 }
-                let pair_car = value.cons_car();
-                let pair_cdr = value.cons_cdr();
-                let mut new_car = pair_car;
-                let mut new_cdr = pair_cdr;
+                let mut new_car = value.cons_car();
+                let mut new_cdr = value.cons_cdr();
                 Self::replace_alias_refs_in_value(&mut new_car, from, to, visited);
                 Self::replace_alias_refs_in_value(&mut new_cdr, from, to, visited);
-                with_heap_mut(|h| {
-                    h.set_car(*cell, new_car);
-                    h.set_cdr(*cell, new_cdr);
-                });
+                value.set_car(new_car);
+                value.set_cdr(new_cdr);
             }
             ValueKind::Veclike(VecLikeType::Vector) => {
-                let key = (items.index as usize) ^ 0x2;
+                let key = value.bits() ^ 0x2;
                 if !visited.insert(key) {
                     return;
                 }
-                let mut values = value.as_vector_data().unwrap().clone();
-                for item in values.iter_mut() {
-                    Self::replace_alias_refs_in_value(item, from, to, visited);
+                if let Some(data) = value.as_vector_data_mut() {
+                    for item in data.iter_mut() {
+                        Self::replace_alias_refs_in_value(item, from, to, visited);
+                    }
                 }
-                with_heap_mut(|h| *h.get_vector_mut(*items) = values);
             }
             ValueKind::Veclike(VecLikeType::HashTable) => {
-                let key = (table.index as usize) ^ 0x4;
+                let key = value.bits() ^ 0x4;
                 if !visited.insert(key) {
                     return;
                 }
-                let mut ht = value.as_hash_table().unwrap().clone();
                 let old_ptr = match from.kind() {
-                    ValueKind::String => Some(value.index as usize),
+                    ValueKind::String => Some(from.bits()),
                     _ => None,
                 };
                 let new_ptr = match to.kind() {
-                    ValueKind::String => Some(value.index as usize),
+                    ValueKind::String => Some(to.bits()),
                     _ => None,
                 };
-                if matches!(ht.test, HashTableTest::Eq | HashTableTest::Eql) {
-                    if let (Some(old_ptr), Some(new_ptr)) = (old_ptr, new_ptr) {
-                        if let Some(existing) = ht.data.remove(&HashKey::Ptr(old_ptr)) {
-                            ht.data.insert(HashKey::Ptr(new_ptr), existing);
-                        }
-                        if ht.key_snapshots.remove(&HashKey::Ptr(old_ptr)).is_some() {
-                            ht.key_snapshots.insert(HashKey::Ptr(new_ptr), *to);
-                        }
-                        for k in &mut ht.insertion_order {
-                            if *k == HashKey::Ptr(old_ptr) {
-                                *k = HashKey::Ptr(new_ptr);
+                if let Some(ht) = value.as_hash_table_mut() {
+                    if matches!(ht.test, HashTableTest::Eq | HashTableTest::Eql) {
+                        if let (Some(old_ptr), Some(new_ptr)) = (old_ptr, new_ptr) {
+                            if let Some(existing) = ht.data.remove(&HashKey::Ptr(old_ptr)) {
+                                ht.data.insert(HashKey::Ptr(new_ptr), existing);
+                            }
+                            if ht.key_snapshots.remove(&HashKey::Ptr(old_ptr)).is_some() {
+                                ht.key_snapshots.insert(HashKey::Ptr(new_ptr), *to);
+                            }
+                            for k in &mut ht.insertion_order {
+                                if *k == HashKey::Ptr(old_ptr) {
+                                    *k = HashKey::Ptr(new_ptr);
+                                }
                             }
                         }
                     }
+                    for item in ht.data.values_mut() {
+                        Self::replace_alias_refs_in_value(item, from, to, visited);
+                    }
                 }
-                for item in ht.data.values_mut() {
-                    Self::replace_alias_refs_in_value(item, from, to, visited);
-                }
-                with_heap_mut(|h| *h.get_hash_table_mut(*table) = ht);
             }
             _ => {}
         }
@@ -2023,7 +2020,7 @@ impl<'a> Vm<'a> {
 
     fn lookup_var(&self, name: &str) -> EvalResult {
         if name.starts_with(':') {
-            return Ok(Value::keyword(intern(name)));
+            return Ok(Value::keyword(name));
         }
 
         let name_id = intern(name);
@@ -2094,7 +2091,7 @@ impl<'a> Vm<'a> {
             return Ok(Value::T);
         }
         if resolved_name.starts_with(':') {
-            return Ok(Value::keyword(resolved));
+            return Ok(Value::keyword(resolved_name));
         }
 
         Err(signal("void-variable", vec![Value::symbol(name)]))
@@ -2232,7 +2229,7 @@ impl<'a> Vm<'a> {
         }
         let where_value =
             crate::emacs_core::eval::set_runtime_binding_in_state(&mut *self.ctx, resolved, value)
-                .map(Value::Buffer)
+                .map(Value::make_buffer)
                 .unwrap_or(Value::NIL);
         self.run_variable_watchers_with_where(
             resolve_sym(resolved),
@@ -2246,7 +2243,6 @@ impl<'a> Vm<'a> {
 
     fn builtin_set_default_shared(&mut self, args: &[Value]) -> EvalResult {
         use crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
 
         if args.len() != 2 {
             return Err(signal(
@@ -2418,33 +2414,37 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
     }
 
     fn resolve_frame_id(&mut self, arg: Option<&Value>, predicate: &str) -> Result<FrameId, Flow> {
-        match arg {
-            None | Some(ValueKind::Nil) => Ok(self.ensure_selected_frame_id()),
-            Some(ValueKind::Fixnum(n)) => {
-                let fid = FrameId(*n as u64);
+        let Some(val) = arg else {
+            return Ok(self.ensure_selected_frame_id());
+        };
+        match val.kind() {
+            ValueKind::Nil => Ok(self.ensure_selected_frame_id()),
+            ValueKind::Fixnum(n) => {
+                let fid = FrameId(n as u64);
                 if self.ctx.frames.get(fid).is_some() {
                     Ok(fid)
                 } else {
                     Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol(predicate), Value::fixnum(*n)],
+                        vec![Value::symbol(predicate), Value::fixnum(n)],
                     ))
                 }
             }
-            Some(ValueKind::Veclike(VecLikeType::Frame)) => {
-                let fid = FrameId(*id);
+            ValueKind::Veclike(VecLikeType::Frame) => {
+                let id = val.as_frame_id().unwrap();
+                let fid = FrameId(id);
                 if self.ctx.frames.get(fid).is_some() {
                     Ok(fid)
                 } else {
                     Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol(predicate), Value::Frame(*id)],
+                        vec![Value::symbol(predicate), *val],
                     ))
                 }
             }
-            Some(other) => Err(signal(
+            _ => Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol(predicate), *other],
+                vec![Value::symbol(predicate), *val],
             )),
         }
     }
@@ -2600,10 +2600,10 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                         ValueKind::Nil => break,
                         ValueKind::Cons => {
                             values.push(cursor.cons_car());
-                            cons_cells.push(cell);
+                            cons_cells.push(cursor);
                             cursor = cursor.cons_cdr();
                         }
-                        tail => {
+                        _tail => {
                             return Err(signal(
                                 "wrong-type-argument",
                                 vec![Value::symbol("listp"), cursor],
@@ -2624,7 +2624,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                     )?;
                 if options.in_place {
                     for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
-                        sequence.set_car(value);
+                        cell.set_car(value);
                     }
                     Ok(sequence)
                 } else {
@@ -2646,20 +2646,21 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                     )?;
 
                 if options.in_place {
-                    with_heap_mut(|h| *h.get_vector_mut(v) = sorted_values);
+                    if let Some(data) = sequence.as_vector_data_mut() {
+                        *data = sorted_values;
+                    }
                     Ok(sequence)
                 } else {
                     match sequence.kind() {
                         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(sorted_values)),
                         ValueKind::Veclike(VecLikeType::Record) => {
-                            let id = with_heap_mut(|h| h.alloc_vector(sorted_values));
-                            Ok(ValueKind::Veclike(VecLikeType::Record))
+                            Ok(Value::make_record(sorted_values))
                         }
                         _ => unreachable!(),
                     }
                 }
             }
-            other => Err(signal(
+            _other => Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("list-or-vector-p"), sequence],
             )),
@@ -2685,7 +2686,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
     fn builtin_framep_fast(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("framep", args, 1)?;
         let id = match args[0].kind() {
-            ValueKind::Veclike(VecLikeType::Frame) => id,
+            ValueKind::Veclike(VecLikeType::Frame) => args[0].as_frame_id().unwrap(),
             ValueKind::Fixnum(n) => n as u64,
             _ => return Ok(Value::NIL),
         };
@@ -3510,7 +3511,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
     }
 
     fn restore_unwind_entry(&mut self, entry: VmUnwindEntry) -> Result<(), Flow> {
-        match entry.kind() {
+        match entry {
             VmUnwindEntry::DynamicBinding {
                 name,
                 restored_value,
@@ -3720,10 +3721,8 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                         ValueKind::Cons => {
                             let pair_car = cursor.cons_car();
                             let pair_cdr = cursor.cons_cdr();
-                            if let ValueKind::Cons = pair_car {
-                                let entry_pair_car = cursor.cons_car();
-                                let entry_pair_cdr = cursor.cons_cdr();
-                                let entry_key = entry_pair_car;
+                            if let ValueKind::Cons = pair_car.kind() {
+                                let entry_key = pair_car.cons_car();
                                 let matches = vm.with_extra_roots(
                                     &[cursor, pair_car, pair_cdr, entry_key],
                                     |vm| {
@@ -3770,12 +3769,12 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                                         .map(|value| value.is_truthy())
                                 })?;
                             if matches {
-                                return Ok(ValueKind::Cons);
+                                return Ok(cursor);
                             }
 
                             match pair_cdr.kind() {
                                 ValueKind::Cons => {
-                                    cursor = cursor.cons_cdr();
+                                    cursor = pair_cdr.cons_cdr();
                                 }
                                 _ => {
                                     return Err(signal(
@@ -4412,8 +4411,8 @@ fn normalize_vm_builtin_error(name: &str, flow: Flow) -> Flow {
     match flow {
         Flow::Signal(mut sig) if sig.symbol_name() == "wrong-number-of-arguments" => {
             if let Some(first) = sig.data.first_mut() {
-                if matches!(first, ValueKind::Symbol(id) if resolve_sym(id) == name) {
-                    *first = Value::Subr(intern(name));
+                if matches!(first.kind(), ValueKind::Symbol(id) if resolve_sym(id) == name) {
+                    *first = Value::subr(intern(name));
                 }
             }
             Flow::Signal(sig)
@@ -4493,11 +4492,11 @@ fn arith_rem(a: &Value, b: &Value) -> EvalResult {
 fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_add(1))),
-        ValueKind::Float => Ok(Value::make_float(f + 1.0)),
-        marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::fixnum(
+        ValueKind::Float => Ok(Value::make_float(a.xfloat() + 1.0)),
+        _ if a.is_marker() => Ok(Value::fixnum(
             crate::emacs_core::marker::marker_position_as_int_with_buffers(
                 &vm.ctx.buffers,
-                marker,
+                a,
             )?
             .wrapping_add(1),
         )),
@@ -4511,11 +4510,11 @@ fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
 fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_sub(1))),
-        ValueKind::Float => Ok(Value::make_float(f - 1.0)),
-        marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::fixnum(
+        ValueKind::Float => Ok(Value::make_float(a.xfloat() - 1.0)),
+        _ if a.is_marker() => Ok(Value::fixnum(
             crate::emacs_core::marker::marker_position_as_int_with_buffers(
                 &vm.ctx.buffers,
-                marker,
+                a,
             )?
             .wrapping_sub(1),
         )),
@@ -4529,11 +4528,11 @@ fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
 fn arith_negate(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(-n)),
-        ValueKind::Float => Ok(Value::make_float(-f)),
-        marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::fixnum(
+        ValueKind::Float => Ok(Value::make_float(-a.xfloat())),
+        _ if a.is_marker() => Ok(Value::fixnum(
             -crate::emacs_core::marker::marker_position_as_int_with_buffers(
                 &vm.ctx.buffers,
-                marker,
+                a,
             )?,
         )),
         _ => Err(signal(
@@ -4556,7 +4555,7 @@ fn num_eq(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<bool, Flow> {
 
 fn num_cmp(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<i32, Flow> {
     match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(a.cmp(b) as i32),
+        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(a.cmp(&b) as i32),
         _ => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
@@ -4574,13 +4573,13 @@ fn num_cmp(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<i32, Flow> {
 fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float => Ok(*f),
+        ValueKind::Float => Ok(value.xfloat()),
         ValueKind::Char(c) => Ok(c as u32 as f64),
-        marker if crate::emacs_core::marker::is_marker(marker) => Ok(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, marker)?
+        _ if value.is_marker() => Ok(
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, value)?
                 as f64,
         ),
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *value],
         )),
@@ -4591,7 +4590,7 @@ fn length_value(val: &Value) -> EvalResult {
     match val.kind() {
         ValueKind::Nil => Ok(Value::fixnum(0)),
         ValueKind::String => Ok(Value::fixnum(
-            with_heap(|h| h.get_string(*id).chars().count()) as i64
+            val.as_str().unwrap().chars().count() as i64
         )),
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::fixnum(val.as_vector_data().unwrap().len() as i64)),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
@@ -4607,7 +4606,7 @@ fn length_value(val: &Value) -> EvalResult {
                         cursor = cursor.cons_cdr();
                     }
                     ValueKind::Nil => return Ok(Value::fixnum(len)),
-                    tail => {
+                    _tail => {
                         return Err(signal(
                             "wrong-type-argument",
                             vec![Value::symbol("listp"), cursor],
@@ -4625,7 +4624,7 @@ fn length_value(val: &Value) -> EvalResult {
 
 fn substring_value(array: &Value, from: &Value, to: &Value) -> EvalResult {
     let len = match array.kind() {
-        ValueKind::String => with_heap(|h| storage_char_len(h.get_string(*id))) as i64,
+        ValueKind::String => storage_char_len(array.as_str().unwrap()) as i64,
         ValueKind::Veclike(VecLikeType::Vector) => array.as_vector_data().unwrap().len() as i64,
         _ => {
             return Err(signal(
