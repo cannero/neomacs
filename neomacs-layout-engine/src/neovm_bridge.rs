@@ -871,8 +871,8 @@ impl<'a> RustTextPropAccess<'a> {
         &self,
         charpos: i64,
     ) -> (
-        Vec<(Vec<u8>, neovm_core::gc::ObjId)>,
-        Vec<(Vec<u8>, neovm_core::gc::ObjId)>,
+        Vec<(Vec<u8>, neovm_core::emacs_core::value::Value)>,
+        Vec<(Vec<u8>, neovm_core::emacs_core::value::Value)>,
     ) {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         let mut before = Vec::new();
