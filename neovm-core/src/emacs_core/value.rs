@@ -374,157 +374,6 @@ pub(crate) fn restore_string_text_props(entries: Vec<(u64, TextPropertyTable)>) 
     });
 }
 
-// ---------------------------------------------------------------------------
-// Legacy ObjId-based text property API (backward compat during migration)
-// ---------------------------------------------------------------------------
-
-use crate::gc::heap::LispHeap;
-use crate::gc::types::ObjId;
-use std::cell::Cell;
-
-thread_local! {
-    static CURRENT_HEAP: Cell<*mut LispHeap> = const { Cell::new(std::ptr::null_mut()) };
-    #[cfg(test)]
-    static TEST_FALLBACK_HEAP: std::cell::RefCell<Option<Box<LispHeap>>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Set the current thread-local heap pointer.
-pub fn set_current_heap(heap: &mut LispHeap) {
-    CURRENT_HEAP.with(|h| h.set(heap as *mut LispHeap));
-}
-
-/// Clear the thread-local heap pointer.
-pub fn clear_current_heap() {
-    CURRENT_HEAP.with(|h| h.set(std::ptr::null_mut()));
-}
-
-/// Returns true if a thread-local heap is currently set.
-pub fn has_current_heap() -> bool {
-    CURRENT_HEAP.with(|h| !h.get().is_null())
-}
-
-/// Save and restore the current heap pointer around a closure.
-pub(crate) fn with_saved_heap<R>(f: impl FnOnce() -> R) -> R {
-    let saved = CURRENT_HEAP.with(|h| h.get());
-    let result = f();
-    CURRENT_HEAP.with(|h| h.set(saved));
-    result
-}
-
-/// Get raw pointer to the current heap.
-#[inline]
-pub(crate) fn current_heap_ptr() -> *mut LispHeap {
-    CURRENT_HEAP.with(|h| {
-        let ptr = h.get();
-        if !ptr.is_null() {
-            return ptr;
-        }
-        #[cfg(test)]
-        {
-            TEST_FALLBACK_HEAP.with(|fb| {
-                let mut borrow = fb.borrow_mut();
-                if borrow.is_none() {
-                    *borrow = Some(Box::new(LispHeap::new()));
-                }
-                let heap_ref: &mut LispHeap = borrow.as_mut().unwrap();
-                let ptr = heap_ref as *mut LispHeap;
-                h.set(ptr);
-                ptr
-            })
-        }
-        #[cfg(not(test))]
-        {
-            panic!("current heap not set — call set_current_heap() first");
-        }
-    })
-}
-
-/// Immutable access to the current thread-local heap.
-#[inline]
-pub fn with_heap<R>(f: impl FnOnce(&LispHeap) -> R) -> R {
-    let ptr = current_heap_ptr();
-    f(unsafe { &*ptr })
-}
-
-/// Mutable access to the current thread-local heap.
-#[inline]
-pub(crate) fn with_heap_mut<R>(f: impl FnOnce(&mut LispHeap) -> R) -> R {
-    let ptr = current_heap_ptr();
-    f(unsafe { &mut *ptr })
-}
-
-// Legacy ObjId-based text property functions (still used during migration)
-fn obj_id_to_key(id: ObjId) -> usize {
-    ((id.index as usize) << 32) | (id.generation as usize)
-}
-
-pub fn set_string_text_properties_table(id: ObjId, table: TextPropertyTable) {
-    let key = obj_id_to_key(id);
-    STRING_TEXT_PROPS.with(|slot| {
-        let mut props = slot.borrow_mut();
-        if table.is_empty() {
-            props.remove(&key);
-        } else {
-            props.insert(key, table);
-        }
-    });
-}
-
-pub fn set_string_text_properties(id: ObjId, runs: Vec<StringTextPropertyRun>) {
-    let mut table = TextPropertyTable::new();
-    for run in &runs {
-        if let Some(items) = list_to_vec(&run.plist) {
-            for chunk in items.chunks(2) {
-                if chunk.len() == 2 {
-                    if let Some(name) = chunk[0].as_symbol_name() {
-                        table.put_property(run.start, run.end, name, chunk[1]);
-                    }
-                }
-            }
-        }
-    }
-    set_string_text_properties_table(id, table);
-}
-
-pub fn get_string_text_properties(id: ObjId) -> Option<Vec<StringTextPropertyRun>> {
-    let key = obj_id_to_key(id);
-    STRING_TEXT_PROPS.with(|slot| {
-        let table = slot.borrow();
-        let table = table.get(&key)?;
-        if table.is_empty() {
-            return None;
-        }
-        let mut runs = Vec::new();
-        for interval in table.intervals_snapshot() {
-            if interval.properties.is_empty() {
-                continue;
-            }
-            let mut plist_items = Vec::new();
-            for (key, val) in interval.ordered_properties() {
-                plist_items.push(Value::make_symbol(key.to_string()));
-                plist_items.push(*val);
-            }
-            runs.push(StringTextPropertyRun {
-                start: interval.start,
-                end: interval.end,
-                plist: Value::list(plist_items),
-            });
-        }
-        if runs.is_empty() { None } else { Some(runs) }
-    })
-}
-
-pub fn get_string_text_properties_table(id: ObjId) -> Option<TextPropertyTable> {
-    let key = obj_id_to_key(id);
-    STRING_TEXT_PROPS.with(|slot| slot.borrow().get(&key).cloned())
-}
-
-/// Snapshot of a cons cell's car and cdr values.
-pub struct ConsSnapshot {
-    pub car: Value,
-    pub cdr: Value,
-}
-
 /// A string text property run used by printed propertized-string literals.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StringTextPropertyRun {
@@ -533,50 +382,15 @@ pub struct StringTextPropertyRun {
     pub plist: Value,
 }
 
-/// Read car and cdr from a cons cell on the heap (legacy ObjId version).
-#[inline]
-pub fn read_cons(id: ObjId) -> ConsSnapshot {
-    with_heap(|h| ConsSnapshot {
-        car: h.cons_car(id),
-        cdr: h.cons_cdr(id),
-    })
+/// Snapshot of a cons cell's car and cdr values (legacy compatibility).
+pub struct ConsSnapshot {
+    pub car: Value,
+    pub cdr: Value,
 }
 
-/// Allocate a fresh float identity (legacy — no longer needed with tagged pointers).
+/// Allocate a fresh float identity (stub — float identity is pointer-based).
 pub fn next_float_id() -> u32 {
-    0 // Stub: float identity is now pointer-based
-}
-
-// ---------------------------------------------------------------------------
-// Overlay ObjId <-> TaggedValue bridge (migration compat)
-// ---------------------------------------------------------------------------
-
-thread_local! {
-    /// Maps overlay tagged-pointer address → legacy ObjId.
-    static OVERLAY_OBJ_ID_MAP: RefCell<HashMap<usize, ObjId>> = RefCell::new(HashMap::new());
-}
-
-/// Register a mapping from a tagged overlay Value to its legacy ObjId.
-pub fn register_overlay_obj_id(value: Value, id: ObjId) {
-    let key = value.0; // raw tagged pointer
-    OVERLAY_OBJ_ID_MAP.with(|m| m.borrow_mut().insert(key, id));
-}
-
-/// Look up the legacy ObjId for a tagged overlay Value.
-pub fn lookup_overlay_obj_id(value: &Value) -> Option<ObjId> {
-    let key = value.0;
-    OVERLAY_OBJ_ID_MAP.with(|m| m.borrow().get(&key).copied())
-}
-
-/// Create a tagged Value from a legacy overlay ObjId.
-///
-/// Clones the OverlayData from the old heap, allocates a new overlay on the
-/// tagged heap, and registers the mapping so `lookup_overlay_obj_id` works.
-pub fn overlay_id_to_value(id: ObjId) -> Value {
-    let data = with_heap(|h| h.get_overlay(id).clone());
-    let value = Value::make_overlay(data);
-    register_overlay_obj_id(value, id);
-    value
+    0
 }
 
 // ---------------------------------------------------------------------------

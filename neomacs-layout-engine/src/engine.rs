@@ -26,7 +26,7 @@ use neovm_core::emacs_core::eval::opaque_pool_insert;
 use neovm_core::emacs_core::expr::Expr;
 use neovm_core::emacs_core::intern::intern;
 use neovm_core::emacs_core::keymap::is_list_keymap;
-use neovm_core::emacs_core::value::{list_to_vec, read_cons};
+use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::window::{DisplayPointSnapshot, DisplayRowSnapshot, WindowDisplaySnapshot};
 
 /// Maximum number of characters in a ligature run before forced flush.

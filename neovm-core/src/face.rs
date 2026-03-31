@@ -11,7 +11,7 @@
 //! - Face merging (overlay face on top of base face)
 
 use crate::emacs_core::intern::resolve_sym;
-use crate::emacs_core::value::{Value, next_float_id, read_cons, ValueKind};
+use crate::emacs_core::value::{Value, next_float_id, ValueKind};
 use std::collections::{HashMap, HashSet};
 
 // X11 color table generated at compile time from etc/rgb.txt

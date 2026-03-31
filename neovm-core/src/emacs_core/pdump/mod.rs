@@ -24,7 +24,7 @@ use self::convert::*;
 use self::types::DumpContextState;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::intern::{self, set_current_interner};
-use crate::emacs_core::value::{self, set_current_heap};
+use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
 const FORMAT_VERSION: u32 = 4;
@@ -171,7 +171,6 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
 
     // 2. Reconstruct heap (phase 1: all objects except hash table entries)
     let mut heap = Box::new(load_heap(&state.heap)?);
-    set_current_heap(&mut heap);
 
     // 2b. Phase 2: populate hash table entries (requires CURRENT_HEAP for HashKey::Str hashing)
     load_heap_hash_tables(&mut heap, &state.heap);

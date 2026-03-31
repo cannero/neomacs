@@ -5,7 +5,7 @@
 
 use neovm_core::buffer::Buffer;
 use neovm_core::emacs_core::symbol::Obarray;
-use neovm_core::emacs_core::value::{list_to_vec, read_cons, ValueKind};
+use neovm_core::emacs_core::value::{list_to_vec, ValueKind};
 use neovm_core::emacs_core::{Context, Value};
 use neovm_core::face::{
     Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight,

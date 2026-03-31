@@ -1883,8 +1883,7 @@ fn runtime_loaddefs_restore_state(project_root: &Path) -> Result<LoaddefsSurface
 }
 
 fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
-    super::value::with_saved_heap(|| {
-        super::value::set_current_heap(&mut eval.heap);
+    {
         let history = eval
             .obarray()
             .symbol_value("load-history")
@@ -1907,7 +1906,7 @@ fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
         }
 
         paths.into_iter().collect()
-    })
+    }
 }
 
 fn is_compile_only_loaddefs_provider(path: &Path) -> bool {
@@ -2769,10 +2768,7 @@ pub(crate) fn create_bootstrap_evaluator_cached_at_path(
         match finalize_cached_bootstrap_eval(eval, project_root) {
             Ok(()) => Ok(()),
             Err(err) => {
-                let rendered = super::value::with_saved_heap(|| {
-                    super::value::set_current_heap(&mut eval.heap);
-                    format_eval_error_in_state(eval, &err)
-                });
+                let rendered = format_eval_error_in_state(eval, &err);
                 tracing::error!("{context}: {rendered}");
                 Err(err)
             }

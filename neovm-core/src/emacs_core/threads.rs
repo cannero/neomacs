@@ -21,7 +21,7 @@ use super::error::{
     EvalResult, Flow, make_signal_binding_value, signal, signal_from_binding_value,
     signal_with_data,
 };
-use super::value::{Value, eq_value, read_cons, ValueKind};
+use super::value::{Value, eq_value, ValueKind};
 use crate::gc::GcTrace;
 
 // ---------------------------------------------------------------------------

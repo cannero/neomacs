@@ -1471,9 +1471,6 @@ impl Drop for Context {
         if std::ptr::eq(current_interner_ptr(), &mut *self.interner) {
             clear_current_interner();
         }
-        if std::ptr::eq(current_heap_ptr(), &mut *self.heap) {
-            clear_current_heap();
-        }
     }
 }
 
@@ -1910,7 +1907,6 @@ impl Context {
         let mut interner = Box::new(StringInterner::new());
         set_current_interner(&mut interner);
         let mut heap = Box::new(LispHeap::new());
-        set_current_heap(&mut heap);
         let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
@@ -3513,7 +3509,6 @@ impl Context {
         // The heap and interner are boxed so their addresses are stable across moves.
         // Re-point anyway to be explicit about thread-local state.
         set_current_interner(&mut ev.interner);
-        set_current_heap(&mut ev.heap);
         crate::tagged::gc::set_tagged_heap(&mut ev.tagged_heap);
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
         super::category::restore_standard_category_table_object(ev.standard_category_table);
@@ -3650,7 +3645,6 @@ impl Context {
         };
         // Re-point thread-local pointers to the evaluator's owned boxes.
         set_current_interner(&mut ev.interner);
-        set_current_heap(&mut ev.heap);
         crate::tagged::gc::set_tagged_heap(&mut ev.tagged_heap);
         // Set stack bottom for conservative GC stack scanning (same as Context::new).
         #[cfg(target_os = "linux")]
@@ -3810,7 +3804,6 @@ impl Context {
     /// that created it (e.g., in worker thread pools).
     pub fn setup_thread_locals(&mut self) {
         set_current_interner(&mut self.interner);
-        set_current_heap(&mut self.heap);
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         super::syntax::restore_standard_syntax_table_object(self.standard_syntax_table);
         super::category::restore_standard_category_table_object(self.standard_category_table);
@@ -5309,7 +5302,6 @@ impl Context {
     // -----------------------------------------------------------------------
 
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, EvalError> {
-        set_current_heap(&mut self.heap);
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         self.with_gc_scope(|ctx| {
             let mut opaques = Vec::new();
@@ -5337,7 +5329,6 @@ impl Context {
     }
 
     pub fn eval_forms(&mut self, forms: &[Expr]) -> Vec<Result<Value, EvalError>> {
-        set_current_heap(&mut self.heap);
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         let saved_len = self.temp_roots.len();
         let mut results = Vec::with_capacity(forms.len());
