@@ -813,7 +813,7 @@ fn test_last_kbd_macro_builtin() {
     let value = builtin_last_kbd_macro(&mut eval, vec![]).unwrap();
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = value.as_vector_data().unwrap().clone();
             assert_eq!(*items, vec![Value::char('x'), Value::char('y')]);
         }
         other => panic!("expected vector, got {other:?}"),
@@ -965,10 +965,10 @@ fn test_name_last_kbd_macro() {
     assert!(func.is_some());
     match func.unwrap().kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = func.unwrap().as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
         }
-        other => panic!("Expected Vector, got {:?}", other),
+        other => panic!("Expected Vector, got {:?}", func.unwrap()),
     }
 }
 
@@ -1033,7 +1033,7 @@ fn test_resolve_macro_events_string() {
     assert_eq!(events.len(), 5);
     match events[0].kind() {
         Value::char('h') => {}
-        other => panic!("Expected Char('h'), got {:?}", other),
+        other => panic!("Expected Char('h'), got {:?}", events[0]),
     }
 }
 

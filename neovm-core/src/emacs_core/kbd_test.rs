@@ -4,10 +4,10 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
 fn expect_vector_ints(value: Value) -> Vec<i64> {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let guard = with_heap(|h| h.get_vector(v).clone());
+            let guard = value.as_vector_data().unwrap().clone();
             guard
                 .iter()
-                .map(|item| match item {
+                .map(|item| match item.kind() {
                     ValueKind::Fixnum(n) => n,
                     other => panic!("expected int in vector, got {other:?}"),
                 })
@@ -111,7 +111,7 @@ fn kbd_angle_events_return_symbols() {
     let result = parse_kbd_string("<f1>").expect("parse should succeed");
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let guard = with_heap(|h| h.get_vector(v).clone());
+            let guard = result.as_vector_data().unwrap().clone();
             assert_eq!(guard.len(), 1);
             assert_eq!(guard[0], Value::symbol("f1"));
         }
@@ -121,7 +121,7 @@ fn kbd_angle_events_return_symbols() {
     let result = parse_kbd_string("C-<f1>").expect("parse should succeed");
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let guard = with_heap(|h| h.get_vector(v).clone());
+            let guard = result.as_vector_data().unwrap().clone();
             assert_eq!(guard.len(), 1);
             assert_eq!(guard[0], Value::symbol("C-f1"));
         }

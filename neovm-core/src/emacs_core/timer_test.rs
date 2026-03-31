@@ -157,7 +157,7 @@ fn fire_pending_timers_one_shot() {
     // Check callback is the symbol we set
     match fired[0].0.kind() {
         ValueKind::Symbol(id) => assert_eq!(crate::emacs_core::intern::resolve_sym(id), "immediate"),
-        other => panic!("Expected Symbol, got {:?}", other),
+        other => panic!("Expected Symbol, got {:?}", fired[0].0),
     }
     assert_eq!(fired[0].1.len(), 1);
 

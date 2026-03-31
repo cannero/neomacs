@@ -38,7 +38,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],

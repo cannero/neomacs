@@ -409,7 +409,7 @@ impl<'a> Vm<'a> {
                         continue;
                     }
                     let n = *n as usize;
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     if n == 0 {
                         continue;
                     }
@@ -443,7 +443,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::VarSet(idx) => {
                     let name = sym_name(constants, *idx);
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let extra = [val];
                     vm_try!(
                         self.with_frame_roots(func, stack, handlers, specpdl, &extra, |vm| vm
@@ -452,8 +452,8 @@ impl<'a> Vm<'a> {
                 }
                 Op::VarBind(idx) => {
                     let name = sym_name(constants, *idx);
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
-                    let old_value = self.lookup_var(&name).unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
+                    let old_value = self.lookup_var(&name).unwrap_or(Value::NIL);
                     let name_id = intern(&name);
                     let lexical_bind = func.lexical
                         && !self.ctx.obarray.is_constant_id(name_id)
@@ -486,7 +486,7 @@ impl<'a> Vm<'a> {
                     let extra = [val];
                     vm_try!(
                         self.with_frame_roots(func, stack, handlers, specpdl, &extra, |vm| vm
-                            .run_variable_watchers(&name, &val, &ValueKind::Nil, "let"),)
+                            .run_variable_watchers(&name, &val, &Value::NIL, "let"),)
                     );
                 }
                 Op::Unbind(n) => {
@@ -507,7 +507,7 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     let args_start = stack.len().saturating_sub(n);
                     let args: Vec<Value> = stack.drain(args_start..).collect();
-                    let func_val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let func_val = stack.pop().unwrap_or(Value::NIL);
                     let writeback_names = self.writeback_callable_names(&func_val);
                     let writeback_args = args.clone();
                     let mut call_roots = Vec::with_capacity(args.len() + 1);
@@ -535,7 +535,7 @@ impl<'a> Vm<'a> {
                 Op::Apply(n) => {
                     let n = *n as usize;
                     if n == 0 {
-                        let func_val = stack.pop().unwrap_or(ValueKind::Nil);
+                        let func_val = stack.pop().unwrap_or(Value::NIL);
                         let call_roots = [func_val];
                         let result = vm_try!(self.with_frame_roots(
                             func,
@@ -549,7 +549,7 @@ impl<'a> Vm<'a> {
                     } else {
                         let args_start = stack.len().saturating_sub(n);
                         let mut args: Vec<Value> = stack.drain(args_start..).collect();
-                        let func_val = stack.pop().unwrap_or(ValueKind::Nil);
+                        let func_val = stack.pop().unwrap_or(Value::NIL);
                         // Spread last argument
                         if let Some(last) = args.pop() {
                             let spread = list_to_vec(&last).unwrap_or_default();
@@ -586,13 +586,13 @@ impl<'a> Vm<'a> {
                     *pc = *addr as usize;
                 }
                 Op::GotoIfNil(addr) => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     if val.is_nil() {
                         *pc = *addr as usize;
                     }
                 }
                 Op::GotoIfNotNil(addr) => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     if val.is_truthy() {
                         *pc = *addr as usize;
                     }
@@ -612,8 +612,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Switch => {
-                    let jump_table = stack.pop().unwrap_or(ValueKind::Nil);
-                    let dispatch = stack.pop().unwrap_or(ValueKind::Nil);
+                    let jump_table = stack.pop().unwrap_or(Value::NIL);
+                    let dispatch = stack.pop().unwrap_or(Value::NIL);
 
                     let table_id = match jump_table.kind() {
                         ValueKind::Veclike(VecLikeType::HashTable) => table_id,
@@ -626,7 +626,7 @@ impl<'a> Vm<'a> {
                                 specpdl,
                                 signal(
                                     "wrong-type-argument",
-                                    vec![Value::symbol("hash-table-p"), other],
+                                    vec![Value::symbol("hash-table-p"), jump_table],
                                 ),
                             )?;
                             continue;
@@ -653,7 +653,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Return => {
-                    return Ok(stack.pop().unwrap_or(ValueKind::Nil));
+                    return Ok(stack.pop().unwrap_or(Value::NIL));
                 }
                 Op::SaveCurrentBuffer => {
                     if let Some(buffer_id) =
@@ -967,7 +967,7 @@ impl<'a> Vm<'a> {
 
                 // -- List operations --
                 Op::Car => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -984,7 +984,7 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Cdr => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1001,7 +1001,7 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::CarSafe => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1015,8 +1015,9 @@ impl<'a> Vm<'a> {
                     } else {
                         match call_args[0].kind() {
                             ValueKind::Cons => {
-                                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                                stack.push(pair.car);
+                                let pair_car = call_args[0].cons_car();
+                                let pair_cdr = call_args[0].cons_cdr();
+                                stack.push(pair_car);
                             }
                             // Closures are cons lists in official Emacs.
                             ValueKind::Veclike(VecLikeType::Lambda) => {
@@ -1032,7 +1033,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::CdrSafe => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1046,16 +1047,17 @@ impl<'a> Vm<'a> {
                     } else {
                         match call_args[0].kind() {
                             ValueKind::Cons => {
-                                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                                stack.push(pair.cdr);
+                                let pair_car = call_args[0].cons_car();
+                                let pair_cdr = call_args[0].cons_cdr();
+                                stack.push(pair_cdr);
                             }
                             // Closures are cons lists in official Emacs.
                             ValueKind::Veclike(VecLikeType::Lambda) => {
                                 use crate::emacs_core::builtins::lambda_to_cons_list;
-                                let list = lambda_to_cons_list(&call_args[0]).unwrap_or(ValueKind::Nil);
+                                let list = lambda_to_cons_list(&call_args[0]).unwrap_or(Value::NIL);
                                 match list.kind() {
                                     ValueKind::Cons => {
-                                        stack.push(with_heap(|h| h.cons_cdr(cell)));
+                                        stack.push(list.cons_cdr());
                                     }
                                     _ => stack.push(Value::NIL),
                                 }
@@ -1065,8 +1067,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Cons => {
-                    let cdr_val = stack.pop().unwrap_or(ValueKind::Nil);
-                    let car_val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let cdr_val = stack.pop().unwrap_or(Value::NIL);
+                    let car_val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![car_val, cdr_val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1099,7 +1101,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Length => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1115,7 +1117,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Nth => {
-                    let list = stack.pop().unwrap_or(ValueKind::Nil);
+                    let list = stack.pop().unwrap_or(Value::NIL);
                     let n = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![n, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
@@ -1133,7 +1135,7 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Nthcdr => {
-                    let list = stack.pop().unwrap_or(ValueKind::Nil);
+                    let list = stack.pop().unwrap_or(Value::NIL);
                     let n = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![n, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
@@ -1151,8 +1153,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Elt => {
-                    let idx = stack.pop().unwrap_or(ValueKind::Nil);
-                    let seq = stack.pop().unwrap_or(ValueKind::Nil);
+                    let idx = stack.pop().unwrap_or(Value::NIL);
+                    let seq = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![seq, idx];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1169,10 +1171,10 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Setcar => {
-                    let newcar = stack.pop().unwrap_or(ValueKind::Nil);
-                    let cell = stack.pop().unwrap_or(ValueKind::Nil);
+                    let newcar = stack.pop().unwrap_or(Value::NIL);
+                    let cell = stack.pop().unwrap_or(Value::NIL);
                     if cell.is_cons() {
-                        with_heap_mut(|h| h.set_car(*c, newcar));
+                        cell.set_car(newcar);
                         stack.push(newcar);
                     } else {
                         vm_try!(Err(signal(
@@ -1182,10 +1184,10 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Setcdr => {
-                    let newcdr = stack.pop().unwrap_or(ValueKind::Nil);
-                    let cell = stack.pop().unwrap_or(ValueKind::Nil);
+                    let newcdr = stack.pop().unwrap_or(Value::NIL);
+                    let cell = stack.pop().unwrap_or(Value::NIL);
                     if cell.is_cons() {
-                        with_heap_mut(|h| h.set_cdr(*c, newcdr));
+                        cell.set_cdr(newcdr);
                         stack.push(newcdr);
                     } else {
                         vm_try!(Err(signal(
@@ -1195,8 +1197,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Nconc => {
-                    let b = stack.pop().unwrap_or(ValueKind::Nil);
-                    let a = stack.pop().unwrap_or(ValueKind::Nil);
+                    let b = stack.pop().unwrap_or(Value::NIL);
+                    let a = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1213,7 +1215,7 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Nreverse => {
-                    let list = stack.pop().unwrap_or(ValueKind::Nil);
+                    let list = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1230,8 +1232,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Member => {
-                    let list = stack.pop().unwrap_or(ValueKind::Nil);
-                    let elt = stack.pop().unwrap_or(ValueKind::Nil);
+                    let list = stack.pop().unwrap_or(Value::NIL);
+                    let elt = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![elt, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1248,8 +1250,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Memq => {
-                    let list = stack.pop().unwrap_or(ValueKind::Nil);
-                    let elt = stack.pop().unwrap_or(ValueKind::Nil);
+                    let list = stack.pop().unwrap_or(Value::NIL);
+                    let elt = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![elt, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1266,8 +1268,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Assq => {
-                    let alist = stack.pop().unwrap_or(ValueKind::Nil);
-                    let key = stack.pop().unwrap_or(ValueKind::Nil);
+                    let alist = stack.pop().unwrap_or(Value::NIL);
+                    let key = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![key, alist];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1286,7 +1288,7 @@ impl<'a> Vm<'a> {
 
                 // -- Type predicates --
                 Op::Symbolp => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1302,7 +1304,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Consp => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1318,7 +1320,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Stringp => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1334,7 +1336,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Listp => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1350,7 +1352,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Integerp => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1366,7 +1368,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Numberp => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1382,7 +1384,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Null | Op::Not => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let opname = if matches!(op, Op::Null) {
                         "null"
                     } else {
@@ -1403,8 +1405,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Eq => {
-                    let b = stack.pop().unwrap_or(ValueKind::Nil);
-                    let a = stack.pop().unwrap_or(ValueKind::Nil);
+                    let b = stack.pop().unwrap_or(Value::NIL);
+                    let a = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1420,8 +1422,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Equal => {
-                    let b = stack.pop().unwrap_or(ValueKind::Nil);
-                    let a = stack.pop().unwrap_or(ValueKind::Nil);
+                    let b = stack.pop().unwrap_or(Value::NIL);
+                    let a = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1457,9 +1459,9 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Substring => {
-                    let to = stack.pop().unwrap_or(ValueKind::Nil);
+                    let to = stack.pop().unwrap_or(Value::NIL);
                     let from = stack.pop().unwrap_or(Value::fixnum(0));
-                    let array = stack.pop().unwrap_or(ValueKind::Nil);
+                    let array = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![array, from, to];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1476,8 +1478,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::StringEqual => {
-                    let b = stack.pop().unwrap_or(ValueKind::Nil);
-                    let a = stack.pop().unwrap_or(ValueKind::Nil);
+                    let b = stack.pop().unwrap_or(Value::NIL);
+                    let a = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1494,8 +1496,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::StringLessp => {
-                    let b = stack.pop().unwrap_or(ValueKind::Nil);
-                    let a = stack.pop().unwrap_or(ValueKind::Nil);
+                    let b = stack.pop().unwrap_or(Value::NIL);
+                    let a = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1515,7 +1517,7 @@ impl<'a> Vm<'a> {
                 // -- Vector operations --
                 Op::Aref => {
                     let idx_val = stack.pop().unwrap_or(Value::fixnum(0));
-                    let vec_val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let vec_val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![vec_val, idx_val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1532,9 +1534,9 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Aset => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
                     let idx_val = stack.pop().unwrap_or(Value::fixnum(0));
-                    let vec_val = stack.pop().unwrap_or(ValueKind::Nil);
+                    let vec_val = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![vec_val, idx_val, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1556,7 +1558,7 @@ impl<'a> Vm<'a> {
 
                 // -- Symbol operations --
                 Op::SymbolValue => {
-                    let sym = stack.pop().unwrap_or(ValueKind::Nil);
+                    let sym = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1573,7 +1575,7 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::SymbolFunction => {
-                    let sym = stack.pop().unwrap_or(ValueKind::Nil);
+                    let sym = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1590,8 +1592,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Set => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
-                    let sym = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
+                    let sym = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1608,8 +1610,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Fset => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
-                    let sym = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
+                    let sym = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1626,8 +1628,8 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Get => {
-                    let prop = stack.pop().unwrap_or(ValueKind::Nil);
-                    let sym = stack.pop().unwrap_or(ValueKind::Nil);
+                    let prop = stack.pop().unwrap_or(Value::NIL);
+                    let sym = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym, prop];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1644,9 +1646,9 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::Put => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
-                    let prop = stack.pop().unwrap_or(ValueKind::Nil);
-                    let sym = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
+                    let prop = stack.pop().unwrap_or(Value::NIL);
+                    let sym = stack.pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym, prop, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1682,7 +1684,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::PushConditionCaseRaw(target) => {
                     // GNU bytecode consumes the handler pattern operand from TOS.
-                    let conditions = stack.pop().unwrap_or(ValueKind::Nil);
+                    let conditions = stack.pop().unwrap_or(Value::NIL);
                     let stack_len = stack.len();
                     let spec_depth = specpdl.len();
                     let resume_id = self.ctx.allocate_resume_id();
@@ -1699,7 +1701,7 @@ impl<'a> Vm<'a> {
                         });
                 }
                 Op::PushCatch(target) => {
-                    let tag = stack.pop().unwrap_or(ValueKind::Nil);
+                    let tag = stack.pop().unwrap_or(Value::NIL);
                     let stack_len = stack.len();
                     let spec_depth = specpdl.len();
                     let resume_id = self.ctx.allocate_resume_id();
@@ -1720,12 +1722,12 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::UnwindProtectPop => {
-                    let cleanup = stack.pop().unwrap_or(ValueKind::Nil);
+                    let cleanup = stack.pop().unwrap_or(Value::NIL);
                     specpdl.push(VmUnwindEntry::Cleanup { cleanup });
                 }
                 Op::Throw => {
-                    let val = stack.pop().unwrap_or(ValueKind::Nil);
-                    let tag = stack.pop().unwrap_or(ValueKind::Nil);
+                    let val = stack.pop().unwrap_or(Value::NIL);
+                    let tag = stack.pop().unwrap_or(Value::NIL);
                     self.resume_nonlocal(
                         func,
                         stack,
@@ -1795,7 +1797,7 @@ impl<'a> Vm<'a> {
                     self.ctx
                         .obarray
                         .symbol_function(name)
-                        .and_then(|bound| match bound {
+                        .and_then(|bound| match bound.kind() {
                             ValueKind::Symbol(tid) => Some(resolve_sym(tid).to_owned()),
                             ValueKind::Subr(tid) => Some(resolve_sym(tid).to_owned()),
                             _ => None,
@@ -1959,9 +1961,10 @@ impl<'a> Vm<'a> {
                 if !visited.insert(key) {
                     return;
                 }
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                let mut new_car = pair.car;
-                let mut new_cdr = pair.cdr;
+                let pair_car = value.cons_car();
+                let pair_cdr = value.cons_cdr();
+                let mut new_car = pair_car;
+                let mut new_cdr = pair_cdr;
                 Self::replace_alias_refs_in_value(&mut new_car, from, to, visited);
                 Self::replace_alias_refs_in_value(&mut new_cdr, from, to, visited);
                 with_heap_mut(|h| {
@@ -1974,7 +1977,7 @@ impl<'a> Vm<'a> {
                 if !visited.insert(key) {
                     return;
                 }
-                let mut values = with_heap(|h| h.get_vector(*items).clone());
+                let mut values = value.as_vector_data().unwrap().clone();
                 for item in values.iter_mut() {
                     Self::replace_alias_refs_in_value(item, from, to, visited);
                 }
@@ -1985,7 +1988,7 @@ impl<'a> Vm<'a> {
                 if !visited.insert(key) {
                     return;
                 }
-                let mut ht = with_heap(|h| h.get_hash_table(*table).clone());
+                let mut ht = value.as_hash_table().unwrap().clone();
                 let old_ptr = match from.kind() {
                     ValueKind::String => Some(value.index as usize),
                     _ => None,
@@ -2596,14 +2599,14 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                     match cursor.kind() {
                         ValueKind::Nil => break,
                         ValueKind::Cons => {
-                            values.push(with_heap(|h| h.cons_car(cell)));
+                            values.push(cursor.cons_car());
                             cons_cells.push(cell);
-                            cursor = with_heap(|h| h.cons_cdr(cell));
+                            cursor = cursor.cons_cdr();
                         }
                         tail => {
                             return Err(signal(
                                 "wrong-type-argument",
-                                vec![Value::symbol("listp"), tail],
+                                vec![Value::symbol("listp"), cursor],
                             ));
                         }
                     }
@@ -2621,7 +2624,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                     )?;
                 if options.in_place {
                     for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
-                        with_heap_mut(|h| h.set_car(*cell, value));
+                        sequence.set_car(value);
                     }
                     Ok(sequence)
                 } else {
@@ -2629,7 +2632,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 }
             }
             ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-                let values = with_heap(|h| h.get_vector(v).clone());
+                let values = sequence.as_vector_data().unwrap().clone();
                 for value in &values {
                     self.ctx.vm_gc_roots.push(*value);
                 }
@@ -2658,7 +2661,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
             }
             other => Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("list-or-vector-p"), other],
+                vec![Value::symbol("list-or-vector-p"), sequence],
             )),
         };
 
@@ -2722,15 +2725,15 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 .cloned()
                 .unwrap_or(Value::fixnum(frame.lines() as i64))),
             "visibility" => Ok(if frame.visible {
-                ValueKind::T
+                Value::T
             } else {
-                ValueKind::Nil
+                Value::NIL
             }),
             _ => Ok(frame
                 .parameters
                 .get(&param_name)
                 .cloned()
-                .unwrap_or(ValueKind::Nil)),
+                .unwrap_or(Value::NIL)),
         }
     }
 
@@ -3516,7 +3519,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 // Use full unbind_to which handles LetLocal (buffer-local)
                 // and LetDefault bindings, not just plain Let bindings.
                 self.ctx.unbind_to(specpdl_count);
-                self.run_variable_watchers(&name, &restored_value, &ValueKind::Nil, "unlet")?;
+                self.run_variable_watchers(&name, &restored_value, &Value::NIL, "unlet")?;
             }
             VmUnwindEntry::LexicalBinding {
                 name,
@@ -3524,7 +3527,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 old_lexenv,
             } => {
                 self.ctx.lexenv = old_lexenv;
-                self.run_variable_watchers(&name, &restored_value, &ValueKind::Nil, "unlet")?;
+                self.run_variable_watchers(&name, &restored_value, &Value::NIL, "unlet")?;
             }
             VmUnwindEntry::Cleanup { cleanup } => {
                 let cleanup_root = [cleanup];
@@ -3600,7 +3603,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                     self.ctx.obarray.make_special(&sym_name);
                     return Ok(Value::symbol(sym_name));
                 }
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             "%%defconst" => {
                 if args.len() >= 2 {
@@ -3611,7 +3614,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                     sym.special = true;
                     return Ok(Value::symbol(sym_name));
                 }
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             "%%unimplemented-elc-bytecode" => {
                 return Err(signal(
@@ -3715,22 +3718,24 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                     match cursor.kind() {
                         ValueKind::Nil => return Ok(Value::NIL),
                         ValueKind::Cons => {
-                            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                            if let ValueKind::Cons = pair.car {
-                                let entry_pair = read_cons(*entry);  // TODO(tagged): replace read_cons with cons accessors
-                                let entry_key = entry_pair.car;
+                            let pair_car = cursor.cons_car();
+                            let pair_cdr = cursor.cons_cdr();
+                            if let ValueKind::Cons = pair_car {
+                                let entry_pair_car = cursor.cons_car();
+                                let entry_pair_cdr = cursor.cons_cdr();
+                                let entry_key = entry_pair_car;
                                 let matches = vm.with_extra_roots(
-                                    &[cursor, pair.car, pair.cdr, entry_key],
+                                    &[cursor, pair_car, pair_cdr, entry_key],
                                     |vm| {
                                         vm.call_function(test_fn, vec![entry_key, key])
                                             .map(|value| value.is_truthy())
                                     },
                                 )?;
                                 if matches {
-                                    return Ok(pair.car);
+                                    return Ok(pair_car);
                                 }
                             }
-                            cursor = pair.cdr;
+                            cursor = pair_cdr;
                         }
                         _ => {
                             return Err(signal(
@@ -3756,10 +3761,11 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 loop {
                     match cursor.kind() {
                         ValueKind::Cons => {
-                            let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
-                            let entry_key = pair.car;
+                            let pair_car = cursor.cons_car();
+                            let pair_cdr = cursor.cons_cdr();
+                            let entry_key = pair_car;
                             let matches =
-                                vm.with_extra_roots(&[cursor, entry_key, pair.cdr], |vm| {
+                                vm.with_extra_roots(&[cursor, entry_key, pair_cdr], |vm| {
                                     vm.call_function(predicate, vec![entry_key, prop])
                                         .map(|value| value.is_truthy())
                                 })?;
@@ -3767,9 +3773,9 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                                 return Ok(ValueKind::Cons);
                             }
 
-                            match pair.cdr.kind() {
+                            match pair_cdr.kind() {
                                 ValueKind::Cons => {
-                                    cursor = with_heap(|h| h.cons_cdr(value_cell));
+                                    cursor = cursor.cons_cdr();
                                 }
                                 _ => {
                                     return Err(signal(
@@ -4587,7 +4593,7 @@ fn length_value(val: &Value) -> EvalResult {
         ValueKind::String => Ok(Value::fixnum(
             with_heap(|h| h.get_string(*id).chars().count()) as i64
         )),
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::fixnum(with_heap(|h| h.vector_len(*v)) as i64)),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::fixnum(val.as_vector_data().unwrap().len() as i64)),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(Value::fixnum(builtins::closure_vector_length(val).unwrap()))
         }
@@ -4598,13 +4604,13 @@ fn length_value(val: &Value) -> EvalResult {
                 match cursor.kind() {
                     ValueKind::Cons => {
                         len += 1;
-                        cursor = with_heap(|h| h.cons_cdr(cell));
+                        cursor = cursor.cons_cdr();
                     }
                     ValueKind::Nil => return Ok(Value::fixnum(len)),
                     tail => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -4620,7 +4626,7 @@ fn length_value(val: &Value) -> EvalResult {
 fn substring_value(array: &Value, from: &Value, to: &Value) -> EvalResult {
     let len = match array.kind() {
         ValueKind::String => with_heap(|h| storage_char_len(h.get_string(*id))) as i64,
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.vector_len(*v)) as i64,
+        ValueKind::Veclike(VecLikeType::Vector) => array.as_vector_data().unwrap().len() as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -4658,13 +4664,13 @@ fn substring_value(array: &Value, from: &Value, to: &Value) -> EvalResult {
 
     match array.kind() {
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = array.as_str().unwrap().to_owned();
             let result = storage_substring(&s, start, end)
                 .ok_or_else(|| signal("args-out-of-range", vec![*array, *from, *to]))?;
             Ok(Value::string(result))
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let data = with_heap(|h| h.get_vector(*v).clone());
+            let data = array.as_vector_data().unwrap().clone();
             if end > data.len() {
                 return Err(signal("args-out-of-range", vec![*array, *from, *to]));
             }

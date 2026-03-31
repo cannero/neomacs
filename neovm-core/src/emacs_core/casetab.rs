@@ -195,7 +195,7 @@ fn expect_char(value: &Value) -> Result<char, Flow> {
                 Err(wrong_type("characterp", value))
             }
         }
-        other => Err(wrong_type("characterp", other)),
+        other => Err(wrong_type("characterp", value)),
     }
 }
 

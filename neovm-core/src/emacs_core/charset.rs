@@ -944,9 +944,10 @@ fn decode_code_arg(val: &Value) -> i64 {
         ValueKind::Fixnum(n) => n,
         ValueKind::Char(c) => c as i64,
         ValueKind::Cons => {
-            let pair = read_cons(*id);  // TODO(tagged): replace read_cons with cons accessors
-            let hi = int_or_zero(&pair.car);
-            let lo = int_or_zero(&pair.cdr);
+            let pair_car = val.cons_car();
+            let pair_cdr = val.cons_cdr();
+            let hi = int_or_zero(&pair_car);
+            let lo = int_or_zero(&pair_cdr);
             (hi << 16) | lo
         }
         _ => 0,
@@ -1020,7 +1021,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     let dimension = match args[1].kind() {
         ValueKind::Fixnum(n) => n,
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let vec = with_heap(|h| h.get_vector(*id).clone());
+            let vec = args[1].as_vector_data().unwrap().clone();
             if vec.is_empty() {
                 return Err(signal("args-out-of-range", vec![args[1], Value::fixnum(0)]));
             }
@@ -1037,7 +1038,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     // arg[2]: code-space (vector of 8 integers — byte ranges per dimension)
     let code_space = match args[2].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let vec = with_heap(|h| h.get_vector(*id).clone());
+            let vec = args[2].as_vector_data().unwrap().clone();
             if vec.len() < 2 {
                 return Err(signal(
                     "args-out-of-range",

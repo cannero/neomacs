@@ -213,7 +213,7 @@ fn composition_get_gstring_returns_vector_shape() {
     if !result.unwrap().is_vector() {
         panic!("expected vector gstring");
     };
-    let gs = with_heap(|h| h.get_vector(gs).clone());
+    let gs = result.unwrap().as_vector_data().unwrap().clone();
     assert!(!gs.is_empty());
     assert!(matches!(gs[0], ValueKind::Veclike(VecLikeType::Vector)));
 }

@@ -59,7 +59,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -473,7 +473,7 @@ pub(crate) fn builtin_md5(eval: &mut super::eval::Context, args: Vec<Value>) -> 
             "error",
             vec![
                 Value::string("Invalid object argument"),
-                invalid_object_payload(other),
+                invalid_object_payload(object),
             ],
         )),
     }
@@ -586,7 +586,7 @@ fn md5_hex_for_string(
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
     let input = match object.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => object.as_str().unwrap().to_owned(),
         _ => unreachable!("md5_hex_for_string only accepts string object"),
     };
     let len = storage_char_len(&input) as i64;
@@ -726,7 +726,7 @@ fn hash_slice_for_string(
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
     let input = match object.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => object.as_str().unwrap().to_owned(),
         _ => unreachable!("hash_slice_for_string only accepts string object"),
     };
     let len = storage_char_len(&input) as i64;
@@ -804,7 +804,7 @@ pub(crate) fn builtin_secure_hash(eval: &mut super::eval::Context, args: Vec<Val
                 "error",
                 vec![
                     Value::string("Invalid object argument"),
-                    invalid_object_payload(other),
+                    invalid_object_payload(object),
                 ],
             ));
         }
@@ -833,7 +833,7 @@ pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Val
         match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Buffer) => *id,
             ValueKind::String => {
-                let name = with_heap(|h| h.get_string(*id).to_owned());
+                let name = args[0].as_str().unwrap().to_owned();
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
@@ -910,24 +910,27 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
     // Walk the cdr of WIDGET (skip the type cons cell) looking for PROPERTY.
     if widget.is_cons() {
         let mut cursor = {
-            let cell = read_cons(*first_cell);  // TODO(tagged): replace read_cons with cons accessors
-            cell.cdr
+            let cell_car = widget.cons_car();
+            let cell_cdr = widget.cons_cdr();
+            cell_cdr
         };
         loop {
             match cursor.kind() {
                 ValueKind::Cons => {
                     let key = {
-                        let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
-                        cell.car
+                        let cell_car = cursor.cons_car();
+                        let cell_cdr = cursor.cons_cdr();
+                        cell_car
                     };
                     if equal_value(&key, property, 0) {
                         // Found it — the next cons cell holds the value
                         let next = {
-                            let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
-                            cell.cdr
+                            let cell_car = cursor.cons_car();
+                            let cell_cdr = cursor.cons_cdr();
+                            cell_cdr
                         };
                         if next.is_cons() {
-                            with_heap_mut(|h| h.set_car(val_cell_arc, *value));
+                            cursor.set_car(*value);
                             return Ok(*value);
                         }
                         break;
@@ -935,11 +938,12 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
                     // Skip value, move to next key
                     let after_key = {
                         let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
-                        cell.cdr
+                        cell_cdr
                     };
                     if after_key.is_cons() {
-                        let val_cell = read_cons(val_arc);  // TODO(tagged): replace read_cons with cons accessors
-                        cursor = val_cell.cdr;
+                        let val_cell_car = after_key.cons_car();
+                        let val_cell_cdr = after_key.cons_cdr();
+                        cursor = val_cell_cdr;
                     } else {
                         break;
                     }
@@ -952,7 +956,7 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
         // Prepend (PROPERTY VALUE ...) to the cdr of the first cons cell.
         let old_cdr = {
             let cell = read_cons(*first_cell);  // TODO(tagged): replace read_cons with cons accessors
-            cell.cdr
+            cell_cdr
         };
         let new_tail = Value::cons(*property, Value::cons(*value, old_cdr));
         with_heap_mut(|h| h.set_cdr(*first_cell, new_tail));
@@ -997,7 +1001,7 @@ pub(crate) fn builtin_widget_apply(
                 Err(signal("void-function", vec![Value::symbol(name)]))
             }
         }
-        other => Err(signal("invalid-function", vec![other])),
+        other => Err(signal("invalid-function", vec![function])),
     }
 }
 
@@ -1006,7 +1010,7 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-make-multibyte", &args, 1)?;
     match args[0].kind() {
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = args[0].as_str().unwrap().to_owned();
             let mut out = String::with_capacity(s.len());
             for ch in s.chars() {
                 let cp = ch as u32;
@@ -1038,7 +1042,7 @@ pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-make-unibyte", &args, 1)?;
     match args[0].kind() {
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = args[0].as_str().unwrap().to_owned();
             let bytes: Vec<u8> = decode_storage_char_codes(&s)
                 .into_iter()
                 .map(|cp| (cp & 0xFF) as u8)

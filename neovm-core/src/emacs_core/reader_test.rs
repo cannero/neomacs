@@ -95,9 +95,10 @@ fn read_from_string_integer() {
     // Should be (42 . 2)
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, Value::fixnum(42)));
-            assert!(matches!(&pair.cdr, Value::fixnum(2)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, Value::fixnum(42)));
+            assert!(matches!(&pair_cdr, Value::fixnum(2)));
         }
         _ => panic!("Expected cons, got {:?}", result),
     }
@@ -109,9 +110,10 @@ fn read_from_string_symbol() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("hello")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Symbol(id) if resolve_sym(*id) == "hello"));
-            assert!(matches!(&pair.cdr, Value::fixnum(5)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, ValueKind::Symbol(id) if resolve_sym(*id) == "hello"));
+            assert!(matches!(&pair_cdr, Value::fixnum(5)));
         }
         _ => panic!("Expected cons, got {:?}", result),
     }
@@ -124,9 +126,10 @@ fn read_from_string_string_value() {
         builtin_read_from_string(&mut ev, vec![Value::string(r#""hello world""#)]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car.as_str(), Some("hello world"));
-            assert!(matches!(&pair.cdr, Value::fixnum(13)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert_eq!(pair_car.as_str(), Some("hello world"));
+            assert!(matches!(&pair_cdr, Value::fixnum(13)));
         }
         _ => panic!("Expected cons"),
     }
@@ -138,10 +141,11 @@ fn read_from_string_list() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("(+ 1 2)")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
             // car should be a list (+ 1 2)
-            assert!(pair.car.is_cons());
-            assert!(matches!(&pair.cdr, Value::fixnum(7)));
+            assert!(pair_car.is_cons());
+            assert!(matches!(&pair_cdr, Value::fixnum(7)));
         }
         _ => panic!("Expected cons"),
     }
@@ -155,9 +159,10 @@ fn read_from_string_with_start() {
         builtin_read_from_string(&mut ev, vec![Value::string("  42 rest"), Value::fixnum(2)]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, Value::fixnum(42)));
-            assert!(matches!(&pair.cdr, Value::fixnum(4)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, Value::fixnum(42)));
+            assert!(matches!(&pair_cdr, Value::fixnum(4)));
         }
         _ => panic!("Expected cons"),
     }
@@ -169,8 +174,9 @@ fn read_from_string_float() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("3.14")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Float if (*f - 3.14).abs() < 1e-10));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, ValueKind::Float if (*f - 3.14).abs() < 1e-10));
         }
         _ => panic!("Expected cons"),
     }
@@ -182,8 +188,9 @@ fn read_from_string_char() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("?a")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(&pair.car.is_char());
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(&pair_car.is_char());
         }
         _ => panic!("Expected cons"),
     }
@@ -195,8 +202,9 @@ fn read_from_string_nil() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("nil")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(pair.car.is_nil());
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(pair_car.is_nil());
         }
         _ => panic!("Expected cons"),
     }
@@ -208,8 +216,9 @@ fn read_from_string_t() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("t")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::T));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, Value::T));
         }
         _ => panic!("Expected cons"),
     }
@@ -221,8 +230,9 @@ fn read_from_string_vector() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("[1 2 3]")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(pair.car.is_vector());
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(pair_car.is_vector());
         }
         _ => panic!("Expected cons"),
     }
@@ -234,10 +244,11 @@ fn read_from_string_quoted() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("'foo")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
             // Should be (quote foo) as a list
-            assert!(pair.car.is_cons());
-            assert!(matches!(&pair.cdr, Value::fixnum(4)));
+            assert!(pair_car.is_cons());
+            assert!(matches!(&pair_cdr, Value::fixnum(4)));
         }
         _ => panic!("Expected cons"),
     }
@@ -249,9 +260,10 @@ fn read_from_string_dotted_pair() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("(a . b)")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
             // car should be a dotted pair (a . b)
-            assert!(pair.car.is_cons());
+            assert!(pair_car.is_cons());
         }
         _ => panic!("Expected cons"),
     }
@@ -263,8 +275,9 @@ fn read_from_string_keyword() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string(":test")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Keyword(id) if resolve_sym(*id) == ":test"));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, ValueKind::Keyword(id) if resolve_sym(*id) == ":test"));
         }
         _ => panic!("Expected cons"),
     }
@@ -276,8 +289,9 @@ fn read_from_string_uninterned_symbol() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#:test")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            match pair.car.kind() {
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            match pair_car.kind() {
                 ValueKind::Symbol(id) => {
                     assert_eq!(resolve_sym(id), "test");
                     assert_ne!(id, crate::emacs_core::intern::intern("test"));
@@ -309,10 +323,11 @@ fn read_from_string_multiple_forms_reads_first() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("42 99")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, Value::fixnum(42)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, Value::fixnum(42)));
             // End position should be after "42" (position 2), not after "99"
-            match pair.cdr.kind() {
+            match pair_cdr.kind() {
                 ValueKind::Fixnum(n) => assert!(n <= 3, "end pos {} should be <= 3", n),
                 _ => panic!("Expected int end position"),
             }
@@ -332,9 +347,10 @@ fn read_from_string_with_start_and_end() {
     .unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, Value::fixnum(42)));
-            assert!(matches!(&pair.cdr, Value::fixnum(5)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, Value::fixnum(42)));
+            assert!(matches!(&pair_cdr, Value::fixnum(5)));
         }
         _ => panic!("Expected cons"),
     }
@@ -1426,13 +1442,15 @@ fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
     if !pixel.is_cons() {
         panic!("expected dotted mouse pixel position");
     };
-    let outer = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    if !outer.cdr.is_cons() {
+    let outer_car = pixel.cons_car();
+    let outer_cdr = pixel.cons_cdr();
+    if !outer_cdr.is_cons() {
         panic!("expected inner cons");
     };
-    let inner = read_cons(inner);  // TODO(tagged): replace read_cons with cons accessors
-    assert_eq!(inner.car, Value::fixnum(24));
-    assert_eq!(inner.cdr, Value::fixnum(40));
+    let inner_car = outer.cdr.cons_car();
+    let inner_cdr = outer.cdr.cons_cdr();
+    assert_eq!(inner_car, Value::fixnum(24));
+    assert_eq!(inner_cdr, Value::fixnum(40));
 }
 
 #[test]
@@ -2221,7 +2239,7 @@ fn read_key_sequence_consumes_non_character_event() {
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
             assert_eq!(items[0], event);
         }
@@ -2241,7 +2259,7 @@ fn read_key_sequence_consumes_non_character_event_and_preserves_tail() {
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
             assert_eq!(items[0], event);
         }
@@ -2324,7 +2342,7 @@ fn read_key_sequence_vector_returns_empty_vector() {
     let mut ev = Context::new();
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => assert!(with_heap(|h| h.get_vector(v).is_empty())),
+        ValueKind::Veclike(VecLikeType::Vector) => assert!(result.as_vector_data().unwrap().is_empty()),
         other => panic!("expected vector, got {other:?}"),
     }
 }
@@ -2438,7 +2456,7 @@ fn read_key_sequence_vector_consumes_unread_command_event() {
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
             assert_eq!(items[0].as_int(), Some(97));
         }
@@ -2456,7 +2474,7 @@ fn read_key_sequence_vector_consumes_non_character_event() {
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
             assert_eq!(items[0], event);
         }
@@ -2476,7 +2494,7 @@ fn read_key_sequence_vector_consumes_non_character_event_and_preserves_tail() {
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
             assert_eq!(items[0], event);
         }
@@ -2500,7 +2518,7 @@ fn read_key_sequence_vector_consumes_character_and_preserves_tail() {
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
             assert_eq!(items[0].as_int(), Some(97));
         }
@@ -2521,7 +2539,7 @@ fn read_key_sequence_vector_accepts_nil_prompt() {
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::NIL]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
             assert_eq!(items[0].as_int(), Some(97));
         }
@@ -2591,9 +2609,10 @@ fn read_from_string_nested_list() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("((a b) (c d))")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(pair.car.is_cons());
-            assert!(matches!(&pair.cdr, Value::fixnum(13)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(pair_car.is_cons());
+            assert!(matches!(&pair_cdr, Value::fixnum(13)));
         }
         _ => panic!("Expected cons"),
     }
@@ -2605,10 +2624,11 @@ fn read_from_string_with_leading_whitespace() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("   42")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, Value::fixnum(42)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, Value::fixnum(42)));
             // End position should be 5 (after "   42")
-            assert!(matches!(&pair.cdr, Value::fixnum(5)));
+            assert!(matches!(&pair_cdr, Value::fixnum(5)));
         }
         _ => panic!("Expected cons"),
     }
@@ -2620,8 +2640,9 @@ fn read_from_string_negative_number() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("-7")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(&pair.car.is_fixnum());
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(&pair_car.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -2647,8 +2668,9 @@ fn read_from_string_hash_syntax() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#xff")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, Value::fixnum(255)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(&pair_car, Value::fixnum(255)));
         }
         _ => panic!("Expected cons"),
     }
@@ -2771,8 +2793,9 @@ fn read_from_string_hash_dollar_uses_load_file_name() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#$")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car.as_str(), Some("/tmp/reader-probe.elc"));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert_eq!(pair_car.as_str(), Some("/tmp/reader-probe.elc"));
         }
         _ => panic!("Expected cons"),
     }
@@ -2784,8 +2807,9 @@ fn read_from_string_hash_dollar_defaults_to_nil() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#$")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(pair.car.is_nil());
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(pair_car.is_nil());
         }
         _ => panic!("Expected cons"),
     }
@@ -2805,9 +2829,10 @@ fn read_from_string_hash_hash_reads_empty_symbol() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("##")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car.as_symbol_name(), Some(""));
-            assert_eq!(pair.cdr, Value::fixnum(2));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert_eq!(pair_car.as_symbol_name(), Some(""));
+            assert_eq!(pair_cdr, Value::fixnum(2));
         }
         _ => panic!("Expected cons"),
     }
@@ -2819,9 +2844,10 @@ fn read_from_string_escaped_hash_hash_reads_literal_symbol() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string("\\#\\#")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car.as_symbol_name(), Some("##"));
-            assert_eq!(pair.cdr, Value::fixnum(4));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert_eq!(pair_car.as_symbol_name(), Some("##"));
+            assert_eq!(pair_cdr, Value::fixnum(4));
         }
         _ => panic!("Expected cons"),
     }
@@ -2842,8 +2868,9 @@ fn read_from_string_hash_bracket_end_position() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.cdr, Value::fixnum(expected_end));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert_eq!(pair_cdr, Value::fixnum(expected_end));
         }
         _ => panic!("Expected cons"),
     }
@@ -2857,8 +2884,9 @@ fn read_from_string_hash_table_literal_returns_hash_table() {
     if !result.is_cons() {
         panic!("Expected cons");
     };
-    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    if !&pair.car.is_hash_table() {
+    let pair_car = result.cons_car();
+    let pair_cdr = result.cons_cdr();
+    if !&pair_car.is_hash_table() {
         panic!("expected hash table object");
     };
     let table = with_heap(|h| h.get_hash_table(*table_ref).clone());
@@ -3045,8 +3073,9 @@ fn read_from_string_hash_bracket_preserves_vector() {
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(pair.car, ValueKind::Veclike(VecLikeType::Vector)));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert!(matches!(pair_car, ValueKind::Veclike(VecLikeType::Vector)));
         }
         other => panic!("Expected cons from read-from-string, got {other:?}"),
     }
@@ -3060,13 +3089,15 @@ fn read_from_string_hash_dollar_inside_dotted_pair_uses_load_file_name() {
 
     match result.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            if !pair.car.is_cons() {
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            if !pair_car.is_cons() {
                 panic!("expected dotted pair");
             };
-            let data = read_cons(data_cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(data.car.as_str(), Some("/tmp/reader-dotted.elc"));
-            assert_eq!(data.cdr.as_int(), Some(83));
+            let data_car = pair_car.cons_car();
+            let data_cdr = pair_car.cons_cdr();
+            assert_eq!(data_car.as_str(), Some("/tmp/reader-dotted.elc"));
+            assert_eq!(data_cdr.as_int(), Some(83));
         }
         other => panic!("Expected cons from read-from-string, got {other:?}"),
     }

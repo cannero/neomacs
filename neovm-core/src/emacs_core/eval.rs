@@ -313,13 +313,15 @@ fn interpreted_closure_env_entries(lexenv: Value) -> Vec<InterpretedClosureEnvEn
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                match pair.car.kind() {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                match pair_car.kind() {
                     ValueKind::T => entries.push(InterpretedClosureEnvEntry::TopLevelSentinel),
                     ValueKind::Symbol(sym) => entries.push(InterpretedClosureEnvEntry::Special(sym)),
                     ValueKind::Cons => {
-                        let binding_pair = read_cons(binding);  // TODO(tagged): replace read_cons with cons accessors
-                        if let Some(sym) = binding_symbol_id(binding_pair.car) {
+                        let binding_pair_car = cursor.cons_car();
+                        let binding_pair_cdr = cursor.cons_cdr();
+                        if let Some(sym) = binding_symbol_id(binding_pair_car) {
                             entries.push(InterpretedClosureEnvEntry::Binding(sym));
                         }
                     }
@@ -1039,7 +1041,7 @@ pub(crate) fn plan_require_in_state(
         Some(path) => Ok(RequirePlan::Load { sym_id, name, path }),
         None => {
             if noerror.is_some_and(|value| value.is_truthy()) {
-                return Ok(RequirePlan::Return(ValueKind::Nil));
+                return Ok(RequirePlan::Return(Value::NIL));
             }
             Err(signal(
                 "file-missing",
@@ -3942,7 +3944,7 @@ impl Context {
                     // abort-recursive-edit: throw 'exit t → signal quit
                     Err(super::error::signal("quit", vec![]))
                 } else {
-                    Ok(ValueKind::Nil)
+                    Ok(Value::NIL)
                 }
             }
             Err(flow) => Err(flow),
@@ -4009,7 +4011,7 @@ impl Context {
             Ok(_) => {
                 eprintln!("command_loop_top_level_1: top-level completed OK");
                 self.log_startup_state("top-level-after");
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
             Err(Flow::Signal(sig)) => {
                 eprintln!(
@@ -4053,7 +4055,7 @@ impl Context {
                 );
                 self.log_startup_state("top-level-signal");
                 tracing::warn!("Top-level startup error: {}", error_msg);
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
             Err(flow) => Err(flow),
         }
@@ -4163,7 +4165,7 @@ impl Context {
                     tracing::error!("Command loop error: {}", error_msg);
 
                     // Clear prefix arg on error (like GNU Emacs)
-                    self.assign("prefix-arg", ValueKind::Nil);
+                    self.assign("prefix-arg", Value::NIL);
 
                     // Ring the bell for quit signals
                     if sym_name == "quit" {
@@ -4406,7 +4408,7 @@ impl Context {
             Ok(hook_val) if !hook_val.is_nil() => {
                 // (run-hooks 'HOOK)
                 super::builtins::dispatch_builtin(self, "run-hooks", vec![Value::symbol(hook_name)])
-                    .unwrap_or(Ok(ValueKind::Nil))
+                    .unwrap_or(Ok(Value::NIL))
             }
             _ => Ok(Value::NIL),
         }
@@ -5002,9 +5004,10 @@ impl Context {
         };
         match current.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                let head = pair.car;
-                let tail = pair.cdr;
+                let pair_car = current.cons_car();
+                let pair_cdr = current.cons_cdr();
+                let head = pair_car;
+                let tail = pair_cdr;
                 drop(pair);
                 self.assign("unread-command-events", tail);
                 self.record_input_event(head);
@@ -5021,8 +5024,9 @@ impl Context {
         };
         match current.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                Some(pair.car)
+                let pair_car = current.cons_car();
+                let pair_cdr = current.cons_cdr();
+                Some(pair_car)
             }
             _ => None,
         }
@@ -5433,7 +5437,7 @@ impl Context {
                 .obarray
                 .symbol_value("load-file-name")
                 .cloned()
-                .unwrap_or(ValueKind::Nil)),
+                .unwrap_or(Value::NIL)),
             Expr::Str(s) => Ok(Value::string(s.clone())),
             Expr::Char(c) => Ok(Value::char(*c)),
             Expr::Keyword(id) => Ok(Value::keyword(*id)),
@@ -5597,7 +5601,7 @@ impl Context {
             {
                 Err(signal("invalid-function", vec![ValueKind::Symbol(sym_id)]))
             }
-            other => other,
+            other => result,
         }
     }
 
@@ -5648,7 +5652,7 @@ impl Context {
             {
                 Err(signal("invalid-function", vec![ValueKind::Symbol(sym_id)]))
             }
-            other => other,
+            other => result,
         }
     }
 
@@ -6107,9 +6111,10 @@ impl Context {
                 if !visited.insert(key) {
                     return;
                 }
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                let mut new_car = pair.car;
-                let mut new_cdr = pair.cdr;
+                let pair_car = value.cons_car();
+                let pair_cdr = value.cons_cdr();
+                let mut new_car = pair_car;
+                let mut new_cdr = pair_cdr;
                 Self::replace_alias_refs_in_value(&mut new_car, from, to, visited);
                 Self::replace_alias_refs_in_value(&mut new_cdr, from, to, visited);
                 with_heap_mut(|h| {
@@ -6122,7 +6127,7 @@ impl Context {
                 if !visited.insert(key) {
                     return;
                 }
-                let mut values = with_heap(|h| h.get_vector(*items).clone());
+                let mut values = value.as_vector_data().unwrap().clone();
                 for item in values.iter_mut() {
                     Self::replace_alias_refs_in_value(item, from, to, visited);
                 }
@@ -6133,7 +6138,7 @@ impl Context {
                 if !visited.insert(key) {
                     return;
                 }
-                let mut ht = with_heap(|h| h.get_hash_table(*table).clone());
+                let mut ht = value.as_hash_table().unwrap().clone();
                 let old_ptr = match from.kind() {
                     ValueKind::String => Some(id.index as usize),
                     _ => None,
@@ -6278,9 +6283,9 @@ impl Context {
                                 && !self.obarray.is_special_id(*id)
                                 && !lexenv_declares_special(self.lexenv, *id)
                             {
-                                lexical_bindings.push((*id, ValueKind::Nil));
+                                lexical_bindings.push((*id, Value::NIL));
                             } else {
-                                dynamic_sym_ids.push((*id, ValueKind::Nil));
+                                dynamic_sym_ids.push((*id, Value::NIL));
                             }
                         }
                         Expr::List(pair) if !pair.is_empty() => {
@@ -6300,7 +6305,7 @@ impl Context {
                                     }
                                 }
                             } else {
-                                ValueKind::Nil
+                                Value::NIL
                             };
                             self.temp_roots.push(value);
                             if let Some(name) = symbol_sets_constant_error(*id) {
@@ -6427,9 +6432,9 @@ impl Context {
                             && !self.obarray.is_special_id(*id)
                             && !lexenv_declares_special(self.lexenv, *id)
                         {
-                            self.bind_lexical_value_rooted(*id, ValueKind::Nil);
+                            self.bind_lexical_value_rooted(*id, Value::NIL);
                         } else {
-                            self.specbind(*id, ValueKind::Nil);
+                            self.specbind(*id, Value::NIL);
                         }
                     }
                     Expr::List(pair) if !pair.is_empty() => {
@@ -6442,7 +6447,7 @@ impl Context {
                         let value = if pair.len() > 1 {
                             self.eval(&pair[1])?
                         } else {
-                            ValueKind::Nil
+                            Value::NIL
                         };
                         if let Some(name) = symbol_sets_constant_error(*id) {
                             return Err(signal("setting-constant", vec![Value::symbol(name)]));
@@ -6868,7 +6873,7 @@ impl Context {
                         if bind_var {
                             self.specbind(var, value);
                         }
-                        let mut result = ValueKind::Nil;
+                        let mut result = Value::NIL;
                         for form in &items[1..] {
                             result = self.eval(form)?;
                         }
@@ -6999,7 +7004,7 @@ impl Context {
             Expr::ReaderLoadFileName => obarray
                 .symbol_value("load-file-name")
                 .cloned()
-                .unwrap_or(ValueKind::Nil),
+                .unwrap_or(Value::NIL),
             Expr::List(items) => {
                 let quoted = items
                     .iter()
@@ -7115,8 +7120,8 @@ impl Context {
             Vec::new()
         };
 
-        let mut constants: Vec<Value> = match constants_vec {
-            ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(id).clone()),
+        let mut constants: Vec<Value> = match constants_vec.kind() {
+            ValueKind::Veclike(VecLikeType::Vector) => constants_vec.as_vector_data().unwrap().clone(),
             _ => Vec::new(),
         };
 
@@ -7233,15 +7238,17 @@ impl Context {
             let mut cursor = after_load_alist;
             let mut found = Value::NIL;
             while cursor.is_cons() {
-                let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if pair.car.is_cons() {
-                    let inner_pair = crate::emacs_core::value::read_cons(inner);  // TODO(tagged): replace read_cons with cons accessors
-                    if inner_pair.car == feature {
-                        found = pair.car;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if pair_car.is_cons() {
+                    let inner_pair_car = pair.car.cons_car();
+                    let inner_pair_cdr = pair.car.cons_cdr();
+                    if inner_pair_car == feature {
+                        found = pair_car;
                         break;
                     }
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             found
         };
@@ -7253,10 +7260,11 @@ impl Context {
         let callbacks = entry.cons_cdr();
         let mut cursor = callbacks;
         while cursor.is_cons() {
-            let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            let callback = pair.car;
+            let pair_car = cursor.cons_car();
+            let pair_cdr = cursor.cons_cdr();
+            let callback = pair_car;
             self.apply(callback, vec![])?;
-            cursor = pair.cdr;
+            cursor = pair_cdr;
         }
         Ok(())
     }
@@ -7272,7 +7280,7 @@ impl Context {
             ValueKind::Symbol(sid) => Some(resolve_sym(sid).to_string()),
             _ => None,
         };
-        let filename_str = filename.as_ref().and_then(|v| match v {
+        let filename_str = filename.as_ref().and_then(|v| match v.kind() {
             ValueKind::String => Some(self.heap.get_string(*oid).to_string()),
             _ => None,
         });
@@ -7816,7 +7824,7 @@ impl Context {
                     Err(signal("invalid-function", vec![function]))
                 }
             }
-            other => Err(signal("invalid-function", vec![other])),
+            other => Err(signal("invalid-function", vec![function])),
         }
     }
 
@@ -8133,7 +8141,7 @@ impl Context {
                     {
                         Err(signal("invalid-function", vec![Value::symbol(name)]))
                     }
-                    other => other,
+                    other => self.resolve_named_call_target_by_id(sym_id),
                 };
                 if let Some(target) = alias_target {
                     if rewrite_builtin_wrong_arity {
@@ -8197,7 +8205,7 @@ impl Context {
                     {
                         Err(signal("invalid-function", vec![Value::symbol(name)]))
                     }
-                    other => other,
+                    other => self.resolve_named_call_target(name),
                 };
                 if let Some(target) = alias_target {
                     if rewrite_builtin_wrong_arity {
@@ -8537,9 +8545,9 @@ impl Context {
                 SpecBinding::Let { sym_id, old_value } => {
                     let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(name) {
-                        let restore_val = old_value.unwrap_or(ValueKind::Nil);
+                        let restore_val = old_value.unwrap_or(Value::NIL);
                         let _ =
-                            self.run_variable_watchers(name, &restore_val, &ValueKind::Nil, "unlet");
+                            self.run_variable_watchers(name, &restore_val, &Value::NIL, "unlet");
                     }
                     match old_value {
                         Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
@@ -8553,7 +8561,7 @@ impl Context {
                 } => {
                     let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(name) {
-                        let _ = self.run_variable_watchers(name, &old_value, &ValueKind::Nil, "unlet");
+                        let _ = self.run_variable_watchers(name, &old_value, &Value::NIL, "unlet");
                     }
                     // Restore only if the buffer is still live
                     // (GNU: check Flocal_variable_p before restoring)
@@ -8567,9 +8575,9 @@ impl Context {
                     // Restore the default value (GNU: set_default_internal)
                     let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(name) {
-                        let restore_val = old_value.unwrap_or(ValueKind::Nil);
+                        let restore_val = old_value.unwrap_or(Value::NIL);
                         let _ =
-                            self.run_variable_watchers(name, &restore_val, &ValueKind::Nil, "unlet");
+                            self.run_variable_watchers(name, &restore_val, &Value::NIL, "unlet");
                     }
                     match old_value {
                         Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
@@ -9216,7 +9224,7 @@ fn rewrite_wrong_arity_function_object(flow: Flow, name: &str) -> Flow {
 fn rewrite_wrong_arity_alias_function_object(flow: Flow, alias: &str, target: &str) -> Flow {
     match flow {
         Flow::Signal(mut sig) => {
-            let target_is_payload = sig.data.first().is_some_and(|value| match value {
+            let target_is_payload = sig.data.first().is_some_and(|value| match value.kind() {
                 ValueKind::Subr(id) => resolve_sym(*id) == target || resolve_sym(*id) == alias,
                 _ => {
                     value.as_symbol_name() == Some(target) || value.as_symbol_name() == Some(alias)
@@ -9295,7 +9303,7 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
         ValueKind::Float => Expr::Float(*f),
         ValueKind::Symbol(id) => Expr::Symbol(id),
         ValueKind::Keyword(id) => Expr::Keyword(id),
-        ValueKind::String => Expr::Str(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Expr::Str(value.as_str().unwrap().to_owned()),
         ValueKind::Char(c) => Expr::Char(c),
         ValueKind::Cons => {
             if let Some(items) = list_to_vec(value) {
@@ -9308,8 +9316,8 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
                 loop {
                     match cursor.kind() {
                         ValueKind::Cons => {
-                            items.push(value_to_expr(&with_heap(|h| h.cons_car(id))));
-                            cursor = with_heap(|h| h.cons_cdr(id));
+                            items.push(value_to_expr(&cursor.cons_car()));
+                            cursor = cursor.cons_cdr();
                         }
                         _ => {
                             break Expr::DottedList(items, Box::new(value_to_expr(&cursor)));
@@ -9319,7 +9327,7 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_vector_data().unwrap().clone();
             Expr::Vector(items.iter().map(value_to_expr).collect())
         }
         ValueKind::Subr(id) => Expr::OpaqueValueRef(

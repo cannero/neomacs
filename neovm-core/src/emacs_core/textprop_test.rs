@@ -158,8 +158,9 @@ fn get_char_property_and_overlay_shape() {
         panic!("expected cons");
     };
     let (value, overlay) = {
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        (pair.car, pair.cdr)
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        (pair_car, pair_cdr)
     };
     assert!(value.is_symbol_named("bar"));
     let overlayp = builtin_overlayp(&mut eval, vec![overlay]).unwrap();
@@ -240,9 +241,10 @@ fn get_char_property_prefers_highest_priority_overlay() {
     if !pair.is_cons() {
         panic!("expected cons");
     };
-    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    assert_eq!(pair.car.as_symbol_name(), Some("high"));
-    assert_eq!(pair.cdr, high);
+    let pair_car = pair.cons_car();
+    let pair_cdr = pair.cons_cdr();
+    assert_eq!(pair_car.as_symbol_name(), Some("high"));
+    assert_eq!(pair_cdr, high);
 }
 
 #[test]
@@ -562,7 +564,7 @@ fn add_face_text_property_argument_contracts() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-or-string-p"), ValueKind::T]
+                vec![Value::symbol("buffer-or-string-p"), Value::T]
             );
         }
         other => panic!("unexpected flow: {other:?}"),

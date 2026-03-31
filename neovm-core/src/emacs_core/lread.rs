@@ -48,7 +48,7 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -678,11 +678,11 @@ fn parse_path_argument(value: &Value) -> Result<Vec<String>, Flow> {
     for entry in expect_list(value)? {
         match entry.kind() {
             ValueKind::Nil => path.push(".".to_string()),
-            ValueKind::String => path.push(with_heap(|h| h.get_string(id).to_owned())),
+            ValueKind::String => path.push(entry.as_str().unwrap().to_owned()),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), other],
+                    vec![Value::symbol("stringp"), entry],
                 ));
             }
         }
@@ -695,11 +695,11 @@ fn parse_suffixes_argument(value: &Value) -> Result<Vec<String>, Flow> {
     for entry in expect_list(value)? {
         match entry.kind() {
             ValueKind::Nil => suffixes.push(String::new()),
-            ValueKind::String => suffixes.push(with_heap(|h| h.get_string(id).to_owned())),
+            ValueKind::String => suffixes.push(entry.as_str().unwrap().to_owned()),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), other],
+                    vec![Value::symbol("stringp"), entry],
                 ));
             }
         }

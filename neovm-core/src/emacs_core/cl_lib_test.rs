@@ -536,7 +536,7 @@ fn seq_subseq_test() {
     ]);
     let result = builtin_seq_subseq(vec![vec, Value::fixnum(1), Value::fixnum(3)]).unwrap();
     if result.is_vector() {
-        let v = with_heap(|h| h.get_vector(v).clone());
+        let v = result.as_vector_data().unwrap().clone();
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].as_int(), Some(20));
         assert_eq!(v[1].as_int(), Some(30));

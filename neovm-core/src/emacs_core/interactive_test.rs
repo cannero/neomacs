@@ -290,7 +290,7 @@ fn read_first_object(ev: &mut Context, src: &str) -> Value {
     if !result.is_cons() {
         panic!("expected cons from read-from-string, got {result:?}");
     };
-    crate::emacs_core::value::read_cons(cell).car  // TODO(tagged): replace read_cons with cons accessors
+    result.cons_car()
 }
 
 fn gnu_simple_command_execute_with_eval_expression_eval() -> Context {
@@ -1357,7 +1357,7 @@ fn this_command_keys_vector_after_set() {
     ev.set_this_command_keys_from_string("x").unwrap();
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
     if result.is_vector() {
-        let v = with_heap(|h| h.get_vector(v).clone());
+        let v = result.as_vector_data().unwrap().clone();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0], Value::fixnum('x' as i64));
     } else {
@@ -1376,7 +1376,7 @@ fn this_command_keys_uses_read_command_key_chars() {
     let vec_result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
     match vec_result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = vec_result.as_vector_data().unwrap().clone();
             assert_eq!(items.as_slice(), &[ValueKind::Fixnum(97)]);
         }
         other => panic!("expected vector, got {other:?}"),
@@ -1391,7 +1391,7 @@ fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
             assert!(matches!(items[0], ValueKind::Cons));
         }
@@ -1407,7 +1407,7 @@ fn this_single_command_keys_prefers_read_command_key_vector() {
     let result = builtin_this_single_command_keys(&mut ev, vec![]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.as_slice(), &[ValueKind::Fixnum(97)]);
         }
         other => panic!("expected vector, got {other:?}"),
@@ -1422,7 +1422,7 @@ fn this_single_command_raw_keys_tracks_raw_sequence() {
     let result = builtin_this_single_command_raw_keys(&mut ev, vec![]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.as_slice(), &[Value::fixnum('a' as i64)]);
         }
         other => panic!("expected vector, got {other:?}"),
@@ -1441,7 +1441,7 @@ fn clear_this_command_keys_clears_read_key_context() {
     let vec_result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
     match vec_result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = vec_result.as_vector_data().unwrap().clone();
             assert!(items.is_empty());
         }
         other => panic!("expected vector, got {other:?}"),
@@ -1459,7 +1459,7 @@ fn set_this_command_keys_clears_raw_sequence_history() {
     let raw = builtin_this_single_command_raw_keys(&mut ev, vec![]).unwrap();
     match translated.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = translated.as_vector_data().unwrap().clone();
             assert_eq!(items[0], Value::fixnum(('x' as i64) | ((1u32 << 27) as i64)));
             assert_eq!(items[1], Value::fixnum('f' as i64));
             assert_eq!(items[2], Value::fixnum('o' as i64));
@@ -1470,7 +1470,7 @@ fn set_this_command_keys_clears_raw_sequence_history() {
     }
     match raw.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = raw.as_vector_data().unwrap().clone();
             assert!(items.is_empty());
         }
         other => panic!("expected vector, got {other:?}"),

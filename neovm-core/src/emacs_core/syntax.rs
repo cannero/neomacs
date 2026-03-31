@@ -1210,8 +1210,8 @@ pub(crate) fn builtin_copy_syntax_table(args: Vec<Value>) -> EvalResult {
 
     match source.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let copy = Value::vector(with_heap(|h| h.get_vector(v).clone()));
-            super::chartable::builtin_set_char_table_range(vec![copy, ValueKind::Nil, ValueKind::Nil])?;
+            let copy = Value::vector(source.as_vector_data().unwrap().clone());
+            super::chartable::builtin_set_char_table_range(vec![copy, Value::NIL, Value::NIL])?;
             if super::chartable::builtin_char_table_parent(vec![copy])?.is_nil() {
                 super::chartable::builtin_set_char_table_parent(vec![
                     copy,
@@ -1222,7 +1222,7 @@ pub(crate) fn builtin_copy_syntax_table(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("syntax-table-p"), other],
+            vec![Value::symbol("syntax-table-p"), source],
         )),
     }
 }
@@ -1334,13 +1334,14 @@ fn syntax_entry_from_chartable_entry(entry: &Value) -> Option<SyntaxEntry> {
     match entry.kind() {
         ValueKind::Nil => None,
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            let code = match pair.car.kind() {
+            let pair_car = entry.cons_car();
+            let pair_cdr = entry.cons_cdr();
+            let code = match pair_car.kind() {
                 ValueKind::Fixnum(code) => code,
                 _ => return None,
             };
             let class = SyntaxClass::from_code(code)?;
-            let matching_char = match pair.cdr.kind() {
+            let matching_char = match pair_cdr.kind() {
                 ValueKind::Fixnum(n) => char::from_u32(n as u32),
                 ValueKind::Char(c) => Some(c),
                 ValueKind::Nil => None,
@@ -1384,8 +1385,9 @@ fn apply_compiled_syntax_entry(
             }
         }
         ValueKind::Cons => {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            let (start, end) = match (pair.car, pair.cdr) {
+            let pair_car = key.cons_car();
+            let pair_cdr = key.cons_cdr();
+            let (start, end) = match (pair_car, pair_cdr) {
                 (ValueKind::Fixnum(start), ValueKind::Fixnum(end)) => (start, end),
                 _ => return Ok(()),
             };
@@ -1531,7 +1533,7 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
         n => {
             return Err(signal(
                 "args-out-of-range",
-                vec![Value::fixnum(15), Value::fixnum(n)],
+                vec![Value::fixnum(15), Value::fixnum(class)],
             ));
         }
     };
@@ -3038,7 +3040,7 @@ impl PartialParseState {
                 ..
             }) => {
                 debug_assert_eq!(comment_depth, 1);
-                ValueKind::T
+                Value::T
             }
             Some(ParseCommentState::Syntax {
                 depth: comment_depth,

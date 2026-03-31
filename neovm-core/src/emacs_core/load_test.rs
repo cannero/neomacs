@@ -4675,9 +4675,9 @@ fn auth_source_backend_exposes_type_slot() {
 
 fn expect_vector_ints(value: Value) -> Vec<i64> {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(v).clone())
+        ValueKind::Veclike(VecLikeType::Vector) => value.as_vector_data().unwrap().clone()
             .iter()
-            .map(|item| match item {
+            .map(|item| match item.kind() {
                 ValueKind::Fixnum(n) => n,
                 other => panic!("expected int in vector, got {other:?}"),
             })

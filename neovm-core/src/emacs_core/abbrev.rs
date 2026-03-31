@@ -410,7 +410,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -973,7 +973,7 @@ pub(crate) fn builtin_insert_abbrev_table_description(
                 let _ = eval.buffers.insert_into_buffer(current_id, &text);
                 super::editfns::signal_after_change(eval, insert_pos, insert_pos + text_len, 0)?;
             }
-            return Ok(ValueKind::Nil);
+            return Ok(Value::NIL);
         }
     };
 
@@ -998,7 +998,7 @@ pub(crate) fn builtin_insert_abbrev_table_description(
                 continue;
             }
             let exp_str = match expansion.kind() {
-                ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+                ValueKind::String => expansion.as_str().unwrap().to_owned(),
                 _ => continue,
             };
             let count = eval

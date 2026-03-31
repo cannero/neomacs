@@ -262,7 +262,7 @@ pub(crate) fn builtin_send_string_to_terminal(
             if let Some(terminal) = args.get(1) {
                 expect_terminal_designator_eval(eval, terminal)?;
             }
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
         other => Err(signal(
             "wrong-type-argument",

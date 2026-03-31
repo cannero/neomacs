@@ -478,7 +478,7 @@ fn compare_overlay_precedence(left: ObjId, right: ObjId) -> Ordering {
 fn overlay_priority(overlay: &Overlay) -> (i64, i64) {
     match plist_get_named(overlay.plist, "priority") {
         None => (0, 0),
-        Some(value) => match value {
+        Some(value) => match value.kind() {
             ValueKind::Fixnum(n) => (n, 0),
             ValueKind::Char(c) => (c as i64, 0),
             ValueKind::Cons => (
@@ -504,14 +504,15 @@ pub(crate) fn plist_get_eq(plist: Value, prop: &Value) -> Option<Value> {
         if !tail.is_cons() {
             return None;
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if !pair.cdr.is_cons() {
+        let pair_car = tail.cons_car();
+        let pair_cdr = tail.cons_cdr();
+        if !pair_cdr.is_cons() {
             return None;
         };
-        if eq_value(&pair.car, prop) {
-            return Some(with_heap(|h| h.cons_car(value_cell)));
+        if eq_value(&pair_car, prop) {
+            return Some(pair_cdr.cons_car());
         }
-        tail = with_heap(|h| h.cons_cdr(value_cell));
+        tail = pair_cdr.cons_cdr();
     }
 }
 
@@ -521,14 +522,15 @@ fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
         if !tail.is_cons() {
             return None;
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if !pair.cdr.is_cons() {
+        let pair_car = tail.cons_car();
+        let pair_cdr = tail.cons_cdr();
+        if !pair_cdr.is_cons() {
             return None;
         };
-        if pair.car.as_symbol_name() == Some(prop_name) {
-            return Some(with_heap(|h| h.cons_car(value_cell)));
+        if pair_car.as_symbol_name() == Some(prop_name) {
+            return Some(pair_cdr.cons_car());
         }
-        tail = with_heap(|h| h.cons_cdr(value_cell));
+        tail = pair_cdr.cons_cdr();
     }
 }
 
@@ -539,17 +541,18 @@ pub(crate) fn plist_put_eq(plist: Value, prop: Value, value: Value) -> (Value, b
             let changed = !value.is_nil();
             return (Value::cons(prop, Value::cons(value, plist)), changed);
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if !pair.cdr.is_cons() {
+        let pair_car = tail.cons_car();
+        let pair_cdr = tail.cons_cdr();
+        if !pair_cdr.is_cons() {
             let changed = !value.is_nil();
             return (Value::cons(prop, Value::cons(value, plist)), changed);
         };
-        if eq_value(&pair.car, &prop) {
-            let changed = with_heap(|h| !eq_value(&h.cons_car(value_cell), &value));
-            with_heap_mut(|h| h.set_car(value_cell, value));
+        if eq_value(&pair_car, &prop) {
+            let changed = !eq_value(&pair_cdr.cons_car(), &value);
+            pair_cdr.set_car(value);
             return (plist, changed);
         }
-        tail = with_heap(|h| h.cons_cdr(value_cell));
+        tail = pair_cdr.cons_cdr();
     }
 }
 

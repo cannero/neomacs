@@ -139,7 +139,7 @@ fn make_empty_category_set() -> EvalResult {
 
 fn clone_vector_value(value: &Value) -> EvalResult {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(value.as_vector_data().unwrap().clone())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vectorp"), *value],
@@ -190,7 +190,7 @@ pub(crate) fn ensure_standard_category_table_object() -> EvalResult {
 
 fn clone_char_table_object(value: &Value) -> EvalResult {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(value.as_vector_data().unwrap().clone())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("category-table-p"), *value],
@@ -257,7 +257,7 @@ fn category_docstring_in_table(table: Value, category: char) -> Result<Value, Fl
             vec![Value::symbol("vectorp"), docs],
         ));
     };
-    let docs = with_heap(|h| h.get_vector(arc).clone());
+    let docs = docs.as_vector_data().unwrap().clone();
     Ok(docs
         .get(category_doc_index(category))
         .copied()
@@ -409,7 +409,7 @@ pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
     expect_args("make-category-set", &args, 1)?;
 
     let categories = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -551,7 +551,7 @@ pub(crate) fn builtin_define_category(
         ));
     }
     let docstring = match args[1].kind() {
-        ValueKind::String => Value::string(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Value::string(args[1].as_str().unwrap().to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",

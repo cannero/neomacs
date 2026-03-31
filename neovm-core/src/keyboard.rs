@@ -1828,9 +1828,10 @@ impl crate::emacs_core::eval::Context {
     fn has_switch_frame_event_kind(event: &Value) -> bool {
         match event.kind() {
             ValueKind::Cons => {
-                let pair = crate::emacs_core::value::read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                let pair_car = event.cons_car();
+                let pair_cdr = event.cons_cdr();
                 matches!(
-                    pair.car.as_symbol_name(),
+                    pair_car.as_symbol_name(),
                     Some("switch-frame") | Some("select-window")
                 )
             }
@@ -2908,7 +2909,7 @@ impl crate::emacs_core::eval::Context {
                         return Err(crate::emacs_core::error::signal("quit", vec![]));
                     }
                     tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
-                    return Ok(Some(ValueKind::Nil));
+                    return Ok(Some(Value::NIL));
                 }
             };
 
@@ -3024,18 +3025,19 @@ impl crate::emacs_core::eval::Context {
         if !pair.is_cons() {
             return None;
         };
-        let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if pair.car.is_nil() {
+        let pair_car = pair.cons_car();
+        let pair_cdr = pair.cons_cdr();
+        if pair_car.is_nil() {
             return None;
         }
-        let object = if pair.cdr.is_nil() {
+        let object = if pair_cdr.is_nil() {
             Value::make_buffer(buffer_id)
         } else {
-            pair.cdr
+            pair_cdr
         };
         Some(Self::make_help_echo_event(
             Value::make_frame(frame_id.0),
-            pair.car,
+            pair_car,
             Value::make_window(window_id.0),
             object,
             Value::fixnum(point.buffer_pos as i64),
@@ -3070,9 +3072,9 @@ impl crate::emacs_core::eval::Context {
                         .keyboard
                         .unread_event(Self::make_help_echo_event(
                             Value::Frame(fid.0),
-                            ValueKind::Nil,
-                            ValueKind::Nil,
-                            ValueKind::Nil,
+                            Value::NIL,
+                            Value::NIL,
+                            Value::NIL,
                             ValueKind::Fixnum(0),
                         ));
                 }
@@ -3272,7 +3274,7 @@ impl crate::emacs_core::eval::Context {
         match area_or_pos.kind() {
             ValueKind::Symbol(_) => Some(area_or_pos),
             ValueKind::Cons => {
-                let head = crate::emacs_core::value::read_cons(cell).car;  // TODO(tagged): replace read_cons with cons accessors
+                let head = area_or_pos.cons_car();
                 head.as_symbol_name().map(|_| head)
             }
             _ => None,

@@ -99,7 +99,7 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
     match args[1].kind() {
         ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(Value::NIL),
         ValueKind::String => {
-            let dest = crate::emacs_core::value::with_heap(|h| h.get_string(*id).to_owned());
+            let dest = args[1].as_str().unwrap().to_owned();
             if !dest.contains(':') {
                 Err(signal(
                     "dbus-error",
@@ -111,7 +111,7 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
                     vec![Value::symbol("dbus-message-internal"), Value::fixnum(4)],
                 ))
             } else {
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         }
         other => Err(signal(

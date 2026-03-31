@@ -355,7 +355,7 @@ pub(crate) fn builtin_lock_buffer(eval: &mut super::eval::Context, args: Vec<Val
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         current
             .buffer_local_value("buffer-file-truename")
-            .and_then(|value| match value {
+            .and_then(|value| match value.kind() {
                 ValueKind::String => Some(with_heap(|heap| heap.get_string(id).to_owned())),
                 _ => None,
             })

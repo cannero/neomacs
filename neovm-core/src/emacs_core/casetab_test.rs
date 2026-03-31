@@ -357,7 +357,7 @@ fn standard_case_table_is_char_table() {
 fn standard_case_table_has_extra_slots() {
     let ct = make_standard_case_table_value();
     if ct.is_vector() {
-        let vec = with_heap(|h| h.get_vector(arc).clone());
+        let vec = ct.as_vector_data().unwrap().clone();
         // extra count should be 3
         assert!(vec[CT_EXTRA_COUNT].is_fixnum());
         // extra slots 0,1,2 should be char-tables (subsidiary tables)

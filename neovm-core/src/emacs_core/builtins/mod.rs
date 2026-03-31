@@ -134,7 +134,7 @@ pub(super) fn expect_char_equal_code(value: &Value) -> Result<i64, Flow> {
         ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(&n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
         other => {
-            maybe_trace_characterp_nil(other, "expect_char_equal_code");
+            maybe_trace_characterp_nil(value, "expect_char_equal_code");
             Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), *value],
@@ -148,7 +148,7 @@ pub(super) fn expect_character_code(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(&n) => Ok(n),
         other => {
-            maybe_trace_characterp_nil(other, "expect_character_code");
+            maybe_trace_characterp_nil(value, "expect_character_code");
             Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), *value],
@@ -438,7 +438,7 @@ pub(crate) use symbols::*;
 
 pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -448,7 +448,7 @@ pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
 
 pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         _ => value.as_symbol_name().map(str::to_owned).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
@@ -460,7 +460,7 @@ pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, 
 
 pub(super) fn expect_strict_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -4510,8 +4510,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
                 ));
             };
 
-            let mut constants: Vec<Value> = match constants_vec {
-                ValueKind::Veclike(VecLikeType::Vector) => super::value::with_heap(|h| h.get_vector(id).clone()),
+            let mut constants: Vec<Value> = match constants_vec.kind() {
+                ValueKind::Veclike(VecLikeType::Vector) => super::value::constants_vec.as_vector_data().unwrap().clone(),
                 _ => {
                     return Err(super::error::signal(
                         "wrong-type-argument",

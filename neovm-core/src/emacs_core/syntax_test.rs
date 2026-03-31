@@ -94,8 +94,9 @@ fn string_to_syntax_prefix_class() {
     assert_eq!(entry.class, SyntaxClass::Quote);
     let value = syntax_entry_to_value(&entry);
     if value.is_cons() {
-        let cell = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert!(cell.car.is_fixnum());
+        let cell_car = value.cons_car();
+        let cell_cdr = value.cons_cdr();
+        assert!(cell_car.is_fixnum());
     } else {
         panic!("Expected cons cell");
     }
@@ -492,9 +493,10 @@ fn syntax_entry_to_value_simple() {
     let val = syntax_entry_to_value(&entry);
     // Should be (2 . nil) since Word code = 2
     if val.is_cons() {
-        let cell = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert!(cell.car.is_fixnum());
-        assert!(matches!(cell.cdr, Value::NIL));
+        let cell_car = val.cons_car();
+        let cell_cdr = val.cons_cdr();
+        assert!(cell_car.is_fixnum());
+        assert!(matches!(cell_cdr, Value::NIL));
     } else {
         panic!("Expected cons cell");
     }
@@ -508,9 +510,10 @@ fn syntax_entry_to_value_with_match() {
     let entry = SyntaxEntry::with_match(SyntaxClass::Open, ')');
     let val = syntax_entry_to_value(&entry);
     if val.is_cons() {
-        let cell = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert!(cell.car.is_fixnum()); // Open code = 4
-        assert!(cell.cdr.is_fixnum()); // ')' = 41
+        let cell_car = val.cons_car();
+        let cell_cdr = val.cons_cdr();
+        assert!(cell_car.is_fixnum()); // Open code = 4
+        assert!(cell_cdr.is_fixnum()); // ')' = 41
     } else {
         panic!("Expected cons cell");
     }
@@ -528,9 +531,10 @@ fn syntax_entry_to_value_with_flags() {
     };
     let val = syntax_entry_to_value(&entry);
     if val.is_cons() {
-        let cell = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+        let cell_car = val.cons_car();
+        let cell_cdr = val.cons_cdr();
         // code = 1 (punctuation) | (0x03 << 16) = 1 | 196608 = 196609
-        assert!(cell.car.is_fixnum());
+        assert!(cell_car.is_fixnum());
     } else {
         panic!("Expected cons cell");
     }

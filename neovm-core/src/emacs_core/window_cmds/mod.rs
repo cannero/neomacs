@@ -115,7 +115,7 @@ fn parse_integer_or_marker_arg(value: &Value) -> Result<IntegerOrMarkerArg, Flow
         v if super::marker::is_marker(v) => {
             let position = match v.kind() {
                 ValueKind::Veclike(VecLikeType::Vector) => {
-                    let elems = with_heap(|h| h.get_vector(*vec).clone());
+                    let elems = v.as_vector_data().unwrap().clone();
                     match elems.get(2).kind() {
                         Some(ValueKind::Fixnum(n)) => Some(n),
                         Some(ValueKind::Char(c)) => Some(c as i64),
@@ -1246,7 +1246,7 @@ pub(crate) fn builtin_window_buffer(
                 return resolve_buffer(frames, fid, wid);
             }
             if frames.is_window_object_id(wid) {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             Err(signal(
                 "wrong-type-argument",
@@ -2116,8 +2116,9 @@ fn scroll_prefix_value(value: &Value) -> i64 {
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Cons => {
             let car = {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                pair.car
+                let pair_car = value.cons_car();
+                let pair_cdr = value.cons_cdr();
+                pair_car
             };
             match car.kind() {
                 ValueKind::Fixnum(n) => n,
@@ -3104,7 +3105,7 @@ pub(crate) fn builtin_get_buffer_window(
         }
         Some(ValueKind::Veclike(VecLikeType::Buffer)) => {
             if eval.buffers.get(*id).is_none() {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             *id
         }
@@ -3708,7 +3709,7 @@ pub(crate) fn builtin_set_window_buffer(
                     None => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("bufferp"), ValueKind::Nil],
+                            vec![Value::symbol("bufferp"), Value::NIL],
                         ));
                     }
                 }
@@ -4024,8 +4025,9 @@ pub(crate) fn builtin_display_buffer(
         // ACTION is a cons cell; the car is a function or a list of functions.
         let car = match action.kind() {
             ValueKind::Cons => {
-                let snap = read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
-                snap.car
+                let snap_car = action.cons_car();
+                let snap_cdr = action.cons_cdr();
+                snap_car
             }
             _ => return false,
         };
@@ -4038,13 +4040,14 @@ pub(crate) fn builtin_display_buffer(
         // ... or a list of symbols.
         let mut cursor = car;
         while cursor.is_cons() {
-            let snap = read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
-            if let Some(sym_name) = snap.car.as_symbol_name() {
+            let snap_car = cursor.cons_car();
+            let snap_cdr = cursor.cons_cdr();
+            if let Some(sym_name) = snap_car.as_symbol_name() {
                 if sym_name == name {
                     return true;
                 }
             }
-            cursor = snap.cdr;
+            cursor = snap_cdr;
         }
         false
     };
@@ -5259,14 +5262,15 @@ fn resolve_make_frame_backend_request(
         if !item.is_cons() {
             continue;
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        let Some(key) = pair.car.as_symbol_name() else {
+        let pair_car = item.cons_car();
+        let pair_cdr = item.cons_cdr();
+        let Some(key) = pair_car.as_symbol_name() else {
             continue;
         };
         match key {
-            "window-system" => requested_window_system = Some(!pair.cdr.is_nil()),
-            "display" => requested_display = !pair.cdr.is_nil(),
-            "terminal" => requested_terminal = !pair.cdr.is_nil(),
+            "window-system" => requested_window_system = Some(!pair_cdr.is_nil()),
+            "display" => requested_display = !pair_cdr.is_nil(),
+            "terminal" => requested_terminal = !pair_cdr.is_nil(),
             _ => {}
         }
     }
@@ -5326,21 +5330,22 @@ fn make_frame_plain(
         if let Some(items) = super::value::list_to_vec(params) {
             for item in &items {
                 if item.is_cons() {
-                    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                    if let Some(key) = &pair.car.as_symbol_id() {
+                    let pair_car = item.cons_car();
+                    let pair_cdr = item.cons_cdr();
+                    if let Some(key) = &pair_car.as_symbol_id() {
                         match resolve_sym(*key) {
                             "width" => {
-                                if let Some(n) = pair.cdr.as_int() {
+                                if let Some(n) = pair_cdr.as_int() {
                                     width = n as u32;
                                 }
                             }
                             "height" => {
-                                if let Some(n) = pair.cdr.as_int() {
+                                if let Some(n) = pair_cdr.as_int() {
                                     height = n as u32;
                                 }
                             }
                             "name" => {
-                                if let Some(s) = pair.cdr.as_str() {
+                                if let Some(s) = pair_cdr.as_str() {
                                     name = s.to_string();
                                 }
                             }
@@ -5407,30 +5412,31 @@ fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
         if !item.is_cons() {
             continue;
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        let Some(key) = pair.car.as_symbol_name() else {
+        let pair_car = item.cons_car();
+        let pair_cdr = item.cons_cdr();
+        let Some(key) = pair_car.as_symbol_name() else {
             continue;
         };
         let key_name = key.to_string();
-        parsed.all.insert(key_name.clone(), pair.cdr);
+        parsed.all.insert(key_name.clone(), pair_cdr);
         match key {
-            "name" => parsed.name = stringish_value(&pair.cdr),
-            "title" => parsed.title = stringish_value(&pair.cdr),
+            "name" => parsed.name = stringish_value(&pair_cdr),
+            "title" => parsed.title = stringish_value(&pair_cdr),
             "width" => {
-                if let Some(n) = pair.cdr.as_int() {
+                if let Some(n) = pair_cdr.as_int() {
                     if n > 0 {
                         parsed.width_columns = Some(n as u32);
                     }
                 }
             }
             "height" => {
-                if let Some(n) = pair.cdr.as_int() {
+                if let Some(n) = pair_cdr.as_int() {
                     if n > 0 {
                         parsed.height_lines = Some(n as u32);
                     }
                 }
             }
-            "visibility" => parsed.visibility = Some(pair.cdr.is_truthy()),
+            "visibility" => parsed.visibility = Some(pair_cdr.is_truthy()),
             _ => {}
         }
     }
@@ -5831,9 +5837,9 @@ pub(crate) fn builtin_frame_parameter(
         }
         "visibility" => {
             return Ok(if frame.visible {
-                ValueKind::T
+                Value::T
             } else {
-                ValueKind::Nil
+                Value::NIL
             });
         }
         _ => {}
@@ -5909,33 +5915,34 @@ pub(crate) fn builtin_modify_frame_parameters(
 
     for item in items.into_iter().rev() {
         if item.is_cons() {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            if let Some(key) = &pair.car.as_symbol_id() {
+            let pair_car = item.cons_car();
+            let pair_cdr = item.cons_cdr();
+            if let Some(key) = &pair_car.as_symbol_id() {
                 let key_name = resolve_sym(*key).to_owned();
                 match key_name.as_str() {
                     "name" => {
-                        if let Some(s) = pair.cdr.as_str() {
+                        if let Some(s) = pair_cdr.as_str() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
                                 frame.name = s.to_string();
                             }
                         }
                     }
                     "title" => {
-                        if let Some(s) = pair.cdr.as_str() {
+                        if let Some(s) = pair_cdr.as_str() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
                                 frame.title = s.to_string();
                             }
                         }
                     }
                     "width" => {
-                        if let Some(n) = pair.cdr.as_int() {
+                        if let Some(n) = pair_cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
                                 frame.parameters.insert("width".to_string(), Value::fixnum(n));
                             }
                         }
                     }
                     "height" => {
-                        if let Some(n) = pair.cdr.as_int() {
+                        if let Some(n) = pair_cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
                                 frame.parameters.insert("height".to_string(), Value::fixnum(n));
                             }
@@ -5943,16 +5950,16 @@ pub(crate) fn builtin_modify_frame_parameters(
                     }
                     "visibility" => {
                         if let Some(frame) = eval.frames.get_mut(fid) {
-                            frame.visible = pair.cdr.is_truthy();
+                            frame.visible = pair_cdr.is_truthy();
                         }
                     }
                     _ => {
                         if let Some(frame) = eval.frames.get_mut(fid) {
-                            frame.parameters.insert(key_name.clone(), pair.cdr);
+                            frame.parameters.insert(key_name.clone(), pair_cdr);
                         }
                         if matches!(key_name.as_str(), "foreground-color" | "background-color") {
                             super::font::update_face_from_frame_parameter(
-                                eval, fid, &key_name, pair.cdr,
+                                eval, fid, &key_name, pair_cdr,
                             )?;
                         }
                     }
@@ -6528,9 +6535,9 @@ pub(crate) fn builtin_window_tree(eval: &mut super::eval::Context, args: Vec<Val
                 ..
             } => {
                 let horizontal_p = if *direction == SplitDirection::Horizontal {
-                    ValueKind::T
+                    Value::T
                 } else {
-                    ValueKind::Nil
+                    Value::NIL
                 };
                 // Edges: top left right bottom (in pixel coordinates)
                 let top = Value::fixnum(bounds.y as i64);

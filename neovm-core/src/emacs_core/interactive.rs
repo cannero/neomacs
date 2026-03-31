@@ -454,20 +454,22 @@ fn command_modes_from_quoted_interactive_form(form: &Value) -> Result<Option<Val
     if !form.is_cons() {
         return Ok(None);
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("interactive") {
+    let pair_car = form.cons_car();
+    let pair_cdr = form.cons_cdr();
+    if pair_car.as_symbol_name() != Some("interactive") {
         return Ok(None);
     }
 
-    match pair.cdr.kind() {
+    match pair_cdr.kind() {
         ValueKind::Nil => Ok(Some(Value::NIL)),
         ValueKind::Cons => {
-            let arg_pair = read_cons(arg_cell);  // TODO(tagged): replace read_cons with cons accessors
-            Ok(Some(arg_pair.cdr))
+            let arg_pair_car = pair_cdr.cons_car();
+            let arg_pair_cdr = pair_cdr.cons_cdr();
+            Ok(Some(arg_pair_cdr))
         }
         tail => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("listp"), tail],
+            vec![Value::symbol("listp"), pair_cdr],
         )),
     }
 }
@@ -542,24 +544,24 @@ pub(crate) fn builtin_command_modes_impl(obarray: &Obarray, args: &[Value]) -> E
         ValueKind::Subr(_) => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
             let body = with_heap(|h| h.get_lambda(id).body.clone());
-            Ok(command_modes_from_expr_body(&body).unwrap_or(ValueKind::Nil))
+            Ok(command_modes_from_expr_body(&body).unwrap_or(Value::NIL))
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             let interactive = with_heap(|h| h.get_bytecode(id).interactive);
             let Some(ValueKind::Veclike(VecLikeType::Vector)) = interactive else {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             };
             Ok(with_heap(|h| {
                 if h.vector_len(vec_id) > 1 {
                     unquote_command_modes_value(h.vector_ref(vec_id, 1))
                 } else {
-                    ValueKind::Nil
+                    Value::NIL
                 }
             }))
         }
         ValueKind::Cons if super::autoload::is_autoload_value(&function) => {
             let Some(items) = value_list_to_vec(&function) else {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             };
             Ok(match items.get(3).copied() {
                 Some(ValueKind::Cons) => items[3],
@@ -609,19 +611,19 @@ pub(crate) fn builtin_command_remapping_impl(
                 {
                     return Ok(command_remapping_normalize_target(target));
                 }
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             ValueKind::Nil => {
                 let active_maps =
                     current_active_maps_for_position_read_only(ctx, true, args.get(1))?;
                 return Ok(
                     command_remapping_lookup_in_keymaps(&active_maps, &command_name)
-                        .unwrap_or(ValueKind::Nil),
+                        .unwrap_or(Value::NIL),
                 );
             }
             _ => {
                 // Not a valid keymap
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
         }
     }
@@ -836,9 +838,10 @@ fn value_list_to_vec(list: &Value) -> Option<Vec<Value>> {
         match cursor.kind() {
             ValueKind::Nil => return Some(values),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                values.push(pair.car);
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                values.push(pair_car);
+                cursor = pair_cdr;
             }
             _ => return None,
         }
@@ -848,8 +851,9 @@ fn value_list_to_vec(list: &Value) -> Option<Vec<Value>> {
 fn value_is_interactive_form(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            pair.car.as_symbol_name() == Some("interactive")
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            pair_car.as_symbol_name() == Some("interactive")
         }
         _ => false,
     }
@@ -887,8 +891,9 @@ fn quoted_lambda_has_interactive_form(value: &Value) -> bool {
 fn value_is_declare_form(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            pair.car.as_symbol_name() == Some("declare")
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            pair_car.as_symbol_name() == Some("declare")
         }
         _ => false,
     }
@@ -1056,7 +1061,7 @@ impl InteractiveInvocationContext {
 fn interactive_event_symbol_name(event: &Value) -> Option<&'static str> {
     match event.kind() {
         ValueKind::Symbol(id) => Some(resolve_sym(id)),
-        ValueKind::Cons => match read_cons(*cell).car {  // TODO(tagged): replace read_cons with cons accessors
+        ValueKind::Cons => match event.cons_car() {
             ValueKind::Symbol(id) => Some(resolve_sym(id)),
             _ => None,
         },
@@ -1193,8 +1198,9 @@ fn prefix_numeric_value(value: &Value) -> i64 {
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Cons => {
             let car = {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                pair.car
+                let pair_car = value.cons_car();
+                let pair_cdr = value.cons_cdr();
+                pair_car
             };
             match car.kind() {
                 ValueKind::Fixnum(n) => n,
@@ -1380,7 +1386,7 @@ fn interactive_args_from_string_code_in_state(
             'Z' => {
                 let raw = interactive_prefix_raw_arg_in_state(obarray, dynamic.as_slice(), kind);
                 if raw.is_nil() {
-                    args.push(ValueKind::Nil);
+                    args.push(Value::NIL);
                 } else {
                     return Ok(None);
                 }
@@ -1423,7 +1429,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 )?);
             }
             'b' => {
-                let letter_args = [Value::string(prompt), ValueKind::Nil, ValueKind::T];
+                let letter_args = [Value::string(prompt), Value::NIL, Value::T];
                 super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
                 let completing_args = {
                     super::minibuffer::read_buffer_completing_args(&shared.buffers, &letter_args)
@@ -1435,7 +1441,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 )?);
             }
             'B' => {
-                let letter_args = [Value::string(prompt), ValueKind::Nil, ValueKind::Nil];
+                let letter_args = [Value::string(prompt), Value::NIL, Value::NIL];
                 super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
                 let completing_args = {
                     super::minibuffer::read_buffer_completing_args(&shared.buffers, &letter_args)
@@ -1483,7 +1489,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 }
             }
             'f' => {
-                let letter_args = [Value::string(prompt), ValueKind::Nil, ValueKind::Nil, ValueKind::T];
+                let letter_args = [Value::string(prompt), Value::NIL, Value::NIL, Value::T];
                 args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
                     shared,
                     vm_gc_roots,
@@ -1534,10 +1540,10 @@ fn interactive_args_from_string_code_in_vm_runtime(
             'M' => {
                 let letter_args = [
                     Value::string(prompt),
-                    ValueKind::Nil,
-                    ValueKind::Nil,
-                    ValueKind::Nil,
-                    ValueKind::T,
+                    Value::NIL,
+                    Value::NIL,
+                    Value::NIL,
+                    Value::T,
                 ];
                 super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
                 args.push(super::reader::finish_read_string_with_minibuffer(
@@ -1586,8 +1592,8 @@ fn interactive_args_from_string_code_in_vm_runtime(
                         "error",
                     )?);
                 } else {
-                    args.push(ValueKind::Nil);
-                    args.push(ValueKind::Nil);
+                    args.push(Value::NIL);
+                    args.push(Value::NIL);
                 }
             }
             'n' => {
@@ -1662,7 +1668,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
             'Z' => {
                 let raw = interactive_prefix_raw_arg_in_state(&shared.obarray, &[], kind);
                 if raw.is_nil() {
-                    args.push(ValueKind::Nil);
+                    args.push(Value::NIL);
                 } else {
                     args.push(interactive_read_coding_system_optional_arg(prompt)?);
                 }
@@ -1716,8 +1722,8 @@ fn default_command_execute_args_in_state(
             let win = frames
                 .selected_frame()
                 .map(|f| Value::Window(f.selected_window.0))
-                .unwrap_or(ValueKind::Nil);
-            Ok(vec![ValueKind::Nil, win])
+                .unwrap_or(Value::NIL);
+            Ok(vec![Value::NIL, win])
         }
         "capitalize-region" => interactive_region_args_in_buffers(buffers, "error"),
         "upcase-initials-region" => interactive_region_args_in_buffers(buffers, "error"),
@@ -2086,7 +2092,7 @@ fn parse_interactive_spec_from_value(spec: &Value) -> Option<ParsedInteractiveSp
     match spec.kind() {
         ValueKind::Nil => Some(ParsedInteractiveSpec::NoArgs),
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = spec.as_str().unwrap().to_owned();
             if s.is_empty() {
                 Some(ParsedInteractiveSpec::NoArgs)
             } else {
@@ -2191,11 +2197,11 @@ fn interactive_args_from_string_code(
             )?),
             'b' => args.push(super::minibuffer::builtin_read_buffer(
                 eval,
-                vec![Value::string(prompt), ValueKind::Nil, ValueKind::T],
+                vec![Value::string(prompt), Value::NIL, Value::T],
             )?),
             'B' => args.push(super::minibuffer::builtin_read_buffer(
                 eval,
-                vec![Value::string(prompt), ValueKind::Nil, ValueKind::Nil],
+                vec![Value::string(prompt), Value::NIL, Value::NIL],
             )?),
             'c' => args.push(super::reader::builtin_read_char(
                 eval,
@@ -2224,7 +2230,7 @@ fn interactive_args_from_string_code(
             }
             'f' => args.push(super::minibuffer::builtin_read_file_name(
                 eval,
-                vec![Value::string(prompt), ValueKind::Nil, ValueKind::Nil, ValueKind::T],
+                vec![Value::string(prompt), Value::NIL, Value::NIL, Value::T],
             )?),
             'F' => args.push(super::minibuffer::builtin_read_file_name(
                 eval,
@@ -2275,8 +2281,8 @@ fn interactive_args_from_string_code(
                 if use_region {
                     args.extend(interactive_region_args(eval, "error")?);
                 } else {
-                    args.push(ValueKind::Nil);
-                    args.push(ValueKind::Nil);
+                    args.push(Value::NIL);
+                    args.push(Value::NIL);
                 }
             }
             'S' => {
@@ -2312,7 +2318,7 @@ fn interactive_args_from_string_code(
             'Z' => {
                 let raw = interactive_prefix_raw_arg(eval, kind);
                 if raw.is_nil() {
-                    args.push(ValueKind::Nil);
+                    args.push(Value::NIL);
                 } else {
                     args.push(interactive_read_coding_system_optional_arg(prompt)?);
                 }
@@ -2881,7 +2887,7 @@ pub(crate) fn builtin_key_binding_impl(
             ));
         }
         Err(super::kbd::KeyDesignatorError::Parse(_)) => {
-            return Ok(ValueKind::Nil);
+            return Ok(Value::NIL);
         }
     };
     if events.is_empty() {
@@ -2925,7 +2931,7 @@ pub(crate) fn builtin_local_key_binding_impl(
             ));
         }
         Err(super::kbd::KeyDesignatorError::Parse(_)) => {
-            return Ok(ValueKind::Nil);
+            return Ok(Value::NIL);
         }
     };
     let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();

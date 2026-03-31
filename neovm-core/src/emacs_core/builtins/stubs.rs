@@ -1026,12 +1026,13 @@ pub(crate) fn builtin_handle_switch_frame(args: Vec<Value>) -> EvalResult {
     let frame = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Frame) => args[0],
         ValueKind::Cons => {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            match pair.car.as_symbol_name().kind() {
+            let pair_car = args[0].cons_car();
+            let pair_cdr = args[0].cons_cdr();
+            match pair_car.as_symbol_name().kind() {
                 Some("switch-frame") => {
-                    let cdr = pair.cdr;
+                    let cdr = pair_cdr;
                     match cdr.kind() {
-                        ValueKind::Cons => read_cons(cdr_cell).car,  // TODO(tagged): replace read_cons with cons accessors
+                        ValueKind::Cons => cdr.cons_car(),
                         _ => {
                             return Err(signal(
                                 "wrong-type-argument",
@@ -1567,7 +1568,7 @@ fn expect_characterp_from_int(value: &Value) -> Result<char, Flow> {
 fn is_font_object(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*items).clone());
+            let items = value.as_vector_data().unwrap().clone();
             matches!(
                 items.first(),
                 Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-object"
@@ -1580,7 +1581,7 @@ fn is_font_object(value: &Value) -> bool {
 fn is_font_spec(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*items).clone());
+            let items = value.as_vector_data().unwrap().clone();
             matches!(items.first(), Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-spec")
         }
         _ => false,
@@ -1855,9 +1856,10 @@ fn inotify_watch_descriptor_parts(value: &Value) -> Option<(i64, i64)> {
     if !value.is_cons() {
         return None;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    let fd = pair.car.as_int()?;
-    let wd = pair.cdr.as_int()?;
+    let pair_car = value.cons_car();
+    let pair_cdr = value.cons_cdr();
+    let fd = pair_car.as_int()?;
+    let wd = pair_cdr.as_int()?;
     Some((fd, wd))
 }
 

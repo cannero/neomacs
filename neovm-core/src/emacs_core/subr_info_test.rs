@@ -58,20 +58,21 @@ fn assert_subr_arity(name: &str, min: i64, max: Option<i64>) {
     let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_subr_arity(&mut ctx, vec![Value::subr(intern(name))]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
         assert_eq!(
-            pair.car.as_int(),
+            pair_car.as_int(),
             Some(min),
             "subr min arity mismatch for {name}"
         );
         match max {
             Some(n) => assert_eq!(
-                pair.cdr.as_int(),
+                pair_cdr.as_int(),
                 Some(n),
                 "subr max arity mismatch for {name}"
             ),
             None => assert_eq!(
-                pair.cdr.as_symbol_name(),
+                pair_cdr.as_symbol_name(),
                 Some("many"),
                 "subr max arity mismatch for {name}"
             ),
@@ -105,9 +106,10 @@ fn subr_arity_if_is_unevalled() {
     let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_subr_arity(&mut ctx, vec![Value::subr(intern("if"))]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(2));
-        assert_eq!(pair.cdr.as_symbol_name(), Some("unevalled"));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(2));
+        assert_eq!(pair_cdr.as_symbol_name(), Some("unevalled"));
     } else {
         panic!("expected cons cell");
     }
@@ -128,9 +130,10 @@ fn subr_arity_core_special_forms_match_oracle_unevalled_shapes() {
         let mut ctx = crate::emacs_core::eval::Context::new();
         let result = builtin_subr_arity(&mut ctx, vec![Value::subr(intern(name))]).unwrap();
         if result.is_cons() {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car.as_int(), Some(min));
-            assert_eq!(pair.cdr.as_symbol_name(), Some("unevalled"));
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert_eq!(pair_car.as_int(), Some(min));
+            assert_eq!(pair_cdr.as_symbol_name(), Some("unevalled"));
         } else {
             panic!("expected cons cell for {name}");
         }
@@ -2025,9 +2028,10 @@ fn func_arity_lambda_required_only() {
     let lam = make_lambda(vec!["a", "b"], vec![], None);
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(2));
-        assert_eq!(pair.cdr.as_int(), Some(2));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(2));
+        assert_eq!(pair_cdr.as_int(), Some(2));
     } else {
         panic!("expected cons cell");
     }
@@ -2038,9 +2042,10 @@ fn func_arity_lambda_with_optional() {
     let lam = make_lambda(vec!["a"], vec!["b", "c"], None);
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(1));
-        assert_eq!(pair.cdr.as_int(), Some(3));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(1));
+        assert_eq!(pair_cdr.as_int(), Some(3));
     } else {
         panic!("expected cons cell");
     }
@@ -2051,9 +2056,10 @@ fn func_arity_lambda_with_rest() {
     let lam = make_lambda(vec!["a"], vec![], Some("rest"));
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(1));
-        assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(1));
+        assert_eq!(pair_cdr.as_symbol_name(), Some("many"));
     } else {
         panic!("expected cons cell");
     }
@@ -2064,9 +2070,10 @@ fn func_arity_bytecode() {
     let bc = make_bytecode(vec!["x", "y"], Some("rest"));
     let result = builtin_func_arity_impl(vec![bc]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(2));
-        assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(2));
+        assert_eq!(pair_cdr.as_symbol_name(), Some("many"));
     } else {
         panic!("expected cons cell");
     }
@@ -2076,9 +2083,10 @@ fn func_arity_bytecode() {
 fn func_arity_subr() {
     let result = builtin_func_arity_impl(vec![Value::subr(intern("+"))]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(0));
-        assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(0));
+        assert_eq!(pair_cdr.as_symbol_name(), Some("many"));
     } else {
         panic!("expected cons cell");
     }
@@ -2088,18 +2096,20 @@ fn func_arity_subr() {
 fn func_arity_subr_uses_compat_overrides() {
     let message = builtin_func_arity_impl(vec![Value::subr(intern("message"))]).unwrap();
     if message.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(1));
-        assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
+        let pair_car = message.cons_car();
+        let pair_cdr = message.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(1));
+        assert_eq!(pair_cdr.as_symbol_name(), Some("many"));
     } else {
         panic!("expected cons cell");
     }
 
     let car = builtin_func_arity_impl(vec![Value::subr(intern("car"))]).unwrap();
     if car.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(1));
-        assert_eq!(pair.cdr.as_int(), Some(1));
+        let pair_car = car.cons_car();
+        let pair_cdr = car.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(1));
+        assert_eq!(pair_cdr.as_int(), Some(1));
     } else {
         panic!("expected cons cell");
     }
@@ -2110,9 +2120,10 @@ fn func_arity_macro() {
     let m = make_macro(vec!["a", "b"]);
     let result = builtin_func_arity_impl(vec![m]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car.as_int(), Some(2));
-        assert_eq!(pair.cdr.as_int(), Some(2));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_eq!(pair_car.as_int(), Some(2));
+        assert_eq!(pair_cdr.as_int(), Some(2));
     } else {
         panic!("expected cons cell");
     }

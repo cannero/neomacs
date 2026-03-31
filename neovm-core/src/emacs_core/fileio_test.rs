@@ -2053,7 +2053,7 @@ fn test_visited_file_modtime_state_builtins_use_current_buffer_file_name() {
     match missing {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::NIL]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2680,7 +2680,7 @@ fn test_find_file_noselect() {
             assert!(buf.file_name.is_some());
             assert!(!buf.is_modified());
         }
-        other => panic!("Expected Buffer, got {:?}", other),
+        other => panic!("Expected Buffer, got {:?}", buf_val),
     }
 
     // Calling again with the same file should return the same buffer
@@ -2713,7 +2713,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
             assert_eq!(buf.buffer_string(), "");
             assert!(buf.file_name.is_some());
         }
-        other => panic!("Expected Buffer, got {:?}", other),
+        other => panic!("Expected Buffer, got {:?}", result.unwrap()),
     }
 }
 

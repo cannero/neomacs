@@ -73,7 +73,7 @@ fn prefix_numeric_value(value: &Value) -> i64 {
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Fixnum(n) => n,
         ValueKind::Char(c) => c as i64,
-        ValueKind::Cons => read_cons(*cell).car.as_int().unwrap_or(1),  // TODO(tagged): replace read_cons with cons accessors
+        ValueKind::Cons => value.cons_car().as_int().unwrap_or(1),
         _ => 1,
     }
 }
@@ -367,7 +367,7 @@ fn name_last_kbd_macro_impl(
 
     let name = match args[0].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -489,7 +489,7 @@ pub(crate) fn builtin_kmacro_set_format(
     expect_args("kmacro-set-format", &args, 1)?;
     let format = match args[0].kind() {
         ValueKind::String => {
-            let s = crate::emacs_core::value::with_heap(|h| h.get_string(*id).to_owned());
+            let s = args[0].as_str().unwrap().to_owned();
             if s.is_empty() { "%d".to_string() } else { s }
         }
         other => {
@@ -551,12 +551,12 @@ fn indirect_macro_function(eval: &super::eval::Context, value: &Value) -> Value 
 fn resolve_macro_events(eval: &super::eval::Context, value: &Value) -> Result<Vec<Value>, Flow> {
     match indirect_macro_function(eval, value).kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(v).clone());
+            let items = indirect_macro_function(eval, value).as_vector_data().unwrap().clone();
             Ok(items.clone())
         }
         ValueKind::String => {
             // Each character in the string becomes a Char event.
-            let s = with_heap(|h| h.get_string(id).to_owned());
+            let s = indirect_macro_function(eval, value).as_str().unwrap().to_owned();
             Ok(s.chars().map(Value::Char).collect())
         }
         _ => Err(signal(

@@ -35,13 +35,14 @@ pub(crate) fn builtin_list_of_strings_p(args: Vec<Value>) -> EvalResult {
             ValueKind::Cons => {
                 let ptr = cell.index as usize;
                 if !seen.insert(ptr) {
-                    return Ok(ValueKind::Nil);
+                    return Ok(Value::NIL);
                 }
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if !pair.car.is_string() {
-                    return Ok(ValueKind::Nil);
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if !pair_car.is_string() {
+                    return Ok(Value::NIL);
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => return Ok(Value::NIL),
         }
@@ -145,8 +146,9 @@ pub(crate) fn builtin_char_uppercase_p(args: Vec<Value>) -> EvalResult {
 pub(super) fn is_lambda_form_list(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            let name = pair.car.as_symbol_name();
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            let name = pair_car.as_symbol_name();
             name == Some("lambda") || name == Some("closure")
         }
         _ => false,
@@ -156,8 +158,9 @@ pub(super) fn is_lambda_form_list(value: &Value) -> bool {
 fn is_macro_marker_list(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            pair.car.as_symbol_name() == Some("macro")
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            pair_car.as_symbol_name() == Some("macro")
         }
         _ => false,
     }

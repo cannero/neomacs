@@ -1077,7 +1077,7 @@ impl super::eval::Context {
                         .processes
                         .get(pid)
                         .map(|p| p.filter)
-                        .unwrap_or(ValueKind::Nil);
+                        .unwrap_or(Value::NIL);
                     self.run_process_filter_callback(pid, filter, data);
                 }
                 None if is_network => {
@@ -1093,7 +1093,7 @@ impl super::eval::Context {
                         .processes
                         .get(pid)
                         .map(|p| p.sentinel)
-                        .unwrap_or(ValueKind::Nil);
+                        .unwrap_or(Value::NIL);
                     self.run_process_sentinel_callback(
                         pid,
                         sentinel,
@@ -1210,7 +1210,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*s).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -1269,9 +1269,9 @@ fn char_from_codepoint_value(value: &Value) -> Result<char, Flow> {
 
 pub(crate) fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*s).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let vec = with_heap(|h| h.get_vector(*items).clone());
+            let vec = value.as_vector_data().unwrap().clone();
             let chars = vec
                 .iter()
                 .map(char_from_codepoint_value)
@@ -1286,8 +1286,9 @@ pub(crate) fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow
                     ValueKind::Nil => break,
                     ValueKind::Cons => {
                         let (car, cdr) = {
-                            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                            (pair.car, pair.cdr)
+                            let pair_car = cursor.cons_car();
+                            let pair_cdr = cursor.cons_cdr();
+                            (pair_car, pair_cdr)
                         };
                         out.push(char_from_codepoint_value(&car)?);
                         cursor = cdr;
@@ -1295,7 +1296,7 @@ pub(crate) fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow
                     tail => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -1364,14 +1365,14 @@ fn signal_wrong_type_string(value: Value) -> Flow {
 
 pub(crate) fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*s).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         other => Err(signal_wrong_type_string(*value)),
     }
 }
 
 fn expect_process_name_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*s).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         _ => Err(signal(
             "error",
             vec![Value::string(":name value not a string")],
@@ -1466,7 +1467,7 @@ fn resolve_process_or_wrong_type(
             }
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*s).to_owned());
+            let name = value.as_str().unwrap().to_owned();
             eval.processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_wrong_type_processp(*value))
@@ -1489,7 +1490,7 @@ fn resolve_process_or_wrong_type_any(
             }
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*s).to_owned());
+            let name = value.as_str().unwrap().to_owned();
             eval.processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_wrong_type_processp(*value))
@@ -1512,7 +1513,7 @@ fn resolve_process_or_wrong_type_any_in_manager(
             }
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*s).to_owned());
+            let name = value.as_str().unwrap().to_owned();
             processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_wrong_type_processp(*value))
@@ -1534,7 +1535,7 @@ fn resolve_process_or_missing_error_in_manager(
 ) -> Result<ProcessId, Flow> {
     match value.kind() {
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*s).to_owned());
+            let name = value.as_str().unwrap().to_owned();
             processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_process_does_not_exist(&name))
@@ -1556,7 +1557,7 @@ fn resolve_process_or_missing_error_any_in_manager(
 ) -> Result<ProcessId, Flow> {
     match value.kind() {
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*s).to_owned());
+            let name = value.as_str().unwrap().to_owned();
             processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_process_does_not_exist(&name))
@@ -1579,7 +1580,7 @@ fn resolve_process_for_status(
             }
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*s).to_owned());
+            let name = value.as_str().unwrap().to_owned();
             Ok(eval.processes.find_by_name(&name))
         }
         _ => Err(signal_wrong_type_processp(*value)),
@@ -1599,7 +1600,7 @@ fn resolve_buffer_name_for_process_lookup_in_state(
             .and_then(|id| buffers.get(id))
             .map(|buf| buf.name.clone())),
         ValueKind::String => {
-            let name_str = with_heap(|h| h.get_string(*name).to_owned());
+            let name_str = value.as_str().unwrap().to_owned();
             Ok(buffers
                 .find_buffer_by_name(&name_str)
                 .and_then(|id| buffers.get(id))
@@ -1834,9 +1835,9 @@ fn resolve_signal_process_target_in_state(
 ) -> Result<SignalProcessTarget, Flow> {
     if let Some(v) = value {
         if !v.is_nil() {
-            return match v {
+            return match v.kind() {
                 ValueKind::String => {
-                    let name_str = with_heap(|h| h.get_string(*name).to_owned());
+                    let name_str = v.as_str().unwrap().to_owned();
                     Ok(match processes.find_by_name(&name_str) {
                         Some(id) => SignalProcessTarget::Process(id),
                         None => SignalProcessTarget::MissingNamedProcess,
@@ -2197,7 +2198,7 @@ fn lookup_group_name(_gid: u32) -> Option<String> {
 
 fn parse_make_process_command(value: &Value) -> Result<Vec<String>, Flow> {
     let as_vec: Option<Vec<Value>> = match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => Some(with_heap(|h| h.get_vector(*items).clone())),
+        ValueKind::Veclike(VecLikeType::Vector) => Some(value.as_vector_data().unwrap().clone()),
         ValueKind::Cons | ValueKind::Nil => list_to_vec(value),
         _ => None,
     };
@@ -2229,7 +2230,7 @@ fn parse_make_process_buffer_in_state(
     match value.kind() {
         ValueKind::Nil => Ok(None),
         ValueKind::String => {
-            let name_str = with_heap(|h| h.get_string(*name).to_owned());
+            let name_str = value.as_str().unwrap().to_owned();
             if buffers.find_buffer_by_name(&name_str).is_none() {
                 let _ = buffers.create_buffer(&name_str);
             }
@@ -2593,8 +2594,8 @@ fn interface_entry(name: &str, address: Value, full: bool) -> Value {
         return Value::cons(Value::string(name), address);
     }
 
-    let (broadcast, netmask) = match &address {
-        ValueKind::Veclike(VecLikeType::Vector) if with_heap(|h| h.vector_len(*values)) == 9 => {
+    let (broadcast, netmask) = match address.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if address.as_vector_data().unwrap().len() == 9 => {
             (loopback_ipv6_broadcast(), loopback_ipv6_netmask())
         }
         _ => (loopback_ipv4_broadcast(), loopback_ipv4_netmask()),
@@ -3108,11 +3109,11 @@ pub(crate) fn builtin_format_network_address_impl(args: Vec<Value>) -> EvalResul
 
     let omit_port = args.get(1).is_some_and(|v| v.is_truthy());
     match args[0].kind() {
-        ValueKind::String => Ok(Value::string(with_heap(|h| h.get_string(*s).to_owned()))),
+        ValueKind::String => Ok(Value::string(args[0].as_str().unwrap().to_owned())),
         ValueKind::Nil => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Vector) => {
             let Some(items) = vector_nonnegative_integers(&args[0]) else {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             };
             if let Some(ipv4) = format_ipv4_network_address(&items, omit_port) {
                 return Ok(Value::string(ipv4));
@@ -3120,7 +3121,7 @@ pub(crate) fn builtin_format_network_address_impl(args: Vec<Value>) -> EvalResul
             if let Some(ipv6) = format_ipv6_network_address(&items, omit_port) {
                 return Ok(Value::string(ipv6));
             }
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
         ValueKind::Cons => {
             let first = list_to_vec(&args[0])
@@ -3129,7 +3130,7 @@ pub(crate) fn builtin_format_network_address_impl(args: Vec<Value>) -> EvalResul
             if let Some(family) = first {
                 Ok(Value::string(format!("<Family {family}>")))
             } else {
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         }
         _ => Ok(Value::NIL),
@@ -3782,16 +3783,16 @@ pub(crate) fn builtin_serial_process_configure_impl(
                     )?);
                 }
             }
-            ":name" => match value {
+            ":name" => match value.kind() {
                 ValueKind::String => {
-                    let name_str = with_heap(|h| h.get_string(name).to_owned());
+                    let name_str = value.as_str().unwrap().to_owned();
                     process_id = Some(
                         processes
                             .find_by_name(&name_str)
                             .ok_or_else(|| signal_process_does_not_exist(&name_str))?,
                     );
                 }
-                other => return Err(signal_wrong_type_processp(other)),
+                other => return Err(signal_wrong_type_processp(value)),
             },
             _ => {}
         }
@@ -4534,8 +4535,8 @@ pub(crate) fn builtin_make_process_impl(
             _ => None,
         };
         match key_name {
-            Some(":name") => match value {
-                ValueKind::String => name = Some(with_heap(|h| h.get_string(s).to_owned())),
+            Some(":name") => match value.kind() {
+                ValueKind::String => name = Some(value.as_str().unwrap().to_owned()),
                 _ => {
                     return Err(signal(
                         "error",
@@ -4889,7 +4890,7 @@ pub(crate) fn builtin_process_buffer_impl(
                 .find_buffer_by_name(name)
                 .or_else(|| buffers.find_dead_buffer_by_name(name))
                 .map(Value::Buffer)
-                .unwrap_or(ValueKind::Nil)),
+                .unwrap_or(Value::NIL)),
             None => Ok(Value::NIL),
         },
         None => Err(signal_wrong_type_processp(args[0])),
@@ -5244,26 +5245,26 @@ pub(crate) fn builtin_process_tty_name_impl(
             if proc.tty_stdin {
                 Ok(tty_value())
             } else {
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         }
         ValueKind::Symbol(sym) if resolve_sym(sym) == "stdout" => {
             if proc.tty_stdout {
                 Ok(tty_value())
             } else {
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         }
         ValueKind::Symbol(sym) if resolve_sym(sym) == "stderr" => {
             if proc.tty_stderr {
                 Ok(tty_value())
             } else {
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         }
         other => Err(signal(
             "error",
-            vec![Value::string("Unknown stream"), other],
+            vec![Value::string("Unknown stream"), stream],
         )),
     }
 }
@@ -5756,13 +5757,13 @@ pub(crate) fn builtin_process_contact_impl(
                 ValueKind::Fixnum(port),
             ]);
             if key.is_nil() {
-                Ok(Value::list(vec![ValueKind::Nil, Value::fixnum(port)]))
-            } else if key == ValueKind::T {
+                Ok(Value::list(vec![Value::NIL, Value::fixnum(port)]))
+            } else if key == Value::T {
                 Ok(Value::list(vec![
                     Value::keyword(":name"),
                     Value::string(proc.name.clone()),
                     Value::keyword(":server"),
-                    ValueKind::T,
+                    Value::T,
                     Value::keyword(":service"),
                     ValueKind::Fixnum(port),
                     Value::keyword(":local"),
@@ -5782,8 +5783,8 @@ pub(crate) fn builtin_process_contact_impl(
         }
         ProcessKind::Pipe => {
             if key.is_nil() {
-                Ok(ValueKind::T)
-            } else if key == ValueKind::T {
+                Ok(Value::T)
+            } else if key == Value::T {
                 Ok(Value::list(vec![
                     Value::keyword(":name"),
                     Value::string(proc.name.clone()),

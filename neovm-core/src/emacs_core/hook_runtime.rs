@@ -48,24 +48,25 @@ fn collect_hook_functions_impl(
             let mut cursor = hook_value;
             let mut saw_global_marker = false;
             while cursor.is_cons() {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if pair.car.as_symbol_name() == Some("t") {
+                let pair_car = hook_value.cons_car();
+                let pair_cdr = hook_value.cons_cdr();
+                if pair_car.as_symbol_name() == Some("t") {
                     saw_global_marker = true;
                 } else {
-                    out.push(pair.car);
+                    out.push(pair_car);
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
 
             if saw_global_marker && inherit_global {
                 let global_value = obarray
                     .default_value_id(hook_sym)
                     .copied()
-                    .unwrap_or(ValueKind::Nil);
+                    .unwrap_or(Value::NIL);
                 collect_hook_functions_impl(obarray, hook_sym, global_value, false, out);
             }
         }
-        value => out.push(value),
+        value => out.push(hook_value),
     }
 }
 

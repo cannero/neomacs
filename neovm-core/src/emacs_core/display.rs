@@ -327,7 +327,7 @@ fn x_display_query_first_arg_error(value: &Value) -> Flow {
         ValueKind::String => x_display_open_error(value.as_str().unwrap()),
         ValueKind::Veclike(VecLikeType::Frame) => x_window_system_frame_error(),
         other => {
-            if let Some(err) = terminal_not_x_display_error(other) {
+            if let Some(err) = terminal_not_x_display_error(value) {
                 err
             } else {
                 signal(
@@ -1112,8 +1112,9 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     if !position_car.is_nil() {
         let window_designator = match position_cdr.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                pair.car
+                let pair_car = position_cdr.cons_car();
+                let pair_cdr = position_cdr.cons_cdr();
+                pair_car
             }
             _ => Value::NIL,
         };
@@ -1159,13 +1160,14 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
 
     let pane = match rest.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            pair.car
+            let pair_car = rest.cons_car();
+            let pair_cdr = rest.cons_cdr();
+            pair_car
         }
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("listp"), other],
+                vec![Value::symbol("listp"), rest],
             ));
         }
     };
@@ -1392,8 +1394,8 @@ pub(crate) fn builtin_x_parse_geometry(args: Vec<Value>) -> EvalResult {
     expect_args("x-parse-geometry", &args, 1)?;
     match args[0].kind() {
         ValueKind::String => {
-            let spec = with_heap(|h| h.get_string(*id).to_owned());
-            Ok(parse_x_geometry(&spec).unwrap_or(ValueKind::Nil))
+            let spec = args[0].as_str().unwrap().to_owned();
+            Ok(parse_x_geometry(&spec).unwrap_or(Value::NIL))
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -1684,7 +1686,7 @@ pub(crate) fn builtin_x_open_connection(
             vec![Value::string("Display nil can’t be opened")],
         )),
         ValueKind::String => {
-            let display = with_heap(|h| h.get_string(*id).to_owned());
+            let display = args[0].as_str().unwrap().to_owned();
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
@@ -1719,14 +1721,14 @@ pub(crate) fn builtin_x_close_connection(
             vec![Value::string("X windows are not in use or not initialized")],
         )),
         ValueKind::String => {
-            let display = with_heap(|h| h.get_string(*id).to_owned());
+            let display = args[0].as_str().unwrap().to_owned();
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
             ))
         }
         other => {
-            if let Some(err) = terminal_not_x_display_error(other) {
+            if let Some(err) = terminal_not_x_display_error(args[0]) {
                 Err(err)
             } else {
                 Err(signal(

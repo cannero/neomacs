@@ -70,7 +70,7 @@ fn expect_wholenump(val: &Value) -> Result<i64, Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -156,12 +156,14 @@ pub(crate) fn builtin_copy_alist(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => break,
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
                 // If the element is a cons, copy it; otherwise keep as-is
-                let entry = match pair.car.kind() {
+                let entry = match pair_car.kind() {
                     ValueKind::Cons => {
-                        let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
-                        Value::cons(inner_pair.car, inner_pair.cdr)
+                        let inner_pair_car = cursor.cons_car();
+                        let inner_pair_cdr = cursor.cons_cdr();
+                        Value::cons(inner_pair_car, inner_pair_cdr)
                     }
                     other => *cursor,
                 };
@@ -190,14 +192,16 @@ pub(crate) fn builtin_rassoc(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if &pair.car.is_cons() {
-                    let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
-                    if equal_value(&inner_pair.cdr, key, 0) {
-                        return Ok(pair.car);
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if &pair_car.is_cons() {
+                    let inner_pair_car = cursor.cons_car();
+                    let inner_pair_cdr = cursor.cons_cdr();
+                    if equal_value(&inner_pair_cdr, key, 0) {
+                        return Ok(pair_car);
                     }
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => {
                 return Err(signal(
@@ -219,14 +223,16 @@ pub(crate) fn builtin_rassq(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if &pair.car.is_cons() {
-                    let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
-                    if eq_value(&inner_pair.cdr, key) {
-                        return Ok(pair.car);
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if &pair_car.is_cons() {
+                    let inner_pair_car = cursor.cons_car();
+                    let inner_pair_cdr = cursor.cons_cdr();
+                    if eq_value(&inner_pair_cdr, key) {
+                        return Ok(pair_car);
                     }
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => return Ok(Value::NIL),
         }
@@ -275,8 +281,9 @@ pub(crate) fn builtin_safe_length(args: Vec<Value>) -> EvalResult {
     loop {
         match hare.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                hare = pair.cdr;
+                let pair_car = hare.cons_car();
+                let pair_cdr = hare.cons_cdr();
+                hare = pair_cdr;
                 length += 1;
                 step += 1;
             }
@@ -516,22 +523,22 @@ pub(crate) fn builtin_backtrace_frame(
 
     match nframes.kind() {
         0 => {
-            let mut frame = vec![ValueKind::T, Value::symbol("backtrace-frame"), Value::fixnum(0)];
+            let mut frame = vec![Value::T, Value::symbol("backtrace-frame"), Value::fixnum(nframes)];
             if args.len() > 1 {
                 frame.push(args[1]);
             }
             Ok(Value::list(frame))
         }
         1 => {
-            let mut call = vec![Value::symbol("backtrace-frame"), Value::fixnum(1)];
-            if args.len() > 1 {
-                call.push(args[1]);
+            let mut call = vec![Value::symbol("backtrace-frame"), Value::fixnum(nframes)];
+            if args.len() > nframes {
+                call.push(args[nframes]);
             }
             Ok(Value::list(vec![
-                ValueKind::T,
+                Value::T,
                 Value::symbol("eval"),
                 Value::list(call),
-                ValueKind::Nil,
+                Value::NIL,
             ]))
         }
         2 | 3 => Ok(Value::list(vec![Value::NIL])),
@@ -637,7 +644,7 @@ fn runtime_backtrace_indirect_function(
             .or(Some(function))
         }
         ValueKind::Nil => None,
-        other => Some(other),
+        other => Some(function),
     }
 }
 
@@ -648,16 +655,17 @@ fn runtime_backtrace_frames_from_base(
     let mut offset = 0usize;
     let mut base_function = base;
     if base.is_cons() {
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if let Some(raw_offset) = pair.car.as_fixnum() {
+        let pair_car = base.cons_car();
+        let pair_cdr = base.cons_cdr();
+        if let Some(raw_offset) = pair_car.as_fixnum() {
             if raw_offset < 0 {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("wholenump"), pair.car],
+                    vec![Value::symbol("wholenump"), pair_car],
                 ));
             }
             offset = raw_offset as usize;
-            base_function = pair.cdr;
+            base_function = pair_cdr;
         }
     }
 

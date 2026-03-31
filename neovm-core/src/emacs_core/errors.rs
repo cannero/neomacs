@@ -445,9 +445,10 @@ fn build_peculiar_signal_flow(eval: &super::eval::Context, error_object: Value) 
     if !error_object.is_cons() {
         unreachable!("peculiar signal error object must be a cons");
     };
-    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    let error_symbol = pair.car;
-    let data = pair.cdr;
+    let pair_car = error_object.cons_car();
+    let pair_cdr = error_object.cons_cdr();
+    let error_symbol = pair_car;
+    let data = pair_cdr;
 
     let Some(sym_name) = error_symbol.as_symbol_name() else {
         return signal(
@@ -527,14 +528,14 @@ pub(crate) fn builtin_error_message_string(
     let (sym_name, data) = match error_data {
         Value::Cons(cell) => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            let sym = match pair.car.as_symbol_name() {
+            let sym = match pair_car.as_symbol_name() {
                 Some(name) => name.to_string(),
                 None => return Ok(Value::string("peculiar error")),
             };
-            let rest = match pair.cdr.kind() {
+            let rest = match pair_cdr.kind() {
                 ValueKind::Nil => vec![],
-                ValueKind::Cons => list_to_vec(&pair.cdr).unwrap_or_else(|| vec![pair.cdr]),
-                other => vec![pair.cdr],
+                ValueKind::Cons => list_to_vec(&pair_cdr).unwrap_or_else(|| vec![pair_cdr]),
+                other => vec![pair_cdr],
             };
             (sym, rest)
         }

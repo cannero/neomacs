@@ -134,7 +134,7 @@ fn eval_str(ev: &mut Context, src: &str) -> Value {
 fn eval_int(ev: &mut Context, src: &str) -> i64 {
     match eval_str(ev, src).kind() {
         ValueKind::Fixnum(n) => n,
-        other => panic!("expected Int, got {:?}", other),
+        other => panic!("expected Int, got {:?}", eval_str(ev, src)),
     }
 }
 

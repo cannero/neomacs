@@ -197,7 +197,7 @@ pub(crate) fn dispatch_subr_arity_value(name: &str) -> Value {
 fn is_macro_object(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Macro) => true,
-        ValueKind::Cons => read_cons(*cell).car.as_symbol_name() == Some("macro"),  // TODO(tagged): replace read_cons with cons accessors
+        ValueKind::Cons => value.cons_car().as_symbol_name() == Some("macro"),
         _ => false,
     }
 }

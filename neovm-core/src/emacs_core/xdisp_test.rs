@@ -948,9 +948,10 @@ fn test_line_pixel_height() {
 fn test_window_text_pixel_size() {
     let result = builtin_window_text_pixel_size(vec![]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_eq!(pair.car, Value::fixnum(0));
-        assert_eq!(pair.cdr, Value::fixnum(0));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_eq!(pair_car, Value::fixnum(0));
+        assert_eq!(pair_cdr, Value::fixnum(0));
     } else {
         panic!("expected cons");
     }
@@ -1541,7 +1542,7 @@ fn test_bidi_resolved_levels() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("fixnump"), ValueKind::T]);
+            assert_eq!(sig.data, vec![Value::symbol("fixnump"), Value::T]);
         }
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
@@ -1597,7 +1598,7 @@ fn test_bidi_find_overridden_directionality() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("integer-or-marker-p"), ValueKind::Nil]
+                vec![Value::symbol("integer-or-marker-p"), Value::NIL]
             );
         }
         other => panic!("expected wrong-type-argument, got {:?}", other),

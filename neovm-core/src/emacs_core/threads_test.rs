@@ -531,7 +531,7 @@ fn test_builtin_thread_set_buffer_disposition_rejects_non_nil_main_thread_value(
     match builtin_thread_set_buffer_disposition(&mut eval, vec![main_thread, Value::T]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("null"), ValueKind::T]);
+            assert_eq!(sig.data, vec![Value::symbol("null"), Value::T]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -703,7 +703,7 @@ fn test_builtin_condition_name_wrong_type_argument() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("condition-variable-p"), ValueKind::Nil]
+                vec![Value::symbol("condition-variable-p"), Value::NIL]
             );
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),

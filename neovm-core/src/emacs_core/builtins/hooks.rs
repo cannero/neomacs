@@ -796,7 +796,7 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
         ValueKind::Nil => {
             super::window_cmds::selected_frame_impl(&mut eval.frames, &mut eval.buffers, vec![])?
         }
-        value => value,
+        value => args.first().copied().unwrap_or(Value::NIL),
     };
     if !frame.is_frame() {
         return Ok(Value::NIL);
@@ -861,7 +861,7 @@ pub(crate) fn builtin_run_window_scroll_functions(
 
     let window_arg = match args.first().copied().unwrap_or(Value::NIL).kind() {
         ValueKind::Nil => super::window_cmds::builtin_selected_window(eval, vec![])?,
-        value => value,
+        value => args.first().copied().unwrap_or(Value::NIL),
     };
     if !window_arg.is_window() {
         return Ok(Value::NIL);

@@ -32,7 +32,7 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -53,7 +53,7 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
 
 fn expect_sequence_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *val],
@@ -1858,7 +1858,7 @@ pub(crate) fn builtin_keep_lines(eval: &mut super::eval::Context, args: Vec<Valu
         let keep_line = match string_matches_regexp(line, &regexp, case_fold) {
             Ok(matched) => matched,
             Err(Flow::Signal(sig)) if sig.symbol_name() == "invalid-regexp" => {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             Err(err) => return Err(err),
         };

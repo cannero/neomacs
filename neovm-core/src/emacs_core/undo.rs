@@ -146,7 +146,7 @@ pub(crate) fn builtin_primitive_undo(
         Some(v) => ctx.obarray.set_symbol_value("inhibit-read-only", v),
         None => ctx
             .obarray
-            .set_symbol_value("inhibit-read-only", ValueKind::Nil),
+            .set_symbol_value("inhibit-read-only", Value::NIL),
     }
 
     result

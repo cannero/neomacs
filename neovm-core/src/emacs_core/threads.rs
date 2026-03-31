@@ -577,11 +577,12 @@ fn tagged_object_id(value: &Value, expected_tag: &str) -> Option<u64> {
     if !value.is_cons() {
         return None;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some(expected_tag) {
+    let pair_car = value.cons_car();
+    let pair_cdr = value.cons_cdr();
+    if pair_car.as_symbol_name() != Some(expected_tag) {
         return None;
     }
-    match pair.cdr.kind() {
+    match pair_cdr.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Some(n as u64),
         _ => None,
     }
@@ -601,9 +602,10 @@ fn split_signal_binding_value(value: Value) -> Option<(Value, Value)> {
     if !value.is_cons() {
         return None;
     };
-    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    pair.car.as_symbol_name()?;
-    Some((pair.car, pair.cdr))
+    let pair_car = value.cons_car();
+    let pair_cdr = value.cons_cdr();
+    pair_car.as_symbol_name()?;
+    Some((pair_car, pair_cdr))
 }
 
 /// Extract a thread id from a canonical thread handle object.

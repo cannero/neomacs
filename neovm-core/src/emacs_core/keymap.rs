@@ -387,8 +387,9 @@ pub fn make_sparse_list_keymap() -> Value {
 pub fn is_list_keymap(v: &Value) -> bool {
     match v.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            pair.car.as_symbol_name() == Some("keymap")
+            let pair_car = v.cons_car();
+            let pair_cdr = v.cons_cdr();
+            pair_car.as_symbol_name() == Some("keymap")
         }
         _ => false,
     }
@@ -561,26 +562,30 @@ fn get_keyelt(binding: Value) -> Value {
         if !obj.is_cons() {
             return obj;
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if pair.car.is_string() {
+        let pair_car = obj.cons_car();
+        let pair_cdr = obj.cons_cdr();
+        if pair_car.is_string() {
             // (STRING . REST) — strip the menu label
-            obj = pair.cdr;
+            obj = pair_cdr;
             // Also strip a second string (help string)
             if obj.is_cons() {
-                let p2 = read_cons(c2);  // TODO(tagged): replace read_cons with cons accessors
-                if p2.car.is_string() {
-                    obj = p2.cdr;
+                let p2_car = obj.cons_car();
+                let p2_cdr = obj.cons_cdr();
+                if p2_car.is_string() {
+                    obj = p2_cdr;
                 }
             }
             continue;
         }
-        if pair.car.is_symbol_named("menu-item") {
+        if pair_car.is_symbol_named("menu-item") {
             // (menu-item NAME DEFN . PROPS) — extract DEFN (third element)
-            if pair.cdr.is_cons() {
-                let p1 = read_cons(c1); // NAME  // TODO(tagged): replace read_cons with cons accessors
-                if p1.cdr.is_cons() {
-                    let p2 = read_cons(c2); // DEFN  // TODO(tagged): replace read_cons with cons accessors
-                    return p2.car;
+            if pair_cdr.is_cons() {
+                let p1_car = pair.cdr.cons_car();
+                let p1_cdr = pair.cdr.cons_cdr();
+                if p1_cdr.is_cons() {
+                    let p2_car = p1.cdr.cons_car();
+                    let p2_cdr = p1.cdr.cons_cdr();
+                    return p2_car;
                 }
             }
             return Value::NIL;
@@ -630,12 +635,13 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
     if !keymap.is_cons() {
         return None;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("keymap") {
+    let pair_car = keymap.cons_car();
+    let pair_cdr = keymap.cons_cdr();
+    if pair_car.as_symbol_name() != Some("keymap") {
         return None;
     }
 
-    let mut cursor = pair.cdr;
+    let mut cursor = pair_cdr;
     let mut entries = 0;
     let mut t_binding: Option<Value> = None;
     while cursor.is_cons() {
@@ -682,7 +688,7 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
             if let Some(code) = *event.as_fixnum() {
                 if code >= 0 {
                     let idx = code as usize;
-                    let items = with_heap(|h| h.get_vector(vec_id).clone());
+                    let items = entry.car.as_vector_data().unwrap().clone();
                     if idx < items.len() {
                         let val = items[idx];
                         if !val.is_nil() {
@@ -697,15 +703,16 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
 
         // Alist entry: (EVENT . DEF)
         if entry.car.is_cons() {
-            let binding = read_cons(binding_cell);  // TODO(tagged): replace read_cons with cons accessors
-            if events_match(&binding.car, event) {
-                return Some(get_keyelt(binding.cdr));
+            let binding_car = entry.car.cons_car();
+            let binding_cdr = entry.car.cons_cdr();
+            if events_match(&binding_car, event) {
+                return Some(get_keyelt(binding_cdr));
             }
             // Check for (t . COMMAND) default binding.
             // GNU keymap.c:425-429: when t_ok, record the first t binding
             // but keep scanning for a specific match.
-            if t_ok && t_binding.is_none() && binding.car == Value::T {
-                t_binding = Some(get_keyelt(binding.cdr));
+            if t_ok && t_binding.is_none() && binding_car == Value::T {
+                t_binding = Some(get_keyelt(binding_cdr));
             }
         }
 
@@ -722,11 +729,12 @@ fn get_keymap_tail_parent(keymap: &Value) -> Value {
     if !keymap.is_cons() {
         return Value::NIL;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("keymap") {
+    let pair_car = keymap.cons_car();
+    let pair_cdr = keymap.cons_cdr();
+    if pair_car.as_symbol_name() != Some("keymap") {
         return Value::NIL;
     }
-    let mut cursor = pair.cdr;
+    let mut cursor = pair_cdr;
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
             return cursor;
@@ -784,11 +792,11 @@ fn list_keymap_access(keymap: &Value, event: &Value, noinherit: bool, t_ok: bool
             None => {
                 // No binding at this level. Follow parent chain if allowed.
                 if noinherit {
-                    return ValueKind::Nil;
+                    return Value::NIL;
                 }
                 let parent = get_keymap_tail_parent(&current);
                 if parent.is_nil() {
-                    return ValueKind::Nil;
+                    return Value::NIL;
                 }
                 current = parent;
             }
@@ -804,14 +812,15 @@ fn compose_keymaps(child: &Value, parent: &Value) -> Value {
     if !child.is_cons() {
         return *parent;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("keymap") {
+    let pair_car = child.cons_car();
+    let pair_cdr = child.cons_cdr();
+    if pair_car.as_symbol_name() != Some("keymap") {
         return *parent;
     }
 
     // Collect child's own entries (excluding its existing parent)
     let mut elements = vec![Value::symbol("keymap")];
-    let mut cursor = pair.cdr;
+    let mut cursor = pair_cdr;
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
             // Don't include child's existing parent; we'll set a new one
@@ -976,8 +985,9 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
     if !keymap.is_cons() {
         return;
     };
-    let root = read_cons(root_cell);  // TODO(tagged): replace read_cons with cons accessors
-    if root.car.as_symbol_name() != Some("keymap") {
+    let root_car = keymap.cons_car();
+    let root_cdr = keymap.cons_cdr();
+    if root_car.as_symbol_name() != Some("keymap") {
         return;
     }
 
@@ -985,7 +995,7 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
     // GNU keymap.c: insertion_point starts at keymap; if a char-table or
     // vector is found, insertion_point is updated to point after it.
     let mut insertion_point = Value::Cons(root_cell);
-    let mut cursor = root.cdr;
+    let mut cursor = root_cdr;
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
             // Hit a parent keymap boundary — stop scanning
@@ -1042,8 +1052,9 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
         // Alist entry: (EVENT . DEF) — check for existing binding to update in-place.
         // GNU keymap.c:842-849
         if entry.car.is_cons() {
-            let binding = read_cons(binding_cell);  // TODO(tagged): replace read_cons with cons accessors
-            if events_match(&binding.car, &event) {
+            let binding_car = entry.car.cons_car();
+            let binding_cdr = entry.car.cons_cdr();
+            if events_match(&binding_car, &event) {
                 if remove {
                     // Remove the entry: splice it out of the list.
                     // Set insertion_point's cdr to skip this entry.
@@ -1070,7 +1081,7 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
     if !remove {
         let binding = Value::cons(event, def);
         let old_cdr = match insertion_point.kind() {
-            ValueKind::Cons => read_cons(cell).cdr,  // TODO(tagged): replace read_cons with cons accessors
+            ValueKind::Cons => insertion_point.cons_cdr(),
             _ => Value::NIL,
         };
         let new_cdr = Value::cons(binding, old_cdr);
@@ -1083,12 +1094,13 @@ pub fn list_keymap_parent(keymap: &Value) -> Value {
     if !keymap.is_cons() {
         return Value::NIL;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("keymap") {
+    let pair_car = keymap.cons_car();
+    let pair_cdr = keymap.cons_cdr();
+    if pair_car.as_symbol_name() != Some("keymap") {
         return Value::NIL;
     }
 
-    let mut cursor = pair.cdr;
+    let mut cursor = pair_cdr;
     while cursor.is_cons() {
         // Check if cursor itself is a parent keymap before treating as alist entry
         if is_list_keymap(&cursor) {
@@ -1108,14 +1120,15 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
     if !keymap.is_cons() {
         return;
     };
-    let root = read_cons(root_cell);  // TODO(tagged): replace read_cons with cons accessors
-    if root.car.as_symbol_name() != Some("keymap") {
+    let root_car = keymap.cons_car();
+    let root_cdr = keymap.cons_cdr();
+    if root_car.as_symbol_name() != Some("keymap") {
         return;
     }
 
     // Find the last cons cell in the keymap list
     let mut prev_cell_value = Value::Cons(root_cell);
-    let mut cursor = root.cdr;
+    let mut cursor = root_cdr;
     loop {
         if is_list_keymap(&cursor) || cursor.is_nil() {
             prev_cell_value.set_cdr(parent);
@@ -1123,9 +1136,10 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
         }
         match cursor.kind() {
             ValueKind::Cons => {
-                let entry = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                let entry_car = cursor.cons_car();
+                let entry_cdr = cursor.cons_cdr();
                 // If cdr is a keymap (existing parent) or nil, we replace it
-                if is_list_keymap(&entry.cdr) || entry.cdr.is_nil() {
+                if is_list_keymap(&entry_cdr) || entry_cdr.is_nil() {
                     ValueKind::Cons.set_cdr(parent);
                     return;
                 }
@@ -1199,8 +1213,9 @@ pub(crate) fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
     };
 
     let (mode, cdr) = {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        (pair.car, pair.cdr)
+        let pair_car = entry.cons_car();
+        let pair_cdr = entry.cons_cdr();
+        (pair_car, pair_cdr)
     };
     let mode_name = mode.as_symbol_name()?.to_string();
     if cdr == Value::NIL {
@@ -1250,8 +1265,9 @@ fn collect_maps_from_alist_in_state(
             continue;
         };
         let (mode_var, keymap_val) = {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            (pair.car, pair.cdr)
+            let pair_car = entry.cons_car();
+            let pair_cdr = entry.cons_cdr();
+            (pair_car, pair_cdr)
         };
         let Some(mode_name) = mode_var.as_symbol_name() else {
             continue;
@@ -1287,8 +1303,9 @@ fn assq_in_alist(alist: &Value, key: &Value) -> bool {
         if !entry.is_cons() {
             continue;
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if pair.car == *key {
+        let pair_car = entry.cons_car();
+        let pair_cdr = entry.cons_cdr();
+        if pair_car == *key {
             return true;
         }
     }
@@ -1317,7 +1334,7 @@ pub(crate) fn collect_minor_mode_maps_in_state(
                     Some(name) => dynamic_buffer_or_global_symbol_value_in_state(
                         obarray, dynamic, buffers, buffer_id, name,
                     )
-                    .unwrap_or(ValueKind::Nil),
+                    .unwrap_or(Value::NIL),
                     None => entry,
                 };
                 collect_maps_from_alist_in_state(
@@ -1809,7 +1826,7 @@ pub(crate) fn minor_mode_key_binding_in_context(
                     current_buffer_id,
                     name,
                 )
-                .unwrap_or(ValueKind::Nil),
+                .unwrap_or(Value::NIL),
                 None => emulation_entry,
             };
             if let Some((mode_name, binding)) = lookup_minor_mode_binding_in_alist_in_obarray(
@@ -1914,7 +1931,7 @@ fn command_remapping_list_tail(value: &Value, n: usize) -> Option<Value> {
     for _ in 0..n {
         match cursor.kind() {
             ValueKind::Cons => {
-                cursor = read_cons(cell).cdr;  // TODO(tagged): replace read_cons with cons accessors
+                cursor = cursor.cons_cdr();
             }
             _ => return None,
         }
@@ -1925,7 +1942,7 @@ fn command_remapping_list_tail(value: &Value, n: usize) -> Option<Value> {
 fn command_remapping_nth_list_element(value: &Value, index: usize) -> Option<Value> {
     let tail = command_remapping_list_tail(value, index)?;
     match tail.kind() {
-        ValueKind::Cons => Some(read_cons(cell).car),  // TODO(tagged): replace read_cons with cons accessors
+        ValueKind::Cons => Some(tail.cons_car()),
         _ => None,
     }
 }
@@ -1944,13 +1961,15 @@ fn command_remapping_lookup_in_lisp_remap_entry(
     let mut bindings = command_remapping_list_tail(entry, 2)?;
     while bindings.is_cons() {
         let (binding_entry, rest) = {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            (pair.car, pair.cdr)
+            let pair_car = bindings.cons_car();
+            let pair_cdr = bindings.cons_cdr();
+            (pair_car, pair_cdr)
         };
         if binding_entry.is_cons() {
             let (binding_key, binding_target) = {
-                let pair = read_cons(binding_pair);  // TODO(tagged): replace read_cons with cons accessors
-                (pair.car, pair.cdr)
+                let pair_car = binding_entry.cons_car();
+                let pair_cdr = binding_entry.cons_cdr();
+                (pair_car, pair_cdr)
             };
             if binding_key.as_symbol_name() == Some(command_name) {
                 return Some(binding_target);
@@ -1984,7 +2003,7 @@ pub(crate) fn command_remapping_lookup_in_lisp_keymap(
 
         let (car, cdr) = {
             let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            (pair.car, pair.cdr)
+            (pair_car, pair_cdr)
         };
         if let Some(remap) = command_remapping_lookup_in_lisp_remap_entry(&car, command_name) {
             return Some(remap);
@@ -1999,12 +2018,13 @@ fn command_remapping_menu_item_target(value: &Value) -> Option<Value> {
     if !value.is_cons() {
         return None;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("menu-item") {
+    let pair_car = value.cons_car();
+    let pair_cdr = value.cons_cdr();
+    if pair_car.as_symbol_name() != Some("menu-item") {
         return None;
     }
 
-    let tail = pair.cdr;
+    let tail = pair_cdr;
     let title = command_remapping_nth_list_element(&tail, 0)?;
     if title.is_nil() {
         return None;
@@ -2531,13 +2551,14 @@ fn list_keymap_copy_impl(keymap: &Value, depth: usize) -> Value {
     if !keymap.is_cons() {
         return *keymap;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("keymap") {
+    let pair_car = keymap.cons_car();
+    let pair_cdr = keymap.cons_cdr();
+    if pair_car.as_symbol_name() != Some("keymap") {
         return *keymap;
     }
 
     let mut elements = vec![Value::symbol("keymap")];
-    let mut cursor = pair.cdr;
+    let mut cursor = pair_cdr;
     let mut tail_parent = Value::NIL;
 
     while cursor.is_cons() {
@@ -2557,9 +2578,10 @@ fn list_keymap_copy_impl(keymap: &Value, depth: usize) -> Value {
             elements.push(list_keymap_copy_impl(&entry.car, depth + 1));
         } else if entry.car.is_cons() {
             // Alist entry (EVENT . DEF) — copy the cons, recurse if DEF is a keymap
-            let binding = read_cons(binding_cell);  // TODO(tagged): replace read_cons with cons accessors
-            let copied_def = copy_keymap_item(&binding.cdr, depth);
-            elements.push(Value::cons(binding.car, copied_def));
+            let binding_car = entry.car.cons_car();
+            let binding_cdr = entry.car.cons_cdr();
+            let copied_def = copy_keymap_item(&binding_cdr, depth);
+            elements.push(Value::cons(binding_car, copied_def));
         } else {
             elements.push(entry.car);
         }
@@ -2639,13 +2661,14 @@ pub fn list_keymap_accessible(
     if !keymap.is_cons() {
         return;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("keymap") {
+    let pair_car = keymap.cons_car();
+    let pair_cdr = keymap.cons_cdr();
+    if pair_car.as_symbol_name() != Some("keymap") {
         return;
     }
 
     // Scan alist entries for prefix keymaps
-    let mut cursor = pair.cdr;
+    let mut cursor = pair_cdr;
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
             break;
@@ -2653,10 +2676,11 @@ pub fn list_keymap_accessible(
         let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
 
         if entry.car.is_cons() {
-            let binding = read_cons(binding_cell);  // TODO(tagged): replace read_cons with cons accessors
-            if is_list_keymap(&binding.cdr) {
-                prefix.push(binding.car);
-                list_keymap_accessible(&binding.cdr, prefix, out, seen);
+            let binding_car = entry.car.cons_car();
+            let binding_cdr = entry.car.cons_cdr();
+            if is_list_keymap(&binding_cdr) {
+                prefix.push(binding_car);
+                list_keymap_accessible(&binding_cdr, prefix, out, seen);
                 prefix.pop();
             }
         }
@@ -2687,12 +2711,13 @@ where
     if !keymap.is_cons() {
         return;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("keymap") {
+    let pair_car = keymap.cons_car();
+    let pair_cdr = keymap.cons_cdr();
+    if pair_car.as_symbol_name() != Some("keymap") {
         return;
     }
 
-    let mut cursor = pair.cdr;
+    let mut cursor = pair_cdr;
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
             break;
@@ -2704,8 +2729,9 @@ where
         }
 
         if entry.car.is_cons() {
-            let binding = read_cons(binding_cell);  // TODO(tagged): replace read_cons with cons accessors
-            f(binding.car, binding.cdr);
+            let binding_car = entry.car.cons_car();
+            let binding_cdr = entry.car.cons_cdr();
+            f(binding_car, binding_cdr);
         }
 
         if is_list_keymap(&entry.cdr) {

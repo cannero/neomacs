@@ -93,7 +93,7 @@ fn rectangle_strings_from_value(value: &Value) -> Result<Vec<String>, Flow> {
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("buffer-or-string-p"), other],
+                    vec![Value::symbol("buffer-or-string-p"), item],
                 ));
             }
         }

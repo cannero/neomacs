@@ -103,7 +103,7 @@ fn normalize_keyboard_coding_system(name: &str) -> String {
 fn coding_system_name(val: &Value) -> Result<String, Flow> {
     match val.kind() {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         other => Err(signal(
             "wrong-type-argument",
@@ -1094,32 +1094,32 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
             ValueKind::Fixnum(n) => {
                 if n == 0 {
                     if is_nil_coding {
-                        ValueKind::Nil
+                        Value::NIL
                     } else if resolved_base == "binary" {
                         Value::symbol("binary")
                     } else {
                         Value::symbol("no-conversion")
                     }
                 } else {
-                    ValueKind::Nil
+                    Value::NIL
                 }
             }
             ValueKind::Float => {
                 if *f == 0.0 {
                     if is_nil_coding {
-                        ValueKind::Nil
+                        Value::NIL
                     } else if resolved_base == "binary" {
                         Value::symbol("binary")
                     } else {
                         Value::symbol("no-conversion")
                     }
                 } else {
-                    ValueKind::Nil
+                    Value::NIL
                 }
             }
             ValueKind::Symbol(id) if resolve_sym(id) == "unix" => {
                 if is_nil_coding {
-                    ValueKind::Nil
+                    Value::NIL
                 } else if resolved_base == "binary" {
                     Value::symbol("binary")
                 } else {
@@ -1132,7 +1132,7 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
                     n == "dos" || n == "mac"
                 } =>
             {
-                ValueKind::Nil
+                Value::NIL
             }
             other => {
                 return Err(signal(
@@ -1201,7 +1201,7 @@ pub(crate) fn builtin_coding_system_change_text_conversion(
     let first_eol = match args[0].kind() {
         ValueKind::Nil => Some(0),
         ValueKind::String => None,
-        other => match other.as_symbol_name() {
+        other => match args[0].as_symbol_name() {
             Some(name) if name == "nil" => Some(0),
             Some(name) => {
                 if let Some(resolved) = resolve_runtime_name(mgr, name) {
@@ -1221,7 +1221,7 @@ pub(crate) fn builtin_coding_system_change_text_conversion(
                     None
                 }
             }
-            None => None,
+            None => args[0],
         },
     };
 
@@ -1489,7 +1489,7 @@ pub(crate) fn builtin_define_coding_system_alias(
         ValueKind::Nil => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("coding-system-p"), ValueKind::Nil],
+                vec![Value::symbol("coding-system-p"), Value::NIL],
             ));
         }
         other => {

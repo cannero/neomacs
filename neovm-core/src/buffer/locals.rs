@@ -555,8 +555,9 @@ fn preserve_partial_permanent_local_hook_binding(
             let mut preserved = Vec::new();
             let mut cursor = value;
             while cursor.is_cons() {
-                let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                let elt = pair.car;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                let elt = pair_car;
                 if elt.is_symbol_named("t")
                     || elt.as_symbol_name().is_some_and(|name| {
                         obarray
@@ -566,7 +567,7 @@ fn preserve_partial_permanent_local_hook_binding(
                 {
                     preserved.push(elt);
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
 
             RuntimeBindingValue::Bound(Value::list(preserved))

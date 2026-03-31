@@ -57,8 +57,9 @@ fn rassoc_found() {
     let result = builtin_rassoc(vec![Value::fixnum(2), alist]).unwrap();
     // Should return (b . 2)
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert!(eq_value(&pair.car, &Value::symbol("b")));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert!(eq_value(&pair_car, &Value::symbol("b")));
     } else {
         panic!("expected cons");
     }
@@ -79,8 +80,9 @@ fn rassq_found() {
     ]);
     let result = builtin_rassq(vec![Value::symbol("yes"), alist]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert!(eq_value(&pair.car, &Value::symbol("x")));
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert!(eq_value(&pair_car, &Value::symbol("x")));
     } else {
         panic!("expected cons");
     }
@@ -410,7 +412,7 @@ fn locale_info_days_months_and_paper_return_oracle_shapes() {
 
     let days = builtin_locale_info(vec![Value::symbol("days")]).unwrap();
     let days_vec = match days.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(v).clone()),
+        ValueKind::Veclike(VecLikeType::Vector) => days.as_vector_data().unwrap().clone(),
         other => panic!("days should be a vector, got {other:?}"),
     };
     assert_eq!(days_vec.len(), 7);
@@ -419,7 +421,7 @@ fn locale_info_days_months_and_paper_return_oracle_shapes() {
 
     let months = builtin_locale_info(vec![Value::symbol("months")]).unwrap();
     let months_vec = match months.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(v).clone()),
+        ValueKind::Veclike(VecLikeType::Vector) => months.as_vector_data().unwrap().clone(),
         other => panic!("months should be a vector, got {other:?}"),
     };
     assert_eq!(months_vec.len(), 12);

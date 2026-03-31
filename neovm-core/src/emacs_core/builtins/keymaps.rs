@@ -44,7 +44,7 @@ pub(crate) fn expect_key_events(value: &Value) -> Result<Vec<Value>, Flow> {
         // Vectors: use elements directly — integers are already emacs event codes,
         // symbols are already event symbols.
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_vector_data().unwrap().clone();
             let mut events = Vec::with_capacity(items.len());
             for item in &items {
                 match item.kind() {
@@ -141,7 +141,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 }
                 ValueKind::Veclike(VecLikeType::Vector) => {
                     // Vector prefix — elements are events directly
-                    with_heap(|h| h.get_vector(*id).clone())
+                    prefix_arg.as_vector_data().unwrap().clone()
                 }
                 ValueKind::Cons => {
                     // Lists are not valid as key sequences for prefix
@@ -163,10 +163,11 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 .into_iter()
                 .filter(|entry| {
                     if entry.is_cons() {
-                        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                        // pair.car is the prefix vector
-                        if pair.car.is_vector() {
-                            let entry_prefix = with_heap(|h| h.get_vector(vid).clone());
+                        let pair_car = entry.cons_car();
+                        let pair_cdr = entry.cons_cdr();
+                        // pair_car is the prefix vector
+                        if pair_car.is_vector() {
+                            let entry_prefix = pair_car.as_vector_data().unwrap().clone();
                             if entry_prefix.len() >= prefix_events.len() {
                                 return entry_prefix[..prefix_events.len()] == prefix_events[..];
                             }
@@ -524,13 +525,14 @@ pub(crate) fn plan_keymap_iteration(keymap: Value) -> KeymapIterationPlan {
 
         match entry.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                if !pair.cdr.is_nil() {
-                    bindings.push((pair.car, pair.cdr));
+                let pair_car = entry.cons_car();
+                let pair_cdr = entry.cons_cdr();
+                if !pair_cdr.is_nil() {
+                    bindings.push((pair_car, pair_cdr));
                 }
             }
             ValueKind::Veclike(VecLikeType::Vector) => {
-                let items = with_heap(|h| h.get_vector(*obj_id).clone());
+                let items = entry.as_vector_data().unwrap().clone();
                 for (idx, binding) in items.iter().enumerate() {
                     if !binding.is_nil() {
                         bindings.push((Value::fixnum(idx as i64), *binding));
@@ -716,7 +718,7 @@ pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
 
     match base.kind() {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => {
-            let mut code = match base {
+            let mut code = match base.kind() {
                 ValueKind::Fixnum(i) => i,
                 ValueKind::Char(c) => c as i64,
                 _ => unreachable!(),

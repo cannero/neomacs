@@ -313,8 +313,9 @@ fn hash_table_nan_payloads_remain_distinct_for_eql_and_equal() {
                 if !entry.is_cons() {
                     panic!("expected alist cons entry");
                 };
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                hashes.push(pair.cdr.as_int().expect("diagnostic hash integer"));
+                let pair_car = entry.cons_car();
+                let pair_cdr = entry.cons_cdr();
+                hashes.push(pair_cdr.as_int().expect("diagnostic hash integer"));
             }
         }
         hashes.sort_unstable();
@@ -467,9 +468,10 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
             if !entry.is_cons() {
                 panic!("expected alist cons entry");
             };
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            let key = pair.car.as_str().expect("string key").to_string();
-            let hash = pair.cdr.as_int().expect("diagnostic hash integer");
+            let pair_car = entry.cons_car();
+            let pair_cdr = entry.cons_cdr();
+            let key = pair_car.as_str().expect("string key").to_string();
+            let hash = pair_cdr.as_int().expect("diagnostic hash integer");
             seen.insert(key, hash);
         }
     }
@@ -585,9 +587,10 @@ fn internal_hash_table_buckets_eq_pointer_keys_keep_distinct_hashes() {
             if !entry.is_cons() {
                 panic!("expected alist cons entry");
             };
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            keys.push(pair.car);
-            hashes.push(pair.cdr.as_int().expect("diagnostic hash integer"));
+            let pair_car = entry.cons_car();
+            let pair_cdr = entry.cons_cdr();
+            keys.push(pair_car);
+            hashes.push(pair_cdr.as_int().expect("diagnostic hash integer"));
         }
     }
     assert_eq!(keys.len(), 2);
@@ -629,9 +632,9 @@ fn internal_hash_table_buckets_equal_preserve_first_key_identity_on_overwrite() 
         panic!("expected alist cons entry");
     };
     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    assert_eq!(pair.car.as_str(), Some("x"));
-    assert!(eq_value(&pair.car, &key_a));
-    assert!(!eq_value(&pair.car, &key_b));
+    assert_eq!(pair_car.as_str(), Some("x"));
+    assert!(eq_value(&pair_car, &key_a));
+    assert!(!eq_value(&pair_car, &key_b));
 }
 
 #[test]
@@ -646,9 +649,10 @@ fn internal_hash_table_buckets_match_oracle_small_float_hashes() {
                 if !entry.is_cons() {
                     panic!("expected alist cons entry");
                 };
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                let key_bits = pair.car.as_float().expect("float key").to_bits();
-                let hash = pair.cdr.as_int().expect("diagnostic hash integer");
+                let pair_car = entry.cons_car();
+                let pair_cdr = entry.cons_cdr();
+                let key_bits = pair_car.as_float().expect("float key").to_bits();
+                let hash = pair_cdr.as_int().expect("diagnostic hash integer");
                 seen.insert(key_bits, hash);
             }
         }
@@ -697,8 +701,9 @@ fn internal_hash_table_buckets_match_oracle_float_special_hashes() {
                 if !entry.is_cons() {
                     panic!("expected alist cons entry");
                 };
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                let hash = pair.cdr.as_int().expect("diagnostic hash integer");
+                let pair_car = entry.cons_car();
+                let pair_cdr = entry.cons_cdr();
+                let hash = pair_cdr.as_int().expect("diagnostic hash integer");
                 seen.push(hash);
             }
         }

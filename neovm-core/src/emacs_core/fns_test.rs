@@ -451,7 +451,7 @@ fn md5_eval_buffer_range_errors() {
     match builtin_md5(&mut eval, vec![Value::Buffer(id), Value::fixnum(5)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::fixnum(5), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::fixnum(5), Value::NIL]);
         }
         other => panic!("expected args-out-of-range signal, got {other:?}"),
     }
@@ -1045,7 +1045,7 @@ fn widget_apply_missing_property_signals_void_function_nil() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "void-function");
-            assert_eq!(sig.data, vec![ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::NIL]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }

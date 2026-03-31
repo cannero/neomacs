@@ -25,14 +25,15 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
                 match cursor.kind() {
                     ValueKind::Nil => break,
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        call_args.push(pair.car);
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        call_args.push(pair_car);
+                        cursor = pair_cdr;
                     }
                     other => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), other],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -95,16 +96,17 @@ where
                 match cursor.kind() {
                     ValueKind::Nil => break,
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        let item = pair.car;
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        let item = pair_car;
+                        cursor = pair_cdr;
                         drop(pair);
                         f(item)?;
                     }
                     tail => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -112,7 +114,7 @@ where
             Ok(())
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-            for item in with_heap(|h| h.get_vector(*v).clone()).into_iter() {
+            for item in seq.as_vector_data().unwrap().clone().into_iter() {
                 f(item)?;
             }
             Ok(())
@@ -130,7 +132,7 @@ where
             Ok(())
         }
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = seq.as_str().unwrap().to_owned();
             for cp in decode_storage_char_codes(&s) {
                 f(Value::fixnum(cp as i64))?;
             }
@@ -163,9 +165,10 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
                 match cursor.kind() {
                     ValueKind::Nil => break Ok(()),
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        let item = pair.car;
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        let item = pair_car;
+                        cursor = pair_cdr;
                         drop(pair);
                         ctx.root(cursor);
                         let val = ctx.apply(func, vec![item])?;
@@ -175,7 +178,7 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
                     tail => {
                         break Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -214,9 +217,10 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
                 match cursor.kind() {
                     ValueKind::Nil => break Ok(()),
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        let item = pair.car;
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        let item = pair_car;
+                        cursor = pair_cdr;
                         drop(pair);
                         // Root the remaining tail before calling the function.
                         ctx.root(cursor);
@@ -225,7 +229,7 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
                     tail => {
                         break Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -412,14 +416,14 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
                 match cursor.kind() {
                     ValueKind::Nil => break,
                     ValueKind::Cons => {
-                        values.push(with_heap(|h| h.cons_car(cell)));
+                        values.push(cursor.cons_car());
                         cons_cells.push(cell);
-                        cursor = with_heap(|h| h.cons_cdr(cell));
+                        cursor = cursor.cons_cdr();
                     }
                     tail => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -437,7 +441,7 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
             let mut sorted_values = sorted_values?;
             if in_place {
                 for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
-                    with_heap_mut(|h| h.set_car(*cell, value));
+                    args[0].set_car(value);
                 }
                 Ok(args[0])
             } else {
@@ -445,7 +449,7 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-            let values = with_heap(|h| h.get_vector(*v).clone());
+            let values = args[0].as_vector_data().unwrap().clone();
             let sorted_values = eval.with_gc_scope(|ctx| {
                 ctx.root(args[0]);
                 ctx.root(lessp_fn);

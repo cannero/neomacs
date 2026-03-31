@@ -117,7 +117,7 @@ pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<BufferId>, Opti
     if !v.is_marker() {
         return None;
     };
-    let marker = with_heap(|heap| heap.get_marker(*id).clone());
+    let marker = v.as_marker_data().unwrap().clone();
     Some((marker.buffer, marker.position, marker.insertion_type))
 }
 
@@ -135,7 +135,7 @@ fn marker_id_value(v: &Value) -> Option<u64> {
     if !v.is_marker() {
         return None;
     };
-    with_heap(|heap| heap.get_marker(*id).marker_id)
+    v.as_marker_data().unwrap().marker_id
 }
 
 fn is_mark_marker(v: &Value) -> bool {
@@ -167,10 +167,10 @@ fn marker_position_value(v: &Value) -> Value {
     if !v.is_marker() {
         return Value::NIL;
     };
-    with_heap(|heap| match heap.get_marker(*id).position {
+    match v.as_marker_data().unwrap().position {
         Some(position) => Value::fixnum(position),
         None => Value::NIL,
-    })
+    }
 }
 
 /// Return marker position as an integer.
@@ -231,24 +231,24 @@ fn marker_buffer_value(v: &Value) -> Value {
     if !v.is_marker() {
         return Value::NIL;
     };
-    with_heap(|heap| match heap.get_marker(*id).buffer {
+    match v.as_marker_data().unwrap().buffer {
         Some(buffer_id) => Value::make_buffer(buffer_id),
         None => Value::NIL,
-    })
+    }
 }
 
 fn marker_insertion_type_value(v: &Value) -> Value {
     if !v.is_marker() {
         return Value::NIL;
     };
-    with_heap(|heap| Value::bool_val(heap.get_marker(*id).insertion_type))
+    Value::bool_val(v.as_marker_data().unwrap().insertion_type)
 }
 
 fn marker_buffer_id(v: &Value) -> Option<BufferId> {
     if !v.is_marker() {
         return None;
     };
-    with_heap(|heap| heap.get_marker(*id).buffer)
+    v.as_marker_data().unwrap().buffer
 }
 
 fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> usize {
@@ -455,7 +455,7 @@ pub(crate) fn builtin_set_marker_in_buffers(
     let buffer_id: Option<BufferId> = if args.len() > 2 && args[2].is_truthy() {
         match args[2].kind() {
             ValueKind::String => {
-                let name = with_heap(|h| h.get_string(*sid).to_owned());
+                let name = args[2].as_str().unwrap().to_owned();
                 buffers.find_buffer_by_name(&name)
             }
             ValueKind::Veclike(VecLikeType::Buffer) => Some(*id),

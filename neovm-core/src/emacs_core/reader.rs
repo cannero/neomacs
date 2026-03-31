@@ -48,7 +48,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -93,11 +93,12 @@ fn expect_initial_input_stringish(value: &Value) -> Result<(), Flow> {
     match value.kind() {
         ValueKind::Nil | ValueKind::String => Ok(()),
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            if !matches!(pair.car, ValueKind::String) {
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            if !matches!(pair_car, ValueKind::String) {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), pair.car],
+                    vec![Value::symbol("stringp"), pair_car],
                 ));
             }
             Ok(())
@@ -113,17 +114,18 @@ fn expect_completing_read_initial_input(value: &Value) -> Result<(), Flow> {
     match value.kind() {
         ValueKind::Nil | ValueKind::String => Ok(()),
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            if !matches!(pair.car, ValueKind::String) {
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            if !matches!(pair_car, ValueKind::String) {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), pair.car],
+                    vec![Value::symbol("stringp"), pair_car],
                 ));
             }
-            if !matches!(pair.cdr, Value::fixnum(_) | ValueKind::Char(_)) {
+            if !matches!(pair_cdr, Value::fixnum(_) | ValueKind::Char(_)) {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("number-or-marker-p"), pair.cdr],
+                    vec![Value::symbol("number-or-marker-p"), pair_cdr],
                 ));
             }
             Ok(())
@@ -602,8 +604,9 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
             // Return just the car (the parsed object)
             match result.kind() {
                 ValueKind::Cons => {
-                    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                    Ok(pair.car)
+                    let pair_car = result.cons_car();
+                    let pair_cdr = result.cons_cdr();
+                    Ok(pair_car)
                 }
                 _ => Ok(result),
             }
@@ -792,8 +795,8 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
 
     let prompt = expect_string(&args[0])?;
     // Extract optional arguments
-    let initial_input = args.get(1).and_then(|v| match v {
-        ValueKind::String => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+    let initial_input = args.get(1).and_then(|v| match v.kind() {
+        ValueKind::String => Some(super::value::v.as_str().unwrap().to_owned()),
         _ => None,
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -971,7 +974,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
 fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<String> {
     match hist_arg.copied().unwrap_or(Value::NIL).kind() {
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
-        ValueKind::Cons => read_cons(id).car.as_symbol_name().map(str::to_string),  // TODO(tagged): replace read_cons with cons accessors
+        ValueKind::Cons => hist_arg.copied().unwrap_or(Value::NIL).cons_car().as_symbol_name().map(str::to_string),
         _ => None,
     }
 }
@@ -1292,8 +1295,8 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     }
 
     let prompt = expect_string(&args[0])?;
-    let initial_input = args.get(1).and_then(|v| match v {
-        ValueKind::String => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+    let initial_input = args.get(1).and_then(|v| match v.kind() {
+        ValueKind::String => Some(super::value::v.as_str().unwrap().to_owned()),
         _ => None,
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -2070,7 +2073,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
         let full_prompt = format!("{} (yes or no) ", prompt_str);
         let result = read_from_minibuffer(&[Value::string(&full_prompt)])?;
         if result.is_string() {
-            let answer = super::value::with_heap(|h| h.get_string(id).to_owned());
+            let answer = super::value::result.as_str().unwrap().to_owned();
             match answer.trim() {
                 "yes" => return Ok(Value::T),
                 "no" => return Ok(Value::NIL),

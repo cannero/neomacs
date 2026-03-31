@@ -237,7 +237,7 @@ fn charset_id_internal_requires_charset() {
     match r {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("charsetp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("charsetp"), Value::NIL]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -293,7 +293,7 @@ fn define_charset_internal_validates_name_arg() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("symbolp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("symbolp"), Value::NIL]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }

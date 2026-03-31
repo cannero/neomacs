@@ -23,7 +23,7 @@ fn call_replace_regexp_in_string(args: Vec<Value>) -> EvalResult {
 fn assert_int(val: Value, expected: i64) {
     match val.kind() {
         ValueKind::Fixnum(n) => assert_eq!(n, expected),
-        other => panic!("Expected Int({}), got {:?}", expected, other),
+        other => panic!("Expected Int({}), got {:?}", expected, val),
     }
 }
 
@@ -38,10 +38,10 @@ fn assert_true(val: Value) {
 fn assert_str(val: Value, expected: &str) {
     match val.kind() {
         ValueKind::String => {
-            let s = crate::emacs_core::value::with_heap(|h| h.get_string(id).to_owned());
+            let s = val.as_str().unwrap().to_owned();
             assert_eq!(&*s, expected);
         }
-        other => panic!("Expected string {:?}, got {:?}", expected, other),
+        other => panic!("Expected string {:?}, got {:?}", expected, val),
     }
 }
 

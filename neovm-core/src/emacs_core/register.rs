@@ -372,12 +372,12 @@ pub(crate) fn builtin_increment_register(
     match eval.registers.get(reg).cloned() {
         Some(RegisterContent::Number(n)) => {
             eval.registers.set(reg, RegisterContent::Number(n + inc));
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
         Some(RegisterContent::Text(mut s)) => {
             s.push_str(&inc.to_string());
             eval.registers.set(reg, RegisterContent::Text(s));
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
         Some(_) => Err(signal(
             "error",
@@ -389,7 +389,7 @@ pub(crate) fn builtin_increment_register(
         None => {
             // Empty register: treat as number starting from 0
             eval.registers.set(reg, RegisterContent::Number(inc));
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
     }
 }
@@ -502,7 +502,7 @@ pub(crate) fn builtin_set_register(
         ValueKind::Fixnum(n) => RegisterContent::Number(n),
         ValueKind::Nil => {
             eval.registers.clear(reg);
-            return Ok(ValueKind::Nil);
+            return Ok(Value::NIL);
         }
         other => RegisterContent::FrameConfig(args[1]),
     };

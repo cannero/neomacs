@@ -141,7 +141,7 @@ pub(crate) fn prepare_make_indirect_buffer_in_manager(
             id
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(str_id).to_owned());
+            let name = args[0].as_str().unwrap().to_owned();
             buffers.find_buffer_by_name(&name).ok_or_else(|| {
                 signal(
                     "error",
@@ -152,7 +152,7 @@ pub(crate) fn prepare_make_indirect_buffer_in_manager(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -214,11 +214,11 @@ pub(crate) fn builtin_get_buffer(eval: &mut super::eval::Context, args: Vec<Valu
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => Ok(args[0]),
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = args[0].as_str().unwrap().to_owned();
             if let Some(buf_id) = buffers.find_buffer_by_name(&s) {
                 Ok(ValueKind::Veclike(VecLikeType::Buffer))
             } else {
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         }
         other => Err(signal(
@@ -351,7 +351,7 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
         },
         Some(ValueKind::Veclike(VecLikeType::Buffer)) => {
             if eval.buffers.get(*id).is_none() {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             *id
         }
@@ -492,7 +492,7 @@ pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Valu
             *id
         }
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*str_id).to_owned());
+            let s = args[0].as_str().unwrap().to_owned();
             eval.buffers.find_buffer_by_name(&s).ok_or_else(|| {
                 signal("error", vec![Value::string(format!("No buffer named {s}"))])
             })?
@@ -703,7 +703,7 @@ fn resolve_buffer_designator_allow_nil_current(
             }
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*name_id).to_owned());
+            let name = arg.as_str().unwrap().to_owned();
             eval.buffers
                 .find_buffer_by_name(&name)
                 .map(Some)
@@ -798,7 +798,7 @@ pub(crate) fn resolve_buffer_designator_allow_nil_current_in_manager(
             }
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*name_id).to_owned());
+            let name = arg.as_str().unwrap().to_owned();
             buffers.find_buffer_by_name(&name).map(Some).ok_or_else(|| {
                 signal(
                     "error",
@@ -1002,7 +1002,7 @@ fn replace_region_source_value_in_state(
             )
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*id).clone());
+            let items = source.as_vector_data().unwrap().clone();
             if items.len() != 3 {
                 return Err(signal(
                     "wrong-type-argument",
@@ -1152,14 +1152,14 @@ pub(crate) fn builtin_ntake(args: Vec<Value>) -> EvalResult {
     for _ in 1..n {
         match cursor.kind() {
             ValueKind::Cons => {
-                let next = with_heap(|h| h.cons_cdr(cell));
+                let next = cursor.cons_cdr();
                 match next.kind() {
                     ValueKind::Cons => cursor = next,
                     ValueKind::Nil => return Ok(head),
                     other => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), other],
+                            vec![Value::symbol("listp"), next],
                         ));
                     }
                 }
@@ -1168,7 +1168,7 @@ pub(crate) fn builtin_ntake(args: Vec<Value>) -> EvalResult {
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("listp"), other],
+                    vec![Value::symbol("listp"), cursor],
                 ));
             }
         }
@@ -1176,13 +1176,13 @@ pub(crate) fn builtin_ntake(args: Vec<Value>) -> EvalResult {
 
     match cursor.kind() {
         ValueKind::Cons => {
-            with_heap_mut(|h| h.set_cdr(cell, ValueKind::Nil));
+            cursor.set_cdr(Value::NIL);
             Ok(head)
         }
         ValueKind::Nil => Ok(head),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("listp"), other],
+            vec![Value::symbol("listp"), cursor],
         )),
     }
 }
@@ -1972,8 +1972,8 @@ fn field_property_after_char_in_buffers(
         vec![Value::fixnum(pos), Value::symbol("field")],
     )?;
     match value.kind() {
-        ValueKind::Cons => Ok(read_cons(cell).car),  // TODO(tagged): replace read_cons with cons accessors
-        other => Err(signal("error", vec![other])),
+        ValueKind::Cons => Ok(value.cons_car()),
+        other => Err(signal("error", vec![value])),
     }
 }
 
@@ -2270,7 +2270,7 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
     for arg in args {
         match arg.kind() {
             ValueKind::String => pieces.push(InsertPiece {
-                text: with_heap(|h| h.get_string(*id).to_owned()),
+                text: arg.as_str().unwrap().to_owned(),
                 text_props: get_string_text_properties_table(*id),
             }),
             ValueKind::Char(c) => pieces.push(InsertPiece {
@@ -2670,12 +2670,12 @@ pub(crate) fn builtin_buffer_enable_undo(
         match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Buffer) => {
                 if eval.buffers.get(*id).is_none() {
-                    return Ok(ValueKind::Nil);
+                    return Ok(Value::NIL);
                 }
                 *id
             }
             ValueKind::String => {
-                let name = with_heap(|h| h.get_string(*name_id).to_owned());
+                let name = args[0].as_str().unwrap().to_owned();
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
@@ -2728,13 +2728,13 @@ pub(crate) fn builtin_buffer_disable_undo(
                 *id
             }
             ValueKind::String => {
-                let name = with_heap(|h| h.get_string(*name_id).to_owned());
+                let name = args[0].as_str().unwrap().to_owned();
                 match eval.buffers.find_buffer_by_name(&name).kind() {
                     Some(id) => id,
                     None => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("stringp"), ValueKind::Nil],
+                            vec![Value::symbol("stringp"), Value::NIL],
                         ));
                     }
                 }

@@ -484,7 +484,7 @@ fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
     if !result.is_vector() {
         panic!("expected vector result, got {result:?}");
     };
-    let slots = with_heap(|h| h.get_vector(id).clone());
+    let slots = result.as_vector_data().unwrap().clone();
     assert_eq!(slots.len(), 4);
     assert!(matches!(slots[0], Value::Cons(_) | Value::NIL));
     assert!(matches!(slots[1], Value::NIL | ValueKind::String));
@@ -846,7 +846,7 @@ fn accessible_keymaps_prefix_type_errors_match_oracle_shape() {
     match sequence_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("sequencep"), ValueKind::T]);
+            assert_eq!(sig.data, vec![Value::symbol("sequencep"), Value::T]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2413,7 +2413,7 @@ fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::fixnum(1), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::fixnum(1), Value::NIL]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3006,7 +3006,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     match disable_missing_name {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::NIL]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3552,7 +3552,7 @@ fn pure_dispatch_typed_aset_string_errors_match_oracle() {
     match wrong_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("characterp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::NIL]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -5300,7 +5300,7 @@ fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
     match module_load_type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::NIL]);
         }
         other => panic!("expected signal, got: {other:?}"),
     }
@@ -6513,7 +6513,7 @@ fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
         panic!("expected vector");
     };
     assert_eq!(
-        &*with_heap(|h| h.get_vector(values).clone()),
+        &*filled.as_vector_data().unwrap().clone(),
         &[Value::fixnum(9), Value::fixnum(9), Value::fixnum(9)]
     );
 
@@ -8717,9 +8717,10 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
         .expect("func-arity should resolve t designator");
     match t_arity.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car, Value::fixnum(1));
-            assert_eq!(pair.cdr, Value::fixnum(1));
+            let pair_car = t_arity.cons_car();
+            let pair_cdr = t_arity.cons_cdr();
+            assert_eq!(pair_car, Value::fixnum(1));
+            assert_eq!(pair_cdr, Value::fixnum(1));
         }
         other => panic!("expected cons arity pair, got {other:?}"),
     }
@@ -8728,9 +8729,10 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
         .expect("func-arity should resolve keyword designator");
     match keyword_arity.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car, Value::fixnum(1));
-            assert_eq!(pair.cdr, Value::fixnum(1));
+            let pair_car = keyword_arity.cons_car();
+            let pair_cdr = keyword_arity.cons_cdr();
+            assert_eq!(pair_car, Value::fixnum(1));
+            assert_eq!(pair_cdr, Value::fixnum(1));
         }
         other => panic!("expected cons arity pair, got {other:?}"),
     }

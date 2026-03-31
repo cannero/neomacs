@@ -12,14 +12,14 @@ fn assert_float_eq(val: &Value, expected: f64, epsilon: f64) {
                 f
             );
         }
-        other => panic!("expected Float, got {:?}", other),
+        other => panic!("expected Float, got {:?}", val),
     }
 }
 
 fn assert_int_eq(val: &Value, expected: i64) {
     match val.kind() {
         ValueKind::Fixnum(n) => assert_eq!(n, expected, "expected {} but got {}", expected, n),
-        other => panic!("expected Int, got {:?}", other),
+        other => panic!("expected Int, got {:?}", val),
     }
 }
 
@@ -47,9 +47,10 @@ fn test_frexp() {
     let result = builtin_frexp(vec![Value::make_float(8.0)]).unwrap();
     // 8.0 = 0.5 * 2^4
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_float_eq(&pair.car, 0.5, 1e-10);
-        assert_int_eq(&pair.cdr, 4);
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_float_eq(&pair_car, 0.5, 1e-10);
+        assert_int_eq(&pair_cdr, 4);
     } else {
         panic!("expected cons");
     }
@@ -57,9 +58,10 @@ fn test_frexp() {
     // frexp(0.0) = (0.0 . 0)
     let result = builtin_frexp(vec![Value::make_float(0.0)]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_float_eq(&pair.car, 0.0, 1e-10);
-        assert_int_eq(&pair.cdr, 0);
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_float_eq(&pair_car, 0.0, 1e-10);
+        assert_int_eq(&pair_cdr, 0);
     } else {
         panic!("expected cons");
     }
@@ -67,15 +69,16 @@ fn test_frexp() {
     // frexp(-0.0) preserves signed-zero in significand.
     let result = builtin_frexp(vec![Value::make_float(-0.0)]).unwrap();
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        match pair.car.kind() {
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        match pair_car.kind() {
             ValueKind::Float => {
                 assert_eq!(f, 0.0);
                 assert!(f.is_sign_negative(), "expected negative zero");
             }
             ref other => panic!("expected Float, got {:?}", other),
         }
-        assert_int_eq(&pair.cdr, 0);
+        assert_int_eq(&pair_cdr, 0);
     } else {
         panic!("expected cons");
     }
@@ -86,9 +89,10 @@ fn test_frexp_negative() {
     let result = builtin_frexp(vec![Value::make_float(-6.0)]).unwrap();
     // -6.0 = -0.75 * 2^3
     if result.is_cons() {
-        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert_float_eq(&pair.car, -0.75, 1e-10);
-        assert_int_eq(&pair.cdr, 3);
+        let pair_car = result.cons_car();
+        let pair_cdr = result.cons_cdr();
+        assert_float_eq(&pair_car, -0.75, 1e-10);
+        assert_int_eq(&pair_cdr, 3);
     } else {
         panic!("expected cons");
     }
@@ -163,7 +167,7 @@ fn test_fround() {
             assert_eq!(f, 0.0);
             assert!(f.is_sign_negative(), "expected negative zero");
         }
-        other => panic!("expected Float, got {:?}", other),
+        other => panic!("expected Float, got {:?}", result),
     }
 }
 

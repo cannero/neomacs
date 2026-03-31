@@ -159,9 +159,10 @@ pub(crate) fn signal_from_binding_value(value: Value) -> Option<Flow> {
     if !value.is_cons() {
         return None;
     };
-    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    let symbol = pair.car;
-    let tail = pair.cdr;
+    let pair_car = value.cons_car();
+    let pair_cdr = value.cons_cdr();
+    let symbol = pair_car;
+    let tail = pair_cdr;
     let symbol_name = symbol.as_symbol_name()?;
     if tail.is_nil() {
         return Some(signal(symbol_name, vec![]));
@@ -391,7 +392,7 @@ fn format_value_in_state_slow(
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
             let mut out = String::from("[");
-            let items = with_heap(|h| h.get_vector(*vec).clone());
+            let items = value.as_vector_data().unwrap().clone();
             for (idx, item) in items.iter().enumerate() {
                 if idx > 0 {
                     out.push(' ');
@@ -473,11 +474,12 @@ fn format_cons_in_state(
                 if !first {
                     out.push(' ');
                 }
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
                 out.push_str(&format_value_in_state(
-                    obarray, buffers, frames, threads, &pair.car, options,
+                    obarray, buffers, frames, threads, &pair_car, options,
                 ));
-                cursor = pair.cdr;
+                cursor = pair_cdr;
                 first = false;
             }
             ValueKind::Nil => return,
@@ -486,7 +488,7 @@ fn format_cons_in_state(
                     out.push_str(" . ");
                 }
                 out.push_str(&format_value_in_state(
-                    obarray, buffers, frames, threads, &other, options,
+                    obarray, buffers, frames, threads, &cursor, options,
                 ));
                 return;
             }
@@ -678,11 +680,12 @@ fn append_cons_bytes_in_state(
                 if !first {
                     out.push(b' ');
                 }
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
                 out.extend(format_value_bytes_in_state_with_options(
-                    obarray, buffers, frames, threads, &pair.car, options,
+                    obarray, buffers, frames, threads, &pair_car, options,
                 ));
-                cursor = pair.cdr;
+                cursor = pair_cdr;
                 first = false;
             }
             ValueKind::Nil => return,
@@ -691,7 +694,7 @@ fn append_cons_bytes_in_state(
                     out.extend_from_slice(b" . ");
                 }
                 out.extend(format_value_bytes_in_state_with_options(
-                    obarray, buffers, frames, threads, &other, options,
+                    obarray, buffers, frames, threads, &cursor, options,
                 ));
                 return;
             }

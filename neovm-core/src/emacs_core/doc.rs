@@ -174,9 +174,9 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
             Ok(bc
                 .docstring
                 .as_ref()
-                .map_or(ValueKind::Nil, |doc| Value::string(doc.clone())))
+                .map_or(Value::NIL, |doc| Value::string(doc.clone())))
         }
-        other => Err(signal("invalid-function", vec![other])),
+        other => Err(signal("invalid-function", vec![func_val])),
     }
 }
 
@@ -231,32 +231,35 @@ fn quoted_lambda_documentation(function: &Value) -> Option<EvalResult> {
         return None;
     };
 
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("lambda") {
+    let pair_car = function.cons_car();
+    let pair_cdr = function.cons_cdr();
+    if pair_car.as_symbol_name() != Some("lambda") {
         return None;
     }
 
-    let mut tail = pair.cdr;
+    let mut tail = pair_cdr;
 
     if !tail.is_cons() {
         return Some(Err(signal("invalid-function", vec![*function])));
     };
-    let params_and_body = read_cons(param_cell);  // TODO(tagged): replace read_cons with cons accessors
-    tail = params_and_body.cdr;
+    let params_and_body_car = tail.cons_car();
+    let params_and_body_cdr = tail.cons_cdr();
+    tail = params_and_body_cdr;
 
     match tail.kind() {
         ValueKind::Nil => Some(Ok(Value::NIL)),
         ValueKind::Cons => {
-            let body = read_cons(body_cell);  // TODO(tagged): replace read_cons with cons accessors
-            if let Some(doc) = body.car.as_str() {
+            let body_car = tail.cons_car();
+            let body_cdr = tail.cons_cdr();
+            if let Some(doc) = body_car.as_str() {
                 Some(Ok(Value::string(doc)))
             } else {
-                Some(Ok(ValueKind::Nil))
+                Some(Ok(Value::NIL))
             }
         }
         other => Some(Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("listp"), other],
+            vec![Value::symbol("listp"), tail],
         ))),
     }
 }
@@ -266,12 +269,13 @@ fn quoted_macro_invalid_designator(function: &Value) -> Option<EvalResult> {
         return None;
     };
 
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("macro") {
+    let pair_car = function.cons_car();
+    let pair_cdr = function.cons_cdr();
+    if pair_car.as_symbol_name() != Some("macro") {
         return None;
     }
 
-    let payload = pair.cdr;
+    let payload = pair_cdr;
     if payload.is_nil() {
         return Some(Err(signal("void-function", vec![Value::NIL])));
     }
@@ -306,8 +310,9 @@ fn compiled_doc_ref(value: &Value) -> Option<(String, i64)> {
     if !value.is_cons() {
         return None;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    Some((pair.car.as_str_owned()?, pair.cdr.as_int()?))
+    let pair_car = value.cons_car();
+    let pair_cdr = value.cons_cdr();
+    Some((pair_car.as_str_owned()?, pair_cdr.as_int()?))
 }
 
 fn resolve_compiled_doc_path(lisp_directory: Option<&str>, file: &str) -> PathBuf {

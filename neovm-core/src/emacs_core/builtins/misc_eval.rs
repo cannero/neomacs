@@ -91,7 +91,7 @@ pub(crate) fn builtin_next_char_property_change_in_buffers(
         1 => super::textprop::builtin_next_property_change_in_buffers(buffers, args)?,
         2 => super::textprop::builtin_next_property_change_in_buffers(
             buffers,
-            vec![args[0], ValueKind::Nil, args[1]],
+            vec![args[0], Value::NIL, args[1]],
         )?,
         _ => unreachable!(),
     };
@@ -948,7 +948,7 @@ pub(crate) fn resolve_print_target_in_state(
             .obarray
             .symbol_value("standard-output")
             .cloned()
-            .unwrap_or(ValueKind::T),
+            .unwrap_or(Value::T),
     }
 }
 
@@ -970,7 +970,7 @@ fn write_print_output_to_target(
             Ok(())
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(name_id).to_owned());
+            let name = target.as_str().unwrap().to_owned();
             let Some(id) = buffers.find_buffer_by_name(&name) else {
                 return Err(signal(
                     "error",
@@ -1098,7 +1098,7 @@ fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result
             Ok(())
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(name_id).to_owned());
+            let name = target.as_str().unwrap().to_owned();
             let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                 return Err(signal(
                     "error",
@@ -1117,8 +1117,8 @@ fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result
         other => {
             // Root the callable target across eval.apply().
             eval.with_gc_scope_result(|ctx| {
-                ctx.root(other);
-                ctx.apply(other, vec![Value::fixnum('\n' as i64)])?;
+                ctx.root(target);
+                ctx.apply(target, vec![Value::fixnum('\n' as i64)])?;
                 Ok(())
             })?;
             Ok(())
@@ -1156,7 +1156,7 @@ fn print_value_princ_list_shorthand(
 
 pub(super) fn print_value_princ(value: &Value) -> String {
     match value.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => value.as_str().unwrap().to_owned(),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         ValueKind::Cons => {
@@ -1172,9 +1172,10 @@ pub(super) fn print_value_princ(value: &Value) -> String {
                         if !first {
                             out.push(' ');
                         }
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        out.push_str(&print_value_princ(&pair.car));
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        out.push_str(&print_value_princ(&pair_car));
+                        cursor = pair_cdr;
                         first = false;
                     }
                     ValueKind::Nil => break,
@@ -1182,7 +1183,7 @@ pub(super) fn print_value_princ(value: &Value) -> String {
                         if !first {
                             out.push_str(" . ");
                         }
-                        out.push_str(&print_value_princ(&other));
+                        out.push_str(&print_value_princ(&cursor));
                         break;
                     }
                 }
@@ -1191,16 +1192,16 @@ pub(super) fn print_value_princ(value: &Value) -> String {
             out
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*id).clone());
+            let items = value.as_vector_data().unwrap().clone();
             let parts: Vec<String> = items.iter().map(print_value_princ).collect();
             format!("[{}]", parts.join(" "))
         }
         ValueKind::Veclike(VecLikeType::Record) => {
-            let items = with_heap(|h| h.get_vector(*id).clone());
+            let items = value.as_record_data().unwrap().clone();
             let parts: Vec<String> = items.iter().map(print_value_princ).collect();
             format!("#s({})", parts.join(" "))
         }
-        other => super::print::print_value(other),
+        other => super::print::print_value(value),
     }
 }
 
@@ -1219,7 +1220,7 @@ pub(crate) fn print_value_princ_in_state(
         return super::error::print_value_in_state(ctx, value);
     }
     match value.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => value.as_str().unwrap().to_owned(),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         ValueKind::Veclike(VecLikeType::Buffer) => {
@@ -1246,9 +1247,10 @@ pub(crate) fn print_value_princ_in_state(
                         if !first {
                             out.push(' ');
                         }
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        out.push_str(&print_value_princ_in_state(ctx, &pair.car));
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        out.push_str(&print_value_princ_in_state(ctx, &pair_car));
+                        cursor = pair_cdr;
                         first = false;
                     }
                     ValueKind::Nil => break,
@@ -1256,7 +1258,7 @@ pub(crate) fn print_value_princ_in_state(
                         if !first {
                             out.push_str(" . ");
                         }
-                        out.push_str(&print_value_princ_in_state(ctx, &other));
+                        out.push_str(&print_value_princ_in_state(ctx, &cursor));
                         break;
                     }
                 }
@@ -1265,7 +1267,7 @@ pub(crate) fn print_value_princ_in_state(
             out
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*id).clone());
+            let items = value.as_vector_data().unwrap().clone();
             let parts: Vec<String> = items
                 .iter()
                 .map(|item| print_value_princ_in_state(ctx, item))
@@ -1273,14 +1275,14 @@ pub(crate) fn print_value_princ_in_state(
             format!("[{}]", parts.join(" "))
         }
         ValueKind::Veclike(VecLikeType::Record) => {
-            let items = with_heap(|h| h.get_vector(*id).clone());
+            let items = value.as_record_data().unwrap().clone();
             let parts: Vec<String> = items
                 .iter()
                 .map(|item| print_value_princ_in_state(ctx, item))
                 .collect();
             format!("#s({})", parts.join(" "))
         }
-        other => super::error::print_value_in_state(ctx, other),
+        other => super::error::print_value_in_state(ctx, value),
     }
 }
 
@@ -1291,8 +1293,8 @@ pub(super) fn print_value_princ_eval(eval: &super::eval::Context, value: &Value)
 fn prin1_to_string_value(value: &Value, noescape: bool) -> String {
     if noescape {
         match value.kind() {
-            ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
-            other => super::print::print_value(other),
+            ValueKind::String => value.as_str().unwrap().to_owned(),
+            other => super::print::print_value(value),
         }
     } else {
         bytes_to_storage_string(&super::print::print_value_bytes(value))
@@ -1314,8 +1316,8 @@ pub(crate) fn prin1_to_string_value_in_state(
 ) -> String {
     if noescape {
         match value.kind() {
-            ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
-            other => super::error::print_value_in_state(ctx, other),
+            ValueKind::String => value.as_str().unwrap().to_owned(),
+            other => super::error::print_value_in_state(ctx, value),
         }
     } else {
         bytes_to_storage_string(&super::error::print_value_bytes_in_state(
@@ -1494,7 +1496,7 @@ pub(crate) fn finish_write_char_in_eval(
         }
         ValueKind::String => {
             if let Some(text) = write_char_rendered_text(char_code) {
-                let name = with_heap(|h| h.get_string(name_id).to_owned());
+                let name = target.as_str().unwrap().to_owned();
                 let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                     return Err(signal(
                         "error",
@@ -1512,8 +1514,8 @@ pub(crate) fn finish_write_char_in_eval(
         }
         other => {
             eval.with_gc_scope_result(|ctx| {
-                ctx.root(other);
-                ctx.apply(other, vec![Value::fixnum(char_code)])?;
+                ctx.root(target);
+                ctx.apply(target, vec![Value::fixnum(char_code)])?;
                 Ok(())
             })?;
         }
@@ -1544,7 +1546,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     expect_min_args("propertize", &args, 1)?;
 
     let s = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",

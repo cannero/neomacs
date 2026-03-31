@@ -646,7 +646,7 @@ fn expect_min_args(
 
 fn expect_string(val: &Value) -> Result<String, crate::emacs_core::error::Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -696,7 +696,7 @@ pub(crate) fn builtin_string_bytes(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_multibyte_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("multibyte-string-p", &args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::bool_val(with_heap(|h| h.string_is_multibyte(*id)))),
+        ValueKind::String => Ok(Value::bool_val(args[0].string_is_multibyte())),
         _ => Ok(Value::NIL),
     }
 }
@@ -1243,7 +1243,7 @@ mod tests {
         };
         assert!(!with_heap(|h| h.string_is_multibyte(id)));
         assert_eq!(
-            with_heap(|h| h.get_string(id).to_owned()),
+            encoded.as_str().unwrap().to_owned(),
             bytes_to_unibyte_storage_string(&[0xE9])
         );
     }
@@ -1260,7 +1260,7 @@ mod tests {
         };
         assert!(!with_heap(|h| h.string_is_multibyte(id)));
         assert_eq!(
-            with_heap(|h| h.get_string(id).to_owned()),
+            decoded.as_str().unwrap().to_owned(),
             bytes_to_unibyte_storage_string(&[0xC3, 0xA9])
         );
     }

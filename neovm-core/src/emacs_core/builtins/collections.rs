@@ -49,7 +49,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
                     let truthy = match bit.kind() {
                         ValueKind::Fixnum(n) => n != 0,
                         ValueKind::Nil => false,
-                        other => other.is_truthy(),
+                        other => bit.is_truthy(),
                     };
                     return Ok(Value::bool_val(truthy));
                 }
@@ -61,7 +61,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::String => {
             let idx = idx_fixnum as usize;
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = args[0].as_str().unwrap().to_owned();
             let codes = decode_storage_char_codes(&s);
             codes
                 .get(idx)
@@ -209,14 +209,15 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
             match cursor.kind() {
                 ValueKind::Nil => return Ok(()),
                 ValueKind::Cons => {
-                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                    out.push(pair.car);
-                    cursor = pair.cdr;
+                    let pair_car = cursor.cons_car();
+                    let pair_cdr = cursor.cons_cdr();
+                    out.push(pair_car);
+                    cursor = pair_cdr;
                 }
                 tail => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("listp"), tail],
+                        vec![Value::symbol("listp"), cursor],
                     ));
                 }
             }
@@ -227,10 +228,10 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
     for arg in &args {
         match arg.kind() {
             ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-                result.extend(with_heap(|h| h.get_vector(*v).clone()).into_iter())
+                result.extend(arg.as_vector_data().unwrap().clone().into_iter())
             }
             ValueKind::String => {
-                let s = with_heap(|h| h.get_string(*id).to_owned());
+                let s = arg.as_str().unwrap().to_owned();
                 result.extend(
                     decode_storage_char_codes(&s)
                         .into_iter()
@@ -410,7 +411,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                     return Err(invalid_hash_table_argument_list(args[i]));
                 };
                 seen_size = true;
-                size = match value {
+                size = match value.kind() {
                     ValueKind::Nil => 0,
                     ValueKind::Fixnum(n) if *n >= 0 => *n,
                     _ => {
@@ -430,7 +431,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                     return Err(invalid_hash_table_argument_list(args[i]));
                 };
                 seen_weakness = true;
-                weakness = match value {
+                weakness = match value.kind() {
                     ValueKind::Nil => None,
                     ValueKind::T => Some(HashTableWeakness::KeyAndValue),
                     _ => {
@@ -511,7 +512,7 @@ pub(crate) fn builtin_gethash(args: Vec<Value>) -> EvalResult {
     let default = if args.len() > 2 { args[2] } else { Value::NIL };
     match args[1].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let ht = with_heap(|h| h.get_hash_table(*ht).clone());
+            let ht = args[1].as_hash_table().unwrap().clone();
             let key = args[0].to_hash_key(&ht.test);
             Ok(ht.data.get(&key).cloned().unwrap_or(default))
         }
@@ -559,7 +560,7 @@ pub(crate) fn builtin_remhash(args: Vec<Value>) -> EvalResult {
                 ht.key_snapshots.remove(&key);
                 ht.insertion_order.retain(|k| k != &key);
             });
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
         _ => Err(signal(
             "wrong-type-argument",
@@ -578,7 +579,7 @@ pub(crate) fn builtin_clrhash(args: Vec<Value>) -> EvalResult {
                 ht.key_snapshots.clear();
                 ht.insertion_order.clear();
             });
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
         _ => Err(signal(
             "wrong-type-argument",
@@ -651,12 +652,13 @@ pub(crate) fn builtin_plist_get(args: Vec<Value>) -> EvalResult {
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if eq_value(&pair.car, &args[1]) {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if eq_value(&pair_car, &args[1]) {
                     // Next element is the value
-                    match pair.cdr.kind() {
+                    match pair_cdr.kind() {
                         ValueKind::Cons => {
-                            return Ok(with_heap(|h| h.cons_car(*val_cell)));
+                            return Ok(cursor.cons_car());
                         }
                         _ => return Ok(Value::NIL),
                     }
@@ -664,7 +666,7 @@ pub(crate) fn builtin_plist_get(args: Vec<Value>) -> EvalResult {
                 // Skip the value entry
                 match pair.cdr.kind() {
                     ValueKind::Cons => {
-                        cursor = with_heap(|h| h.cons_cdr(*val_cell));
+                        cursor = pair.cdr.cons_cdr();
                     }
                     _ => return Ok(Value::NIL),
                 }
@@ -693,17 +695,18 @@ pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Cons => {
                 let (entry_key, entry_rest) = {
-                    let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
-                    (pair.car, pair.cdr)
+                    let pair_car = cursor.cons_car();
+                    let pair_cdr = cursor.cons_cdr();
+                    (pair_car, pair_cdr)
                 };
 
                 match entry_rest.kind() {
                     ValueKind::Cons => {
                         if eq_value(&entry_key, &key) {
-                            with_heap_mut(|h| h.set_car(value_cell, new_val));
+                            cursor.set_car(new_val);
                             return Ok(plist);
                         }
-                        cursor = with_heap(|h| h.cons_cdr(value_cell));
+                        cursor = cursor.cons_cdr();
                         last_value_cell = Some(value_cell);
                     }
                     _ => {
@@ -716,8 +719,8 @@ pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
             }
             ValueKind::Nil => {
                 if let Some(value_cell) = last_value_cell {
-                    let new_tail = Value::cons(key, Value::cons(new_val, ValueKind::Nil));
-                    with_heap_mut(|h| h.set_cdr(value_cell, new_tail));
+                    let new_tail = Value::cons(key, Value::cons(new_val, Value::NIL));
+                    cursor.set_cdr(new_tail);
                     return Ok(plist);
                 }
                 return Ok(Value::list(vec![key, new_val]));
@@ -761,8 +764,9 @@ pub(crate) fn builtin_plist_member(
             match cursor.kind() {
                 ValueKind::Cons => {
                     let (entry_key, entry_rest) = {
-                        let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
-                        (pair.car, pair.cdr)
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        (pair_car, pair_cdr)
                     };
 
                     let matches = if let Some(predicate) = &predicate {
@@ -776,7 +780,7 @@ pub(crate) fn builtin_plist_member(
 
                     match entry_rest.kind() {
                         ValueKind::Cons => {
-                            cursor = with_heap(|h| h.cons_cdr(value_cell));
+                            cursor = cursor.cons_cdr();
                         }
                         _ => {
                             return Err(signal(
@@ -814,8 +818,9 @@ pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Cons => {
                 let (entry_key, entry_rest) = {
-                    let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
-                    (pair.car, pair.cdr)
+                    let pair_car = cursor.cons_car();
+                    let pair_cdr = cursor.cons_cdr();
+                    (pair_car, pair_cdr)
                 };
 
                 if eq_value(&entry_key, &prop) {
@@ -824,7 +829,7 @@ pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
 
                 match entry_rest.kind() {
                     ValueKind::Cons => {
-                        cursor = with_heap(|h| h.cons_cdr(value_cell));
+                        cursor = cursor.cons_cdr();
                     }
                     _ => {
                         return Err(signal(

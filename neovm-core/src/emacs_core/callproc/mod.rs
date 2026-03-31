@@ -96,7 +96,7 @@ fn parse_real_buffer_destination_in_state(
         }
         ValueKind::Cons => {
             let items = list_to_vec(value).ok_or_else(|| signal_wrong_type_string(*value))?;
-            let first = items.first().cloned().unwrap_or(ValueKind::Nil);
+            let first = items.first().cloned().unwrap_or(Value::NIL);
             if is_file_keyword(&first) {
                 Ok((parse_file_target(&items)?, false))
             } else {
@@ -113,7 +113,7 @@ fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<Strin
         ValueKind::T => Ok((StderrTarget::ToStdoutTarget, None)),
         ValueKind::String => Ok((
             StderrTarget::File,
-            Some(with_heap(|h| h.get_string(*s).to_owned())),
+            Some(value.as_str().unwrap().to_owned()),
         )),
         other => Err(signal_wrong_type_string(*value)),
     }
@@ -175,7 +175,7 @@ fn insert_process_output_in_state(
 ) -> Result<(), Flow> {
     match destination.kind() {
         ValueKind::String => {
-            let name_str = with_heap(|h| h.get_string(*name).to_owned());
+            let name_str = destination.as_str().unwrap().to_owned();
             let id = buffers
                 .find_buffer_by_name(&name_str)
                 .unwrap_or_else(|| buffers.create_buffer(&name_str));
@@ -455,7 +455,7 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
                     vec![Value::symbol("integer-or-marker-p"), args[0]],
                 ));
             }
-            with_heap(|h| h.get_string(*s).to_owned())
+            args[0].as_str().unwrap().to_owned()
         }
         _ => {
             let start = super::process::expect_int_or_marker(&args[0])?;

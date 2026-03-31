@@ -16,7 +16,7 @@ pub(crate) fn builtin_prefix_numeric_value(args: Vec<Value>) -> EvalResult {
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Fixnum(n) => n,
         ValueKind::Char(c) => c as i64,
-        ValueKind::Cons => read_cons(*cell).car.as_int().unwrap_or(1),  // TODO(tagged): replace read_cons with cons accessors
+        ValueKind::Cons => args[0].cons_car().as_int().unwrap_or(1),
         _ => 1,
     };
     Ok(Value::fixnum(numeric))
@@ -43,7 +43,7 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // even for a single string argument.  This converts %% -> % and
     // applies text-quoting (curly quotes).
     let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
+        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?.as_str().unwrap().to_owned(),
         _ => String::new(),
     };
     ctx.set_current_message(Some(msg.clone()));
@@ -59,7 +59,7 @@ pub(crate) fn builtin_message_box(ctx: &mut super::eval::Context, args: Vec<Valu
     }
     // GNU Emacs: always calls format-message, even for single-arg.
     let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
+        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?.as_str().unwrap().to_owned(),
         _ => String::new(),
     };
     eprintln!("{}", msg);
@@ -76,7 +76,7 @@ pub(crate) fn builtin_message_or_box(
     }
     // GNU Emacs: always calls format-message, even for single-arg.
     let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
+        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?.as_str().unwrap().to_owned(),
         _ => String::new(),
     };
     eprintln!("{}", msg);
@@ -113,8 +113,9 @@ pub(crate) fn builtin_documentation_stringp(args: Vec<Value>) -> EvalResult {
     expect_args("documentation-stringp", &args, 1)?;
     let is_compiled_ref = match args[0].kind() {
         ValueKind::Cons => {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            pair.car.as_str().is_some() && pair.cdr.as_int().is_some()
+            let pair_car = args[0].cons_car();
+            let pair_cdr = args[0].cons_cdr();
+            pair_car.as_str().is_some() && pair_cdr.as_int().is_some()
         }
         _ => false,
     };
@@ -178,7 +179,7 @@ pub(crate) fn builtin_invocation_name(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("error", &args, 1)?;
     let msg = match builtin_format_message(eval, args)?.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
+        ValueKind::String => builtin_format_message(eval, args)?.as_str().unwrap().to_owned(),
         _ => "error".to_string(),
     };
     Err(signal("error", vec![Value::string(msg)]))
@@ -187,7 +188,7 @@ pub(crate) fn builtin_error(eval: &mut super::eval::Context, args: Vec<Value>) -
 pub(crate) fn builtin_user_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("user-error", &args, 1)?;
     let msg = match builtin_format_message(eval, args)?.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
+        ValueKind::String => builtin_format_message(eval, args)?.as_str().unwrap().to_owned(),
         _ => "user-error".to_string(),
     };
     Err(signal("user-error", vec![Value::string(msg)]))

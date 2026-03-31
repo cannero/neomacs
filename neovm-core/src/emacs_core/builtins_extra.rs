@@ -56,7 +56,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -99,7 +99,7 @@ fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
 
 fn list_car_or_signal(value: &Value) -> Result<Value, Flow> {
     match value.kind() {
-        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(*cell))),
+        ValueKind::Cons => Ok(value.cons_car()),
         ValueKind::Nil => Ok(Value::NIL),
         other => Err(signal(
             "wrong-type-argument",
@@ -110,7 +110,7 @@ fn list_car_or_signal(value: &Value) -> Result<Value, Flow> {
 
 fn assoc_string_key_name(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         _ => symbol_like_name(value)
             .map(ToOwned::to_owned)
             .ok_or_else(|| {
@@ -124,7 +124,7 @@ fn assoc_string_key_name(value: &Value) -> Result<String, Flow> {
 
 fn assoc_string_entry_name(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
         _ => symbol_like_name(value).map(ToOwned::to_owned),
     }
 }
@@ -149,22 +149,23 @@ fn collect_sequence_strict(val: &Value) -> Result<Vec<Value>, Flow> {
                 match cursor.kind() {
                     ValueKind::Nil => return Ok(result),
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        result.push(pair.car);
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        result.push(pair_car);
+                        cursor = pair_cdr;
                     }
                     tail => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
             }
         }
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(with_heap(|h| h.get_vector(*v).clone())),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(val.as_vector_data().unwrap().clone()),
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = val.as_str().unwrap().to_owned();
             Ok(s.chars().map(|ch| Value::fixnum(ch as i64)).collect())
         }
         other => Err(signal(
@@ -189,11 +190,12 @@ pub(crate) fn remove_list_equal(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => break,
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if !super::value::equal_value(&pair.car, target, 0) {
-                    result.push(pair.car);
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if !super::value::equal_value(&pair_car, target, 0) {
+                    result.push(pair_car);
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => break,
         }
@@ -222,14 +224,15 @@ pub(crate) fn builtin_take(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => break,
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                result.push(pair.car);
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                result.push(pair_car);
+                cursor = pair_cdr;
             }
             tail => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("listp"), tail],
+                    vec![Value::symbol("listp"), cursor],
                 ));
             }
         }
@@ -344,15 +347,17 @@ pub(crate) fn builtin_assoc_string(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                let entry = pair.car;
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                let entry = pair_car;
+                cursor = pair_cdr;
 
                 if !entry.is_cons() {
                     continue;
                 };
-                let entry_pair = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
-                let Some(entry_key) = assoc_string_entry_name(&entry_pair.car) else {
+                let entry_pair_car = entry.cons_car();
+                let entry_pair_cdr = entry.cons_cdr();
+                let Some(entry_key) = assoc_string_entry_name(&entry_pair_car) else {
                     continue;
                 };
                 if assoc_string_equal(&needle, &entry_key, fold_case) {

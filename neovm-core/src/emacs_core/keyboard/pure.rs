@@ -219,7 +219,7 @@ pub(crate) fn describe_single_key_value(value: &Value, no_angles: bool) -> Resul
         ValueKind::Symbol(id) => Ok(describe_symbol_key(resolve_sym(id), no_angles)),
         ValueKind::T => Ok(describe_symbol_key("t", no_angles)),
         ValueKind::Nil => Ok(describe_symbol_key("nil", no_angles)),
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         ValueKind::Cons => {
             let items = list_to_vec(value).ok_or_else(invalid_single_key_error)?;
             if items.len() == 1 {
@@ -239,11 +239,11 @@ pub(crate) fn key_sequence_values(value: &Value) -> Result<Vec<Value>, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(vec![]),
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = value.as_str().unwrap().to_owned();
             Ok(s.chars().map(|ch| Value::fixnum(ch as i64)).collect())
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
+            let elems = value.as_vector_data().unwrap().clone();
             // Convert any Lucid-style event lists inside the vector
             let converted: Vec<Value> = elems
                 .into_iter()
@@ -336,7 +336,7 @@ pub(crate) fn convert_lucid_event_list(items: &[Value]) -> Option<Value> {
 
     match base.kind() {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => {
-            let mut code = match base {
+            let mut code = match base.kind() {
                 ValueKind::Fixnum(i) => i,
                 ValueKind::Char(c) => c as i64,
                 _ => unreachable!(),

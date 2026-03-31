@@ -458,7 +458,7 @@ fn eol_type_undecided_returns_vector() {
     let result = builtin_coding_system_eol_type(&m, vec![Value::symbol("utf-8")]).unwrap();
     // Should be a vector of [utf-8-unix utf-8-dos utf-8-mac]
     if result.is_vector() {
-        let locked = with_heap(|h| h.get_vector(v).clone());
+        let locked = result.as_vector_data().unwrap().clone();
         assert_eq!(locked.len(), 3);
         assert!(locked[0].is_symbol_named("utf-8-unix"));
         assert!(locked[1].is_symbol_named("utf-8-dos"));
@@ -473,7 +473,7 @@ fn eol_type_latin_alias_uses_iso_latin_display_variants() {
     let m = mgr();
     let result = builtin_coding_system_eol_type(&m, vec![Value::symbol("latin-1")]).unwrap();
     if result.is_vector() {
-        let locked = with_heap(|h| h.get_vector(v).clone());
+        let locked = result.as_vector_data().unwrap().clone();
         assert_eq!(locked.len(), 3);
         assert_eq!(locked[0], Value::symbol("iso-latin-1-unix"));
         assert_eq!(locked[1], Value::symbol("iso-latin-1-dos"));
@@ -1181,7 +1181,7 @@ fn set_coding_system_priority_rejects_nil_payload() {
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("coding-system-p"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("coding-system-p"), Value::NIL]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }

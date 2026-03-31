@@ -451,9 +451,10 @@ fn value_list_iter(list: Value) -> Vec<Value> {
     let mut result = Vec::new();
     let mut cursor = list;
     while cursor.is_cons() {
-        let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        result.push(pair.car);
-        cursor = pair.cdr;
+        let pair_car = cursor.cons_car();
+        let pair_cdr = cursor.cons_cdr();
+        result.push(pair_car);
+        cursor = pair_cdr;
     }
     // If it's a single non-nil, non-cons value, treat it as a single-element list.
     if result.is_empty() && !list.is_nil() && !list.is_cons() {
@@ -520,7 +521,7 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
     for arg in args {
         match arg.kind() {
             ValueKind::String => {
-                let s = with_heap(|h| h.get_string(*id).to_owned());
+                let s = arg.as_str().unwrap().to_owned();
                 text.push_str(&s);
             }
             ValueKind::Char(c) => text.push(c),

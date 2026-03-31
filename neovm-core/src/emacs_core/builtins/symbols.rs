@@ -253,9 +253,10 @@ fn sync_visible_symbol_plist_entries(
         match cursor.kind() {
             ValueKind::Nil => return,
             ValueKind::Cons => {
-                let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
-                let key = pair.car;
-                let rest = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                let key = pair_car;
+                let rest = pair_cdr;
                 drop(pair);
 
                 let Some(key_id) = symbol_id(&key) else {
@@ -265,9 +266,10 @@ fn sync_visible_symbol_plist_entries(
                     return;
                 };
 
-                let value_pair = read_cons(value_cell);  // TODO(tagged): replace read_cons with cons accessors
-                let value = value_pair.car;
-                cursor = value_pair.cdr;
+                let value_pair_car = rest.cons_car();
+                let value_pair_cdr = rest.cons_cdr();
+                let value = value_pair_car;
+                cursor = value_pair_cdr;
                 drop(value_pair);
 
                 if is_internal_symbol_plist_property(resolve_sym(key_id)) {
@@ -311,16 +313,18 @@ pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
         match cursor.kind() {
             ValueKind::Nil => return None,
             ValueKind::Cons => {
-                let pair = read_cons(pair_cell);  // TODO(tagged): replace read_cons with cons accessors
-                let key = pair.car;
-                let rest = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                let key = pair_car;
+                let rest = pair_cdr;
                 drop(pair);
                 if !rest.is_cons() {
                     return None;
                 };
-                let value_pair = read_cons(value_cell);  // TODO(tagged): replace read_cons with cons accessors
-                let value = value_pair.car;
-                let next = value_pair.cdr;
+                let value_pair_car = rest.cons_car();
+                let value_pair_cdr = rest.cons_cdr();
+                let value = value_pair_car;
+                let next = value_pair_cdr;
                 if eq_value(&key, prop) {
                     return Some(value);
                 }
@@ -1085,16 +1089,18 @@ fn macroexpand_environment_binding_by_id(env: &Value, target: SymId) -> Option<V
         match cursor.kind() {
             ValueKind::Nil => return None,
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                let entry = pair.car;
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                let entry = pair_car;
+                cursor = pair_cdr;
                 drop(pair);
                 if !entry.is_cons() {
                     continue;
                 };
-                let entry_pair = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
-                if matches!(symbol_id(&entry_pair.car), Some(id) if id == target) {
-                    return Some(entry_pair.cdr);
+                let entry_pair_car = entry.cons_car();
+                let entry_pair_cdr = entry.cons_cdr();
+                if matches!(symbol_id(&entry_pair_car), Some(id) if id == target) {
+                    return Some(entry_pair_cdr);
                 }
             }
             _ => return None,
@@ -1115,9 +1121,10 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     if !form.is_cons() {
         return Ok((form, false));
     };
-    let form_pair = read_cons(form_cell);  // TODO(tagged): replace read_cons with cons accessors
-    let head = form_pair.car;
-    let tail = form_pair.cdr;
+    let form_pair_car = form.cons_car();
+    let form_pair_cdr = form.cons_cdr();
+    let head = form_pair_car;
+    let tail = form_pair_cdr;
     let Some(head_id) = symbol_id(&head) else {
         return Ok((form, false));
     };
@@ -1444,7 +1451,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     if let Some(ValueKind::Veclike(VecLikeType::Vector)) = args.get(1).filter(|v| !v.is_nil()) {
         let vec_id = *vec_id;
         let name = match args[0].kind() {
-            ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+            ValueKind::String => args[0].as_str().unwrap().to_owned(),
             ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
             ValueKind::Nil => "nil".to_owned(),
             ValueKind::T => "t".to_owned(),
@@ -1466,7 +1473,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
 
     // Global obarray path
     let name = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         ValueKind::Nil => "nil".to_owned(),
         ValueKind::T => "t".to_owned(),
         ValueKind::Keyword(id) | ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
@@ -1868,7 +1875,7 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
     }
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*vec).clone());
+            let items = args[0].as_vector_data().unwrap().clone();
             if let Some(Value::fixnum(pos)) = items.get(2) {
                 Ok(Value::fixnum(pos))
             } else {
@@ -2016,7 +2023,7 @@ pub(crate) fn builtin_native_comp_unit_file(args: Vec<Value>) -> EvalResult {
     expect_args("native-comp-unit-file", &args, 1)?;
     let is_native_comp_unit = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*items).clone());
+            let items = args[0].as_vector_data().unwrap().clone();
             matches!(
                 items.first(),
                 Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "native-comp-unit"
@@ -2037,7 +2044,7 @@ pub(crate) fn builtin_native_comp_unit_set_file(args: Vec<Value>) -> EvalResult 
     expect_args("native-comp-unit-set-file", &args, 2)?;
     let is_native_comp_unit = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*items).clone());
+            let items = args[0].as_vector_data().unwrap().clone();
             matches!(
                 items.first(),
                 Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "native-comp-unit"
@@ -2103,7 +2110,7 @@ pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
     expect_range_args("open-font", &args, 1, 3)?;
     let is_font_entity = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*items).clone());
+            let items = args[0].as_vector_data().unwrap().clone();
             matches!(
                 items.first(),
                 Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-entity"
@@ -2867,26 +2874,28 @@ fn interactive_form_from_quoted_interactive_form(form: &Value) -> Result<Option<
     if !form.is_cons() {
         return Ok(None);
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("interactive") {
+    let pair_car = form.cons_car();
+    let pair_cdr = form.cons_cdr();
+    if pair_car.as_symbol_name() != Some("interactive") {
         return Ok(None);
     }
 
-    match pair.cdr.kind() {
+    match pair_cdr.kind() {
         ValueKind::Nil => Ok(Some(Value::list(vec![
             Value::symbol("interactive"),
-            ValueKind::Nil,
+            Value::NIL,
         ]))),
         ValueKind::Cons => {
-            let arg_pair = read_cons(arg_cell);  // TODO(tagged): replace read_cons with cons accessors
+            let arg_pair_car = pair_cdr.cons_car();
+            let arg_pair_cdr = pair_cdr.cons_cdr();
             Ok(Some(Value::list(vec![
                 Value::symbol("interactive"),
-                arg_pair.car,
+                arg_pair_car,
             ])))
         }
         tail => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("listp"), tail],
+            vec![Value::symbol("listp"), pair_cdr],
         )),
     }
 }
@@ -2895,15 +2904,17 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
     if !value.is_cons() {
         return Ok(None);
     };
-    let lambda_pair = read_cons(*lambda_cell);  // TODO(tagged): replace read_cons with cons accessors
-    if lambda_pair.car.as_symbol_name() != Some("lambda") {
+    let lambda_pair_car = value.cons_car();
+    let lambda_pair_cdr = value.cons_cdr();
+    if lambda_pair_car.as_symbol_name() != Some("lambda") {
         return Ok(None);
     }
-    if !lambda_pair.cdr.is_cons() {
+    if !lambda_pair_cdr.is_cons() {
         return Ok(None);
     };
-    let params_pair = read_cons(params_cell);  // TODO(tagged): replace read_cons with cons accessors
-    let body = params_pair.cdr;
+    let params_pair_car = lambda_pair.cdr.cons_car();
+    let params_pair_cdr = lambda_pair.cdr.cons_cdr();
+    let body = params_pair_cdr;
     let mut cursor = body;
     let mut can_skip_doc = true;
 
@@ -2911,18 +2922,19 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
         match cursor.kind() {
             ValueKind::Nil => return Ok(None),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if can_skip_doc && matches!(pair.car, ValueKind::String) {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if can_skip_doc && matches!(pair_car, ValueKind::String) {
                     can_skip_doc = false;
-                    cursor = pair.cdr;
+                    cursor = pair_cdr;
                     continue;
                 }
                 can_skip_doc = false;
-                if let Some(interactive) = interactive_form_from_quoted_interactive_form(&pair.car)?
+                if let Some(interactive) = interactive_form_from_quoted_interactive_form(&pair_car)?
                 {
                     return Ok(Some(interactive));
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => {
                 return Err(signal(
@@ -3002,11 +3014,11 @@ pub(crate) fn plan_interactive_form_in_state(
             Ok(InteractiveFormPlan::Return(
                 crate::emacs_core::interactive::registry_interactive_form(interactive, name)
                     .or_else(|| crate::emacs_core::interactive::builtin_subr_interactive_form(name))
-                    .unwrap_or(ValueKind::Nil),
+                    .unwrap_or(Value::NIL),
             ))
         }
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-            let lambda = with_heap(|h| h.get_lambda(id).clone());
+            let lambda = function.get_lambda_data().unwrap().clone();
             // GNU Emacs checks closure vector slot 5 first (data.c:1162-1177).
             // Check our dedicated field first, then fall back to body scanning.
             if let Some(iform_val) = &lambda.interactive {
@@ -3016,12 +3028,12 @@ pub(crate) fn plan_interactive_form_in_state(
                 ])))
             } else {
                 Ok(InteractiveFormPlan::Return(
-                    interactive_form_from_expr_body(&lambda.body).unwrap_or(ValueKind::Nil),
+                    interactive_form_from_expr_body(&lambda.body).unwrap_or(Value::NIL),
                 ))
             }
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => Ok(InteractiveFormPlan::Return(
-            interactive_form_from_bytecode_value(function).unwrap_or(ValueKind::Nil),
+            interactive_form_from_bytecode_value(function).unwrap_or(Value::NIL),
         )),
         ValueKind::Cons if super::autoload::is_autoload_value(&function) => {
             Ok(InteractiveFormPlan::Autoload {
@@ -3029,12 +3041,12 @@ pub(crate) fn plan_interactive_form_in_state(
                 funname: if symbol_id(&cmd).is_some() {
                     cmd
                 } else {
-                    ValueKind::Nil
+                    Value::NIL
                 },
             })
         }
         ValueKind::Cons => Ok(InteractiveFormPlan::Return(
-            interactive_form_from_quoted_lambda(&function)?.unwrap_or(ValueKind::Nil),
+            interactive_form_from_quoted_lambda(&function)?.unwrap_or(Value::NIL),
         )),
         _ => Ok(InteractiveFormPlan::Return(Value::NIL)),
     }
@@ -3086,13 +3098,13 @@ pub(crate) fn builtin_interactive_form(
             let result =
                 crate::emacs_core::interactive::registry_interactive_form(&eval.interactive, name)
                     .or_else(|| crate::emacs_core::interactive::builtin_subr_interactive_form(name))
-                    .unwrap_or(ValueKind::Nil);
+                    .unwrap_or(Value::NIL);
             Ok(result)
         }
 
         // GNU (data.c:1162-1177): CLOSUREP — check slot 5, then genfun
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-            let lambda = with_heap(|h| h.get_lambda(id).clone());
+            let lambda = fun.get_lambda_data().unwrap().clone();
 
             // Check LambdaData.interactive (mirrors closure vector slot 5)
             if let Some(iform_val) = &lambda.interactive {
@@ -3130,7 +3142,7 @@ pub(crate) fn builtin_interactive_form(
                     }
                 }
             }
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
 
         // GNU (data.c:1162-1177 for COMPILED_FUNCTION_P): bytecode
@@ -3141,7 +3153,7 @@ pub(crate) fn builtin_interactive_form(
             let funname = if cmd.as_symbol_name().is_some() {
                 cmd
             } else {
-                ValueKind::Nil
+                Value::NIL
             };
             let loaded = super::autoload::builtin_autoload_do_load(eval, vec![fun, funname])?;
             // Retry with the loaded definition
@@ -3384,20 +3396,21 @@ pub(crate) fn builtin_internal_handle_focus_in(
             vec![Value::string("invalid focus-in event")],
         ));
     };
-    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    if pair.car.as_symbol_name() != Some("focus-in") {
+    let pair_car = args[0].cons_car();
+    let pair_cdr = args[0].cons_cdr();
+    if pair_car.as_symbol_name() != Some("focus-in") {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
         ));
     }
-    if !pair.cdr.is_cons() {
+    if !pair_cdr.is_cons() {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
         ));
     };
-    let frame_value = read_cons(cdr_cell).car;  // TODO(tagged): replace read_cons with cons accessors
+    let frame_value = pair.cdr.cons_car();
     if !frame_value.is_frame() {
         return Err(signal(
             "error",
@@ -3876,8 +3889,8 @@ pub(crate) fn make_byte_code_from_parts(
     };
 
     // 3. Extract constants from vector
-    let mut constants: Vec<Value> = match constants_vec {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(*id).clone()),
+    let mut constants: Vec<Value> = match constants_vec.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => constants_vec.as_vector_data().unwrap().clone(),
         _ => Vec::new(),
     };
 
@@ -3967,10 +3980,10 @@ pub(crate) fn make_interpreted_closure_from_parts(
         Some(*env_value)
     };
 
-    let (docstring, doc_form) = match &docstring_value {
-        ValueKind::String => (Some(with_heap(|h| h.get_string(*id).to_owned())), None),
-        Value::NIL => (None, None),
-        other => (None, Some(*other)),
+    let (docstring, doc_form) = match docstring_value.kind() {
+        ValueKind::String => (Some(docstring_value.as_str().unwrap().to_owned()), None),
+        ValueKind::Nil => (None, None),
+        other => (None, Some(docstring_value)),
     };
 
     // GNU Emacs (eval.c:535-555): Fmake_interpreted_closure stores the
@@ -4019,7 +4032,7 @@ pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
 
     let items = match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let v = with_heap(|h| h.get_vector(id).clone());
+            let v = val.as_vector_data().unwrap().clone();
             if v.len() < 3 {
                 return val;
             }
@@ -4231,7 +4244,7 @@ fn replace_env_alist_values(env: Value, closure_vars: &[Value]) -> Value {
         if i < closure_vars.len() {
             // Replace value: get the key from (key . old_val), make (key . new_val)
             let key = match entry.kind() {
-                ValueKind::Cons => with_heap(|h| h.cons_car(*cell)),
+                ValueKind::Cons => entry.cons_car(),
                 _ => *entry, // shouldn't happen in well-formed alist
             };
             result_entries.push(Value::cons(key, closure_vars[i]));

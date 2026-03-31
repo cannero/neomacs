@@ -172,9 +172,10 @@ fn assoc_string_and_car_less_than_car_semantics() {
     if !result.is_cons() {
         panic!("expected dotted pair result");
     };
-    let result_pair = read_cons(result_cell);  // TODO(tagged): replace read_cons with cons accessors
-    assert_eq!(result_pair.car, Value::string("a"));
-    assert_eq!(result_pair.cdr, Value::fixnum(1));
+    let result_pair_car = result.cons_car();
+    let result_pair_cdr = result.cons_cdr();
+    assert_eq!(result_pair_car, Value::string("a"));
+    assert_eq!(result_pair_cdr, Value::fixnum(1));
 
     let symbol_alist = Value::list(vec![
         Value::cons(Value::symbol("foo"), Value::fixnum(1)),
@@ -184,9 +185,10 @@ fn assoc_string_and_car_less_than_car_semantics() {
     if !symbol_hit.is_cons() {
         panic!("expected dotted pair result");
     };
-    let symbol_pair = read_cons(symbol_cell);  // TODO(tagged): replace read_cons with cons accessors
-    assert_eq!(symbol_pair.car, Value::symbol("foo"));
-    assert_eq!(symbol_pair.cdr, Value::fixnum(1));
+    let symbol_pair_car = symbol_hit.cons_car();
+    let symbol_pair_cdr = symbol_hit.cons_cdr();
+    assert_eq!(symbol_pair_car, Value::symbol("foo"));
+    assert_eq!(symbol_pair_cdr, Value::fixnum(1));
 
     let nil_tail = Value::cons(
         Value::cons(Value::string("x"), Value::fixnum(1)),

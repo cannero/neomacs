@@ -271,7 +271,7 @@ const FONT_OBJECT_TAG: &str = "font-object";
 fn is_tagged_font_vector(val: &Value, tag: &str) -> bool {
     match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
+            let elems = val.as_vector_data().unwrap().clone();
             matches!(&elems.first(), Some(ValueKind::Keyword(k)) if resolve_sym(*k) == tag)
         }
         _ => false,
@@ -340,7 +340,7 @@ fn font_vector_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
 
 fn font_spec_field_to_string(value: &Value) -> String {
     match value.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => value.as_str().unwrap().to_owned(),
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         _ => "*".to_string(),
     }
@@ -408,7 +408,7 @@ fn sanitize_style_field(value: &Value) -> String {
             .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
             .collect(),
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = value.as_str().unwrap().to_owned();
             s.chars()
                 .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
                 .collect()
@@ -632,17 +632,17 @@ pub(crate) fn builtin_font_get(args: Vec<Value>) -> EvalResult {
 
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
+            let elems = args[0].as_vector_data().unwrap().clone();
             let exact = font_vector_get(&elems, &args[1]);
             if !exact.is_nil() {
                 return Ok(exact);
             }
 
             if let Some(id) = args[1].as_keyword_id() {
-                return Ok(font_vector_get_flexible(&elems, resolve_sym(id)).unwrap_or(ValueKind::Nil));
+                return Ok(font_vector_get_flexible(&elems, resolve_sym(id)).unwrap_or(Value::NIL));
             }
 
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
         _ => unreachable!("font check above guarantees vector"),
     }
@@ -813,11 +813,11 @@ pub(crate) fn builtin_font_xlfd_name(args: Vec<Value>) -> EvalResult {
 
     let fields = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
+            let elems = args[0].as_vector_data().unwrap().clone();
             if is_font_object(&args[0])
                 && let Some(ValueKind::String) = font_vector_get_flexible(&elems, "name")
             {
-                let font_name = with_heap(|h| h.get_string(id).to_owned());
+                let font_name = args[0].as_str().unwrap().to_owned();
                 if font_name.starts_with('-') {
                     return Ok(Value::string(
                         if args.get(1).is_some_and(|v| v.is_truthy()) {
@@ -1258,9 +1258,9 @@ fn font_name_value(font_like: &Value) -> Option<Value> {
     match font_like.kind() {
         ValueKind::String => Some(*font_like),
         ValueKind::Veclike(VecLikeType::Vector) if is_font(font_like) => {
-            let elems = with_heap(|h| h.get_vector(*id).clone());
+            let elems = font_like.as_vector_data().unwrap().clone();
             if let Some(value) = font_vector_get_flexible(&elems, "name") {
-                return match value {
+                return match value.kind() {
                     ValueKind::String => Some(value),
                     ValueKind::Symbol(sym) | ValueKind::Keyword(sym) => {
                         Some(Value::string(resolve_sym(sym).to_owned()))
@@ -1450,7 +1450,7 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
                 other => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("fixnump"), other],
+                        vec![Value::symbol("fixnump"), args[0]],
                     ));
                 }
             };
@@ -1918,7 +1918,7 @@ fn require_symbol_face_name(face: &Value) -> Result<String, Flow> {
 
 fn known_face_name(face: &Value) -> Option<String> {
     let name = match face.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => face.as_str().unwrap().to_owned(),
         _ => symbol_name_for_face_value(face)?,
     };
     if KNOWN_FACES.contains(&name.as_str()) || is_created_lisp_face(&name) {
@@ -1942,7 +1942,7 @@ fn resolve_copy_source_face_symbol(face: &Value) -> Result<String, Flow> {
 fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*id).to_owned());
+            let name = face.as_str().unwrap().to_owned();
             if face_exists_for_domain(&name, defaults_frame) {
                 Err(signal(
                     "wrong-type-argument",
@@ -1972,7 +1972,7 @@ fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<St
 fn resolve_face_name_for_merge(face: &Value) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*id).to_owned());
+            let name = face.as_str().unwrap().to_owned();
             if face_exists_for_domain(&name, true) {
                 Ok(name)
             } else {
@@ -2195,7 +2195,7 @@ fn lisp_face_attribute_value(face: &str, attr: &str, defaults_frame: bool) -> Va
 fn resolve_known_face_name_for_compare(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*id).to_owned());
+            let name = face.as_str().unwrap().to_owned();
             if face_exists_for_domain(&name, defaults_frame) {
                 Ok(name)
             } else {
@@ -2249,14 +2249,15 @@ fn proper_list_to_vec_or_listp_error(value: &Value) -> Result<Vec<Value>, Flow> 
         match cursor.kind() {
             ValueKind::Nil => return Ok(out),
             ValueKind::Cons => {
-                let cell = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                out.push(cell.car);
-                cursor = cell.cdr;
+                let cell_car = cursor.cons_car();
+                let cell_cdr = cursor.cons_cdr();
+                out.push(cell_car);
+                cursor = cell_cdr;
             }
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("listp"), other],
+                    vec![Value::symbol("listp"), cursor],
                 ));
             }
         }
@@ -2266,7 +2267,7 @@ fn proper_list_to_vec_or_listp_error(value: &Value) -> Result<Vec<Value>, Flow> 
 fn check_non_empty_string(value: &Value, empty_message: &str) -> Result<(), Flow> {
     match value.kind() {
         ValueKind::String => {
-            if with_heap(|h| h.get_string(*id).is_empty()) {
+            if value.as_str().unwrap().is_empty() {
                 Err(signal("error", vec![Value::string(empty_message), *value]))
             } else {
                 Ok(())
@@ -2308,7 +2309,7 @@ fn normalize_face_attr_for_set(
         ":family" | ":foundry" => {
             if !is_reset_like {
                 match normalized.kind() {
-                    ValueKind::String if !with_heap(|h| h.get_string(*id).is_empty()) => {}
+                    ValueKind::String if !normalized.as_str().unwrap().is_empty() => {}
                     ValueKind::String => {
                         let msg = if attr == ":family" {
                             "Invalid face family"
@@ -2702,7 +2703,7 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
             let name = value.as_symbol_name()?;
             Some(FaceAttrValue::Width(FontWidth::from_symbol(name)?))
         }
-        ":height" => match value {
+        ":height" => match value.kind() {
             ValueKind::Fixnum(n) => Some(FaceAttrValue::Height(FaceHeight::Absolute(n as i32))),
             ValueKind::Float => Some(FaceAttrValue::Height(FaceHeight::Relative(f))),
             _ => None,
@@ -2970,7 +2971,7 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
                     && underline.position.is_none()
                     && underline.style == UnderlineStyle::Line =>
             {
-                ValueKind::T
+                Value::T
             }
             Some(underline) => {
                 let mut plist = Vec::new();
@@ -3044,7 +3045,7 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
         ":stipple" | ":font" | ":fontset" => Value::symbol("unspecified"),
         ":inherit" => {
             if face.inherit.is_empty() {
-                ValueKind::Nil
+                Value::NIL
             } else if face.inherit.len() == 1 {
                 Value::symbol(face.inherit[0].as_str())
             } else {
@@ -3309,7 +3310,7 @@ pub(crate) fn builtin_face_list(args: Vec<Value>) -> EvalResult {
 
 fn expect_color_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -3394,7 +3395,7 @@ pub(crate) fn builtin_xw_color_defined_p_ctx(
         return Ok(Value::NIL);
     }
     let color_name = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3415,7 +3416,7 @@ pub(crate) fn builtin_color_values(args: Vec<Value>) -> EvalResult {
     expect_max_args("color-values", &args, 2)?;
     expect_optional_color_device_arg(&args, 1)?;
     let color_name = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         _ => return Ok(Value::NIL),
     };
     let lower = color_name.trim().to_lowercase();
@@ -3445,7 +3446,7 @@ pub(crate) fn builtin_xw_color_values_ctx(
         return Ok(Value::NIL);
     }
     let color_name = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3646,7 +3647,7 @@ fn invalid_get_device_terminal_error(value: &Value) -> Flow {
 fn color_device_designator_p(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Nil => true,
-        other => frame_device_designator_p(other),
+        other => frame_device_designator_p(value),
     }
 }
 
@@ -3742,9 +3743,9 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
         .get(frame_id)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
     if frame.window_system.is_none() {
-        return match &args[0] {
+        return match args[0].kind() {
             ValueKind::String => {
-                let name = with_heap(|h| h.get_string(*id).to_owned());
+                let name = args[0].as_str().unwrap().to_owned();
                 if KNOWN_FACES.contains(&name.as_str()) {
                     Ok(Value::NIL)
                 } else {
@@ -3759,8 +3760,8 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
                     ))
                 }
             }
-            Value::NIL => Err(signal("error", vec![Value::string("Invalid face")])),
-            Value::T | Value::symbol(_) => {
+            ValueKind::Nil => Err(signal("error", vec![Value::string("Invalid face")])),
+            ValueKind::T | Value::symbol(_) => {
                 if let Some(name) = symbol_name_for_face_value(&args[0]) {
                     if KNOWN_FACES.contains(&name.as_str()) {
                         return Ok(Value::NIL);
@@ -3935,14 +3936,14 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
         for member in members {
             match member.kind() {
                 ValueKind::String => {
-                    let name = with_heap(|h| h.get_string(id).to_owned());
+                    let name = member.as_str().unwrap().to_owned();
                     converted.push(Value::symbol(name.clone()));
                     names.push(name);
                 }
                 other => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("stringp"), other],
+                        vec![Value::symbol("stringp"), member],
                     ));
                 }
             }
@@ -3981,7 +3982,7 @@ pub(crate) fn builtin_internal_set_alternative_font_registry_alist(args: Vec<Val
 pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
     expect_args("x-load-color-file", &args, 1)?;
     let filename = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",

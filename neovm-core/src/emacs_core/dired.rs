@@ -33,7 +33,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_string(_name: &str, value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -1076,9 +1076,10 @@ pub(crate) fn builtin_file_attributes_lessp(args: Vec<Value>) -> EvalResult {
 fn extract_car_string(_name: &str, val: &Value) -> Result<String, Flow> {
     match val.kind() {
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            match pair.car.kind() {
-                ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+            let pair_car = val.cons_car();
+            let pair_cdr = val.cons_cdr();
+            match pair_car.kind() {
+                ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
                 other => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), *val],

@@ -864,7 +864,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -877,7 +877,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -887,7 +887,7 @@ fn expect_string_strict(value: &Value) -> Result<String, Flow> {
 
 fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         ValueKind::Nil | ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -1121,7 +1121,7 @@ pub(crate) fn builtin_expand_file_name_impl(
     let default_dir = if let Some(arg) = args.get(1) {
         match arg.kind() {
             ValueKind::Nil => default_directory_in_state(obarray, dynamic, buffers),
-            ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+            ValueKind::String => Some(arg.as_str().unwrap().to_owned()),
             _ => Some("/".to_string()),
         }
     } else {
@@ -1304,7 +1304,7 @@ pub(crate) fn builtin_file_name_concat(args: Vec<Value>) -> EvalResult {
         match value.kind() {
             ValueKind::Nil => {}
             ValueKind::String => {
-                let s = with_heap(|h| h.get_string(id).to_owned());
+                let s = value.as_str().unwrap().to_owned();
                 if !s.is_empty() {
                     parts.push(s);
                 }
@@ -1312,7 +1312,7 @@ pub(crate) fn builtin_file_name_concat(args: Vec<Value>) -> EvalResult {
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), other],
+                    vec![Value::symbol("stringp"), value],
                 ));
             }
         }
@@ -2559,7 +2559,7 @@ fn decode_insert_file_contents(
 
     match decoded.kind() {
         ValueKind::String => Ok((
-            with_heap(|h| h.get_string(id).to_owned()),
+            decoded.as_str().unwrap().to_owned(),
             coding.to_string(),
         )),
         other => Err(signal(
@@ -2825,11 +2825,11 @@ fn lookup_backup_directory(obarray: &Obarray, filename: &str) -> Option<String> 
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
             let pattern = match car.kind() {
-                ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+                ValueKind::String => car.as_str().unwrap().to_owned(),
                 _ => continue,
             };
             let dir = match cdr.kind() {
-                ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+                ValueKind::String => cdr.as_str().unwrap().to_owned(),
                 _ => continue,
             };
             // Simple substring match (GNU uses regex, but for now substring is
@@ -3013,7 +3013,7 @@ fn coding_system_value_to_name(val: &Value) -> Option<String> {
             if name == "nil" { None } else { Some(name) }
         }
         ValueKind::String => {
-            let name = with_heap(|h| h.get_string(*id).to_owned());
+            let name = val.as_str().unwrap().to_owned();
             if name.is_empty() || name == "nil" {
                 None
             } else {

@@ -78,7 +78,7 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -231,8 +231,8 @@ fn flatten_match_data(md: &super::regex::MatchData) -> Value {
                 flat.push(Value::fixnum(*end as i64));
             }
             None => {
-                flat.push(ValueKind::Nil);
-                flat.push(ValueKind::Nil);
+                flat.push(Value::NIL);
+                flat.push(Value::NIL);
             }
         }
     }

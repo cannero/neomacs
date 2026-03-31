@@ -1881,14 +1881,14 @@ pub(crate) fn builtin_invisible_p(args: Vec<Value>) -> EvalResult {
             } else if v < 0 {
                 Ok(Value::symbol("t"))
             } else {
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         }
         ValueKind::Char(ch) => {
             if ch == '\0' {
                 Err(signal("args-out-of-range", vec![Value::char(ch)]))
             } else {
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         }
         ValueKind::Nil => Ok(Value::NIL),
@@ -2133,7 +2133,7 @@ fn window_line_height_impl(
                         other => {
                             return Err(signal(
                                 "wrong-type-argument",
-                                vec![Value::symbol("integerp"), other],
+                                vec![Value::symbol("integerp"), line_spec],
                             ));
                         }
                     };
@@ -2184,7 +2184,7 @@ fn window_line_height_impl(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), other],
+                    vec![Value::symbol("integerp"), line_spec],
                 ));
             }
         };

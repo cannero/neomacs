@@ -276,7 +276,7 @@ pub(crate) fn plan_autoload_do_load_in_state(
     // items[0] = 'autoload, items[1] = file, ...
     let file = if items.len() > 1 {
         match items[1].kind() {
-            ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+            ValueKind::String => items[1].as_str().unwrap().to_owned(),
             _ => return Ok(AutoloadDoLoadPlan::Return(*fundef)),
         }
     } else {
@@ -447,7 +447,7 @@ pub(crate) fn register_autoload_in_state(
 
     let file_val = args[1];
     let file = match file_val.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => file_val.as_str().unwrap().to_owned(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -458,7 +458,7 @@ pub(crate) fn register_autoload_in_state(
 
     let docstring_val = args.get(2).cloned().unwrap_or(Value::NIL);
     let docstring = match docstring_val.kind() {
-        ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Some(docstring_val.as_str().unwrap().to_owned()),
         _ => None,
     };
 

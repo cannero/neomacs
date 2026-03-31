@@ -52,11 +52,12 @@ fn test_directory_files_and_attributes_basic() {
     let mut found = false;
     for item in &items {
         if item.is_cons() {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            if pair.car.as_str() == Some("test.txt") {
+            let pair_car = item.cons_car();
+            let pair_cdr = item.cons_cdr();
+            if pair_car.as_str() == Some("test.txt") {
                 found = true;
                 // cdr should be a list (the attributes).
-                assert!(pair.cdr.is_cons() || pair.cdr.is_nil());
+                assert!(pair_cdr.is_cons() || pair_cdr.is_nil());
             }
         }
     }
@@ -84,7 +85,7 @@ fn test_directory_files_and_attributes_order_and_count() {
         .iter()
         .map(|pair| {
             if pair.is_cons() {
-                read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
+                pair.cons_car().as_str().unwrap().to_string()
             } else {
                 panic!("expected cons pair");
             }
@@ -107,7 +108,7 @@ fn test_directory_files_and_attributes_order_and_count() {
         .iter()
         .map(|pair| {
             if pair.is_cons() {
-                read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
+                pair.cons_car().as_str().unwrap().to_string()
             } else {
                 panic!("expected cons pair");
             }
@@ -130,7 +131,7 @@ fn test_directory_files_and_attributes_order_and_count() {
         .iter()
         .map(|pair| {
             if pair.is_cons() {
-                read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
+                pair.cons_car().as_str().unwrap().to_string()
             } else {
                 panic!("expected cons pair");
             }
@@ -220,7 +221,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
         .iter()
         .map(|pair| {
             if pair.is_cons() {
-                read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
+                pair.cons_car().as_str().unwrap().to_string()
             } else {
                 panic!("expected cons pair");
             }

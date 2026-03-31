@@ -196,9 +196,10 @@ fn emacs_sxhash_list(value: &Value, depth: usize) -> u64 {
             if !cursor.is_cons() {
                 break;
             };
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            hash = sxhash_combine(hash, emacs_sxhash_obj_with_fallback(&pair.car, depth + 1));
-            cursor = pair.cdr;
+            let pair_car = cursor.cons_car();
+            let pair_cdr = cursor.cons_cdr();
+            hash = sxhash_combine(hash, emacs_sxhash_obj_with_fallback(&pair_car, depth + 1));
+            cursor = pair_cdr;
         }
     }
     if !cursor.is_nil() {
@@ -302,13 +303,14 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
         }
         ValueKind::Cons => {
             7_u8.hash(hasher);
-            let pair = read_cons(*cons);  // TODO(tagged): replace read_cons with cons accessors
-            hash_value_for_equal(&pair.car, hasher, depth + 1);
-            hash_value_for_equal(&pair.cdr, hasher, depth + 1);
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            hash_value_for_equal(&pair_car, hasher, depth + 1);
+            hash_value_for_equal(&pair_cdr, hasher, depth + 1);
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             8_u8.hash(hasher);
-            let items = with_heap(|h| h.get_vector(*vec).clone());
+            let items = value.as_vector_data().unwrap().clone();
             items.len().hash(hasher);
             for item in items.iter() {
                 hash_value_for_equal(item, hasher, depth + 1);
@@ -365,7 +367,7 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
 fn sxhash_emacs_uint_for(value: &Value, test: HashTableTest) -> u64 {
     match test.kind() {
         HashTableTest::Equal => emacs_sxhash_obj_with_fallback(value, 0),
-        HashTableTest::Eq | HashTableTest::Eql => match value {
+        HashTableTest::Eq | HashTableTest::Eql => match value.kind() {
             ValueKind::Fixnum(n) => sxhash_eq_fixnum_uint(n as u64),
             ValueKind::Char(c) => sxhash_eq_fixnum_uint((c as u32) as u64),
             ValueKind::Float if matches!(test, HashTableTest::Eql) => f.to_bits(),
@@ -463,7 +465,7 @@ pub(crate) fn builtin_hash_table_test(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-test", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             if let Some(id) = table.test_name {
                 Ok(ValueKind::Symbol(id))
             } else {
@@ -487,7 +489,7 @@ pub(crate) fn builtin_hash_table_size(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-size", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             Ok(Value::fixnum(table.size))
         }
         other => Err(signal(
@@ -502,7 +504,7 @@ pub(crate) fn builtin_hash_table_rehash_size(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-rehash-size", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             Ok(Value::make_float(table.rehash_size))  // TODO(tagged): remove next_float_id()
         }
         other => Err(signal(
@@ -517,7 +519,7 @@ pub(crate) fn builtin_hash_table_rehash_threshold(args: Vec<Value>) -> EvalResul
     expect_args("hash-table-rehash-threshold", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             Ok(Value::make_float(table.rehash_threshold))  // TODO(tagged): remove next_float_id()
         }
         other => Err(signal(
@@ -532,7 +534,7 @@ pub(crate) fn builtin_hash_table_weakness(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-weakness", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             Ok(match table.weakness {
                 None => Value::NIL,
                 Some(HashTableWeakness::Key) => Value::symbol("key"),
@@ -553,7 +555,7 @@ pub(crate) fn builtin_copy_hash_table(args: Vec<Value>) -> EvalResult {
     expect_args("copy-hash-table", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let new_table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let new_table = args[0].as_hash_table().unwrap().clone();
             let id = with_heap_mut(|h| h.alloc_hash_table_raw(new_table));
             Ok(ValueKind::Veclike(VecLikeType::HashTable))
         }
@@ -570,7 +572,7 @@ pub(crate) fn builtin_hash_table_keys(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-keys", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             let keys: Vec<Value> = table
                 .insertion_order
                 .iter()
@@ -592,7 +594,7 @@ pub(crate) fn builtin_hash_table_values(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-values", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             let values: Vec<Value> = table
                 .insertion_order
                 .iter()
@@ -638,7 +640,7 @@ pub(crate) fn builtin_internal_hash_table_index_size(args: Vec<Value>) -> EvalRe
     expect_args("internal--hash-table-index-size", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             Ok(Value::fixnum(
                 internal_hash_table_index_size(&table).min(i64::MAX as usize) as i64,
             ))
@@ -655,10 +657,10 @@ pub(crate) fn builtin_internal_hash_table_buckets(args: Vec<Value>) -> EvalResul
     expect_args("internal--hash-table-buckets", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             let buckets = internal_hash_table_nonempty_buckets(&table);
             if buckets.is_empty() {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             let rendered = buckets
                 .into_iter()
@@ -685,10 +687,10 @@ pub(crate) fn builtin_internal_hash_table_histogram(args: Vec<Value>) -> EvalRes
     expect_args("internal--hash-table-histogram", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[0].as_hash_table().unwrap().clone();
             let buckets = internal_hash_table_nonempty_buckets(&table);
             if buckets.is_empty() {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             let mut histogram: BTreeMap<i64, i64> = BTreeMap::new();
             for bucket in buckets {
@@ -737,7 +739,7 @@ pub(crate) fn collect_maphash_entries(
     let func = args[0];
     let entries = match args[1].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = with_heap(|h| h.get_hash_table(*ht).clone());
+            let table = args[1].as_hash_table().unwrap().clone();
             table
                 .insertion_order
                 .iter()
@@ -805,7 +807,7 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     validate_optional_obarray_arg(&args)?;
     let name = match args[0].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",

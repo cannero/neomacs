@@ -78,7 +78,7 @@ fn collect_sequence(val: &Value) -> Vec<Value> {
     match val.kind() {
         ValueKind::Nil => Vec::new(),
         ValueKind::Cons => list_to_vec(val).unwrap_or_default(),
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(*v).clone()),
+        ValueKind::Veclike(VecLikeType::Vector) => val.as_vector_data().unwrap().clone(),
         ValueKind::String => with_heap(|h| h.get_string(*s).chars().map(Value::Char).collect()),
         _ => vec![*val],
     }
@@ -91,13 +91,14 @@ fn cl_list_nth(list: &Value, index: usize) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                cursor = pair_cdr;
             }
             tail => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("listp"), tail],
+                    vec![Value::symbol("listp"), cursor],
                 ));
             }
         }
@@ -105,10 +106,10 @@ fn cl_list_nth(list: &Value, index: usize) -> EvalResult {
 
     match cursor.kind() {
         ValueKind::Nil => Ok(Value::NIL),
-        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(cell))),
+        ValueKind::Cons => Ok(cursor.cons_car()),
         tail => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("listp"), tail],
+            vec![Value::symbol("listp"), cursor],
         )),
     }
 }
@@ -189,7 +190,7 @@ pub(crate) fn builtin_cl_rest(args: Vec<Value>) -> EvalResult {
     expect_args("cl-rest", &args, 1)?;
     match args[0].kind() {
         ValueKind::Nil => Ok(Value::NIL),
-        ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(*cell))),
+        ValueKind::Cons => Ok(args[0].cons_cdr()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), args[0]],
@@ -269,14 +270,15 @@ fn seq_position_list_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
         match cursor.kind() {
             ValueKind::Nil => return Ok(elements),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                elements.push(pair.car);
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                elements.push(pair_car);
+                cursor = pair_cdr;
             }
             tail => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("listp"), tail],
+                    vec![Value::symbol("listp"), cursor],
                 ));
             }
         }
@@ -287,7 +289,7 @@ fn seq_position_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
     match seq.kind() {
         ValueKind::Nil => Ok(Vec::new()),
         ValueKind::Cons => seq_position_list_elements(seq),
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(with_heap(|h| h.get_vector(*v).clone())),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(seq.as_vector_data().unwrap().clone()),
         ValueKind::String => Ok(with_heap(|h| {
             h.get_string(*s)
                 .chars()
@@ -322,20 +324,21 @@ fn seq_collect_concat_arg(arg: &Value) -> Result<Vec<Value>, Flow> {
                 match cursor.kind() {
                     ValueKind::Nil => return Ok(out),
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        out.push(pair.car);
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        out.push(pair_car);
+                        cursor = pair_cdr;
                     }
                     tail => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
             }
         }
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(with_heap(|h| h.get_vector(*v).clone())),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(arg.as_vector_data().unwrap().clone()),
         ValueKind::String => Ok(with_heap(|h| {
             h.get_string(*s)
                 .chars()
@@ -346,7 +349,7 @@ fn seq_collect_concat_arg(arg: &Value) -> Result<Vec<Value>, Flow> {
             "error",
             vec![Value::string(format!(
                 "Cannot convert {} into a sequence",
-                super::print::print_value(other)
+                super::print::print_value(arg)
             ))],
         )),
     }
@@ -397,7 +400,7 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Nil => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
+            let elems = args[0].as_vector_data().unwrap().clone();
             if n <= 0 {
                 return Ok(Value::vector(elems.clone()));
             }
@@ -405,7 +408,7 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(elems[n..].to_vec()))
         }
         ValueKind::String => {
-            let string = with_heap(|h| h.get_string(*s).to_owned());
+            let string = args[0].as_str().unwrap().to_owned();
             let chars: Vec<char> = string.chars().collect();
             if n <= 0 {
                 return Ok(Value::string(string));
@@ -424,8 +427,9 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
                 match cursor.kind() {
                     ValueKind::Nil => return Ok(Value::NIL),
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        cursor = pair_cdr;
                         remaining -= 1;
                     }
                     _ => {
@@ -453,7 +457,7 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Nil => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
+            let elems = args[0].as_vector_data().unwrap().clone();
             if n <= 0 {
                 return Ok(Value::vector(Vec::new()));
             }
@@ -461,7 +465,7 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(elems[..n].to_vec()))
         }
         ValueKind::String => {
-            let string = with_heap(|h| h.get_string(*s).to_owned());
+            let string = args[0].as_str().unwrap().to_owned();
             let chars: Vec<char> = string.chars().collect();
             if n <= 0 {
                 return Ok(Value::string(""));
@@ -472,7 +476,7 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Cons => {
             if n <= 0 {
-                return Ok(ValueKind::Nil);
+                return Ok(Value::NIL);
             }
             let mut out = Vec::new();
             let mut cursor = args[0];
@@ -481,15 +485,16 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
                 match cursor.kind() {
                     ValueKind::Nil => break,
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        out.push(pair.car);
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        out.push(pair_car);
+                        cursor = pair_cdr;
                         remaining -= 1;
                     }
                     tail => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -553,7 +558,7 @@ pub(crate) fn builtin_seq_subseq(args: Vec<Value>) -> EvalResult {
             "error",
             vec![Value::string(format!(
                 "Unsupported sequence: {}",
-                super::print::print_value(other)
+                super::print::print_value(args[0])
             ))],
         )),
     }
@@ -569,7 +574,7 @@ pub(crate) fn builtin_seq_concatenate(args: Vec<Value>) -> EvalResult {
                 "error",
                 vec![Value::string(format!(
                     "Not a sequence type name: {}",
-                    super::print::print_value(other)
+                    super::print::print_value(args[0])
                 ))],
             ));
         }
@@ -624,8 +629,8 @@ pub(crate) fn builtin_seq_empty_p(args: Vec<Value>) -> EvalResult {
         ValueKind::Nil => Ok(Value::T),
         ValueKind::Cons => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => Ok(Value::NIL),
-        ValueKind::String => Ok(Value::bool_val(with_heap(|h| h.get_string(*s).is_empty()))),
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::bool_val(with_heap(|h| h.vector_len(*v)) == 0)),
+        ValueKind::String => Ok(Value::bool_val(args[0].as_str().unwrap().is_empty())),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::bool_val(args[0].as_vector_data().unwrap().len() == 0)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],
@@ -1011,7 +1016,7 @@ pub(crate) fn builtin_cl_map(eval: &mut super::eval::Context, args: Vec<Value>) 
                         other => {
                             return Err(signal(
                                 "wrong-type-argument",
-                                vec![Value::symbol("characterp"), other],
+                                vec![Value::symbol("characterp"), item],
                             ));
                         }
                     };
@@ -1023,7 +1028,7 @@ pub(crate) fn builtin_cl_map(eval: &mut super::eval::Context, args: Vec<Value>) 
             "error",
             vec![Value::string(format!(
                 "Unsupported cl-map result type: {}",
-                super::print::print_value(&other)
+                super::print::print_value(&result_type)
             ))],
         )),
     }

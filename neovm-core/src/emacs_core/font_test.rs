@@ -460,7 +460,7 @@ fn close_font_requires_font_object() {
     match wrong_nil {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("font-object"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("font-object"), Value::NIL]);
         }
         other => panic!("expected wrong-type-argument, got {other:?}"),
     }
@@ -715,7 +715,7 @@ fn internal_lisp_face_p_symbol_returns_face_vector() {
 
     let result = builtin_internal_lisp_face_p(vec![Value::symbol("default")]).unwrap();
     let values = match result.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(v).clone()),
+        ValueKind::Veclike(VecLikeType::Vector) => result.as_vector_data().unwrap().clone(),
         _ => panic!("expected vector"),
     };
     assert_eq!(values.len(), LISP_FACE_VECTOR_LEN);
@@ -750,7 +750,7 @@ fn internal_lisp_face_p_with_frame_designator_returns_resolved_vector() {
         builtin_internal_lisp_face_p(vec![Value::symbol("default"), Value::make_frame(FRAME_ID_BASE)])
             .unwrap();
     let values = match result.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(v).clone()),
+        ValueKind::Veclike(VecLikeType::Vector) => result.as_vector_data().unwrap().clone(),
         _ => panic!("expected vector"),
     };
     assert_eq!(values[0].as_symbol_name(), Some("face"));
@@ -2159,7 +2159,7 @@ fn color_distance_errors_match_oracle_shape() {
     match frame_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::T]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::T]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }

@@ -1562,21 +1562,21 @@ fn x_popup_dialog_and_menu_batch_semantics() {
     match builtin_x_popup_dialog(vec![Value::NIL, Value::NIL]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("windowp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("windowp"), Value::NIL]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_popup_dialog(vec![Value::Frame(1), Value::NIL]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::NIL]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_popup_dialog(vec![Value::Frame(1), Value::list(vec![Value::string("A")])]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("consp"), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("consp"), Value::NIL]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -1603,7 +1603,7 @@ fn x_popup_dialog_and_menu_batch_semantics() {
         match builtin_x_popup_dialog(vec![arg, Value::NIL]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("windowp"), ValueKind::Nil]);
+                assert_eq!(sig.data, vec![Value::symbol("windowp"), Value::NIL]);
             }
             other => panic!("expected wrong-type-argument signal, got {other:?}"),
         }
@@ -2521,9 +2521,10 @@ fn eval_monitor_attributes_include_bootstrapped_frame() {
     let mut frames_value = Value::NIL;
     for attr in attrs {
         if attr.is_cons() {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            if pair.car.is_symbol_named("frames") {
-                frames_value = pair.cdr;
+            let pair_car = attr.cons_car();
+            let pair_cdr = attr.cons_cdr();
+            if pair_car.is_symbol_named("frames") {
+                frames_value = pair_cdr;
                 break;
             }
         }
@@ -2568,9 +2569,10 @@ fn eval_monitor_queries_accept_frame_handle_designator() {
     let mut frame = Value::NIL;
     for attr in attrs {
         if attr.is_cons() {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            if pair.car.is_symbol_named("frames") {
-                let frames = list_to_vec(&pair.cdr).expect("frames list");
+            let pair_car = attr.cons_car();
+            let pair_cdr = attr.cons_cdr();
+            if pair_car.is_symbol_named("frames") {
+                let frames = list_to_vec(&pair_cdr).expect("frames list");
                 frame = frames.first().cloned().expect("first frame");
                 break;
             }

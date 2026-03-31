@@ -664,8 +664,8 @@ pub(crate) fn fontset_font(name: &Value, ch: char, all: bool) -> Result<Value, F
         match entry {
             FontSpecEntry::ExplicitNone => return Ok(Value::NIL),
             FontSpecEntry::Font(spec) => {
-                let family = spec.family.map(Value::string).unwrap_or(ValueKind::Nil);
-                let registry = spec.registry.map(Value::string).unwrap_or(ValueKind::Nil);
+                let family = spec.family.map(Value::string).unwrap_or(Value::NIL);
+                let registry = spec.registry.map(Value::string).unwrap_or(Value::NIL);
                 let pattern = Value::cons(family, registry);
                 if !all {
                     return Ok(pattern);
@@ -774,10 +774,11 @@ fn parse_font_spec_entry(
     match value.kind() {
         ValueKind::Nil => Ok(FontSpecEntry::ExplicitNone),
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
             let mut spec = StoredFontSpec {
-                family: value_text(&pair.car),
-                registry: value_text(&pair.cdr).map(|registry| registry.to_ascii_lowercase()),
+                family: value_text(&pair_car),
+                registry: value_text(&pair_cdr).map(|registry| registry.to_ascii_lowercase()),
                 lang: None,
                 weight: None,
                 slant: None,
@@ -905,8 +906,9 @@ fn lookup_font_encoding(font_encoding_alist: &Value, font_name: &str) -> Option<
         if !entry.is_cons() {
             continue;
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        let Some(pattern) = value_text(&pair.car) else {
+        let pair_car = entry.cons_car();
+        let pair_cdr = entry.cons_cdr();
+        let Some(pattern) = value_text(&pair_car) else {
             continue;
         };
         let translated = pattern
@@ -922,7 +924,7 @@ fn lookup_font_encoding(font_encoding_alist: &Value, font_name: &str) -> Option<
             continue;
         };
         if regex.is_match(font_name) {
-            return Some(pair.cdr);
+            return Some(pair_cdr);
         }
     }
     None
@@ -935,11 +937,12 @@ fn font_encoding_repertory(value: &Value) -> Option<FontRepertory> {
             charset_exists(name).then(|| FontRepertory::Charset(name.to_string()))
         }
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            if pair.cdr.is_nil() {
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            if pair_cdr.is_nil() {
                 None
             } else {
-                font_encoding_repertory(&pair.cdr)
+                font_encoding_repertory(&pair_cdr)
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) if is_char_table(value) => {
@@ -988,9 +991,10 @@ fn expand_target(
             vec![Value::symbol("characterp"), *target],
         )),
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            let from = expect_target_char(&pair.car)?;
-            let to = expect_target_char(&pair.cdr)?;
+            let pair_car = target.cons_car();
+            let pair_cdr = target.cons_cdr();
+            let from = expect_target_char(&pair_car)?;
+            let to = expect_target_char(&pair_cdr)?;
             if from > to {
                 return Ok(vec![FontsetTarget::Range(to, from)]);
             }
@@ -1063,14 +1067,16 @@ fn lookup_charset_script(alist: &Value, charset_name: &str) -> Option<String> {
         match cursor.kind() {
             ValueKind::Nil => return None,
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if pair.car.is_cons() {
-                    let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
-                    if entry.car == target {
-                        return value_text(&entry.cdr);
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if pair_car.is_cons() {
+                    let entry_car = pair_car.cons_car();
+                    let entry_cdr = pair_car.cons_cdr();
+                    if entry_car == target {
+                        return value_text(&entry_cdr);
                     }
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => return None,
         }
@@ -1082,9 +1088,10 @@ fn value_to_range(value: &Value) -> Option<(u32, u32)> {
         ValueKind::Char(ch) => Some((ch as u32, ch as u32)),
         ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => Some((code as u32, code as u32)),
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            let from = expect_target_char(&pair.car).ok()?;
-            let to = expect_target_char(&pair.cdr).ok()?;
+            let pair_car = value.cons_car();
+            let pair_cdr = value.cons_cdr();
+            let from = expect_target_char(&pair_car).ok()?;
+            let to = expect_target_char(&pair_cdr).ok()?;
             Some((from.min(to), from.max(to)))
         }
         _ => None,
@@ -1109,9 +1116,10 @@ fn list_to_vec(value: &Value) -> Vec<Value> {
         match cursor.kind() {
             ValueKind::Nil => return items,
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                items.push(pair.car);
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                items.push(pair_car);
+                cursor = pair_cdr;
             }
             _ => {
                 items.push(cursor);

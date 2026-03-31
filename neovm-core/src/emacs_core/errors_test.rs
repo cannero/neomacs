@@ -972,7 +972,7 @@ fn builtin_error_message_string_symbol_input_is_wrong_type() {
     match result_true {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::T]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::T]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }

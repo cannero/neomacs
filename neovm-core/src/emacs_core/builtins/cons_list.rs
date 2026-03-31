@@ -198,7 +198,7 @@ fn lambda_params_to_value(params: &LambdaParams) -> Value {
 fn car_value(value: &Value) -> Result<Value, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(Value::NIL),
-        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(*cell))),
+        ValueKind::Cons => Ok(value.cons_car()),
         // In official Emacs, closures are cons lists with car = closure/lambda.
         ValueKind::Veclike(VecLikeType::Lambda) => {
             let data = value.get_lambda_data().unwrap();
@@ -218,12 +218,12 @@ fn car_value(value: &Value) -> Result<Value, Flow> {
 fn cdr_value(value: &Value) -> Result<Value, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(Value::NIL),
-        ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(*cell))),
+        ValueKind::Cons => Ok(value.cons_cdr()),
         // Convert Lambda to cons list, return cdr.
         ValueKind::Veclike(VecLikeType::Lambda) => {
-            let list = lambda_to_cons_list(value).unwrap_or(ValueKind::Nil);
+            let list = lambda_to_cons_list(value).unwrap_or(Value::NIL);
             match list.kind() {
-                ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(cell))),
+                ValueKind::Cons => Ok(list.cons_cdr()),
                 _ => Ok(Value::NIL),
             }
         }
@@ -247,7 +247,7 @@ pub(crate) fn builtin_cdr(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_car_safe(args: Vec<Value>) -> EvalResult {
     expect_args("car-safe", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(*cell))),
+        ValueKind::Cons => Ok(args[0].cons_car()),
         _ => Ok(Value::NIL),
     }
 }
@@ -255,7 +255,7 @@ pub(crate) fn builtin_car_safe(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_cdr_safe(args: Vec<Value>) -> EvalResult {
     expect_args("cdr-safe", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(*cell))),
+        ValueKind::Cons => Ok(args[0].cons_cdr()),
         _ => Ok(Value::NIL),
     }
 }
@@ -264,7 +264,7 @@ pub(crate) fn builtin_setcar(args: Vec<Value>) -> EvalResult {
     expect_args("setcar", &args, 2)?;
     match args[0].kind() {
         ValueKind::Cons => {
-            with_heap_mut(|h| h.set_car(*cell, args[1]));
+            args[0].set_car(args[1]);
             Ok(args[1])
         }
         _ => Err(signal(
@@ -278,7 +278,7 @@ pub(crate) fn builtin_setcdr(args: Vec<Value>) -> EvalResult {
     expect_args("setcdr", &args, 2)?;
     match args[0].kind() {
         ValueKind::Cons => {
-            with_heap_mut(|h| h.set_cdr(*cell, args[1]));
+            args[0].set_cdr(args[1]);
             Ok(args[1])
         }
         _ => Err(signal(
@@ -340,7 +340,7 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
             while remaining > 0 {
                 match cursor.kind() {
                     ValueKind::Cons => {
-                        cursor = with_heap(|h| h.cons_cdr(cell));
+                        cursor = cursor.cons_cdr();
                         remaining -= 1;
                     }
                     _ => return Ok(true),
@@ -372,7 +372,7 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
             while remaining > 0 {
                 match cursor.kind() {
                     ValueKind::Cons => {
-                        cursor = with_heap(|h| h.cons_cdr(cell));
+                        cursor = cursor.cons_cdr();
                         remaining -= 1;
                     }
                     _ => return Ok(false),
@@ -407,7 +407,7 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
             while remaining > 0 {
                 match cursor.kind() {
                     ValueKind::Cons => {
-                        cursor = with_heap(|h| h.cons_cdr(cell));
+                        cursor = cursor.cons_cdr();
                         remaining -= 1;
                     }
                     _ => return Ok(false),
@@ -445,11 +445,11 @@ pub(crate) fn builtin_nth(args: Vec<Value>) -> EvalResult {
     let n = expect_int(&args[0])?;
     let tail = nthcdr_impl(n, args[1])?;
     match tail.kind() {
-        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(cell))),
+        ValueKind::Cons => Ok(tail.cons_car()),
         ValueKind::Nil => Ok(Value::NIL),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("listp"), other],
+            vec![Value::symbol("listp"), tail],
         )),
     }
 }
@@ -460,14 +460,14 @@ fn nthcdr_impl(n: i64, list: Value) -> EvalResult {
     }
 
     // Convert Lambda to cons list for traversal.
-    let mut cursor = match list {
+    let mut cursor = match list.kind() {
         ValueKind::Veclike(VecLikeType::Lambda) => lambda_to_cons_list(&list).unwrap_or(Value::NIL),
-        other => other,
+        other => list,
     };
     for _ in 0..(n as usize) {
         match cursor.kind() {
             ValueKind::Cons => {
-                cursor = with_heap(|h| h.cons_cdr(cell));
+                cursor = cursor.cons_cdr();
             }
             ValueKind::Nil => return Ok(Value::NIL),
             _ => {
@@ -494,14 +494,15 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
             match cursor.kind() {
                 ValueKind::Nil => return Ok(()),
                 ValueKind::Cons => {
-                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                    out.push(pair.car);
-                    cursor = pair.cdr;
+                    let pair_car = cursor.cons_car();
+                    let pair_cdr = cursor.cons_cdr();
+                    out.push(pair_car);
+                    cursor = pair_cdr;
                 }
                 tail => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("listp"), tail],
+                        vec![Value::symbol("listp"), cursor],
                     ));
                 }
             }
@@ -524,10 +525,10 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
             ValueKind::Veclike(VecLikeType::Lambda) => elements.extend(lambda_to_closure_vector(arg).into_iter()),
             ValueKind::Veclike(VecLikeType::ByteCode) => elements.extend(bytecode_to_closure_vector(arg).into_iter()),
             ValueKind::Veclike(VecLikeType::Vector) => {
-                elements.extend(with_heap(|h| h.get_vector(*v).clone()).into_iter())
+                elements.extend(arg.as_vector_data().unwrap().clone().into_iter())
             }
             ValueKind::String => {
-                let s = with_heap(|h| h.get_string(*id).to_owned());
+                let s = arg.as_str().unwrap().to_owned();
                 elements.extend(
                     decode_storage_char_codes(&s)
                         .into_iter()
@@ -569,12 +570,12 @@ pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
             Ok(Value::list(reversed))
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let mut items = with_heap(|h| h.get_vector(*v).clone());
+            let mut items = args[0].as_vector_data().unwrap().clone();
             items.reverse();
             Ok(Value::vector(items))
         }
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = args[0].as_str().unwrap().to_owned();
             let reversed: String = s.chars().rev().collect();
             Ok(Value::string(reversed))
         }
@@ -592,9 +593,10 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
         loop {
             match cursor.kind() {
                 ValueKind::Cons => {
-                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                    prefix.push(pair.car);
-                    cursor = pair.cdr;
+                    let pair_car = cursor.cons_car();
+                    let pair_cdr = cursor.cons_cdr();
+                    prefix.push(pair_car);
+                    cursor = pair_cdr;
                 }
                 ValueKind::Nil => return None,
                 _ => return Some(Value::list(prefix)),
@@ -614,14 +616,14 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
                 ));
             }
 
-            let mut prev = ValueKind::Nil;
+            let mut prev = Value::NIL;
             let mut current = args[0];
             loop {
                 match current.kind() {
                     ValueKind::Nil => return Ok(prev),
                     ValueKind::Cons => {
-                        let next = with_heap(|h| h.cons_cdr(cell));
-                        with_heap_mut(|h| h.set_cdr(cell, prev));
+                        let next = current.cons_cdr();
+                        current.set_cdr(prev);
                         prev = ValueKind::Cons;
                         current = next;
                     }
@@ -650,12 +652,13 @@ pub(crate) fn builtin_member(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if equal_value(target, &pair.car, 0) {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if equal_value(target, &pair_car, 0) {
                     drop(pair);
                     return Ok(ValueKind::Cons);
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => {
                 return Err(signal(
@@ -676,12 +679,13 @@ pub(crate) fn builtin_memq(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if eq_value(target, &pair.car) {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if eq_value(target, &pair_car) {
                     drop(pair);
                     return Ok(ValueKind::Cons);
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => {
                 return Err(signal(
@@ -702,12 +706,13 @@ pub(crate) fn builtin_memql(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if eql_value(target, &pair.car) {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if eql_value(target, &pair_car) {
                     drop(pair);
                     return Ok(ValueKind::Cons);
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => {
                 return Err(signal(
@@ -737,19 +742,21 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                     match cursor.kind() {
                         ValueKind::Nil => return Ok(Value::NIL),
                         ValueKind::Cons => {
-                            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                            if let ValueKind::Cons = pair.car {
-                                let entry_pair = read_cons(*entry);  // TODO(tagged): replace read_cons with cons accessors
+                            let pair_car = cursor.cons_car();
+                            let pair_cdr = cursor.cons_cdr();
+                            if let ValueKind::Cons = pair_car {
+                                let entry_pair_car = cursor.cons_car();
+                                let entry_pair_cdr = cursor.cons_cdr();
                                 let matches = if let Some(test_fn) = &test_fn {
-                                    ctx.apply(*test_fn, vec![entry_pair.car, *key])?.is_truthy()
+                                    ctx.apply(*test_fn, vec![entry_pair_car, *key])?.is_truthy()
                                 } else {
-                                    equal_value(key, &entry_pair.car, 0)
+                                    equal_value(key, &entry_pair_car, 0)
                                 };
                                 if matches {
-                                    return Ok(pair.car);
+                                    return Ok(pair_car);
                                 }
                             }
-                            cursor = pair.cdr;
+                            cursor = pair_cdr;
                         }
                         _ => {
                             return Err(signal(
@@ -769,14 +776,16 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                 match cursor.kind() {
                     ValueKind::Nil => return Ok(Value::NIL),
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        if let ValueKind::Cons = pair.car {
-                            let entry_pair = read_cons(*entry);  // TODO(tagged): replace read_cons with cons accessors
-                            if equal_value(key, &entry_pair.car, 0) {
-                                return Ok(pair.car);
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        if let ValueKind::Cons = pair_car {
+                            let entry_pair_car = cursor.cons_car();
+                            let entry_pair_cdr = cursor.cons_cdr();
+                            if equal_value(key, &entry_pair_car, 0) {
+                                return Ok(pair_car);
                             }
                         }
-                        cursor = pair.cdr;
+                        cursor = pair_cdr;
                     }
                     _ => {
                         return Err(signal(
@@ -799,14 +808,16 @@ pub(crate) fn builtin_assq(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if let ValueKind::Cons = pair.car {
-                    let entry_pair = read_cons(*entry);  // TODO(tagged): replace read_cons with cons accessors
-                    if eq_value(key, &entry_pair.car) {
-                        return Ok(pair.car);
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if let ValueKind::Cons = pair_car {
+                    let entry_pair_car = cursor.cons_car();
+                    let entry_pair_cdr = cursor.cons_cdr();
+                    if eq_value(key, &entry_pair_car) {
+                        return Ok(pair_car);
                     }
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => {
                 return Err(signal(
@@ -829,14 +840,15 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
                 match cursor.kind() {
                     ValueKind::Nil => break,
                     ValueKind::Cons => {
-                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                        items.push(pair.car);
-                        cursor = pair.cdr;
+                        let pair_car = cursor.cons_car();
+                        let pair_cdr = cursor.cons_cdr();
+                        items.push(pair_car);
+                        cursor = pair_cdr;
                     }
                     tail => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("listp"), tail],
+                            vec![Value::symbol("listp"), cursor],
                         ));
                     }
                 }
@@ -844,7 +856,7 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             Ok(Value::list(items))
         }
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = args[0].as_str().unwrap().to_owned();
             // GNU Emacs: (copy-sequence "") returns "" itself (eq).
             if s.is_empty() {
                 return Ok(args[0]);
@@ -859,7 +871,7 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             Ok(new_val)
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
+            let elems = args[0].as_vector_data().unwrap().clone();
             // GNU Emacs: (copy-sequence (vector)) returns the same empty vector (eq).
             if elems.is_empty() {
                 return Ok(args[0]);
@@ -867,7 +879,7 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(elems))
         }
         ValueKind::Veclike(VecLikeType::Record) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = args[0].as_record_data().unwrap().clone();
             let id = with_heap_mut(|h| h.alloc_vector(items));
             Ok(ValueKind::Veclike(VecLikeType::Record))
         }
@@ -891,12 +903,12 @@ where
         match probe.kind() {
             ValueKind::Nil => break,
             ValueKind::Cons => {
-                probe = with_heap(|h| h.cons_cdr(cell));
+                probe = probe.cons_cdr();
             }
             tail => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("listp"), tail],
+                    vec![Value::symbol("listp"), probe],
                 ));
             }
         }
@@ -908,11 +920,12 @@ where
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
                 let remove = {
-                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                    should_delete(&pair.car)?
+                    let pair_car = head.cons_car();
+                    let pair_cdr = head.cons_cdr();
+                    should_delete(&pair_car)?
                 };
                 if remove {
-                    head = with_heap(|h| h.cons_cdr(cell));
+                    head = head.cons_cdr();
                 } else {
                     break;
                 }
@@ -933,12 +946,13 @@ where
             ValueKind::Nil => break,
             ValueKind::Cons => {
                 let remove = {
-                    let pair = read_cons(next_cell);  // TODO(tagged): replace read_cons with cons accessors
-                    should_delete(&pair.car)?
+                    let pair_car = next.cons_car();
+                    let pair_cdr = next.cons_cdr();
+                    should_delete(&pair_car)?
                 };
                 if remove {
-                    let after = with_heap(|h| h.cons_cdr(next_cell));
-                    with_heap_mut(|h| h.set_cdr(prev, after));
+                    let after = next.cons_cdr();
+                    next.set_cdr(after);
                 } else {
                     prev = next_cell;
                 }
@@ -964,7 +978,7 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
         ValueKind::Nil => Ok(Value::NIL),
         ValueKind::Cons => delete_from_list_in_place(&args[1], |item| equal_value(elt, item, 0)),
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = args[1].as_vector_data().unwrap().clone();
             let mut changed = false;
             let mut kept = Vec::with_capacity(items.len());
             for item in items.iter() {
@@ -983,7 +997,7 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
         ValueKind::String => {
             let mut changed = false;
             let mut kept = Vec::new();
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = args[1].as_str().unwrap().to_owned();
             for cp in decode_storage_char_codes(&s) {
                 let ch = Value::fixnum(cp as i64);
                 if equal_value(elt, &ch, 0) {
@@ -1055,12 +1069,12 @@ pub(crate) fn builtin_nconc(args: Vec<Value>) -> EvalResult {
                     result_head = Some(*arg);
                 }
                 if let Some(ValueKind::Cons) = &last_cons {
-                    with_heap_mut(|h| h.set_cdr(*prev, *arg));
+                    arg.set_cdr(*arg);
                 }
 
                 let mut tail = *head;
                 loop {
-                    let next = with_heap(|h| h.cons_cdr(tail));
+                    let next = arg.cons_cdr();
                     match next.kind() {
                         ValueKind::Cons => tail = next_cell,
                         _ => {

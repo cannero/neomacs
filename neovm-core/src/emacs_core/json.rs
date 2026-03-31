@@ -113,8 +113,8 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
     while i + 1 < rest.len() {
         let key = &rest[i];
         let value = &rest[i + 1];
-        match key {
-            ValueKind::Keyword(k) if resolve_sym(*k) == ":object-type" => match value {
+        match key.kind() {
+            ValueKind::Keyword(k) if resolve_sym(*k) == ":object-type" => match value.kind() {
                 ValueKind::Symbol(id) if resolve_sym(*id) == "hash-table" => {
                     opts.object_type = ObjectType::HashTable
                 }
@@ -134,7 +134,7 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
                     ));
                 }
             },
-            ValueKind::Keyword(k) if resolve_sym(*k) == ":array-type" => match value {
+            ValueKind::Keyword(k) if resolve_sym(*k) == ":array-type" => match value.kind() {
                 ValueKind::Symbol(id) if resolve_sym(*id) == "array" => {
                     opts.array_type = ArrayType::Vector
                 }
@@ -189,7 +189,7 @@ fn parse_serialize_kwargs(args: &[Value], start_index: usize) -> Result<Serializ
     while i + 1 < rest.len() {
         let key = &rest[i];
         let value = &rest[i + 1];
-        match key {
+        match key.kind() {
             ValueKind::Keyword(k) if resolve_sym(*k) == ":null-object" => {
                 opts.null_object = *value;
             }
@@ -308,9 +308,10 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
             for item in &items {
                 match item.kind() {
                     ValueKind::Cons => {
-                        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                        let key_str = symbol_object_key(&pair.car)?;
-                        let val_json = serialize_to_json(&pair.cdr, opts, depth + 1)?;
+                        let pair_car = item.cons_car();
+                        let pair_cdr = item.cons_cdr();
+                        let key_str = symbol_object_key(&pair_car)?;
+                        let val_json = serialize_to_json(&pair_cdr, opts, depth + 1)?;
                         parts.push(format!("{}:{}", json_encode_string(&key_str), val_json));
                     }
                     _ => {
@@ -1047,7 +1048,7 @@ pub(crate) fn builtin_json_serialize(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("json-parse-string", &args, 1)?;
     let input = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",

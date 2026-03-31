@@ -99,12 +99,13 @@ fn plist_get(plist: &Value, key: &Value) -> Value {
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if eq_value(&pair.car, key) {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if eq_value(&pair_car, key) {
                     // Next element is the value.
-                    match pair.cdr.kind() {
+                    match pair_cdr.kind() {
                         ValueKind::Cons => {
-                            return with_heap(|h| h.cons_car(*val_cell));
+                            return cursor.cons_car();
                         }
                         _ => return Value::NIL,
                     }
@@ -112,7 +113,7 @@ fn plist_get(plist: &Value, key: &Value) -> Value {
                 // Skip the value entry.
                 match pair.cdr.kind() {
                     ValueKind::Cons => {
-                        cursor = with_heap(|h| h.cons_cdr(*val_cell));
+                        cursor = pair.cdr.cons_cdr();
                     }
                     _ => return Value::NIL,
                 }

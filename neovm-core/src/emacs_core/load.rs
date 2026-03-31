@@ -158,13 +158,13 @@ fn format_value_for_error(v: &Value) -> String {
             let cdr = h.cons_cdr(*id);
             let car_s = format_value_for_error(&car);
             let cdr_s = format_value_for_error(&cdr);
-            if cdr == ValueKind::Nil {
+            if cdr == Value::NIL {
                 format!("({})", car_s)
             } else {
                 format!("({} . {})", car_s, cdr_s)
             }
         }),
-        other => format!("{:?}", other),
+        other => format!("{:?}", v),
     }
 }
 
@@ -248,7 +248,7 @@ fn try_eval_generated_loaddefs_form(
     // run through the already-loaded GNU Lisp runtime instead.
     match resolve_sym(*id) {
         "progn" => {
-            let mut last = ValueKind::Nil;
+            let mut last = Value::NIL;
             for expr in tail {
                 last = eval_generated_loaddefs_form(eval, expr)?;
             }
@@ -453,11 +453,11 @@ pub(crate) fn plan_load_in_state(
     must_suffix: Option<Value>,
 ) -> Result<LoadPlan, Flow> {
     let file = match file.kind() {
-        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
+        ValueKind::String => file.as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), other],
+                vec![Value::symbol("stringp"), file],
             ));
         }
     };

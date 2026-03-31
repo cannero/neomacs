@@ -93,7 +93,7 @@ pub(crate) fn key_events_from_designator(
             // each character IS a key event — no kbd-style text parsing.
             // This matches official Emacs behavior where "\C-x8" is two events:
             // char 24 (C-x) and char 56 (8).
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = designator.as_str().unwrap().to_owned();
             Ok(s.chars()
                 .map(|ch| {
                     let code_u32 = ch as u32;
@@ -168,7 +168,7 @@ pub(crate) fn key_events_from_designator(
 fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
     match encoded.kind() {
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = encoded.as_str().unwrap().to_owned();
             Ok(s.chars()
                 .map(|ch| {
                     let code_u32 = ch as u32;
@@ -232,12 +232,12 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                 .collect())
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = encoded.as_vector_data().unwrap().clone();
             items.iter().map(decode_vector_event).collect()
         }
         other => Err(format!(
             "expected kbd-encoded string or vector, got {}",
-            other.type_name()
+            encoded.type_name()
         )),
     }
 }
@@ -262,7 +262,7 @@ fn decode_vector_event(item: &Value) -> Result<KeyEvent, String> {
         ValueKind::Cons => decode_event_modifier_list(item),
         other => Err(format!(
             "invalid key vector element type: {}",
-            other.type_name()
+            item.type_name()
         )),
     }
 }
@@ -278,8 +278,9 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                match pair.car.kind() {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                match pair_car.kind() {
                     ValueKind::Symbol(id) => {
                         let name = resolve_sym(id);
                         match name {
@@ -292,7 +293,7 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                             _ => {
                                 // Not a modifier — this symbol IS the base event
                                 // and cdr should be nil
-                                if pair.cdr.is_nil() {
+                                if pair_cdr.is_nil() {
                                     return Ok(apply_mods_to_event(
                                         decode_symbol_event(name)?,
                                         mods,
@@ -301,7 +302,7 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                                 return Err(format!("unknown modifier in event list: {name}"));
                             }
                         }
-                        cursor = pair.cdr;
+                        cursor = pair_cdr;
                     }
                     ValueKind::Fixnum(n) => {
                         // Base event is a character code
@@ -322,7 +323,7 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                     other => {
                         return Err(format!(
                             "invalid base event in modifier list: {}",
-                            other.type_name()
+                            pair_car.type_name()
                         ));
                     }
                 }
@@ -355,7 +356,7 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
             other => {
                 return Err(format!(
                     "invalid base event in modifier list: {}",
-                    other.type_name()
+                    cursor.type_name()
                 ));
             }
         }

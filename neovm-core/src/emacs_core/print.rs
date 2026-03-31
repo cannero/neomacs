@@ -185,19 +185,20 @@ fn print_preprocess(value: &Value, state: &mut PrintCircleState, print_gensym: b
         state.number_table.insert(key, 0);
         match obj.kind() {
             ValueKind::Cons => {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                let pair_car = obj.cons_car();
+                let pair_cdr = obj.cons_cdr();
                 // Push cdr first so car is processed first (stack is LIFO)
-                stack.push(pair.cdr);
-                stack.push(pair.car);
+                stack.push(pair_cdr);
+                stack.push(pair_car);
             }
             ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-                let items = with_heap(|h| h.get_vector(*v).clone());
+                let items = obj.as_vector_data().unwrap().clone();
                 for item in items.iter().rev() {
                     stack.push(*item);
                 }
             }
             ValueKind::Veclike(VecLikeType::HashTable) => {
-                let table = with_heap(|h| h.get_hash_table(*id).clone());
+                let table = obj.as_hash_table().unwrap().clone();
                 for key_hk in table.insertion_order.iter().rev() {
                     if let Some(val) = table.data.get(key_hk) {
                         stack.push(*val);
@@ -283,7 +284,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
         ValueKind::Symbol(id) => out.push_str(&format_symbol(id, state.options)),
         ValueKind::Keyword(id) => out.push_str(resolve_sym(id)),
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = value.as_str().unwrap().to_owned();
             match get_string_text_properties(*id) {
                 Some(runs) => {
                     out.push_str(&format_lisp_propertized_string(&s, &runs, state.options))
@@ -354,7 +355,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             }
             state.depth += 1;
             out.push('[');
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_vector_data().unwrap().clone();
             for (idx, item) in items.iter().enumerate() {
                 if let Some(length) = state.options.print_length {
                     if idx as i64 >= length {
@@ -383,7 +384,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             }
             state.depth += 1;
             out.push_str("#s(");
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_record_data().unwrap().clone();
             for (idx, item) in items.iter().enumerate() {
                 if let Some(length) = state.options.print_length {
                     if idx as i64 >= length {
@@ -546,12 +547,13 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
                 if !first {
                     out.push(' ');
                 }
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
 
                 // Circle check on the cdr (for detecting shared tails)
                 // But first, print the car
-                write_value_stateful(&pair.car, out, state);
-                cursor = pair.cdr;
+                write_value_stateful(&pair_car, out, state);
+                cursor = pair_cdr;
                 first = false;
                 count += 1;
 
@@ -576,7 +578,7 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
                 if !first {
                     out.push_str(" . ");
                 }
-                write_value_stateful(&other, out, state);
+                write_value_stateful(&cursor, out, state);
                 return;
             }
         }
@@ -815,7 +817,7 @@ pub fn print_value_with_buffers_and_options(
                     .collect();
                 return format!("#^[{}]", parts.join(" "));
             }
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_vector_data().unwrap().clone();
             let parts: Vec<String> = items
                 .iter()
                 .map(|v| print_value_with_buffers_and_options(v, buffers, options))
@@ -892,11 +894,12 @@ fn print_cons_with_buffers(
                 if !first {
                     out.push(' ');
                 }
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
                 out.push_str(&print_value_with_buffers_and_options(
-                    &pair.car, buffers, options,
+                    &pair_car, buffers, options,
                 ));
-                cursor = pair.cdr;
+                cursor = pair_cdr;
                 first = false;
             }
             ValueKind::Nil => return,
@@ -905,7 +908,7 @@ fn print_cons_with_buffers(
                     out.push_str(" . ");
                 }
                 out.push_str(&print_value_with_buffers_and_options(
-                    &other, buffers, options,
+                    &cursor, buffers, options,
                 ));
                 return;
             }
@@ -934,7 +937,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
         ValueKind::Symbol(id) => format_symbol(id, options),
         ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = value.as_str().unwrap().to_owned();
             match get_string_text_properties(*id) {
                 Some(runs) => format_lisp_propertized_string(&s, &runs, options),
                 None => format_lisp_string_with_options(&s, &options),
@@ -962,7 +965,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
                     .collect();
                 return format!("#^[{}]", parts.join(" "));
             }
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_vector_data().unwrap().clone();
             let parts: Vec<String> = items
                 .iter()
                 .map(|item| print_value_with_options(item, options))
@@ -970,7 +973,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             format!("[{}]", parts.join(" "))
         }
         ValueKind::Veclike(VecLikeType::Record) => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_record_data().unwrap().clone();
             let parts: Vec<String> = items
                 .iter()
                 .map(|item| print_value_with_options(item, options))
@@ -1056,7 +1059,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         ValueKind::Symbol(id) => append_symbol_bytes(id, out, options),
         ValueKind::Keyword(id) => out.extend_from_slice(resolve_sym(id).as_bytes()),
         ValueKind::String => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
+            let s = value.as_str().unwrap().to_owned();
             let str_bytes = format_lisp_string_bytes_inner(&s, &options);
             if let Some(runs) = get_string_text_properties(*id) {
                 out.extend_from_slice(b"#(");
@@ -1101,7 +1104,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 return;
             }
             out.push(b'[');
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_vector_data().unwrap().clone();
             for (idx, item) in items.iter().enumerate() {
                 if idx > 0 {
                     out.push(b' ');
@@ -1112,7 +1115,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         }
         ValueKind::Veclike(VecLikeType::Record) => {
             out.extend_from_slice(b"#s(");
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = value.as_record_data().unwrap().clone();
             for (idx, item) in items.iter().enumerate() {
                 if idx > 0 {
                     out.push(b' ');
@@ -1533,9 +1536,10 @@ fn print_cons(value: &Value, out: &mut String, options: PrintOptions) {
                 if !first {
                     out.push(' ');
                 }
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                out.push_str(&print_value_with_options(&pair.car, options));
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                out.push_str(&print_value_with_options(&pair_car, options));
+                cursor = pair_cdr;
                 first = false;
             }
             ValueKind::Nil => return,
@@ -1543,7 +1547,7 @@ fn print_cons(value: &Value, out: &mut String, options: PrintOptions) {
                 if !first {
                     out.push_str(" . ");
                 }
-                out.push_str(&print_value_with_options(&other, options));
+                out.push_str(&print_value_with_options(&cursor, options));
                 return;
             }
         }
@@ -1559,9 +1563,10 @@ fn print_cons_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
                 if !first {
                     out.push(b' ');
                 }
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                append_print_value_bytes(&pair.car, out, options);
-                cursor = pair.cdr;
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                append_print_value_bytes(&pair_car, out, options);
+                cursor = pair_cdr;
                 first = false;
             }
             ValueKind::Nil => return,
@@ -1569,7 +1574,7 @@ fn print_cons_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
                 if !first {
                     out.extend_from_slice(b" . ");
                 }
-                append_print_value_bytes(&other, out, options);
+                append_print_value_bytes(&cursor, out, options);
                 return;
             }
         }
@@ -1587,7 +1592,7 @@ fn format_bool_vector(value: &Value, nbits: usize) -> String {
 /// Append bool-vector bytes as `#&N"..."`.
 fn append_bool_vector_bytes(value: &Value, nbits: usize, out: &mut Vec<u8>) {
     let items = match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(*v).clone()),
+        ValueKind::Veclike(VecLikeType::Vector) => value.as_vector_data().unwrap().clone(),
         _ => return,
     };
     // items[0] = tag, items[1] = size, items[2..] = individual bit values

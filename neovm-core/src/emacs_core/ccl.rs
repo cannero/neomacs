@@ -223,7 +223,7 @@ pub(crate) fn builtin_ccl_execute_impl(args: Vec<Value>) -> EvalResult {
     }
 
     let status_len = match args[1].kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.vector_len(*vec)),
+        ValueKind::Veclike(VecLikeType::Vector) => args[1].as_vector_data().unwrap().len(),
         _ => unreachable!("status already validated as vector"),
     };
     if status_len != 8 {
@@ -256,7 +256,7 @@ pub(crate) fn builtin_ccl_execute_on_string_impl(args: Vec<Value>) -> EvalResult
         ));
     }
     let status_len = match args[1].kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.vector_len(*vec)),
+        ValueKind::Veclike(VecLikeType::Vector) => args[1].as_vector_data().unwrap().len(),
         _ => unreachable!("status already validated as vector"),
     };
     if status_len != 9 {

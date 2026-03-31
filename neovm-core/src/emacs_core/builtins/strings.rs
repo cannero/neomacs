@@ -50,7 +50,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         if idx < 0 || idx > len {
                             return Err(signal(
                                 "args-out-of-range",
-                                vec![args[0], args[1], args.get(2).cloned().unwrap_or(ValueKind::Nil)],
+                                vec![args[0], args[1], args.get(2).cloned().unwrap_or(Value::NIL)],
                             ));
                         }
                         Ok(idx)
@@ -74,7 +74,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                             vec![
                                 args[0],
                                 args.get(1).cloned().unwrap_or(Value::fixnum(0)),
-                                args.get(2).cloned().unwrap_or(ValueKind::Nil),
+                                args.get(2).cloned().unwrap_or(Value::NIL),
                             ],
                         ));
                     }
@@ -103,7 +103,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         vec![
                             args[0],
                             args.get(1).cloned().unwrap_or(Value::fixnum(0)),
-                            args.get(2).cloned().unwrap_or(ValueKind::Nil),
+                            args.get(2).cloned().unwrap_or(Value::NIL),
                         ],
                     ));
                 }
@@ -116,7 +116,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         vec![
                             args[0],
                             args.get(1).cloned().unwrap_or(Value::fixnum(0)),
-                            args.get(2).cloned().unwrap_or(ValueKind::Nil),
+                            args.get(2).cloned().unwrap_or(Value::NIL),
                         ],
                     )
                 })?;
@@ -143,7 +143,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
             Ok(new_val)
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) if name == "substring" => {
-            let items = with_heap(|h| h.get_vector(*v).clone());
+            let items = args[0].as_vector_data().unwrap().clone();
             let len = items.len() as i64;
             let normalize_index = |value: &Value, default: i64| -> Result<i64, Flow> {
                 let raw = if value.is_nil() {
@@ -155,7 +155,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                 if idx < 0 || idx > len {
                     return Err(signal(
                         "args-out-of-range",
-                        vec![args[0], args[1], args.get(2).cloned().unwrap_or(ValueKind::Nil)],
+                        vec![args[0], args[1], args.get(2).cloned().unwrap_or(Value::NIL)],
                     ));
                 }
                 Ok(idx)
@@ -176,7 +176,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                     vec![
                         args[0],
                         args.get(1).cloned().unwrap_or(Value::fixnum(0)),
-                        args.get(2).cloned().unwrap_or(ValueKind::Nil),
+                        args.get(2).cloned().unwrap_or(Value::NIL),
                     ],
                 ));
             }
@@ -283,8 +283,8 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
             }
         }
 
-        let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg {
-            ValueKind::String => acc + with_heap(|h| h.get_string(*id).len()),
+        let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg.kind() {
+            ValueKind::String => acc + arg.as_str().unwrap().len(),
             _ => acc,
         });
         let mut result = String::with_capacity(preallocated_len);
@@ -305,21 +305,22 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                         match cursor.kind() {
                             ValueKind::Nil => break,
                             ValueKind::Cons => {
-                                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                                push_concat_element(&mut result, &pair.car)?;
-                                cursor = pair.cdr;
+                                let pair_car = cursor.cons_car();
+                                let pair_cdr = cursor.cons_cdr();
+                                push_concat_element(&mut result, &pair_car)?;
+                                cursor = pair_cdr;
                             }
                             tail => {
                                 return Err(signal(
                                     "wrong-type-argument",
-                                    vec![Value::symbol("listp"), tail],
+                                    vec![Value::symbol("listp"), cursor],
                                 ));
                             }
                         }
                     }
                 }
                 ValueKind::Veclike(VecLikeType::Vector) => {
-                    let items = with_heap(|h| h.get_vector(*v).clone());
+                    let items = arg.as_vector_data().unwrap().clone();
                     for item in items.iter() {
                         push_concat_element(&mut result, item)?;
                     }
@@ -1112,10 +1113,10 @@ pub(crate) fn builtin_format_message(
     let formatted = builtin_format_wrapper_strict(ctx, args)?;
     match formatted.kind() {
         ValueKind::String => {
-            let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());
+            let s = super::super::value::formatted.as_str().unwrap().to_owned();
             Ok(Value::string(apply_text_quoting(&s)))
         }
-        other => Ok(other),
+        other => Ok(formatted),
     }
 }
 
@@ -1194,7 +1195,7 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("characterp"), other],
+                    vec![Value::symbol("characterp"), arg],
                 ));
             }
         }
@@ -1212,7 +1213,7 @@ pub(crate) fn builtin_unibyte_string(args: Vec<Value>) -> EvalResult {
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), other],
+                    vec![Value::symbol("integerp"), arg],
                 ));
             }
         };

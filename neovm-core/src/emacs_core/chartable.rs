@@ -148,7 +148,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        other => Err(wrong_type("integerp", other)),
+        other => Err(wrong_type("integerp", value)),
     }
 }
 
@@ -287,9 +287,10 @@ pub(crate) fn builtin_set_char_table_range(args: Vec<Value>) -> EvalResult {
         }
         // Range cons (MIN . MAX)
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            let min = expect_int(&pair.car)?;
-            let max = expect_int(&pair.cdr)?;
+            let pair_car = range.cons_car();
+            let pair_cdr = range.cons_cdr();
+            let min = expect_int(&pair_car)?;
+            let max = expect_int(&pair_cdr)?;
             drop(pair);
             if min > max {
                 return Err(signal(
@@ -342,8 +343,9 @@ fn ct_get_char(vec: &[Value], ch: i64) -> Option<Value> {
             }
             ValueKind::Cons => {
                 // Range entry: key is (MIN . MAX)
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                if let (Value::fixnum(min), Value::fixnum(max)) = (&pair.car, &pair.cdr) {
+                let pair_car = vec[i].cons_car();
+                let pair_cdr = vec[i].cons_cdr();
+                if let (Value::fixnum(min), Value::fixnum(max)) = (&pair_car, &pair_cdr) {
                     if ch >= min && ch <= max {
                         match_value = Some(vec[i + 1]);
                     }
@@ -385,9 +387,10 @@ pub(crate) fn builtin_char_table_range(args: Vec<Value>) -> EvalResult {
             ct_lookup(table, ch)
         }
         ValueKind::Cons => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            let from = expect_int(&pair.car)?;
-            let _to = expect_int(&pair.cdr)?;
+            let pair_car = range.cons_car();
+            let pair_cdr = range.cons_cdr();
+            let from = expect_int(&pair_car)?;
+            let _to = expect_int(&pair_cdr)?;
             let (value, _run_from, _run_to) = ct_lookup_and_range(table, from)?;
             Ok(value)
         }
@@ -515,7 +518,7 @@ pub(crate) fn builtin_set_char_table_parent(args: Vec<Value>) -> EvalResult {
                     )],
                 ));
             }
-            let vec = with_heap(|h| h.get_vector(cursor_arc).clone());
+            let vec = cursor.as_vector_data().unwrap().clone();
             cursor = vec[CT_PARENT];
         }
     }
@@ -604,8 +607,9 @@ fn ct_collect_raw_entries(vec: &[Value]) -> Vec<RawEntry> {
                 value: vec[i + 1],
             }),
             ValueKind::Cons => {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                if let (Value::fixnum(min), Value::fixnum(max)) = (&pair.car, &pair.cdr) {
+                let pair_car = vec[i].cons_car();
+                let pair_cdr = vec[i].cons_cdr();
+                if let (Value::fixnum(min), Value::fixnum(max)) = (&pair_car, &pair_cdr) {
                     raws.push(RawEntry {
                         start: min,
                         end: max,
@@ -672,7 +676,7 @@ fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
         _ => vec![EffectiveRun {
             start: 0,
             end: MAX_CHAR,
-            value: ValueKind::Nil,
+            value: Value::NIL,
         }],
     };
 
@@ -830,7 +834,7 @@ pub(crate) fn builtin_set_char_table_extra_slot(args: Vec<Value>) -> EvalResult 
     }
 
     v[CT_EXTRA_START + n as usize] = *value;
-    with_heap_mut(|h| *h.get_vector_mut(*arc) = v);
+    *v[CT_EXTRA_COUNT].as_vector_data_mut().unwrap() = v;
     Ok(*value)
 }
 

@@ -67,7 +67,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -77,15 +77,15 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 
 fn first_default_value(default: Value) -> Value {
     match default.kind() {
-        ValueKind::Cons => read_cons(cell).car,  // TODO(tagged): replace read_cons with cons accessors
-        other => other,
+        ValueKind::Cons => default.cons_car(),
+        other => default,
     }
 }
 
 fn normalize_symbol_reader_default(default: Value) -> Value {
     match first_default_value(default).kind() {
         ValueKind::Symbol(id) => Value::string(resolve_sym(id)),
-        other => other,
+        other => first_default_value(default),
     }
 }
 
@@ -95,7 +95,7 @@ fn normalize_buffer_reader_default(buffers: &BufferManager, default: Value) -> V
             .get(id)
             .map(|buffer| Value::string(&buffer.name))
             .unwrap_or(ValueKind::Veclike(VecLikeType::Buffer)),
-        other => other,
+        other => first_default_value(default),
     }
 }
 
@@ -859,7 +859,7 @@ fn symbol_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
 
 fn intern_symbol_reader_result(result: Value) -> Value {
     if result.is_string() {
-        let name = super::value::with_heap(|h| h.get_string(id).to_owned());
+        let name = super::value::result.as_str().unwrap().to_owned();
         return Value::symbol(&name);
     }
     result
@@ -1281,14 +1281,15 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             };
             items
                 .iter()
-                .filter_map(|item| match item {
-                    ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+                .filter_map(|item| match item.kind() {
+                    ValueKind::String => Some(item.as_str().unwrap().to_owned()),
                     ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                     // Alist entry: (STRING . _)
                     ValueKind::Cons => {
-                        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                        match pair.car.kind() {
-                            ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+                        let pair_car = item.cons_car();
+                        let pair_cdr = item.cons_cdr();
+                        match pair_car.kind() {
+                            ValueKind::String => Some(item.as_str().unwrap().to_owned()),
                             ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                             _ => None,
                         }
@@ -1298,10 +1299,10 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
                 .collect()
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let vec = with_heap(|h| h.get_vector(*v).clone());
+            let vec = val.as_vector_data().unwrap().clone();
             vec.iter()
-                .filter_map(|item| match item {
-                    ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+                .filter_map(|item| match item.kind() {
+                    ValueKind::String => Some(item.as_str().unwrap().to_owned()),
                     ValueKind::Symbol(id) => Some(resolve_sym(*id).to_owned()),
                     _ => None,
                 })
@@ -1320,7 +1321,7 @@ pub(crate) struct CompletionCandidate {
 
 fn completion_string_from_value(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_owned()),
         ValueKind::Nil => Some("nil".to_owned()),
         ValueKind::T => Some("t".to_owned()),
@@ -1337,8 +1338,8 @@ fn completion_candidates_from_list_value(collection: &Value) -> Vec<CompletionCa
         .into_iter()
         .filter_map(|item| {
             let key = match item.kind() {
-                ValueKind::Cons => read_cons(cell).car,  // TODO(tagged): replace read_cons with cons accessors
-                other => other,
+                ValueKind::Cons => item.cons_car(),
+                other => item,
             };
             completion_string_from_value(&key).map(|completion| CompletionCandidate {
                 completion,
@@ -1558,15 +1559,16 @@ fn completion_candidates_from_custom_obarray(vec_id: crate::gc::ObjId) -> Vec<Co
             match current.kind() {
                 ValueKind::Nil => break,
                 ValueKind::Cons => {
-                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                    if let Some(completion) = completion_string_from_value(&pair.car) {
+                    let pair_car = current.cons_car();
+                    let pair_cdr = current.cons_cdr();
+                    if let Some(completion) = completion_string_from_value(&pair_car) {
                         candidates.push(CompletionCandidate {
                             completion,
-                            predicate_arg: pair.car,
+                            predicate_arg: pair_car,
                             predicate_extra_arg: None,
                         });
                     }
-                    current = pair.cdr;
+                    current = pair_cdr;
                 }
                 _ => break,
             }
@@ -1629,8 +1631,8 @@ fn completion_regexp_list(obarray: &Obarray) -> Vec<String> {
     };
     items
         .iter()
-        .filter_map(|item| match item {
-            ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        .filter_map(|item| match item.kind() {
+            ValueKind::String => Some(item.as_str().unwrap().to_owned()),
             _ => None,
         })
         .collect()

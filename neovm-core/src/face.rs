@@ -503,7 +503,7 @@ impl Face {
                         face.slant = FontSlant::from_symbol(s);
                     }
                 }
-                "height" => match val {
+                "height" => match val.kind() {
                     ValueKind::Fixnum(n) => face.height = Some(FaceHeight::Absolute(*n as i32)),
                     ValueKind::Float => face.height = Some(FaceHeight::Relative(*f)),
                     _ => {}
@@ -676,11 +676,12 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
                     .trim_start_matches(':');
                 let item = &items[i + 1];
                 match key.kind() {
-                    "line-width" => match item {
+                    "line-width" => match item.kind() {
                         ValueKind::Fixnum(n) => width = n as i32,
                         ValueKind::Cons => {
-                            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                            if let Some(n) = pair.car.as_fixnum() {
+                            let pair_car = item.cons_car();
+                            let pair_cdr = item.cons_cdr();
+                            if let Some(n) = pair_car.as_fixnum() {
                                 width = n as i32;
                             }
                         }
@@ -781,15 +782,16 @@ impl FaceRemapping {
             if !entry.is_cons() {
                 continue;
             };
-            let cell = read_cons(*cons_id);  // TODO(tagged): replace read_cons with cons accessors
-            let Some(face_name) = cell.car.as_symbol_name() else {
+            let cell_car = entry.cons_car();
+            let cell_cdr = entry.cons_cdr();
+            let Some(face_name) = cell_car.as_symbol_name() else {
                 continue;
             };
             if face_name == "nil" {
                 continue;
             }
 
-            let entries = Self::parse_remap_spec(&cell.cdr);
+            let entries = Self::parse_remap_spec(&cell_cdr);
             if !entries.is_empty() {
                 remapping.insert(face_name.to_string(), entries);
             }

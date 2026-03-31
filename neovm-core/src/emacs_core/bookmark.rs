@@ -291,7 +291,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -390,7 +390,7 @@ pub(crate) fn builtin_bookmark_jump(
                 vec![Value::string("No bookmark specified")],
             ));
         }
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         _ => return Ok(Value::NIL),
     };
 
@@ -479,7 +479,7 @@ pub(crate) fn builtin_bookmark_rename(
         }
 
         let target = match new_name.kind() {
-            ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+            ValueKind::String => new_name.as_str().unwrap().to_owned(),
             _ => {
                 return Err(signal(
                     "error",
@@ -543,10 +543,11 @@ pub(crate) fn builtin_bookmark_get_filename(
     if let Some(items) = super::value::list_to_vec(&args[0]) {
         for item in &items {
             if item.is_cons() {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                if let Some(id) = &pair.car.as_symbol_id() {
+                let pair_car = item.cons_car();
+                let pair_cdr = item.cons_cdr();
+                if let Some(id) = &pair_car.as_symbol_id() {
                     if resolve_sym(*id) == "filename" {
-                        return Ok(pair.cdr);
+                        return Ok(pair_cdr);
                     }
                 }
             }
@@ -577,10 +578,11 @@ pub(crate) fn builtin_bookmark_get_position(
     if let Some(items) = super::value::list_to_vec(&args[0]) {
         for item in &items {
             if item.is_cons() {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                if let Some(id) = &pair.car.as_symbol_id() {
+                let pair_car = item.cons_car();
+                let pair_cdr = item.cons_cdr();
+                if let Some(id) = &pair_car.as_symbol_id() {
                     if resolve_sym(*id) == "position" {
-                        return Ok(pair.cdr);
+                        return Ok(pair_cdr);
                     }
                 }
             }
@@ -610,10 +612,11 @@ pub(crate) fn builtin_bookmark_get_annotation(
     if let Some(items) = super::value::list_to_vec(&args[0]) {
         for item in &items {
             if item.is_cons() {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                if let Some(id) = &pair.car.as_symbol_id() {
+                let pair_car = item.cons_car();
+                let pair_cdr = item.cons_cdr();
+                if let Some(id) = &pair_car.as_symbol_id() {
                     if resolve_sym(*id) == "annotation" {
-                        return Ok(pair.cdr);
+                        return Ok(pair_cdr);
                     }
                 }
             }
@@ -679,8 +682,9 @@ fn bookmark_timestamp_file(eval: &super::eval::Context) -> Option<String> {
     if !value.is_cons() {
         return None;
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-    pair.car.as_str().map(|s| s.to_string())
+    let pair_car = value.cons_car();
+    let pair_cdr = value.cons_cdr();
+    pair_car.as_str().map(|s| s.to_string())
 }
 
 fn bookmark_save_stamp(path: &str) -> Value {
@@ -798,7 +802,7 @@ pub(crate) fn builtin_bookmark_load(
     }
 
     let file = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",

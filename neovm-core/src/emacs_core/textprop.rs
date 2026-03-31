@@ -148,12 +148,12 @@ fn expect_integer_or_marker_in_buffers(
 pub(crate) fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
     match value.as_symbol_name() {
         Some(s) => Ok(s.to_string()),
-        None => match value {
+        None => match value.kind() {
             ValueKind::String => Ok(value.as_str().unwrap().to_string()),
             ValueKind::Keyword(id) => Ok(resolve_sym(*id).to_owned()),
             other => Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), value],
             )),
         },
     }
@@ -191,12 +191,13 @@ fn plist_get_named_value(plist: Value, prop_name: &str) -> Option<Value> {
         if !tail.is_cons() {
             return None;
         };
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if !pair.cdr.is_cons() {
+        let pair_car = tail.cons_car();
+        let pair_cdr = tail.cons_cdr();
+        if !pair_cdr.is_cons() {
             return None;
         };
-        if pair.car.as_symbol_name() == Some(prop_name) {
-            return Some(read_cons(value_cell).car);  // TODO(tagged): replace read_cons with cons accessors
+        if pair_car.as_symbol_name() == Some(prop_name) {
+            return Some(pair.cdr.cons_car());
         }
         tail = read_cons(value_cell).cdr;  // TODO(tagged): replace read_cons with cons accessors
     }
@@ -205,14 +206,16 @@ fn plist_get_named_value(plist: Value, prop_name: &str) -> Option<Value> {
 fn assq_rest(list: Value, prop_name: &str) -> Option<Value> {
     let mut cursor = list;
     while cursor.is_cons() {
-        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if pair.car.is_cons() {
-            let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
-            if entry.car.as_symbol_name() == Some(prop_name) {
-                return Some(entry.cdr);
+        let pair_car = cursor.cons_car();
+        let pair_cdr = cursor.cons_cdr();
+        if pair_car.is_cons() {
+            let entry_car = pair.car.cons_car();
+            let entry_cdr = pair.car.cons_cdr();
+            if entry_car.as_symbol_name() == Some(prop_name) {
+                return Some(entry_cdr);
             }
         }
-        cursor = pair.cdr;
+        cursor = pair_cdr;
     }
     None
 }
@@ -250,14 +253,15 @@ where
     {
         let mut cursor = aliases;
         while cursor.is_cons() {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            if let Some(alias_name) = pair.car.as_symbol_name()
+            let pair_car = cursor.cons_car();
+            let pair_cdr = cursor.cons_cdr();
+            if let Some(alias_name) = pair_car.as_symbol_name()
                 && let Some(value) = direct_get(alias_name)
                 && !value.is_nil()
             {
                 return value;
             }
-            cursor = pair.cdr;
+            cursor = pair_cdr;
         }
     }
 

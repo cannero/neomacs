@@ -749,7 +749,7 @@ pub(crate) fn builtin_skip_chars_forward(
 ) -> EvalResult {
     expect_min_args("skip-chars-forward", &args, 1)?;
     let set_str = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -804,7 +804,7 @@ pub(crate) fn builtin_skip_chars_backward(
 ) -> EvalResult {
     expect_min_args("skip-chars-backward", &args, 1)?;
     let set_str = match args[0].kind() {
-        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::String => args[0].as_str().unwrap().to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -947,17 +947,17 @@ pub(crate) fn builtin_transient_mark_mode(
         match args[0].kind() {
             ValueKind::Fixnum(n) => {
                 if n > 0 {
-                    ValueKind::T
+                    Value::T
                 } else {
-                    ValueKind::Nil
+                    Value::NIL
                 }
             }
             ValueKind::Float => {
                 let truncated = *f as i64;
                 if truncated > 0 {
-                    ValueKind::T
+                    Value::T
                 } else {
-                    ValueKind::Nil
+                    Value::NIL
                 }
             }
             _ => Value::T,

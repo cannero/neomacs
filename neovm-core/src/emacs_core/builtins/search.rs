@@ -243,7 +243,7 @@ fn handle_search_failure_in_manager(
             }
             SearchNoErrorMode::KeepPoint => {
                 let _ = buffers.goto_buffer_byte(buffer_id, start_pt);
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
             SearchNoErrorMode::MoveToBound => {
                 let target = buffers
@@ -251,7 +251,7 @@ fn handle_search_failure_in_manager(
                     .map(|buf| search_failure_position(buf, opts))
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
                 let _ = buffers.goto_buffer_byte(buffer_id, target);
-                Ok(ValueKind::Nil)
+                Ok(Value::NIL)
             }
         },
     }
@@ -1009,8 +1009,8 @@ pub(crate) fn builtin_match_data_with_state(
                 flat.push(Value::fixnum(*end as i64));
             }
             None => {
-                flat.push(ValueKind::Nil);
-                flat.push(ValueKind::Nil);
+                flat.push(Value::NIL);
+                flat.push(Value::NIL);
             }
         }
     }
@@ -1337,7 +1337,7 @@ pub(crate) fn builtin_replace_match_with_state(
         Ok(()) => {
             let newend = oldstart + replacement_len;
             update_match_data_after_buffer_replace(match_data, oldstart, oldend, newend);
-            Ok(ValueKind::Nil)
+            Ok(Value::NIL)
         }
         Err(msg) if msg == missing_subexp_error => Err(missing_subexp_signal(raw_subexp)),
         Err(msg) => Err(signal("error", vec![Value::string(msg)])),

@@ -846,16 +846,16 @@ impl Buffer {
 
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
         if name == "buffer-file-name" {
-            self.file_name = match &value {
+            self.file_name = match value.kind() {
                 ValueKind::String => value.as_str_owned(),
-                Value::NIL => None,
+                ValueKind::Nil => None,
                 _ => self.file_name.take(),
             };
         }
         if name == "buffer-auto-save-file-name" {
-            self.auto_save_file_name = match &value {
+            self.auto_save_file_name = match value.kind() {
                 ValueKind::String => value.as_str_owned(),
-                Value::NIL => None,
+                ValueKind::Nil => None,
                 _ => self.auto_save_file_name.take(),
             };
         }
@@ -1969,10 +1969,10 @@ impl BufferManager {
             }
             None => {
                 buf.locals
-                    .set_raw_binding("buffer-file-name", RuntimeBindingValue::Bound(ValueKind::Nil));
+                    .set_raw_binding("buffer-file-name", RuntimeBindingValue::Bound(Value::NIL));
                 buf.locals.set_raw_binding(
                     "buffer-file-truename",
-                    RuntimeBindingValue::Bound(ValueKind::Nil),
+                    RuntimeBindingValue::Bound(Value::NIL),
                 );
             }
         }
@@ -2197,14 +2197,14 @@ impl BufferManager {
             let buf = self.buffers.get_mut(&id)?;
             match value.kind() {
                 ValueKind::T => {
-                    buf.set_buffer_local("buffer-undo-list", ValueKind::T);
+                    buf.set_buffer_local("buffer-undo-list", Value::T);
                 }
                 ValueKind::Nil => {
-                    buf.set_buffer_local("buffer-undo-list", ValueKind::Nil);
+                    buf.set_buffer_local("buffer-undo-list", Value::NIL);
                     buf.undo_state.set_recorded_first_change(false);
                 }
                 other => {
-                    buf.set_buffer_local("buffer-undo-list", other);
+                    buf.set_buffer_local("buffer-undo-list", value);
                 }
             }
         }
