@@ -547,6 +547,38 @@ pub fn next_float_id() -> u32 {
 }
 
 // ---------------------------------------------------------------------------
+// Overlay ObjId <-> TaggedValue bridge (migration compat)
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    /// Maps overlay tagged-pointer address → legacy ObjId.
+    static OVERLAY_OBJ_ID_MAP: RefCell<HashMap<usize, ObjId>> = RefCell::new(HashMap::new());
+}
+
+/// Register a mapping from a tagged overlay Value to its legacy ObjId.
+pub fn register_overlay_obj_id(value: Value, id: ObjId) {
+    let key = value.0; // raw tagged pointer
+    OVERLAY_OBJ_ID_MAP.with(|m| m.borrow_mut().insert(key, id));
+}
+
+/// Look up the legacy ObjId for a tagged overlay Value.
+pub fn lookup_overlay_obj_id(value: &Value) -> Option<ObjId> {
+    let key = value.0;
+    OVERLAY_OBJ_ID_MAP.with(|m| m.borrow().get(&key).copied())
+}
+
+/// Create a tagged Value from a legacy overlay ObjId.
+///
+/// Clones the OverlayData from the old heap, allocates a new overlay on the
+/// tagged heap, and registers the mapping so `lookup_overlay_obj_id` works.
+pub fn overlay_id_to_value(id: ObjId) -> Value {
+    let data = with_heap(|h| h.get_overlay(id).clone());
+    let value = Value::make_overlay(data);
+    register_overlay_obj_id(value, id);
+    value
+}
+
+// ---------------------------------------------------------------------------
 // LambdaData, LambdaParams
 // ---------------------------------------------------------------------------
 

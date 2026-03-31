@@ -52,7 +52,7 @@ fn expect_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 fn expect_integer_or_marker(arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *arg],
         )),
@@ -62,7 +62,7 @@ fn expect_integer_or_marker(arg: &Value) -> Result<(), Flow> {
 fn expect_fixnum_arg(name: &str, arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol(name), *arg],
         )),
@@ -510,10 +510,12 @@ fn resolve_mode_line_window<'a>(
     // Try explicit window argument first.
     if let Some(windowish) = window_arg {
         if !windowish.is_nil() {
-            let wid = match windowish.kind() {
-                ValueKind::Veclike(VecLikeType::Window) => Some(crate::window::WindowId(*id)),
-                ValueKind::Fixnum(id) if id >= 0 => Some(crate::window::WindowId(id as u64)),
-                _ => None,
+            let wid = if let Some(id) = windowish.as_window_id() {
+                Some(crate::window::WindowId(id))
+            } else if let Some(id) = windowish.as_fixnum().filter(|&id| id >= 0) {
+                Some(crate::window::WindowId(id as u64))
+            } else {
+                None
             };
             if let Some(wid) = wid {
                 for fid in frames.frame_list() {
@@ -645,10 +647,10 @@ impl ModeLineRendered {
         };
         let byte_offset = self.text.len();
         self.text.push_str(text);
-        if let ValueKind::String = value
-            && let Some(props) = get_string_text_properties_table(*id)
-        {
-            self.text_props.append_shifted(&props, byte_offset);
+        if value.is_string() {
+            if let Some(props) = get_string_text_properties_table_for_value(*value) {
+                self.text_props.append_shifted(&props, byte_offset);
+            }
         }
     }
 
@@ -674,11 +676,11 @@ impl ModeLineRendered {
                 .take(end_char - start_char)
                 .collect::<String>(),
         );
-        if let ValueKind::String = value
-            && let Some(props) = get_string_text_properties_table(*id)
-        {
-            self.text_props
-                .append_shifted(&props.slice(byte_start, byte_end), byte_offset);
+        if value.is_string() {
+            if let Some(props) = get_string_text_properties_table_for_value(*value) {
+                self.text_props
+                    .append_shifted(&props.slice(byte_start, byte_end), byte_offset);
+            }
         }
     }
 
@@ -781,7 +783,7 @@ impl ModeLineRendered {
         }
         let value = Value::string(self.text);
         if value.is_string() {
-            set_string_text_properties_table(id, self.text_props);
+            set_string_text_properties_table_for_value(value, self.text_props);
         }
         value
     }
@@ -1597,7 +1599,7 @@ fn expand_mode_line_percent_in_state(
         }
 
         let props_at_percent = if value.is_string() {
-            get_string_text_properties_table(*id)
+            get_string_text_properties_table_for_value(*value)
                 .map(|table| table.get_properties(char_to_byte_pos(fmt_str, percent_char_pos)))
                 .unwrap_or_default()
         } else {
@@ -1951,10 +1953,7 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
 
     let wid = args
         .first()
-        .and_then(|v| match v {
-            Value::make_window(id) => Some(crate::window::WindowId(*id)),
-            _ => None,
-        })
+        .and_then(|v| v.as_window_id().map(crate::window::WindowId))
         .or_else(|| frame.map(|f| f.selected_window));
 
     let Some(wid) = wid else {
@@ -2130,7 +2129,7 @@ fn window_line_height_impl(
                     let line_num = match line_spec.kind() {
                         ValueKind::Fixnum(n) => n,
                         ValueKind::Char(ch) => ch as i64,
-                        other => {
+                        _other => {
                             return Err(signal(
                                 "wrong-type-argument",
                                 vec![Value::symbol("integerp"), line_spec],
@@ -2181,7 +2180,7 @@ fn window_line_height_impl(
         let line_num = match line_spec.kind() {
             ValueKind::Fixnum(n) => n,
             ValueKind::Char(ch) => ch as i64,
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("integerp"), line_spec],
@@ -2226,7 +2225,7 @@ pub(crate) fn builtin_move_point_visually(args: Vec<Value>) -> EvalResult {
             "args-out-of-range",
             vec![Value::char(ch), Value::char(ch)],
         )),
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), args[0]],
         )),
@@ -2524,18 +2523,14 @@ fn validate_optional_frame_designator_in_state(
     if frameish.is_nil() {
         return Ok(());
     }
-    match frameish.kind() {
-        ValueKind::Fixnum(id) if id >= 0 => {
-            if frames.get(FrameId(id as u64)).is_some() {
-                return Ok(());
-            }
+    if let Some(id) = frameish.as_frame_id() {
+        if frames.get(FrameId(id)).is_some() {
+            return Ok(());
         }
-        ValueKind::Veclike(VecLikeType::Frame) => {
-            if frames.get(FrameId(*id)).is_some() {
-                return Ok(());
-            }
+    } else if let Some(id) = frameish.as_fixnum().filter(|&id| id >= 0) {
+        if frames.get(FrameId(id as u64)).is_some() {
+            return Ok(());
         }
-        _ => {}
     }
     Err(signal(
         "wrong-type-argument",
@@ -2562,10 +2557,12 @@ fn validate_optional_window_designator_in_state(
     if windowish.is_nil() {
         return Ok(());
     }
-    let wid = match windowish.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
-        ValueKind::Fixnum(id) if id >= 0 => Some(WindowId(id as u64)),
-        _ => None,
+    let wid = if let Some(id) = windowish.as_window_id() {
+        Some(WindowId(id))
+    } else if let Some(id) = windowish.as_fixnum().filter(|&id| id >= 0) {
+        Some(WindowId(id as u64))
+    } else {
+        None
     };
     if let Some(wid) = wid {
         for fid in frames.frame_list() {
@@ -2599,8 +2596,8 @@ fn validate_optional_buffer_designator_in_state(
     if bufferish.is_nil() {
         return Ok(());
     }
-    if bufferish.is_buffer() {
-        if buffers.get(*id).is_some() {
+    if let Some(id) = bufferish.as_buffer_id() {
+        if buffers.get(id).is_some() {
             return Ok(());
         }
     }
@@ -2619,10 +2616,12 @@ fn resolve_optional_window_buffer(
         return None;
     }
 
-    let wid = match windowish.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
-        ValueKind::Fixnum(id) if id >= 0 => Some(WindowId(id as u64)),
-        _ => None,
+    let wid = if let Some(id) = windowish.as_window_id() {
+        Some(WindowId(id))
+    } else if let Some(id) = windowish.as_fixnum().filter(|&id| id >= 0) {
+        Some(WindowId(id as u64))
+    } else {
+        None
     }?;
 
     for fid in eval.frames.frame_list() {
@@ -2646,10 +2645,12 @@ fn resolve_optional_window_buffer_in_state(
         return None;
     }
 
-    let wid = match windowish.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
-        ValueKind::Fixnum(id) if id >= 0 => Some(WindowId(id as u64)),
-        _ => None,
+    let wid = if let Some(id) = windowish.as_window_id() {
+        Some(WindowId(id))
+    } else if let Some(id) = windowish.as_fixnum().filter(|&id| id >= 0) {
+        Some(WindowId(id as u64))
+    } else {
+        None
     }?;
 
     for fid in frames.frame_list() {
@@ -2669,10 +2670,12 @@ fn resolve_mode_line_buffer(
     window: Option<&Value>,
     buffer: Option<&Value>,
 ) -> Option<BufferId> {
-    match buffer {
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Some(*id),
-        _ => resolve_optional_window_buffer(eval, window),
+    if let Some(buf_val) = buffer {
+        if let Some(id) = buf_val.as_buffer_id() {
+            return Some(id);
+        }
     }
+    resolve_optional_window_buffer(eval, window)
 }
 
 fn resolve_mode_line_buffer_in_state(
@@ -2680,10 +2683,12 @@ fn resolve_mode_line_buffer_in_state(
     window: Option<&Value>,
     buffer: Option<&Value>,
 ) -> Option<BufferId> {
-    match buffer {
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Some(*id),
-        _ => resolve_optional_window_buffer_in_state(frames, window),
+    if let Some(buf_val) = buffer {
+        if let Some(id) = buf_val.as_buffer_id() {
+            return Some(id);
+        }
     }
+    resolve_optional_window_buffer_in_state(frames, window)
 }
 
 #[derive(Clone)]
@@ -2803,15 +2808,15 @@ fn resolve_live_window_identity(
             .selected_frame()
             .map(|frame| (frame.id, frame.selected_window)));
     }
-    let wid = match windowish.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => WindowId(*id),
-        ValueKind::Fixnum(id) if id >= 0 => WindowId(id as u64),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("window-live-p"), *windowish],
-            ));
-        }
+    let wid = if let Some(id) = windowish.as_window_id() {
+        WindowId(id)
+    } else if let Some(id) = windowish.as_fixnum().filter(|&id| id >= 0) {
+        WindowId(id as u64)
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("window-live-p"), *windowish],
+        ));
     };
     for fid in frames.frame_list() {
         if frames
@@ -3010,15 +3015,15 @@ fn resolve_posn_at_xy_window(
     if let Some(windowish) = resolve_live_window_identity(frames, Some(frameish))? {
         return Ok(Some((windowish.0, windowish.1, true)));
     }
-    let fid = match frameish.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => FrameId(*id),
-        ValueKind::Fixnum(id) if id >= 0 => FrameId(id as u64),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("framep"), *frameish],
-            ));
-        }
+    let fid = if let Some(id) = frameish.as_frame_id() {
+        FrameId(id)
+    } else if let Some(id) = frameish.as_fixnum().filter(|&id| id >= 0) {
+        FrameId(id as u64)
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("framep"), *frameish],
+        ));
     };
     let Some(frame) = frames.get(fid) else {
         return Ok(None);
@@ -3056,27 +3061,27 @@ fn posn_at_x_y_impl(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args_range("posn-at-x-y", &args, 2, 4)?;
-    let x = match args.first() {
-        Some(ValueKind::Fixnum(v)) => *v,
-        Some(ValueKind::Char(v)) => *v as i64,
-        Some(other) => {
+    let x_val = args.first().unwrap();
+    let x = match x_val.kind() {
+        ValueKind::Fixnum(v) => v,
+        ValueKind::Char(v) => v as i64,
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("fixnump"), *other],
+                vec![Value::symbol("fixnump"), *x_val],
             ));
         }
-        None => unreachable!(),
     };
-    let y = match args.get(1) {
-        Some(ValueKind::Fixnum(v)) => *v,
-        Some(ValueKind::Char(v)) => *v as i64,
-        Some(other) => {
+    let y_val = args.get(1).unwrap();
+    let y = match y_val.kind() {
+        ValueKind::Fixnum(v) => v,
+        ValueKind::Char(v) => v as i64,
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("fixnump"), *other],
+                vec![Value::symbol("fixnump"), *y_val],
             ));
         }
-        None => unreachable!(),
     };
     let whole = args.get(3).is_some_and(|v| v.is_truthy());
     let Some((fid, wid, window_relative_input)) = resolve_posn_at_xy_window(frames, args.get(2))?

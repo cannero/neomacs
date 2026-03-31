@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{RuntimeBindingValue, Value, list_to_vec, read_cons, with_heap, ValueKind, VecLikeType};
+use super::value::{RuntimeBindingValue, Value, list_to_vec, ValueKind, VecLikeType};
 use crate::buffer::{Buffer, BufferManager};
 
 thread_local! {
@@ -1354,9 +1354,9 @@ fn syntax_entry_from_chartable_entry(entry: &Value) -> Option<SyntaxEntry> {
             })
         }
         ValueKind::Fixnum(code) => Some(SyntaxEntry {
-            class: SyntaxClass::from_code(*code)?,
+            class: SyntaxClass::from_code(code)?,
             matching_char: None,
-            flags: SyntaxFlags::new(((*code >> 16) & 0xFF) as u8),
+            flags: SyntaxFlags::new(((code >> 16) & 0xFF) as u8),
         }),
         _ => None,
     }
@@ -1387,7 +1387,7 @@ fn apply_compiled_syntax_entry(
         ValueKind::Cons => {
             let pair_car = key.cons_car();
             let pair_cdr = key.cons_cdr();
-            let (start, end) = match (pair_car, pair_cdr) {
+            let (start, end) = match (pair_car.kind(), pair_cdr.kind()) {
                 (ValueKind::Fixnum(start), ValueKind::Fixnum(end)) => (start, end),
                 _ => return Ok(()),
             };
@@ -1513,7 +1513,7 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
         }
     };
 
-    let ch = match class.kind() {
+    let ch = match class {
         0 => ' ',
         1 => '.',
         2 => 'w',
@@ -1530,7 +1530,7 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
         13 => '@',
         14 => '!',
         15 => '|',
-        n => {
+        _ => {
             return Err(signal(
                 "args-out-of-range",
                 vec![Value::fixnum(15), Value::fixnum(class)],
@@ -1575,10 +1575,10 @@ pub(crate) fn builtin_matching_paren_in_buffers(
             )
         })?,
         ValueKind::Char(c) => c,
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), *class],
+                vec![Value::symbol("characterp"), args[0]],
             ));
         }
     };
@@ -1605,7 +1605,7 @@ pub(crate) fn builtin_matching_paren_in_buffers(
         '}' => Some('{'),
         _ => None,
     };
-    Ok(out.map_or(Value::NIL, Value::Char))
+    Ok(out.map_or(Value::NIL, Value::char))
 }
 
 /// `(standard-syntax-table)` — return the standard syntax table.
@@ -1740,10 +1740,10 @@ pub(crate) fn modify_syntax_entry_in_buffers(
     }
     let descriptor = match args[1].kind() {
         ValueKind::String => args[1].as_str().unwrap().to_string(),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *class],
+                vec![Value::symbol("stringp"), args[1]],
             ));
         }
     };
@@ -1808,10 +1808,10 @@ pub(crate) fn builtin_char_syntax_in_buffers(
                 vec![Value::string(format!("Invalid character code: {}", n))],
             )
         })?,
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), *class],
+                vec![Value::symbol("characterp"), args[0]],
             ));
         }
     };
@@ -1844,10 +1844,10 @@ pub(crate) fn builtin_syntax_after_in_buffers(
 
     let pos = match args[0].kind() {
         ValueKind::Fixnum(n) => n,
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("number-or-marker-p"), *class],
+                vec![Value::symbol("number-or-marker-p"), args[0]],
             ));
         }
     };
@@ -1899,10 +1899,10 @@ pub(crate) fn builtin_forward_comment_in_buffers(
 
     let count = match args[0].kind() {
         ValueKind::Fixnum(n) => n,
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("integerp"), *class],
+                vec![Value::symbol("integerp"), args[0]],
             ));
         }
     };
@@ -2958,25 +2958,24 @@ impl PartialParseState {
 
         state.depth = items
             .first()
-            .and_then(|v| match v {
-                Value::fixnum(n) => Some(*n),
-                _ => None,
-            })
+            .and_then(|v| v.as_fixnum())
             .unwrap_or(0);
 
-        if let Some(Value::fixnum(start)) = items.get(8) {
-            state.comment_or_string_start = Some(*start);
+        if let Some(start) = items.get(8).and_then(|v| v.as_fixnum()) {
+            state.comment_or_string_start = Some(start);
         }
 
-        if let Some(Value::T) = items.get(5) {
-            state.quoted = true;
+        if let Some(v) = items.get(5) {
+            if v.is_t() {
+                state.quoted = true;
+            }
         }
 
         if let Some(item) = items.get(3) {
-            state.in_string = match item {
-                Value::NIL => None,
-                Value::T => Some(ParseStringState::Fence),
-                Value::fixnum(n) => u32::try_from(*n)
+            state.in_string = match item.kind() {
+                ValueKind::Nil => None,
+                ValueKind::T => Some(ParseStringState::Fence),
+                ValueKind::Fixnum(n) => u32::try_from(n)
                     .ok()
                     .and_then(char::from_u32)
                     .map(ParseStringState::Delim),
@@ -2985,15 +2984,15 @@ impl PartialParseState {
         }
 
         if let Some(item) = items.get(4) {
-            state.in_comment = match item {
-                Value::NIL => None,
-                Value::T => Some(ParseCommentState::Syntax {
+            state.in_comment = match item.kind() {
+                ValueKind::Nil => None,
+                ValueKind::T => Some(ParseCommentState::Syntax {
                     depth: 1,
                     style_b: false,
                     nestable: false,
                 }),
-                Value::fixnum(n) => Some(ParseCommentState::Syntax {
-                    depth: *n,
+                ValueKind::Fixnum(n) => Some(ParseCommentState::Syntax {
+                    depth: n,
                     style_b: false,
                     nestable: true,
                 }),
@@ -3006,10 +3005,7 @@ impl PartialParseState {
         {
             state.stack = stack_items
                 .into_iter()
-                .filter_map(|v| match v {
-                    Value::fixnum(n) => Some(n),
-                    _ => None,
-                })
+                .filter_map(|v| v.as_fixnum())
                 .collect();
         }
 
@@ -3046,23 +3042,23 @@ impl PartialParseState {
                 depth: comment_depth,
                 nestable: true,
                 ..
-            }) => ValueKind::Fixnum(comment_depth),
+            }) => Value::fixnum(comment_depth),
             Some(ParseCommentState::Fence {
                 depth: comment_depth,
-            }) => ValueKind::Fixnum(comment_depth),
+            }) => Value::fixnum(comment_depth),
             None => Value::NIL,
         };
 
         Value::list(vec![
             Value::fixnum(self.depth),
             self.stack.last().map_or(Value::NIL, |p| Value::fixnum(*p)),
-            self.last_sexp_start.map_or(Value::NIL, Value::Int),
+            self.last_sexp_start.map_or(Value::NIL, Value::fixnum),
             string_value,
             comment_value,
             if self.quoted { Value::T } else { Value::NIL },
             Value::fixnum(self.mindepth),
             Value::NIL,
-            self.comment_or_string_start.map_or(Value::NIL, Value::Int),
+            self.comment_or_string_start.map_or(Value::NIL, Value::fixnum),
             stack_value,
             Value::NIL,
         ])
@@ -3082,11 +3078,14 @@ fn syntax_class_and_flags(
 
 fn parse_commentstop_mode(arg: Option<&Value>) -> CommentStopMode {
     match arg {
-        None | Some(ValueKind::Nil) => CommentStopMode::None,
-        Some(ValueKind::Symbol(sym)) if resolve_sym(sym) == "syntax-table" => {
-            CommentStopMode::SyntaxTable
-        }
-        Some(_) => CommentStopMode::Comment,
+        None => CommentStopMode::None,
+        Some(v) if v.is_nil() => CommentStopMode::None,
+        Some(v) => match v.kind() {
+            ValueKind::Symbol(sym) if resolve_sym(sym) == "syntax-table" => {
+                CommentStopMode::SyntaxTable
+            }
+            _ => CommentStopMode::Comment,
+        },
     }
 }
 

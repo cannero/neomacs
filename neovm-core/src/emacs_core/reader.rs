@@ -498,32 +498,29 @@ fn first_form_hash_table_literal_value(
 
     let table_value =
         Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
-    if table_value.is_hash_table() {
-        with_heap_mut(|h| {
-            let table = h.get_hash_table_mut(*table_ref);
-            table.test_name = test_name;
-            if let Some(Expr::List(data_items)) = data_expr {
-                let mut idx = 0_usize;
-                while idx + 1 < data_items.len() {
-                    let key_value = super::eval::Context::quote_to_runtime_value_in_state(
-                        obarray,
-                        &data_items[idx],
-                    );
-                    let val_value = super::eval::Context::quote_to_runtime_value_in_state(
-                        obarray,
-                        &data_items[idx + 1],
-                    );
-                    let key = key_value.to_hash_key(&table.test);
-                    let inserting_new_key = !table.data.contains_key(&key);
-                    table.data.insert(key.clone(), val_value);
-                    if inserting_new_key {
-                        table.key_snapshots.insert(key.clone(), key_value);
-                        table.insertion_order.push(key);
-                    }
-                    idx += 2;
+    if let Some(table) = table_value.as_hash_table_mut() {
+        table.test_name = test_name;
+        if let Some(Expr::List(data_items)) = data_expr {
+            let mut idx = 0_usize;
+            while idx + 1 < data_items.len() {
+                let key_value = super::eval::Context::quote_to_runtime_value_in_state(
+                    obarray,
+                    &data_items[idx],
+                );
+                let val_value = super::eval::Context::quote_to_runtime_value_in_state(
+                    obarray,
+                    &data_items[idx + 1],
+                );
+                let key = key_value.to_hash_key(&table.test);
+                let inserting_new_key = !table.data.contains_key(&key);
+                table.data.insert(key.clone(), val_value);
+                if inserting_new_key {
+                    table.key_snapshots.insert(key.clone(), key_value);
+                    table.insertion_order.push(key);
                 }
+                idx += 2;
             }
-        });
+        }
     }
     Some(table_value)
 }
@@ -613,7 +610,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             // Read from buffer at point
-            let buf_id = *id;
+            let buf_id = args[0].as_buffer_id().unwrap();
             let (text, pt) = {
                 let buf = &mut ctx
                     .buffers
@@ -796,7 +793,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let prompt = expect_string(&args[0])?;
     // Extract optional arguments
     let initial_input = args.get(1).and_then(|v| match v.kind() {
-        ValueKind::String => Some(super::value::v.as_str().unwrap().to_owned()),
+        ValueKind::String => Some(v.as_str().unwrap().to_owned()),
         _ => None,
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -954,8 +951,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
                     read_from_string_impl(obarray, vec![Value::string(&result_string)])?;
                 // read-from-string returns (OBJECT . END-POS), extract OBJECT
                 if read_result.is_cons() {
-                    let snap = super::value::read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
-                    return Ok(snap.car);
+                    return Ok(read_result.cons_car());
                 }
                 return Ok(read_result);
             }
@@ -1111,7 +1107,7 @@ fn read_number_minibuffer_args(args: &[Value]) -> [Value; 6] {
 
 fn validate_read_number_result(result: Value) -> EvalResult {
     match result.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float(_) => Ok(result),
+        ValueKind::Fixnum(_) | ValueKind::Float => Ok(result),
         _ => Err(signal("error", vec![Value::string("Not a number")])),
     }
 }
@@ -1296,7 +1292,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
 
     let prompt = expect_string(&args[0])?;
     let initial_input = args.get(1).and_then(|v| match v.kind() {
-        ValueKind::String => Some(super::value::v.as_str().unwrap().to_owned()),
+        ValueKind::String => Some(v.as_str().unwrap().to_owned()),
         _ => None,
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -1459,8 +1455,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
                 let read_result =
                     read_from_string_impl(&shared.obarray, vec![Value::string(&result_string)])?;
                 if read_result.is_cons() {
-                    let snap = super::value::read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
-                    return Ok(snap.car);
+                    return Ok(read_result.cons_car());
                 }
                 return Ok(read_result);
             }
@@ -1835,7 +1830,7 @@ fn peek_unread_command_event_in_state(
         .find_map(|frame| frame.get(&name_id).copied())
         .or_else(|| obarray.symbol_value("unread-command-events").copied());
     match unread {
-        Some(ValueKind::Cons) => Some(read_cons(cell).car),  // TODO(tagged): replace read_cons with cons accessors
+        Some(v) if v.is_cons() => Some(v.cons_car()),
         _ => None,
     }
 }
@@ -2013,7 +2008,7 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>
     if eval.input_rx.is_some() {
         // Display prompt in echo area (message)
         if args[0].is_string() {
-            let prompt_str = super::value::with_heap(|h| h.get_string(*id).to_owned());
+            let prompt_str = args[0].as_str().unwrap().to_owned();
             let msg = format!("{} (y or n) ", prompt_str);
             eval.assign("minibuffer-message", Value::string(&msg));
         }
@@ -2065,7 +2060,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
     mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
 ) -> EvalResult {
     let prompt_str = if args[0].is_string() {
-        super::value::with_heap(|h| h.get_string(*id).to_owned())
+        args[0].as_str().unwrap().to_owned()
     } else {
         String::new()
     };
@@ -2073,7 +2068,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
         let full_prompt = format!("{} (yes or no) ", prompt_str);
         let result = read_from_minibuffer(&[Value::string(&full_prompt)])?;
         if result.is_string() {
-            let answer = super::value::result.as_str().unwrap().to_owned();
+            let answer = result.as_str().unwrap().to_owned();
             match answer.trim() {
                 "yes" => return Ok(Value::T),
                 "no" => return Ok(Value::NIL),

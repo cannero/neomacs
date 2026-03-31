@@ -104,13 +104,16 @@ struct SearchOptions {
 
 fn search_count_arg(args: &[Value]) -> Result<i64, Flow> {
     match args.get(3) {
-        None | Some(ValueKind::Nil) => Ok(1),
-        Some(ValueKind::Fixnum(n)) => Ok(*n),
-        Some(ValueKind::Char(c)) => Ok(*c as i64),
-        Some(other) => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("fixnump"), *other],
-        )),
+        None => Ok(1),
+        Some(v) if v.is_nil() => Ok(1),
+        Some(v) => match v.kind() {
+            ValueKind::Fixnum(n) => Ok(n),
+            ValueKind::Char(c) => Ok(c as i64),
+            _ => Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("fixnump"), *v],
+            )),
+        },
     }
 }
 
@@ -131,8 +134,9 @@ fn parse_search_options_in_manager(
 ) -> Result<SearchOptions, Flow> {
     let count = search_count_arg(args)?;
     let noerror_mode = match args.get(2) {
-        None | Some(ValueKind::Nil) => SearchNoErrorMode::Signal,
-        Some(ValueKind::T) => SearchNoErrorMode::KeepPoint,
+        None => SearchNoErrorMode::Signal,
+        Some(v) if v.is_nil() => SearchNoErrorMode::Signal,
+        Some(v) if v.is_t() => SearchNoErrorMode::KeepPoint,
         Some(_) => SearchNoErrorMode::MoveToBound,
     };
     let (bound_lisp, bound) = match args.get(1) {
@@ -235,7 +239,7 @@ fn handle_search_failure_in_manager(
     start_pt: usize,
     kind: SearchErrorKind,
 ) -> EvalResult {
-    match kind.kind() {
+    match kind {
         SearchErrorKind::NotFound => match opts.noerror_mode {
             SearchNoErrorMode::Signal => {
                 let _ = buffers.goto_buffer_byte(buffer_id, start_pt);
@@ -594,9 +598,9 @@ pub(crate) fn builtin_string_match_with_state(
             let inhibit_modify = args.get(3).is_some_and(|v| v.is_truthy());
 
             match (args[0].kind(), args[1].kind()) {
-                (ValueKind::String, ValueKind::String) => with_heap(|h| {
-                    let pattern = h.get_string(*pattern_id);
-                    let string = h.get_lisp_string(*string_id);
+                (ValueKind::String, ValueKind::String) => {
+                    let pattern = args[0].as_str().unwrap();
+                    let string = args[1].as_lisp_string().unwrap();
                     let start = crate::emacs_core::search::normalize_lisp_string_start_arg(
                         string,
                         args.get(2),
@@ -610,7 +614,7 @@ pub(crate) fn builtin_string_match_with_state(
                     match super::regex::string_match_full_with_case_fold_source_lisp(
                         pattern,
                         string,
-                        super::regex::SearchedString::Heap(*string_id),
+                        super::regex::SearchedString::Heap(args[1]),
                         start,
                         case_fold,
                         target,
@@ -619,7 +623,7 @@ pub(crate) fn builtin_string_match_with_state(
                         Ok(None) => Ok(Value::NIL),
                         Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
                     }
-                }),
+                }
                 _ => {
                     let pattern = expect_string(&args[0])?;
                     let s = expect_string(&args[1])?;
@@ -666,16 +670,16 @@ pub(crate) fn builtin_posix_string_match_with_state(
 pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Value]) -> EvalResult {
     expect_range_args("string-match-p", args, 2, 3)?;
     match (args[0].kind(), args[1].kind()) {
-        (ValueKind::String, ValueKind::String) => with_heap(|h| {
-            let pattern = h.get_string(*pattern_id);
-            let string = h.get_lisp_string(*string_id);
+        (ValueKind::String, ValueKind::String) => {
+            let pattern = args[0].as_str().unwrap();
+            let string = args[1].as_lisp_string().unwrap();
             let start =
                 crate::emacs_core::search::normalize_lisp_string_start_arg(string, args.get(2))?;
             let mut throwaway = None;
             match super::regex::string_match_full_with_case_fold_source_lisp(
                 pattern,
                 string,
-                super::regex::SearchedString::Heap(*string_id),
+                super::regex::SearchedString::Heap(args[1]),
                 start,
                 case_fold,
                 &mut throwaway,
@@ -684,7 +688,7 @@ pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Val
                 Ok(None) => Ok(Value::NIL),
                 Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
             }
-        }),
+        }
         _ => {
             let pattern = expect_string(&args[0])?;
             let s = expect_string(&args[1])?;
@@ -752,22 +756,19 @@ pub(crate) fn builtin_match_string(
 
     // If an optional second arg is a string, use that first.
     if args.len() > 1 {
-        if args[1].is_string() {
-            return with_heap(|h| {
-                let string = h.get_lisp_string(id);
-                let text = string.as_str();
-                let (byte_start, byte_end) = if md.searched_string.is_some() {
-                    (char_pos_to_byte(text, start), char_pos_to_byte(text, end))
-                } else {
-                    (start, end)
-                };
-                if byte_end <= text.len() && byte_start <= byte_end {
-                    if let Some(slice) = string.slice(byte_start, byte_end) {
-                        return Ok(Value::heap_string(slice));
-                    }
+        if let Some(string) = args[1].as_lisp_string() {
+            let text = string.as_str();
+            let (byte_start, byte_end) = if md.searched_string.is_some() {
+                (char_pos_to_byte(text, start), char_pos_to_byte(text, end))
+            } else {
+                (start, end)
+            };
+            if byte_end <= text.len() && byte_start <= byte_end {
+                if let Some(slice) = string.slice(byte_start, byte_end) {
+                    return Ok(Value::heap_string(slice));
                 }
-                Ok(Value::NIL)
-            });
+            }
+            return Ok(Value::NIL);
         }
 
         if let Some(s) = args[1].as_str() {
@@ -785,9 +786,8 @@ pub(crate) fn builtin_match_string(
 
     // Otherwise, if the match was against a string, use that string.
     if let Some(ref searched) = md.searched_string {
-        if let super::regex::SearchedString::Heap(id) = searched {
-            return with_heap(|h| {
-                let string = h.get_lisp_string(*id);
+        if let super::regex::SearchedString::Heap(val) = searched {
+            if let Some(string) = val.as_lisp_string() {
                 let text = string.as_str();
                 let byte_start = char_pos_to_byte(text, start);
                 let byte_end = char_pos_to_byte(text, end);
@@ -796,8 +796,8 @@ pub(crate) fn builtin_match_string(
                         return Ok(Value::heap_string(slice));
                     }
                 }
-                Ok(Value::NIL)
-            });
+                return Ok(Value::NIL);
+            }
         }
 
         return searched.with_str(|searched| {
@@ -1027,13 +1027,15 @@ fn match_data_item_buffer_id_in_manager(
     buffers: &crate::buffer::BufferManager,
     value: &Value,
 ) -> Option<crate::buffer::BufferId> {
-    match value.kind() {
-        ValueKind::Veclike(VecLikeType::Buffer) => Some(*buffer_id),
-        marker if super::marker::is_marker(marker) => super::marker::marker_logical_fields(marker)
-            .and_then(|(buffer_id, _, _)| buffer_id)
-            .filter(|buffer_id| buffers.get(*buffer_id).is_some()),
-        _ => None,
+    if value.is_buffer() {
+        return value.as_buffer_id();
     }
+    if super::marker::is_marker(value) {
+        return super::marker::marker_logical_fields(value)
+            .and_then(|(buffer_id, _, _)| buffer_id)
+            .filter(|buffer_id| buffers.get(*buffer_id).is_some());
+    }
+    None
 }
 
 fn expect_match_data_item_in_manager(
@@ -1043,11 +1045,11 @@ fn expect_match_data_item_in_manager(
     match value.kind() {
         ValueKind::Fixnum(n) => Ok((n, None)),
         ValueKind::Char(c) => Ok((c as i64, None)),
-        marker if super::marker::is_marker(marker) => Ok((
-            super::marker::marker_position_as_int_with_buffers(buffers, marker)?,
-            match_data_item_buffer_id_in_manager(buffers, marker),
+        _ if super::marker::is_marker(value) => Ok((
+            super::marker::marker_position_as_int_with_buffers(buffers, value)?,
+            match_data_item_buffer_id_in_manager(buffers, value),
         )),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -1083,10 +1085,7 @@ pub(crate) fn builtin_set_match_data_with_state(
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[0]]))?;
 
     let explicit_buffer_id = if items.len() % 2 == 1 {
-        items.last().and_then(|value| match value {
-            Value::make_buffer(buffer_id) => Some(*buffer_id),
-            _ => None,
-        })
+        items.last().and_then(|value| value.as_buffer_id())
     } else {
         None
     };

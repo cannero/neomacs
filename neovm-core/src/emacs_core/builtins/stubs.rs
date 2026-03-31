@@ -391,8 +391,8 @@ pub(crate) fn builtin_neomacs_clipboard_set(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-clipboard-set", &args, 1)?;
     let text = match args[0].kind() {
         ValueKind::Nil => None,
-        ValueKind::String => Some(with_heap(|heap| heap.get_string(id).to_owned())),
-        other => Some(format!("{other}")),
+        ValueKind::String => Some(args[0].as_str().unwrap().to_owned()),
+        _ => Some(format!("{}", args[0])),
     };
     set_cached_clipboard_text(text.clone());
     if let Some(text) = text {
@@ -413,8 +413,8 @@ pub(crate) fn builtin_neomacs_primary_selection_set(args: Vec<Value>) -> EvalRes
     expect_args("neomacs-primary-selection-set", &args, 1)?;
     let text = match args[0].kind() {
         ValueKind::Nil => None,
-        ValueKind::String => Some(with_heap(|heap| heap.get_string(id).to_owned())),
-        other => Some(format!("{other}")),
+        ValueKind::String => Some(args[0].as_str().unwrap().to_owned()),
+        _ => Some(format!("{}", args[0])),
     };
     set_cached_primary_selection_text(text.clone());
     if let Some(text) = text {
@@ -465,9 +465,9 @@ pub(crate) fn snapshot_window_new_normal() -> HashMap<u64, f64> {
     WINDOW_NEW_NORMAL.with(|slot| {
         slot.borrow()
             .iter()
-            .filter_map(|(&id, v)| match v {
-                Value::make_float(f) => Some((id, *f)),
-                Value::fixnum(i) => Some((id, *i as f64)),
+            .filter_map(|(&id, v)| match v.kind() {
+                ValueKind::Float => Some((id, v.as_float().unwrap())),
+                ValueKind::Fixnum(i) => Some((id, i as f64)),
                 _ => None,
             })
             .collect()
@@ -486,8 +486,10 @@ thread_local! {
 }
 
 fn window_state_id(value: &Value) -> Option<u64> {
+    if let Some(wid) = value.as_window_id() {
+        return Some(wid);
+    }
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(*id),
         ValueKind::Fixnum(id) if id >= 0 => Some(id as u64),
         _ => None,
     }
@@ -568,10 +570,7 @@ pub(super) fn set_window_new_total_value(window: &Value, size: i64, add: bool) -
 }
 
 fn sqlite_handle_id(value: &Value) -> Option<i64> {
-    if !value.is_vector() {
-        return None;
-    };
-    let items = with_heap(|h| h.get_vector(*items).clone());
+    let items = value.as_vector_data()?;
     if items.len() != 2 {
         return None;
     }
@@ -819,7 +818,7 @@ fn fillarray_character_from_value(value: &Value) -> Result<char, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Ok((n as u8) as char),
         ValueKind::Char(c) => Ok(c),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
         )),
@@ -838,49 +837,42 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
             let is_char_table = !is_bool_vector && super::chartable::is_char_table(&args[0]);
             if is_bool_vector {
                 let fill_bit = if args[1].is_nil() { 0 } else { 1 };
-                let (logical_len, available_bits) = with_heap(|h| {
-                    let v = h.get_vector(*items);
-                    let ll = match v.get(BOOL_VECTOR_SIZE_SLOT).kind() {
-                        Some(ValueKind::Fixnum(n)) if n > 0 => n as usize,
-                        _ => 0,
-                    };
-                    let ab = v.len().saturating_sub(BOOL_VECTOR_BITS_START);
-                    (ll, ab)
-                });
+                let v = args[0].as_vector_data().unwrap();
+                let logical_len = match v.get(BOOL_VECTOR_SIZE_SLOT).map(|val| val.kind()) {
+                    Some(ValueKind::Fixnum(n)) if n > 0 => n as usize,
+                    _ => 0,
+                };
+                let available_bits = v.len().saturating_sub(BOOL_VECTOR_BITS_START);
                 let bit_count = logical_len.min(available_bits);
-                with_heap_mut(|h| {
-                    let vec = h.get_vector_mut(*items);
-                    for bit in vec.iter_mut().skip(BOOL_VECTOR_BITS_START).take(bit_count) {
-                        *bit = Value::fixnum(fill_bit);
-                    }
-                });
+                let vec = args[0].as_vector_data_mut().unwrap();
+                for bit in vec.iter_mut().skip(BOOL_VECTOR_BITS_START).take(bit_count) {
+                    *bit = Value::fixnum(fill_bit);
+                }
                 return Ok(args[0]);
             }
             if is_char_table {
-                with_heap_mut(|h| {
-                    let vec = h.get_vector_mut(*items);
-                    if vec.len() > CHAR_TABLE_DEFAULT_SLOT {
-                        vec[CHAR_TABLE_DEFAULT_SLOT] = args[1];
-                    }
-                });
+                let vec = args[0].as_vector_data_mut().unwrap();
+                if vec.len() > CHAR_TABLE_DEFAULT_SLOT {
+                    vec[CHAR_TABLE_DEFAULT_SLOT] = args[1];
+                }
                 return Ok(args[0]);
             }
-            with_heap_mut(|h| {
-                let vec = h.get_vector_mut(*items);
-                for slot in vec.iter_mut() {
-                    *slot = args[1];
-                }
-            });
+            let vec = args[0].as_vector_data_mut().unwrap();
+            for slot in vec.iter_mut() {
+                *slot = args[1];
+            }
             Ok(args[0])
         }
         ValueKind::String => {
             let fill = fillarray_character_from_value(&args[1])?;
-            let len = with_heap(|h| h.get_string(*id).chars().count());
+            let len = args[0].as_str().unwrap().chars().count();
             let new_str = fill.to_string().repeat(len);
-            with_heap_mut(|h| *h.get_string_mut(*id) = new_str);
+            let lisp_str = args[0].as_lisp_string_mut().unwrap().make_mut();
+            lisp_str.clear();
+            lisp_str.push_str(&new_str);
             Ok(args[0])
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("arrayp"), args[0]],
         )),
@@ -895,7 +887,7 @@ pub(crate) fn builtin_define_fringe_bitmap(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("symbolp"), args[0]],
         ));
     }
-    if !matches!(args[1], ValueKind::Veclike(VecLikeType::Vector) | ValueKind::String) {
+    if !matches!(args[1].kind(), ValueKind::Veclike(VecLikeType::Vector) | ValueKind::String) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("arrayp"), args[1]],
@@ -1011,8 +1003,8 @@ pub(crate) fn builtin_internal_labeled_widen_in_buffers(
 
 pub(crate) fn builtin_internal_obarray_buckets(args: Vec<Value>) -> EvalResult {
     expect_args("internal--obarray-buckets", &args, 1)?;
-    let id = expect_obarray_vector_id(&args[0])?;
-    let buckets = with_heap(|h| h.get_vector(id).clone());
+    let obarray_val = expect_obarray_vector_id(&args[0])?;
+    let buckets = obarray_val.as_vector_data().unwrap().clone();
     Ok(Value::list(buckets))
 }
 
@@ -1028,7 +1020,7 @@ pub(crate) fn builtin_handle_switch_frame(args: Vec<Value>) -> EvalResult {
         ValueKind::Cons => {
             let pair_car = args[0].cons_car();
             let pair_cdr = args[0].cons_cdr();
-            match pair_car.as_symbol_name().kind() {
+            match pair_car.as_symbol_name() {
                 Some("switch-frame") => {
                     let cdr = pair_cdr;
                     match cdr.kind() {
@@ -1113,7 +1105,7 @@ pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_describe_vector(args: Vec<Value>) -> EvalResult {
     expect_range_args("describe-vector", &args, 1, 2)?;
-    if !matches!(args[0], ValueKind::Veclike(VecLikeType::Vector)) {
+    if !matches!(args[0].kind(), ValueKind::Veclike(VecLikeType::Vector)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vector-or-char-table-p"), args[0]],
@@ -1555,7 +1547,7 @@ fn expect_characterp_from_int(value: &Value) -> Result<char, Flow> {
             )
         }),
         ValueKind::Char(c) => Ok(c),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
         )),
@@ -1565,11 +1557,10 @@ fn expect_characterp_from_int(value: &Value) -> Result<char, Flow> {
 fn is_font_object(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = value.as_vector_data().unwrap().clone();
-            matches!(
-                items.first(),
-                Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "font-object"
-            )
+            let items = value.as_vector_data().unwrap();
+            items.first().is_some_and(|v| {
+                matches!(v.kind(), ValueKind::Keyword(tag) if resolve_sym(tag) == "font-object")
+            })
         }
         _ => false,
     }
@@ -1578,8 +1569,10 @@ fn is_font_object(value: &Value) -> bool {
 fn is_font_spec(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = value.as_vector_data().unwrap().clone();
-            matches!(items.first(), Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "font-spec")
+            let items = value.as_vector_data().unwrap();
+            items.first().is_some_and(|v| {
+                matches!(v.kind(), ValueKind::Keyword(tag) if resolve_sym(tag) == "font-spec")
+            })
         }
         _ => false,
     }
@@ -1601,10 +1594,13 @@ fn expect_window_live_or_nil_in_state(frames: &FrameManager, value: &Value) -> R
     if value.is_nil() {
         return Ok(());
     }
-    let live = match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => frames.is_live_window_id(WindowId(*id)),
-        ValueKind::Fixnum(id) if id >= 0 => frames.is_live_window_id(WindowId(id as u64)),
-        _ => false,
+    let live = if let Some(wid) = value.as_window_id() {
+        frames.is_live_window_id(WindowId(wid))
+    } else {
+        match value.kind() {
+            ValueKind::Fixnum(id) if id >= 0 => frames.is_live_window_id(WindowId(id as u64)),
+            _ => false,
+        }
     };
     if live {
         Ok(())
@@ -1668,7 +1664,7 @@ pub(crate) fn builtin_font_match_p(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_font_shape_gstring(args: Vec<Value>) -> EvalResult {
     expect_args("font-shape-gstring", &args, 2)?;
-    if !matches!(args[0], ValueKind::Veclike(VecLikeType::Vector)) {
+    if !matches!(args[0].kind(), ValueKind::Veclike(VecLikeType::Vector)) {
         return Err(signal(
             "error",
             vec![Value::string("Invalid glyph-string: ")],

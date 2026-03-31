@@ -79,8 +79,8 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        marker if super::marker::is_marker(marker) => super::marker::marker_position_as_int(marker),
-        other => Err(signal(
+        _ if super::marker::is_marker(value) => super::marker::marker_position_as_int(value),
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *value],
         )),
@@ -197,9 +197,9 @@ fn plist_get_named_value(plist: Value, prop_name: &str) -> Option<Value> {
             return None;
         };
         if pair_car.as_symbol_name() == Some(prop_name) {
-            return Some(pair.cdr.cons_car());
+            return Some(pair_cdr.cons_car());
         }
-        tail = read_cons(value_cell).cdr;  // TODO(tagged): replace read_cons with cons accessors
+        tail = pair_cdr.cons_cdr();
     }
 }
 
@@ -209,8 +209,8 @@ fn assq_rest(list: Value, prop_name: &str) -> Option<Value> {
         let pair_car = cursor.cons_car();
         let pair_cdr = cursor.cons_cdr();
         if pair_car.is_cons() {
-            let entry_car = pair.car.cons_car();
-            let entry_cdr = pair.car.cons_cdr();
+            let entry_car = pair_car.cons_car();
+            let entry_cdr = pair_car.cons_cdr();
             if entry_car.as_symbol_name() == Some(prop_name) {
                 return Some(entry_cdr);
             }

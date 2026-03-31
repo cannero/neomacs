@@ -408,7 +408,7 @@ fn extract_parent_symbols(value: &Value) -> Result<Vec<String>, Flow> {
                 Ok(parents)
             }
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value],
         )),
@@ -525,9 +525,10 @@ pub(crate) fn builtin_error_message_string(
     let error_data = &args[0];
 
     // Emacs expects ERROR-DATA to be a list (or nil).
-    let (sym_name, data) = match error_data {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+    let (sym_name, data) = match error_data.kind() {
+        ValueKind::Cons => {
+            let pair_car = error_data.cons_car();
+            let pair_cdr = error_data.cons_cdr();
             let sym = match pair_car.as_symbol_name() {
                 Some(name) => name.to_string(),
                 None => return Ok(Value::string("peculiar error")),
@@ -535,11 +536,11 @@ pub(crate) fn builtin_error_message_string(
             let rest = match pair_cdr.kind() {
                 ValueKind::Nil => vec![],
                 ValueKind::Cons => list_to_vec(&pair_cdr).unwrap_or_else(|| vec![pair_cdr]),
-                other => vec![pair_cdr],
+                _ => vec![pair_cdr],
             };
             (sym, rest)
         }
-        Value::NIL => return Ok(Value::string("peculiar error")),
+        ValueKind::Nil => return Ok(Value::string("peculiar error")),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
