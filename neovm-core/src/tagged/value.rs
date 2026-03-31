@@ -496,6 +496,166 @@ impl TaggedValue {
 }
 
 // ---------------------------------------------------------------------------
+// Backward-compatible API (matches old Value enum methods)
+// ---------------------------------------------------------------------------
+
+impl TaggedValue {
+    // -- Compat constructors that allocate on the thread-local heap --
+
+    /// Create a symbol by interning a name string.
+    pub fn symbol_by_name(s: impl AsRef<str>) -> Self {
+        Self::symbol(crate::emacs_core::intern::intern(s.as_ref()))
+    }
+
+    /// Create a keyword by interning a name string.
+    pub fn keyword_by_name(s: impl AsRef<str>) -> Self {
+        Self::keyword(crate::emacs_core::intern::intern(s.as_ref()))
+    }
+
+    /// `Value::t()` — compat alias for `Value::T`.
+    pub fn t() -> Self {
+        Self::T
+    }
+
+    /// `Value::bool(b)` — convert bool to nil/t.
+    pub fn bool_val(b: bool) -> Self {
+        if b { Self::T } else { Self::NIL }
+    }
+
+    // -- Compat predicates --
+
+    /// True if this value is "truthy" (not nil).
+    #[inline]
+    pub fn is_truthy(self) -> bool {
+        !self.is_nil()
+    }
+
+    /// True for integers.
+    #[inline]
+    pub fn is_integer(self) -> bool {
+        self.is_fixnum()
+    }
+
+    /// True for any number (fixnum or float).
+    #[inline]
+    pub fn is_number(self) -> bool {
+        self.is_fixnum() || self.is_float()
+    }
+
+    /// True if this value is a vector (veclike with Vector type tag).
+    #[inline]
+    pub fn is_vector(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Vector)
+    }
+
+    /// True if this value is a record (veclike with Record type tag).
+    #[inline]
+    pub fn is_record(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Record)
+    }
+
+    /// True if this value is a hash table.
+    #[inline]
+    pub fn is_hash_table(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::HashTable)
+    }
+
+    /// True if this value is callable (lambda, macro, bytecode, subr).
+    #[inline]
+    pub fn is_function(self) -> bool {
+        self.is_subr()
+            || matches!(
+                self.veclike_type(),
+                Some(VecLikeType::Lambda | VecLikeType::ByteCode)
+            )
+    }
+
+    /// Human-readable type name.
+    pub fn type_name(self) -> &'static str {
+        match self.kind() {
+            ValueKind::Nil => "nil",
+            ValueKind::T => "symbol",
+            ValueKind::Fixnum(_) => "integer",
+            ValueKind::Symbol(_) => "symbol",
+            ValueKind::Cons => "cons",
+            ValueKind::String => "string",
+            ValueKind::Float => "float",
+            ValueKind::Char(_) => "character",
+            ValueKind::Keyword(_) => "symbol",
+            ValueKind::Subr(_) => "subr",
+            ValueKind::Veclike(ty) => match ty {
+                VecLikeType::Vector => "vector",
+                VecLikeType::HashTable => "hash-table",
+                VecLikeType::Lambda => "closure",
+                VecLikeType::Macro => "macro",
+                VecLikeType::ByteCode => "byte-code",
+                VecLikeType::Record => "record",
+                VecLikeType::Overlay => "overlay",
+                VecLikeType::Marker => "marker",
+                VecLikeType::Buffer => "buffer",
+                VecLikeType::Window => "window",
+                VecLikeType::Frame => "frame",
+                VecLikeType::Timer => "timer",
+            },
+            ValueKind::Unknown => "unknown",
+        }
+    }
+
+    // -- Numeric extraction --
+
+    /// Extract integer value (alias for as_fixnum).
+    #[inline]
+    pub fn as_int(self) -> Option<i64> {
+        self.as_fixnum()
+    }
+
+    /// Extract float value. Returns None if not a float.
+    #[inline]
+    pub fn as_float(self) -> Option<f64> {
+        if self.is_float() {
+            Some(self.xfloat())
+        } else {
+            None
+        }
+    }
+
+    /// Extract numeric value as f64 (works for both fixnum and float).
+    #[inline]
+    pub fn as_number_f64(self) -> Option<f64> {
+        if let Some(n) = self.as_fixnum() {
+            Some(n as f64)
+        } else {
+            self.as_float()
+        }
+    }
+
+    // -- String extraction --
+
+    /// Get the string content. Returns None if not a string.
+    pub fn as_str(self) -> Option<&'static str> {
+        if self.is_string() {
+            let ptr = self.as_string_ptr().unwrap();
+            // Safety: the string object is alive (caller must ensure no GC).
+            // Lifetime is extended to 'static — same pattern as old Value::as_str.
+            unsafe { Some((*ptr).data.as_str()) }
+        } else {
+            None
+        }
+    }
+
+    /// Get symbol name. Returns None if not a symbol.
+    pub fn as_symbol_name(self) -> Option<&'static str> {
+        self.as_symbol_id()
+            .map(|id| crate::emacs_core::intern::resolve_sym(id))
+    }
+
+    /// Check if this symbol has the given name.
+    pub fn is_symbol_named(self, name: &str) -> bool {
+        self.as_symbol_name() == Some(name)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ValueKind — exhaustive dispatch enum
 // ---------------------------------------------------------------------------
 

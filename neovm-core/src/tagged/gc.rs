@@ -19,6 +19,33 @@
 use super::header::*;
 use super::value::TaggedValue;
 use std::alloc::{self, Layout};
+use std::cell::Cell;
+
+// ---------------------------------------------------------------------------
+// Thread-local heap access
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    static TAGGED_HEAP: Cell<*mut TaggedHeap> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+/// Set the thread-local tagged heap pointer.
+pub fn set_tagged_heap(heap: &mut TaggedHeap) {
+    TAGGED_HEAP.with(|h| h.set(heap as *mut TaggedHeap));
+}
+
+/// Access the thread-local tagged heap.
+///
+/// # Panics
+/// Panics if no heap is set for this thread.
+#[inline]
+pub fn with_tagged_heap<R>(f: impl FnOnce(&mut TaggedHeap) -> R) -> R {
+    TAGGED_HEAP.with(|h| {
+        let ptr = h.get();
+        assert!(!ptr.is_null(), "no TaggedHeap set for this thread");
+        f(unsafe { &mut *ptr })
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Cons block allocator
