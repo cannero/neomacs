@@ -41,7 +41,7 @@ pub struct LispHeap {
 // and the current stack pointer is not a single readable mapping, so walking
 // it conservatively can segfault. Keep the safety-net narrowly bounded and
 // fall back to explicit roots outside that window.
-const MAX_CONSERVATIVE_STACK_SCAN_BYTES: usize = 1024 * 1024;
+const MAX_CONSERVATIVE_STACK_SCAN_BYTES: usize = 64 * 1024 * 1024;
 
 impl LispHeap {
     pub fn new() -> Self {
@@ -229,10 +229,9 @@ impl LispHeap {
         }
         // Conservative stack scan — catch any roots missed by explicit
         // enumeration, including Values in Rust local variables.
+        // Flush registers to stack first (see collect() comment).
         unsafe {
-            if let Some((lo, hi)) = self.conservative_stack_scan_bounds() {
-                self.scan_stack_conservative(lo, hi);
-            }
+            Self::flush_registers_and_scan_stack(self);
         }
         // Drain the gray queue (fast — only processes newly-discovered items).
         self.mark_all();
@@ -250,6 +249,24 @@ impl LispHeap {
     // -----------------------------------------------------------------------
     // Checked access
     // -----------------------------------------------------------------------
+
+    /// Check if an ObjId is still valid (not stale).
+    #[inline]
+    pub fn is_valid(&self, id: ObjId) -> bool {
+        let i = id.index as usize;
+        i < self.objects.len() && self.generations[i] == id.generation
+    }
+
+    /// Extract ObjId from a Value, if it contains one.
+    fn value_objid(val: &Value) -> Option<ObjId> {
+        match val {
+            Value::Cons(id) | Value::Vector(id) | Value::Record(id)
+            | Value::HashTable(id) | Value::Str(id) | Value::Lambda(id)
+            | Value::Macro(id) | Value::ByteCode(id) | Value::Overlay(id)
+            | Value::Marker(id) => Some(*id),
+            _ => None,
+        }
+    }
 
     #[inline]
     fn check(&self, id: ObjId) {
@@ -634,6 +651,63 @@ impl LispHeap {
     /// as a root. False positives are safe (just keep extra objects alive).
     ///
     /// This is the same strategy used by GNU Emacs (`mark_memory` in alloc.c),
+    /// Flush all callee-saved CPU registers into a stack-local buffer,
+    /// then run the conservative stack scan. This ensures Values held in
+    /// registers (common in release builds) are visible to the scanner.
+    ///
+    /// # Safety
+    /// Must be called from a context where `self` is valid and the stack
+    /// is well-formed.
+    #[inline(never)] // Must not be inlined — we need its stack frame to hold the spilled regs
+    unsafe fn flush_registers_and_scan_stack(heap: *mut Self) {
+        // Spill callee-saved registers to the stack so the scanner can see them.
+        #[cfg(target_arch = "x86_64")]
+        {
+            // x86_64 callee-saved: rbx, rbp, r12, r13, r14, r15
+            // We read them into a local array which lives on the stack.
+            let mut regs: [u64; 6] = [0; 6];
+            unsafe {
+                std::arch::asm!(
+                    "mov [{buf}], rbx",
+                    "mov [{buf} + 8], rbp",
+                    "mov [{buf} + 16], r12",
+                    "mov [{buf} + 24], r13",
+                    "mov [{buf} + 32], r14",
+                    "mov [{buf} + 40], r15",
+                    buf = in(reg) regs.as_mut_ptr(),
+                    options(nostack, preserves_flags),
+                );
+            }
+            // Prevent the compiler from optimizing away the register spill
+            std::hint::black_box(&regs);
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            // aarch64 callee-saved: x19-x28, x29(fp), x30(lr)
+            let mut regs: [u64; 12] = [0; 12];
+            unsafe {
+                std::arch::asm!(
+                    "stp x19, x20, [{buf}]",
+                    "stp x21, x22, [{buf}, #16]",
+                    "stp x23, x24, [{buf}, #32]",
+                    "stp x25, x26, [{buf}, #48]",
+                    "stp x27, x28, [{buf}, #64]",
+                    "stp x29, x30, [{buf}, #80]",
+                    buf = in(reg) regs.as_mut_ptr(),
+                    options(nostack, preserves_flags),
+                );
+            }
+            std::hint::black_box(&regs);
+        }
+
+        unsafe {
+            let heap = &mut *heap;
+            if let Some((lo, hi)) = heap.conservative_stack_scan_bounds() {
+                heap.scan_stack_conservative(lo, hi);
+            }
+        }
+    }
+
     /// Ruby, and Lua to catch roots that explicit enumeration might miss
     /// (e.g., Values in Rust local variables or registers).
     ///
@@ -710,6 +784,7 @@ impl LispHeap {
 
     unsafe fn conservative_stack_scan_bounds(&self) -> Option<(*const u8, *const u8)> {
         if self.stack_bottom.is_null() {
+            tracing::warn!("stack_bottom is NULL — conservative scan disabled");
             return None;
         }
         let stack_top = unsafe { Self::current_stack_ptr() };
@@ -720,6 +795,7 @@ impl LispHeap {
         };
         let span = (hi as usize).saturating_sub(lo as usize);
         if span == 0 || span > MAX_CONSERVATIVE_STACK_SCAN_BYTES {
+            tracing::warn!(span, max = MAX_CONSERVATIVE_STACK_SCAN_BYTES, "stack scan skipped: span out of range");
             return None;
         }
         Some((lo, hi))
@@ -753,10 +829,20 @@ impl LispHeap {
         // Conservative stack scan — safety net for any roots missed by
         // explicit enumeration. Scans the current thread's stack for
         // anything that looks like a valid ObjId and marks it.
+        //
+        // IMPORTANT: We must flush CPU registers to the stack first.
+        // Release-mode optimizations keep Values in registers which are
+        // invisible to the memory scanner. We spill all callee-saved
+        // registers into a local array, which the stack scanner then
+        // covers. This is the same principle used by GNU Emacs (setjmp)
+        // and Boehm GC (getcontext).
+        let gray_before = self.gray_queue.len();
         unsafe {
-            if let Some((lo, hi)) = self.conservative_stack_scan_bounds() {
-                self.scan_stack_conservative(lo, hi);
-            }
+            Self::flush_registers_and_scan_stack(self);
+        }
+        let stack_found = self.gray_queue.len() - gray_before;
+        if stack_found > 0 {
+            tracing::debug!(stack_found, "conservative stack scan found roots");
         }
         // Mark any additional objects found by stack scan
         self.mark_all();
@@ -924,6 +1010,12 @@ impl LispHeap {
                 }
                 if let Some(env_val) = &bc.env {
                     Self::push_value_ids(env_val, children);
+                }
+                if let Some(doc_val) = &bc.doc_form {
+                    Self::push_value_ids(doc_val, children);
+                }
+                if let Some(interactive_val) = &bc.interactive {
+                    Self::push_value_ids(interactive_val, children);
                 }
             }
             HeapObject::Overlay(overlay) => {

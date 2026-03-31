@@ -3644,6 +3644,13 @@ impl Context {
         // Re-point thread-local pointers to the evaluator's owned boxes.
         set_current_interner(&mut ev.interner);
         set_current_heap(&mut ev.heap);
+        // Set stack bottom for conservative GC stack scanning (same as Context::new).
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(stack_end) = crate::gc::heap::read_stack_end_from_proc() {
+                ev.heap.set_stack_bottom(stack_end as *const u8);
+            }
+        }
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
         super::category::restore_standard_category_table_object(ev.standard_category_table);
 
@@ -4587,44 +4594,12 @@ impl Context {
         if self.gc_inhibit_depth > 0 {
             return;
         }
-        // Stress mode: full collection at every safe point.
-        if self.gc_stress {
-            if self.gc_pending || self.heap.should_collect() || self.gc_stress {
-                self.gc_collect();
-            }
-            return;
-        }
-
-        if self.heap.is_marking() {
-            // Continue incremental marking
-            let done = self.heap.mark_some(Self::MARK_WORK_LIMIT);
-            if done {
-                // Clear source_literal_cache — uses raw *const Expr pointers
-                // that can alias after lambda body Rc is freed (ABA problem).
-                self.source_literal_cache.clear();
-                self.macro_expansion_cache.clear();
-                // Re-scan roots before sweeping
-                let roots = self.collect_roots();
-                self.heap.rescan_roots(roots.into_iter());
-                self.heap.finish_collection();
-                self.gc_count += 1;
-                self.run_post_gc_hook();
-            }
-        } else if self.gc_pending || self.heap.should_collect() {
-            // Clear caches that can hold stale ObjIds before marking
-            self.source_literal_cache.clear();
-            self.macro_expansion_cache.clear();
-            // Start a new incremental collection cycle
-            let roots = self.collect_roots();
-            self.heap.begin_marking(roots.into_iter());
-            self.gc_pending = false;
-            // Do first batch of marking work immediately
-            let done = self.heap.mark_some(Self::MARK_WORK_LIMIT);
-            if done {
-                self.heap.finish_collection();
-                self.gc_count += 1;
-                self.run_post_gc_hook();
-            }
+        // Always do full STW collection with conservative stack scan.
+        // The incremental approach had correctness issues where objects
+        // reachable only through the Rust call stack could be swept
+        // if the marking phase didn't see them.
+        if self.gc_pending || self.heap.should_collect() {
+            self.gc_collect();
         }
     }
 

@@ -384,11 +384,26 @@ impl HeapObject {
                 .chain(ht.key_snapshots.values().copied())
                 .collect(),
             HeapObject::Str(_) => Vec::new(),
-            HeapObject::Lambda(d) | HeapObject::Macro(d) => d.env.into_iter().collect(),
+            HeapObject::Lambda(d) | HeapObject::Macro(d) => {
+                let mut vals: Vec<Value> = d.env.into_iter().collect();
+                if let Some(doc_val) = d.doc_form {
+                    vals.push(doc_val);
+                }
+                if let Some(interactive_val) = d.interactive {
+                    vals.push(interactive_val);
+                }
+                vals
+            }
             HeapObject::ByteCode(bc) => {
                 let mut vals: Vec<Value> = bc.constants.clone();
                 if let Some(env_val) = bc.env {
                     vals.push(env_val);
+                }
+                if let Some(doc_val) = bc.doc_form {
+                    vals.push(doc_val);
+                }
+                if let Some(interactive_val) = bc.interactive {
+                    vals.push(interactive_val);
                 }
                 vals
             }
