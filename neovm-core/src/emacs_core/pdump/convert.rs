@@ -70,30 +70,46 @@ pub(crate) fn dump_sym_id(id: SymId) -> DumpSymId {
     DumpSymId(id.0)
 }
 
+/// TODO(tagged): tagged pointer -> ObjId reverse lookup.
+/// In the tagged-pointer world Values no longer carry an ObjId; a proper
+/// reverse-mapping from heap pointer -> index is needed before pdump can
+/// work end-to-end.  For now this panics at runtime but lets the module compile.
+fn value_to_obj_id(_v: &Value) -> ObjId {
+    todo!("pdump: tagged pointer -> ObjId reverse lookup not yet implemented")
+}
+
+/// TODO(tagged): ObjId -> tagged pointer Value.
+/// Loads a heap-allocated DumpValue back into a live tagged Value.  Requires
+/// the legacy LispHeap to be populated first.
+fn obj_id_to_value(_id: ObjId) -> Value {
+    todo!("pdump: ObjId -> tagged pointer Value not yet implemented")
+}
+
 pub(crate) fn dump_value(v: &Value) -> DumpValue {
     match v.kind() {
-        ValueKind::Nil => DumpValue::NIL,
-        ValueKind::T => DumpValue::T,
+        ValueKind::Nil => DumpValue::Nil,
+        ValueKind::T => DumpValue::True,
         ValueKind::Fixnum(n) => DumpValue::Int(n),
-        ValueKind::Float => DumpValue::Float(f, id),
+        ValueKind::Float => DumpValue::Float(v.xfloat(), 0),
         ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
         ValueKind::Keyword(s) => DumpValue::Keyword(dump_sym_id(s)),
-        ValueKind::String => DumpValue::Str(dump_obj_id(id)),
-        ValueKind::Cons => DumpValue::Cons(dump_obj_id(id)),
-        ValueKind::Veclike(VecLikeType::Vector) => DumpValue::Vector(dump_obj_id(id)),
-        ValueKind::Veclike(VecLikeType::Record) => DumpValue::Record(dump_obj_id(id)),
-        ValueKind::Veclike(VecLikeType::HashTable) => DumpValue::HashTable(dump_obj_id(id)),
-        ValueKind::Veclike(VecLikeType::Lambda) => DumpValue::Lambda(dump_obj_id(id)),
-        ValueKind::Veclike(VecLikeType::Macro) => DumpValue::Macro(dump_obj_id(id)),
+        ValueKind::String => DumpValue::Str(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Cons => DumpValue::Cons(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Vector) => DumpValue::Vector(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Record) => DumpValue::Record(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::HashTable) => DumpValue::HashTable(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Lambda) => DumpValue::Lambda(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Macro) => DumpValue::Macro(dump_obj_id(value_to_obj_id(v))),
         ValueKind::Char(c) => DumpValue::Char(c),
         ValueKind::Subr(s) => DumpValue::Subr(dump_sym_id(s)),
-        ValueKind::Veclike(VecLikeType::ByteCode) => DumpValue::ByteCode(dump_obj_id(id)),
-        ValueKind::Veclike(VecLikeType::Marker) => DumpValue::Marker(dump_obj_id(id)),
-        ValueKind::Veclike(VecLikeType::Overlay) => DumpValue::Overlay(dump_obj_id(id)),
-        ValueKind::Veclike(VecLikeType::Buffer) => DumpValue::Buffer(DumpBufferId(bid.0)),
-        ValueKind::Veclike(VecLikeType::Window) => DumpValue::Window(w),
-        ValueKind::Veclike(VecLikeType::Frame) => DumpValue::Frame(f),
-        ValueKind::Veclike(VecLikeType::Timer) => DumpValue::Timer(t),
+        ValueKind::Veclike(VecLikeType::ByteCode) => DumpValue::ByteCode(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Marker) => DumpValue::Marker(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Overlay) => DumpValue::Overlay(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Buffer) => DumpValue::Buffer(DumpBufferId(v.as_buffer_id().unwrap().0)),
+        ValueKind::Veclike(VecLikeType::Window) => DumpValue::Window(v.as_window_id().unwrap()),
+        ValueKind::Veclike(VecLikeType::Frame) => DumpValue::Frame(v.as_frame_id().unwrap()),
+        ValueKind::Veclike(VecLikeType::Timer) => DumpValue::Timer(v.as_timer_id().unwrap()),
+        ValueKind::Unknown => DumpValue::Nil,
     }
 }
 
@@ -270,12 +286,10 @@ pub(crate) fn dump_hash_key(k: &HashKey) -> DumpHashKey {
         HashKey::FloatEq(bits, id) => DumpHashKey::FloatEq(*bits, *id),
         HashKey::Symbol(s) => DumpHashKey::Symbol(dump_sym_id(*s)),
         HashKey::Keyword(s) => DumpHashKey::Keyword(dump_sym_id(*s)),
-        HashKey::Str(id) => DumpHashKey::Str(dump_obj_id(*id)),
         HashKey::Char(c) => DumpHashKey::Char(*c),
         HashKey::Window(w) => DumpHashKey::Window(*w),
         HashKey::Frame(f) => DumpHashKey::Frame(*f),
         HashKey::Ptr(p) => DumpHashKey::Ptr(*p as u64),
-        HashKey::ObjId(a, b) => DumpHashKey::ObjId(*a, *b),
         HashKey::EqualCons(a, b) => {
             DumpHashKey::EqualCons(Box::new(dump_hash_key(a)), Box::new(dump_hash_key(b)))
         }
@@ -1306,24 +1320,25 @@ pub(crate) fn load_sym_id(id: &DumpSymId) -> SymId {
 
 pub(crate) fn load_value(v: &DumpValue) -> Value {
     match v {
-        DumpValue::NIL => Value::NIL,
-        DumpValue::T => Value::T,
+        DumpValue::Nil => Value::NIL,
+        DumpValue::True => Value::T,
         DumpValue::Int(n) => Value::fixnum(*n),
-        DumpValue::Float(f, id) => Value::make_float(*f) /* TODO(tagged): dropped float id `*id` */,
+        DumpValue::Float(f, _id) => Value::make_float(*f),
         DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),
         DumpValue::Keyword(s) => Value::keyword(load_sym_id(s)),
-        DumpValue::Str(id) => Value::Str(load_obj_id(id)),
-        DumpValue::Cons(id) => Value::Cons(load_obj_id(id)),
-        DumpValue::Vector(id) => Value::Vector(load_obj_id(id)),
-        DumpValue::Record(id) => Value::Record(load_obj_id(id)),
-        DumpValue::HashTable(id) => Value::HashTable(load_obj_id(id)),
-        DumpValue::Lambda(id) => Value::Lambda(load_obj_id(id)),
-        DumpValue::Macro(id) => Value::Macro(load_obj_id(id)),
+        // TODO(tagged): ObjId -> tagged pointer conversion needed for heap-allocated types
+        DumpValue::Str(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::Cons(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::Vector(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::Record(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::HashTable(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::Lambda(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::Macro(id) => obj_id_to_value(load_obj_id(id)),
         DumpValue::Char(c) => Value::char(*c),
         DumpValue::Subr(s) => Value::subr(load_sym_id(s)),
-        DumpValue::ByteCode(id) => Value::ByteCode(load_obj_id(id)),
-        DumpValue::Marker(id) => Value::Marker(load_obj_id(id)),
-        DumpValue::Overlay(id) => Value::Overlay(load_obj_id(id)),
+        DumpValue::ByteCode(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::Marker(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::Overlay(id) => obj_id_to_value(load_obj_id(id)),
         DumpValue::Buffer(bid) => Value::make_buffer(BufferId(bid.0)),
         DumpValue::Window(w) => Value::make_window(*w),
         DumpValue::Frame(f) => Value::make_frame(*f),
@@ -1513,12 +1528,15 @@ pub(crate) fn load_hash_key(k: &DumpHashKey) -> HashKey {
         DumpHashKey::FloatEq(bits, id) => HashKey::FloatEq(*bits, *id),
         DumpHashKey::Symbol(s) => HashKey::Symbol(load_sym_id(s)),
         DumpHashKey::Keyword(s) => HashKey::Keyword(load_sym_id(s)),
-        DumpHashKey::Str(id) => HashKey::Str(load_obj_id(id)),
+        // TODO(tagged): legacy DumpHashKey::Str carried an ObjId; need heap access
+        // to resolve the string content.  Map to Ptr as a placeholder.
+        DumpHashKey::Str(id) => HashKey::Ptr(((id.index as usize) << 32) | (id.generation as usize)),
         DumpHashKey::Char(c) => HashKey::Char(*c),
         DumpHashKey::Window(w) => HashKey::Window(*w),
         DumpHashKey::Frame(f) => HashKey::Frame(*f),
         DumpHashKey::Ptr(p) => HashKey::Ptr(*p as usize),
-        DumpHashKey::ObjId(a, b) => HashKey::ObjId(*a, *b),
+        // TODO(tagged): legacy DumpHashKey::ObjId no longer exists in HashKey.
+        DumpHashKey::ObjId(a, b) => HashKey::Ptr(((*a as usize) << 32) | (*b as usize)),
         DumpHashKey::EqualCons(a, b) => {
             HashKey::EqualCons(Box::new(load_hash_key(a)), Box::new(load_hash_key(b)))
         }
