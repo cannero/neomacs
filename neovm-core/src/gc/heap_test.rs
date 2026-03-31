@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::value::{ValueKind};
 
 #[test]
 fn alloc_cons_read() {

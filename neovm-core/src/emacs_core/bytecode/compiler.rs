@@ -96,14 +96,14 @@ impl Compiler {
         let mut slot = 0usize;
         for param in &params.required {
             locals.push(StackLocal {
-                name: resolve_sym(*param).to_string(),
+                name: resolve_sym(param).to_string(),
                 slot,
             });
             slot += 1;
         }
         for param in &params.optional {
             locals.push(StackLocal {
-                name: resolve_sym(*param).to_string(),
+                name: resolve_sym(param).to_string(),
                 slot,
             });
             slot += 1;
@@ -192,7 +192,7 @@ impl Compiler {
             }
             Expr::Symbol(id) => {
                 if for_value {
-                    self.compile_symbol_ref(func, resolve_sym(*id));
+                    self.compile_symbol_ref(func, resolve_sym(id));
                 }
             }
             Expr::ReaderLoadFileName => {
@@ -263,7 +263,7 @@ impl Compiler {
         let (head, tail) = items.split_first().unwrap();
 
         if let Expr::Symbol(id) = head {
-            let name = resolve_sym(*id);
+            let name = resolve_sym(id);
             // Try special forms first
             if self.try_compile_special_form(func, name, tail, for_value) {
                 return;
@@ -294,7 +294,7 @@ impl Compiler {
         // Head is not a symbol — could be a lambda form
         if let Expr::List(lambda_form) = head {
             if let Some(Expr::Symbol(id)) = lambda_form.first() {
-                if resolve_sym(*id) == "lambda" {
+                if resolve_sym(id) == "lambda" {
                     self.compile_expr(func, head, true);
                     for arg in tail {
                         self.compile_expr(func, arg, true);
@@ -1087,7 +1087,7 @@ impl Compiler {
                     match binding {
                         Expr::Symbol(id) => {
                             self.emit_tracked(func, Op::Nil);
-                            names.push(resolve_sym(*id));
+                            names.push(resolve_sym(id));
                         }
                         Expr::List(pair) if !pair.is_empty() => {
                             let Expr::Symbol(id) = &pair[0] else {
@@ -1098,7 +1098,7 @@ impl Compiler {
                             } else {
                                 self.emit_tracked(func, Op::Nil);
                             }
-                            names.push(resolve_sym(*id));
+                            names.push(resolve_sym(id));
                         }
                         _ => {}
                     }
@@ -1121,7 +1121,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Symbol(id) if resolve_sym(*id) == "nil" => {} // (let nil ...)
+            Expr::Symbol(id) if resolve_sym(id) == "nil" => {} // (let nil ...)
             _ => {}
         }
 
@@ -1155,7 +1155,7 @@ impl Compiler {
                 for binding in entries {
                     match binding {
                         Expr::Symbol(id) => {
-                            let name = resolve_sym(*id);
+                            let name = resolve_sym(id);
                             self.emit_tracked(func, Op::Nil);
                             let idx = func.add_symbol(name);
                             self.emit_tracked(func, Op::VarBind(idx));
@@ -1176,7 +1176,7 @@ impl Compiler {
                             let Expr::Symbol(id) = &pair[0] else {
                                 continue;
                             };
-                            let name = resolve_sym(*id);
+                            let name = resolve_sym(id);
                             if pair.len() > 1 {
                                 self.compile_expr(func, &pair[1], true);
                             } else {
@@ -1201,7 +1201,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Symbol(id) if resolve_sym(*id) == "nil" => {}
+            Expr::Symbol(id) if resolve_sym(id) == "nil" => {}
             _ => {}
         }
 
@@ -1268,7 +1268,7 @@ impl Compiler {
             }
             return;
         };
-        let name = resolve_sym(*id);
+        let name = resolve_sym(id);
 
         // Compile the lambda body (skip docstring)
         let body_start = if tail.len() > 3 {
@@ -1313,7 +1313,7 @@ impl Compiler {
             }
             return;
         };
-        let name = resolve_sym(*id);
+        let name = resolve_sym(id);
 
         self.add_special(name);
 
@@ -1348,7 +1348,7 @@ impl Compiler {
             }
             return;
         };
-        let name = resolve_sym(*id);
+        let name = resolve_sym(id);
 
         self.add_special(name);
 
@@ -1372,13 +1372,13 @@ impl Compiler {
             // #'symbol or #'(lambda ...)
             if let Some(Expr::Symbol(id)) = tail.first() {
                 // #'symbol — push function reference
-                let idx = func.add_symbol(resolve_sym(*id));
+                let idx = func.add_symbol(resolve_sym(id));
                 self.emit_tracked(func, Op::Constant(idx));
                 return;
             }
             if let Some(Expr::List(items)) = tail.first() {
                 if let Some(Expr::Symbol(id)) = items.first() {
-                    if resolve_sym(*id) == "lambda" {
+                    if resolve_sym(id) == "lambda" {
                         // #'(lambda ...)
                         self.compile_raw_lambda(func, &items[1..]);
                         return;
@@ -1567,7 +1567,7 @@ impl Compiler {
 
         // Error value is on stack. Bind to variable if needed.
         let _var = match &tail[0] {
-            Expr::Symbol(id) if resolve_sym(*id) != "nil" => Some(resolve_sym(*id).to_owned()),
+            Expr::Symbol(id) if resolve_sym(id) != "nil" => Some(resolve_sym(id).to_owned()),
             _ => None,
         };
 
@@ -1812,7 +1812,7 @@ impl Compiler {
 /// Parse an Expr into LambdaParams.
 fn parse_params(expr: &Expr) -> LambdaParams {
     match expr {
-        Expr::Symbol(id) if resolve_sym(*id) == "nil" => LambdaParams::simple(vec![]),
+        Expr::Symbol(id) if resolve_sym(id) == "nil" => LambdaParams::simple(vec![]),
         Expr::List(items) => {
             let mut required = Vec::new();
             let mut optional = Vec::new();
@@ -1821,7 +1821,7 @@ fn parse_params(expr: &Expr) -> LambdaParams {
 
             for item in items {
                 let Expr::Symbol(id) = item else { continue };
-                let name = resolve_sym(*id);
+                let name = resolve_sym(id);
                 match name {
                     "&optional" => {
                         mode = 1;
@@ -1864,7 +1864,7 @@ fn is_literal(expr: &Expr) -> bool {
             | Expr::Keyword(_)
             | Expr::OpaqueValueRef(_)
             | Expr::Bool(_)
-    ) || matches!(expr, Expr::Symbol(id) if resolve_sym(*id) == "nil" || resolve_sym(*id) == "t")
+    ) || matches!(expr, Expr::Symbol(id) if resolve_sym(id) == "nil" || resolve_sym(id) == "t")
 }
 
 /// Convert a literal expression to a Value.
@@ -1878,15 +1878,15 @@ fn literal_to_value(expr: &Expr) -> Value {
         Expr::Keyword(id) => Value::keyword(*id),
         Expr::Bool(true) => Value::T,
         Expr::Bool(false) => Value::NIL,
-        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::NIL,
-        Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::T,
+        Expr::Symbol(id) if resolve_sym(id) == "nil" => Value::NIL,
+        Expr::Symbol(id) if resolve_sym(id) == "t" => Value::T,
         Expr::Symbol(id) => Value::symbol(*id),
         Expr::List(items) if items.is_empty() => Value::NIL,
         Expr::List(items) => {
             // For quoted list, recursively convert
             if items.len() == 2 {
                 if let Expr::Symbol(id) = &items[0] {
-                    if resolve_sym(*id) == "quote" {
+                    if resolve_sym(id) == "quote" {
                         return literal_to_value(&items[1]);
                     }
                 }

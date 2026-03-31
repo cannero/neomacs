@@ -87,7 +87,7 @@ pub(crate) fn builtin_format_mode_line(args: Vec<Value>) -> EvalResult {
         }
     }
     if let Some(buffer) = args.get(3) {
-        if !buffer.is_nil() && !matches!(buffer, Value::make_buffer(_)) {
+        if !buffer.is_nil() && !buffer.is_buffer() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("bufferp"), *buffer],
@@ -2252,7 +2252,7 @@ pub(crate) fn builtin_lookup_image_map(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_current_bidi_paragraph_direction(args: Vec<Value>) -> EvalResult {
     expect_args_range("current-bidi-paragraph-direction", &args, 0, 1)?;
     if let Some(bufferish) = args.first() {
-        if !bufferish.is_nil() && !matches!(bufferish, Value::make_buffer(_)) {
+        if !bufferish.is_nil() && !bufferish.is_buffer() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("bufferp"), *bufferish],

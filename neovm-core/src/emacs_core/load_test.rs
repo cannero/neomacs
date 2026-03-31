@@ -5641,7 +5641,7 @@ fn macroexpand_all_pcase_terminates() {
             load_file(eval, &path).unwrap_or_else(|e| {
                 let msg = match &e {
                     EvalError::Signal { symbol, data, .. } => {
-                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
+                        let sym = crate::emacs_core::intern::resolve_sym(symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
                     }
@@ -5882,7 +5882,7 @@ fn pcase_integer_literal_pattern() {
             load_file(eval, &path).unwrap_or_else(|e| {
                 let msg = match &e {
                     EvalError::Signal { symbol, data, .. } => {
-                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
+                        let sym = crate::emacs_core::intern::resolve_sym(symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
                     }
@@ -6082,7 +6082,7 @@ fn key_parse_modifier_bits() {
             Err(e) => {
                 let msg = match &e {
                     EvalError::Signal { symbol, data, .. } => {
-                        let sym = super::super::intern::resolve_sym(*symbol);
+                        let sym = super::super::intern::resolve_sym(symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
                     }
@@ -6101,7 +6101,7 @@ fn key_parse_modifier_bits() {
     let result = eval.eval_expr(&forms[0]);
     match &result {
         Err(EvalError::Signal { symbol, data, .. }) => {
-            let sym = super::super::intern::resolve_sym(*symbol);
+            let sym = super::super::intern::resolve_sym(symbol);
             let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
             panic!("key-parse \"C-x\" failed: ({sym} {})", data_strs.join(" "));
         }

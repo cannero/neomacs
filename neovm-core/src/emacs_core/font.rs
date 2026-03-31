@@ -272,7 +272,7 @@ fn is_tagged_font_vector(val: &Value, tag: &str) -> bool {
     match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = val.as_vector_data().unwrap().clone();
-            matches!(&elems.first(), Some(ValueKind::Keyword(k)) if resolve_sym(*k) == tag)
+            matches!(&elems.first(), Some(ValueKind::Keyword(k)) if resolve_sym(k) == tag)
         }
         _ => false,
     }
@@ -386,7 +386,7 @@ fn normalize_registry_field(value: &Option<Value>) -> String {
             }
         }
         Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) => {
-            let s = resolve_sym(*id);
+            let s = resolve_sym(id);
             if !s.contains('-') {
                 format!("{}-*", s)
             } else {
@@ -440,7 +440,7 @@ fn avg_width_field(value: Option<&Value>) -> String {
     match value {
         Some(ValueKind::Fixnum(n)) => n.to_string(),
         Some(ValueKind::String) => with_heap(|h| h.get_string(*id).to_owned()),
-        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) => resolve_sym(*id).to_owned(),
+        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) => resolve_sym(id).to_owned(),
         _ => "*".to_string(),
     }
 }
@@ -2101,8 +2101,8 @@ fn default_face_attribute_value(attr: &str) -> Value {
 }
 
 fn is_reset_like_face_attr_value(value: &Value) -> bool {
-    matches!(value, Value::symbol(id) if {
-        let s = resolve_sym(*id);
+    value.as_symbol_id().map_or(false, |id| {
+        let s = resolve_sym(id);
         s == "unspecified" || s == ":ignore-defface" || s == "reset"
     })
 }
@@ -2441,7 +2441,7 @@ fn normalize_face_attr_for_set(
             let valid = match normalized.kind() {
                 ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => true,
                 ValueKind::Cons => list_to_vec(&normalized)
-                    .map(|vals| vals.iter().all(Value::is_symbol))
+                    .map(|vals| vals.iter().all(|v| v.is_symbol()))
                     .unwrap_or(false),
                 _ => false,
             };
@@ -2539,7 +2539,7 @@ pub(crate) fn builtin_internal_copy_lisp_face(
     expect_args("internal-copy-lisp-face", &args, 4)?;
     let _ = require_symbol_face_name(&args[0])?;
     let to_name = require_symbol_face_name(&args[1])?;
-    let copy_defaults_domain = matches!(args[2], Value::T);
+    let copy_defaults_domain = args[2].is_t();
     if !copy_defaults_domain && !frame_device_designator_p(&args[2]) {
         return Err(signal(
             "wrong-type-argument",
@@ -3257,10 +3257,7 @@ pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult 
         return Ok(Value::NIL);
     }
 
-    Ok(Value::bool_val(!matches!(
-        &args[1],
-        Value::fixnum(_) | Value::char(_)
-    )))
+    Ok(Value::bool_val(!(args[1].is_fixnum() || args[1].as_char().is_some())))
 }
 
 /// `(merge-face-attribute ATTRIBUTE VALUE1 VALUE2)` -- return VALUE1 unless it
@@ -3320,7 +3317,7 @@ fn expect_color_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_optional_color_frame_arg(args: &[Value], idx: usize) -> Result<(), Flow> {
     if let Some(frame) = args.get(idx) {
-        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
+        if !frame.is_nil() && !frame.is_frame() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("framep"), *frame],
@@ -3509,7 +3506,7 @@ pub(crate) fn builtin_color_supported_p(args: Vec<Value>) -> EvalResult {
 
 fn expect_optional_color_distance_frame_arg(args: &[Value], idx: usize) -> Result<(), Flow> {
     if let Some(frame) = args.get(idx) {
-        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
+        if !frame.is_nil() && !frame.is_frame() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -3761,7 +3758,7 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
                 }
             }
             ValueKind::Nil => Err(signal("error", vec![Value::string("Invalid face")])),
-            ValueKind::T | Value::symbol(_) => {
+            ValueKind::T | ValueKind::Symbol(_) => {
                 if let Some(name) = symbol_name_for_face_value(&args[0]) {
                     if KNOWN_FACES.contains(&name.as_str()) {
                         return Ok(Value::NIL);
@@ -3882,7 +3879,7 @@ pub(crate) fn builtin_internal_set_font_selection_order(args: Vec<Value>) -> Eva
             let mut seen = HashSet::new();
             values.iter().all(|value| {
                 if let Some(id) = value.as_keyword_id() {
-                    let s = resolve_sym(*id);
+                    let s = resolve_sym(id);
                     let key = if s.starts_with(':') {
                         s.to_owned()
                     } else {

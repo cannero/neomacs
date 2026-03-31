@@ -182,7 +182,7 @@ fn format_eval_error_in_state(eval: &super::eval::Context, err: &EvalError) -> S
             } else {
                 crate::emacs_core::error::print_value_in_state(eval, &Value::list(data.clone()))
             };
-            format!("({} {})", resolve_sym(*symbol), payload)
+            format!("({} {})", resolve_sym(symbol), payload)
         }
         EvalError::UncaughtThrow { tag, value } => format!(
             "(throw {} {})",
@@ -246,7 +246,7 @@ fn try_eval_generated_loaddefs_form(
     // Keep this table limited to core primitive replay.  GNU Lisp-owned
     // helpers from loaddefs (e.g. custom/obsolete metadata helpers) should
     // run through the already-loaded GNU Lisp runtime instead.
-    match resolve_sym(*id) {
+    match resolve_sym(id) {
         "progn" => {
             let mut last = Value::NIL;
             for expr in tail {
@@ -929,7 +929,7 @@ where
                     data,
                     raw_data,
                 } => {
-                    let sym_name = super::intern::resolve_sym(*symbol);
+                    let sym_name = super::intern::resolve_sym(symbol);
                     let payload = if let Some(raw) = raw_data {
                         format_value_for_error(raw)
                     } else if data.is_empty() {
@@ -1596,7 +1596,7 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
 
 fn expr_symbol_name(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+        Expr::Symbol(id) => Some(resolve_sym(id).to_owned()),
         Expr::List(_) => expr_quoted_symbol_name(expr),
         _ => None,
     }
@@ -1604,10 +1604,10 @@ fn expr_symbol_name(expr: &Expr) -> Option<String> {
 
 fn expr_quoted_symbol_name(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+        Expr::Symbol(id) => Some(resolve_sym(id).to_owned()),
         Expr::List(items) if items.len() == 2 => match (&items[0], &items[1]) {
-            (Expr::Symbol(head), Expr::Symbol(id)) if resolve_sym(*head) == "quote" => {
-                Some(resolve_sym(*id).to_owned())
+            (Expr::Symbol(head), Expr::Symbol(id)) if resolve_sym(head) == "quote" => {
+                Some(resolve_sym(id).to_owned())
             }
             _ => None,
         },
@@ -1618,12 +1618,12 @@ fn expr_quoted_symbol_name(expr: &Expr) -> Option<String> {
 fn expr_runtime_value(expr: &Expr) -> Option<Value> {
     match expr {
         Expr::Int(v) => Some(Value::fixnum(*v)),
-        Expr::Symbol(id) => match resolve_sym(*id) {
+        Expr::Symbol(id) => match resolve_sym(id) {
             "nil" => Some(Value::NIL),
             "t" => Some(Value::T),
             name => Some(Value::symbol(name)),
         },
-        Expr::Keyword(id) => Some(Value::symbol(resolve_sym(*id))),
+        Expr::Keyword(id) => Some(Value::symbol(resolve_sym(id))),
         Expr::Str(s) => Some(Value::string(s.clone())),
         Expr::Char(c) => Some(Value::char(*c)),
         Expr::List(_) => expr_quoted_symbol_name(expr).map(|name| Value::symbol(&name)),
@@ -1663,7 +1663,7 @@ fn collect_source_surface(expr: &Expr, state: &mut SourceFileSurfaceState) {
         return;
     };
 
-    match resolve_sym(*head_id) {
+    match resolve_sym(head_id) {
         "progn" | "eval-and-compile" => {
             for item in items.iter().skip(1) {
                 collect_source_surface(item, state);
@@ -1759,7 +1759,7 @@ fn collect_loaddefs_autoload_args(
     let Some(Expr::Symbol(head_id)) = items.first() else {
         return;
     };
-    if resolve_sym(*head_id) != "autoload" {
+    if resolve_sym(head_id) != "autoload" {
         return;
     }
 
@@ -1802,7 +1802,7 @@ fn collect_loaddefs_property_forms(
     let Some(Expr::Symbol(head_id)) = items.first() else {
         return;
     };
-    let head = resolve_sym(*head_id);
+    let head = resolve_sym(head_id);
     if head != "function-put" && head != "put" {
         return;
     }
@@ -1989,7 +1989,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
         let Some(Expr::Symbol(head_id)) = items.first() else {
             continue;
         };
-        if resolve_sym(*head_id) == "autoload"
+        if resolve_sym(head_id) == "autoload"
             && let Some(name) = items.get(1).and_then(expr_quoted_symbol_name)
             && wanted.contains(&name)
         {
@@ -2004,7 +2004,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
         let Some(Expr::Symbol(head_id)) = items.first() else {
             continue;
         };
-        let head = resolve_sym(*head_id);
+        let head = resolve_sym(head_id);
         if head != "function-put" && head != "put" {
             continue;
         }
@@ -2364,13 +2364,13 @@ fn repair_runtime_global_prefix_links(
             let Some(Expr::Symbol(head_id)) = items.first() else {
                 continue;
             };
-            if resolve_sym(*head_id) != "define-key" {
+            if resolve_sym(head_id) != "define-key" {
                 continue;
             }
             let Some(Expr::Symbol(map_id)) = items.get(1) else {
                 continue;
             };
-            if resolve_sym(*map_id) != "global-map" {
+            if resolve_sym(map_id) != "global-map" {
                 continue;
             }
             eval.eval_expr(form)?;
@@ -2687,7 +2687,7 @@ pub fn create_bootstrap_evaluator_with_features(
                     // Check for our special exit signal from kill-emacs
                     match &e {
                         EvalError::Signal { symbol, .. }
-                            if resolve_sym(*symbol) == "kill-emacs" =>
+                            if resolve_sym(symbol) == "kill-emacs" =>
                         {
                             tracing::info!("loadup.el completed (kill-emacs after dump)");
                         }

@@ -5,7 +5,7 @@ use crate::emacs_core::editfns::{
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::textprop::builtin_make_overlay;
-use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind};
+use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind, VecLikeType};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 /// Test-only shim: creates an evaluator context and delegates to
@@ -438,8 +438,8 @@ fn pure_dispatch_typed_append_flattens_bytecode_slots() {
         .expect("builtin append should evaluate");
     let slots = list_to_vec(&result).expect("bytecode append should produce a proper list");
     assert_eq!(slots.len(), 4);
-    assert!(matches!(slots[0], Value::Cons(_) | Value::NIL));
-    assert!(matches!(slots[1], Value::NIL | ValueKind::String));
+    assert!((slots[0].is_cons() || slots[0].is_nil()));
+    assert!((slots[1].is_nil() || slots[1].is_string()));
     assert!(matches!(slots[2], ValueKind::Veclike(VecLikeType::Vector)));
     assert!(slots[3].is_fixnum());
 }
@@ -486,8 +486,8 @@ fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
     };
     let slots = result.as_vector_data().unwrap().clone();
     assert_eq!(slots.len(), 4);
-    assert!(matches!(slots[0], Value::Cons(_) | Value::NIL));
-    assert!(matches!(slots[1], Value::NIL | ValueKind::String));
+    assert!((slots[0].is_cons() || slots[0].is_nil()));
+    assert!((slots[1].is_nil() || slots[1].is_string()));
     assert!(matches!(slots[2], ValueKind::Veclike(VecLikeType::Vector)));
     assert!(slots[3].is_fixnum());
 }
@@ -1075,10 +1075,7 @@ fn kill_buffer_optional_arg_and_error_semantics() {
         builtin_buffer_live_p(&mut eval, vec![a]).unwrap(),
         Value::NIL
     );
-    assert!(matches!(
-        builtin_current_buffer(&mut eval, vec![]).unwrap(),
-        Value::make_buffer(_)
-    ));
+    assert!(builtin_current_buffer(&mut eval, vec![]).unwrap().is_buffer());
 
     // Missing buffer name signals `(error "No buffer named ...")`.
     let missing = builtin_kill_buffer(&mut eval, vec![Value::string("*kb-opt-missing*")])
@@ -2529,7 +2526,7 @@ fn split_window_internal_validates_core_argument_types() {
         vec![Value::NIL, Value::NIL, Value::symbol("below"), Value::NIL],
     )
     .unwrap();
-    assert!(matches!(split, Value::make_window(_)));
+    assert!(split.is_window());
 
     let window_type = builtin_split_window_internal(
         &mut eval,
@@ -3664,7 +3661,7 @@ fn pure_dispatch_typed_hash_table_extended_builtins_round_trip() {
     let index_size = dispatch_builtin_pure("internal--hash-table-index-size", vec![table])
         .expect("internal--hash-table-index-size should resolve")
         .expect("internal--hash-table-index-size should evaluate");
-    assert!(matches!(index_size, Value::fixnum(n) if n >= 1));
+    assert!(index_size.as_fixnum().map_or(false, |n| n >= 1));
 
     let copied = dispatch_builtin_pure("copy-hash-table", vec![table])
         .expect("copy-hash-table should resolve")
@@ -3963,7 +3960,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     };
     let created = with_heap(|h| h.get_vector(*created).clone());
     assert_eq!(created.len(), 3);
-    assert!(created.iter().all(Value::is_nil));
+    assert!(created.iter().all(|v| v.is_nil()));
 
     let default = dispatch_builtin_pure("obarray-make", vec![])
         .expect("builtin obarray-make should resolve")
@@ -3984,7 +3981,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     assert!(
         with_heap(|h| h.get_vector(*cleared).clone())
             .iter()
-            .all(Value::is_nil)
+            .all(|v| v.is_nil())
     );
 
     let wrong_type = dispatch_builtin_pure("obarray-clear", vec![Value::fixnum(1)])

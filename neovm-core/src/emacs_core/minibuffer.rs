@@ -1303,7 +1303,7 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             vec.iter()
                 .filter_map(|item| match item.kind() {
                     ValueKind::String => Some(item.as_str().unwrap().to_owned()),
-                    ValueKind::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+                    ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                     _ => None,
                 })
                 .collect()
@@ -1399,7 +1399,7 @@ pub(crate) fn completion_candidates_from_collection_in_state(
 ) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
     let obarray = &ctx.obarray;
     Ok(match collection {
-        Value::NIL | Value::Cons(_) => Some(completion_candidates_from_list_value(collection)),
+        Value::NIL | ValueKind::Cons => Some(completion_candidates_from_list_value(collection)),
         ValueKind::Veclike(VecLikeType::HashTable) => Some(completion_candidates_from_hash_table(*table_id)),
         ValueKind::Veclike(VecLikeType::Vector) if is_global_obarray_proxy_in_state(obarray, collection) => {
             Some(completion_candidates_from_global_obarray_in_state(obarray))

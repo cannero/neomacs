@@ -2454,7 +2454,7 @@ fn test_find_file_noselect_arity_bounds() {
         vec![Value::string(&file_str), Value::NIL, Value::NIL, Value::NIL],
     )
     .expect("4-arg find-file-noselect should succeed");
-    assert!(matches!(ok, Value::make_buffer(_)));
+    assert!(ok.is_buffer());
 
     let mut eval_bad = Context::new();
     let bad = builtin_find_file_noselect(

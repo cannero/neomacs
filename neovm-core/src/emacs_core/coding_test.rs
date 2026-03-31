@@ -137,7 +137,7 @@ fn coding_system_list_base_only() {
     // Should not contain utf-8-unix, utf-8-dos, utf-8-mac
     for item in &items {
         if let Some(id) = item.as_symbol_id() {
-            let s = resolve_sym(*id);
+            let s = resolve_sym(id);
             assert!(
                 !s.ends_with("-unix") && !s.ends_with("-dos") && !s.ends_with("-mac"),
                 "base-only list should not contain: {}",

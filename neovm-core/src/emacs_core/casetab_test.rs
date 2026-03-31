@@ -128,28 +128,16 @@ fn manager_set_standard() {
 
 #[test]
 fn builtin_case_table_p_on_non_table() {
-    assert!(matches!(
-        builtin_case_table_p(vec![Value::NIL]).unwrap(),
-        Value::NIL
-    ));
-    assert!(matches!(
-        builtin_case_table_p(vec![Value::fixnum(42)]).unwrap(),
-        Value::NIL
-    ));
-    assert!(matches!(
-        builtin_case_table_p(vec![Value::string("hello")]).unwrap(),
-        Value::NIL
-    ));
+    assert!(builtin_case_table_p(vec![Value::NIL]).unwrap().is_nil());
+    assert!(builtin_case_table_p(vec![Value::fixnum(42)]).unwrap().is_nil());
+    assert!(builtin_case_table_p(vec![Value::string("hello")]).unwrap().is_nil());
 }
 
 #[test]
 fn builtin_case_table_p_on_char_table() {
     // A proper char-table with case-table subtype.
     let ct = make_case_table_value();
-    assert!(matches!(
-        builtin_case_table_p(vec![ct]).unwrap(),
-        Value::T
-    ));
+    assert!(builtin_case_table_p(vec![ct]).unwrap().is_t());
 }
 
 #[test]

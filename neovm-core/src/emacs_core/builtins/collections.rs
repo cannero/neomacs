@@ -28,7 +28,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
             with_heap(|h| {
                 let items = h.get_vector(*v);
                 let is_bool_vector = items.len() >= 2
-                    && matches!(&items[0], ValueKind::Symbol(id) if resolve_sym(*id) == "--bool-vector--");
+                    && matches!(&items[0], ValueKind::Symbol(id) if resolve_sym(id) == "--bool-vector--");
                 if is_bool_vector {
                     let len = match items.get(1).kind() {
                         Some(ValueKind::Fixnum(n)) if n >= 0 => n as usize,
@@ -153,7 +153,7 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
             let (is_bool_vector, vec_len, bool_len) = with_heap(|h| {
                 let items = h.get_vector(*v);
                 let bv = items.len() >= 2
-                    && matches!(&items[0], ValueKind::Symbol(id) if resolve_sym(*id) == "--bool-vector--");
+                    && matches!(&items[0], ValueKind::Symbol(id) if resolve_sym(id) == "--bool-vector--");
                 let bl = if bv {
                     match items.get(1).kind() {
                         Some(ValueKind::Fixnum(n)) if n >= 0 => Some(n as usize),
@@ -360,7 +360,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
             return Err(invalid_hash_table_argument_list(args[i]));
         };
 
-        match resolve_sym(*option) {
+        match resolve_sym(option) {
             ":test" => {
                 if seen_test {
                     return Err(invalid_hash_table_argument_list(args[i]));
@@ -467,7 +467,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 } else if matches!(
                     &args[i + 1],
                     ValueKind::Keyword(option) if matches!(
-                        resolve_sym(*option),
+                        resolve_sym(option),
                         ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
                     )
                 ) {
@@ -487,7 +487,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 } else if matches!(
                     &args[i + 1],
                     ValueKind::Keyword(option) if matches!(
-                        resolve_sym(*option),
+                        resolve_sym(option),
                         ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
                     )
                 ) {

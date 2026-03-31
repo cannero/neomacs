@@ -1415,7 +1415,7 @@ fn begin_macro_expansion_scope_in_state(
             | SpecBinding::LetLocal { sym_id, .. }
             | SpecBinding::LetDefault { sym_id, .. } => sym_id,
         };
-        let name = resolve_sym(*sym_id);
+        let name = resolve_sym(sym_id);
         if name == "t" || name == "nil" {
             continue;
         }
@@ -4624,7 +4624,7 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL);
 
-        if matches!(flag, Value::symbol(sym) if sym == self.kill_emacs_symbol) {
+        if flag.as_symbol_id().map_or(false, |sym| sym == self.kill_emacs_symbol) {
             self.request_shutdown(0, false);
             return Err(signal("quit", vec![]));
         }
@@ -4684,7 +4684,7 @@ impl Context {
     }
 
     pub(crate) fn event_is_quit_char(&self, event: &Value) -> bool {
-        matches!(event, Value::fixnum(code) if *code == self.quit_char)
+        event.as_fixnum().map_or(false, |code| code == self.quit_char)
     }
 
     pub(crate) fn request_quit_from_keyboard_input(&mut self) {
@@ -5737,7 +5737,7 @@ impl Context {
                                 if matches!(
                                     items.first(),
                                     Some(Expr::Symbol(id))
-                                        if resolve_sym(*id) == "lambda" || resolve_sym(*id) == "closure"
+                                        if resolve_sym(id) == "lambda" || resolve_sym(id) == "closure"
                                 )
                         ) =>
                 {
@@ -5899,7 +5899,7 @@ impl Context {
                 }
 
                 if let Some(bound_name) = &func.as_subr_id() {
-                    if resolve_sym(*bound_name) == name && super::subr_info::is_special_form(name) {
+                    if resolve_sym(bound_name) == name && super::subr_info::is_special_form(name) {
                         if let Some(result) = self.try_special_form(name, tail) {
                             return result;
                         }
@@ -5967,7 +5967,7 @@ impl Context {
         // Head is a list (possibly a lambda expression)
         if let Expr::List(lambda_form) = head {
             if let Some(Expr::Symbol(id)) = lambda_form.first() {
-                if resolve_sym(*id) == "lambda" {
+                if resolve_sym(id) == "lambda" {
                     let func = self.eval_lambda(&lambda_form[1..])?;
                     self.push_temp_root(func);
                     let (args, scope) = self.eval_args(tail)?;
@@ -6242,7 +6242,7 @@ impl Context {
             Expr::List(items) => {
                 // #'(lambda ...) — create closure
                 if let Some(Expr::Symbol(id)) = items.first() {
-                    if resolve_sym(*id) == "lambda" {
+                    if resolve_sym(id) == "lambda" {
                         return self.eval_lambda(&items[1..]);
                     }
                 }
@@ -6330,7 +6330,7 @@ impl Context {
                     }
                 }
             }
-            Expr::Symbol(id) if resolve_sym(*id) == "nil" => {} // (let nil ...)
+            Expr::Symbol(id) if resolve_sym(id) == "nil" => {} // (let nil ...)
             Expr::DottedList(_, last) => {
                 self.temp_roots.truncate(saved_roots);
                 return Err(signal(
@@ -6394,7 +6394,7 @@ impl Context {
 
         let entries = match &tail[0] {
             Expr::List(entries) => entries.clone(),
-            Expr::Symbol(id) if resolve_sym(*id) == "nil" => Vec::new(),
+            Expr::Symbol(id) if resolve_sym(id) == "nil" => Vec::new(),
             Expr::DottedList(_, last) => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -6498,8 +6498,8 @@ impl Context {
         let mut i = 0;
         while i < tail.len() {
             let (sym_id, name) = match &tail[i] {
-                Expr::Symbol(id) => (*id, resolve_sym(*id)),
-                Expr::Keyword(id) => (*id, resolve_sym(*id)),
+                Expr::Symbol(id) => (*id, resolve_sym(id)),
+                Expr::Keyword(id) => (*id, resolve_sym(id)),
                 _ => {
                     return Err(signal(
                         "wrong-type-argument",
@@ -6692,7 +6692,7 @@ impl Context {
                 vec![Value::symbol("symbolp"), quote_to_value(&tail[0])],
             ));
         };
-        let name = resolve_sym(*id);
+        let name = resolve_sym(id);
         let value = self.eval(&tail[1])?;
         // GNU Emacs defconst-1 path:
         // 1) define variable metadata, 2) set default value, 3) mark risky local.
@@ -6818,13 +6818,13 @@ impl Context {
             match handler {
                 Expr::List(items) if !items.is_empty() => {
                     if let Expr::Keyword(kw) = &items[0] {
-                        if resolve_sym(*kw) == ":success" {
+                        if resolve_sym(kw) == ":success" {
                             success_handler_idx = Some(i);
                         }
                     }
                 }
                 Expr::List(_) => {}
-                Expr::Symbol(id) if resolve_sym(*id) == "nil" => {}
+                Expr::Symbol(id) if resolve_sym(id) == "nil" => {}
                 _ => {
                     return Err(signal(
                         "error",
@@ -6842,7 +6842,7 @@ impl Context {
             if success_handler_idx == Some(i) {
                 continue;
             }
-            if matches!(handler, Expr::Symbol(id) if resolve_sym(*id) == "nil") {
+            if matches!(handler, Expr::Symbol(id) if resolve_sym(id) == "nil") {
                 continue;
             }
             let Expr::List(handler_items) = handler else {
@@ -7507,7 +7507,7 @@ impl Context {
             if let Expr::List(items) = expr {
                 if items.len() == 2 {
                     if let Some(Expr::Keyword(kw)) = items.first() {
-                        if resolve_sym(*kw) == ":documentation" {
+                        if resolve_sym(kw) == ":documentation" {
                             let form_val = self.eval(&items[1])?;
                             (Some(form_val), body_start + 1)
                         } else {
@@ -7529,7 +7529,7 @@ impl Context {
         let mut body_start = body_start;
         while let Some(Expr::List(items)) = tail.get(body_start) {
             if items.first().is_some_and(
-                |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "declare"),
+                |head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "declare"),
             ) {
                 body_start += 1;
             } else {
@@ -7547,7 +7547,7 @@ impl Context {
         let mut iform_value = Value::NIL;
         if let Some(Expr::List(items)) = tail.get(body_start) {
             if items.first().is_some_and(
-                |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"),
+                |head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "interactive"),
             ) {
                 iform_value = quote_to_value(&tail[body_start]);
                 body_start += 1;
@@ -7649,7 +7649,7 @@ impl Context {
 
     fn parse_lambda_params(&self, expr: &Expr) -> Result<LambdaParams, Flow> {
         match expr {
-            Expr::Symbol(id) if resolve_sym(*id) == "nil" => Ok(LambdaParams::simple(vec![])),
+            Expr::Symbol(id) if resolve_sym(id) == "nil" => Ok(LambdaParams::simple(vec![])),
             Expr::List(items) => {
                 let mut required = Vec::new();
                 let mut optional = Vec::new();
@@ -9225,7 +9225,7 @@ fn rewrite_wrong_arity_alias_function_object(flow: Flow, alias: &str, target: &s
     match flow {
         Flow::Signal(mut sig) => {
             let target_is_payload = sig.data.first().is_some_and(|value| match value.kind() {
-                ValueKind::Subr(id) => resolve_sym(*id) == target || resolve_sym(*id) == alias,
+                ValueKind::Subr(id) => resolve_sym(id) == target || resolve_sym(id) == alias,
                 _ => {
                     value.as_symbol_name() == Some(target) || value.as_symbol_name() == Some(alias)
                 }
@@ -9257,8 +9257,8 @@ pub fn quote_to_value(expr: &Expr) -> Value {
         Expr::Keyword(id) => Value::keyword(*id),
         Expr::Bool(true) => Value::T,
         Expr::Bool(false) => Value::NIL,
-        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::NIL,
-        Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::T,
+        Expr::Symbol(id) if resolve_sym(id) == "nil" => Value::NIL,
+        Expr::Symbol(id) if resolve_sym(id) == "t" => Value::T,
         Expr::Symbol(id) => Value::symbol(*id),
         Expr::List(items) => {
             let quoted = items.iter().map(quote_to_value).collect::<Vec<_>>();

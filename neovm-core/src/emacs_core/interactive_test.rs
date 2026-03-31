@@ -1393,7 +1393,7 @@ fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = result.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 1);
-            assert!(matches!(items[0], ValueKind::Cons));
+            assert!(items[0].is_cons());
         }
         other => panic!("expected vector, got {other:?}"),
     }

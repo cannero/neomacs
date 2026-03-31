@@ -122,7 +122,7 @@ pub fn signal_matches_condition_pattern(
     pattern: &Expr,
 ) -> bool {
     match pattern {
-        Expr::Symbol(id) => signal_matches_hierarchical(obarray, signal_sym, resolve_sym(*id)),
+        Expr::Symbol(id) => signal_matches_hierarchical(obarray, signal_sym, resolve_sym(id)),
         Expr::List(items) => items
             .iter()
             .any(|item| signal_matches_condition_pattern(obarray, signal_sym, item)),

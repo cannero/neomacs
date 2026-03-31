@@ -1,7 +1,7 @@
 use super::super::eval::Context;
 use super::*;
 use crate::emacs_core::builtins::{
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
     builtin_current_buffer, builtin_get_pos_property, builtin_make_indirect_buffer,
 };
 
@@ -1161,7 +1161,7 @@ fn overlay_buffer_returns_buffer() {
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
     let result = builtin_overlay_buffer(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(result, Value::make_buffer(_)));
+    assert!(result.is_buffer());
 }
 
 // -----------------------------------------------------------------------

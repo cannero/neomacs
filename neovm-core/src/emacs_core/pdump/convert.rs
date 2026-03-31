@@ -72,8 +72,8 @@ pub(crate) fn dump_sym_id(id: SymId) -> DumpSymId {
 
 pub(crate) fn dump_value(v: &Value) -> DumpValue {
     match v.kind() {
-        ValueKind::Nil => DumpValue::Nil,
-        ValueKind::T => DumpValue::True,
+        ValueKind::Nil => DumpValue::NIL,
+        ValueKind::T => DumpValue::T,
         ValueKind::Fixnum(n) => DumpValue::Int(n),
         ValueKind::Float => DumpValue::Float(f, id),
         ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
@@ -1306,8 +1306,8 @@ pub(crate) fn load_sym_id(id: &DumpSymId) -> SymId {
 
 pub(crate) fn load_value(v: &DumpValue) -> Value {
     match v {
-        DumpValue::Nil => Value::NIL,
-        DumpValue::True => Value::T,
+        DumpValue::NIL => Value::NIL,
+        DumpValue::T => Value::T,
         DumpValue::Int(n) => Value::fixnum(*n),
         DumpValue::Float(f, id) => Value::make_float(*f) /* TODO(tagged): dropped float id `*id` */,
         DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),

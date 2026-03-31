@@ -523,7 +523,7 @@ pub(crate) fn builtin_current_buffer(
 pub(crate) fn builtin_buffer_name(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let buffers = &eval.buffers;
     expect_max_args("buffer-name", &args, 1)?;
-    let id = if args.is_empty() || matches!(args[0], Value::NIL) {
+    let id = if args.is_empty() || args[0].is_nil() {
         match buffers.current_buffer() {
             Some(b) => b.id,
             None => return Ok(Value::NIL),
@@ -543,7 +543,7 @@ pub(crate) fn builtin_buffer_file_name(
 ) -> EvalResult {
     let buffers = &eval.buffers;
     expect_max_args("buffer-file-name", &args, 1)?;
-    let id = if args.is_empty() || matches!(args[0], Value::NIL) {
+    let id = if args.is_empty() || args[0].is_nil() {
         match buffers.current_buffer() {
             Some(b) => b.id,
             None => return Ok(Value::NIL),
@@ -566,7 +566,7 @@ pub(crate) fn builtin_buffer_base_buffer(
 ) -> EvalResult {
     let buffers = &eval.buffers;
     expect_max_args("buffer-base-buffer", &args, 1)?;
-    let target = if args.is_empty() || matches!(args[0], Value::NIL) {
+    let target = if args.is_empty() || args[0].is_nil() {
         match buffers.current_buffer() {
             Some(buf) => buf.id,
             None => return Ok(Value::NIL),
@@ -588,7 +588,7 @@ pub(crate) fn builtin_buffer_last_name(
 ) -> EvalResult {
     let buffers = &eval.buffers;
     expect_max_args("buffer-last-name", &args, 1)?;
-    let target = if args.is_empty() || matches!(args[0], Value::NIL) {
+    let target = if args.is_empty() || args[0].is_nil() {
         match buffers.current_buffer() {
             Some(buf) => buf.id,
             None => return Ok(Value::NIL),
@@ -1358,7 +1358,7 @@ pub(crate) fn builtin_buffer_text_pixel_size(
 
     if args.len() > 1 {
         let window = &args[1];
-        if !window.is_nil() && !matches!(window, Value::make_window(_)) {
+        if !window.is_nil() && !window.is_window() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("window-live-p"), *window],
@@ -1519,14 +1519,14 @@ pub(crate) fn builtin_compute_motion(
     expect_args("compute-motion", &args, 7)?;
 
     let from = expect_integer_or_marker(&args[0])?;
-    if !matches!(&args[1], Value::Cons(_)) {
+    if !args[1].is_cons() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("consp"), args[1]],
         ));
     }
     let to = expect_integer_or_marker(&args[2])?;
-    if !args[3].is_nil() && !matches!(&args[3], Value::Cons(_)) {
+    if !args[3].is_nil() && !args[3].is_cons() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("consp"), args[3]],
@@ -1535,13 +1535,13 @@ pub(crate) fn builtin_compute_motion(
     if !args[4].is_nil() {
         let _ = expect_fixnum(&args[4])?;
     }
-    if !args[5].is_nil() && !matches!(&args[5], Value::Cons(_)) {
+    if !args[5].is_nil() && !args[5].is_cons() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("consp"), args[5]],
         ));
     }
-    if !args[6].is_nil() && !matches!(&args[6], Value::make_window(_)) {
+    if !args[6].is_nil() && !args[6].is_window() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("window-live-p"), args[6]],
@@ -2661,7 +2661,7 @@ pub(crate) fn builtin_buffer_enable_undo(
         ));
     }
 
-    let id = if args.is_empty() || matches!(args[0], Value::NIL) {
+    let id = if args.is_empty() || args[0].is_nil() {
         eval.buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
@@ -2711,7 +2711,7 @@ pub(crate) fn builtin_buffer_disable_undo(
         ));
     }
 
-    let id = if args.is_empty() || matches!(args[0], Value::NIL) {
+    let id = if args.is_empty() || args[0].is_nil() {
         eval.buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
@@ -2755,7 +2755,7 @@ pub(crate) fn builtin_buffer_disable_undo(
 
 pub(crate) fn builtin_buffer_size(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("buffer-size", &args, 1)?;
-    if args.is_empty() || matches!(args[0], Value::NIL) {
+    if args.is_empty() || args[0].is_nil() {
         let buf = eval
             .buffers
             .current_buffer()
@@ -2805,7 +2805,7 @@ pub(crate) fn builtin_buffer_modified_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("buffer-modified-p", &args, 1)?;
-    if args.is_empty() || matches!(args[0], Value::NIL) {
+    if args.is_empty() || args[0].is_nil() {
         let buf = eval
             .buffers
             .current_buffer()
@@ -2868,7 +2868,7 @@ fn optional_buffer_tick_target_in_manager(
     args: &[Value],
 ) -> Result<Option<BufferId>, Flow> {
     expect_max_args(name, args, 1)?;
-    if args.is_empty() || matches!(args[0], Value::NIL) {
+    if args.is_empty() || args[0].is_nil() {
         Ok(buffers.current_buffer().map(|buf| buf.id))
     } else {
         Ok(Some(expect_buffer_id(&args[0])?))
@@ -3028,10 +3028,7 @@ pub(crate) fn builtin_generate_new_buffer_name(
     expect_min_args("generate-new-buffer-name", &args, 1)?;
     expect_max_args("generate-new-buffer-name", &args, 2)?;
     if args.len() == 2
-        && !matches!(
-            &args[1],
-            Value::NIL | Value::T | ValueKind::String | Value::symbol(_) | Value::keyword(_)
-        )
+        && !(args[1].is_nil() || args[1].is_t() || args[1].is_string() || args[1].is_symbol() || args[1].as_keyword_id().is_some())
     {
         return Err(signal(
             "wrong-type-argument",
@@ -3049,7 +3046,7 @@ pub(crate) fn builtin_generate_new_buffer_name(
 /// (bufferp OBJECT) → t or nil
 pub(crate) fn builtin_bufferp(args: Vec<Value>) -> EvalResult {
     expect_args("bufferp", &args, 1)?;
-    Ok(Value::bool_val(matches!(args[0], Value::make_buffer(_))))
+    Ok(Value::bool_val(args[0].is_buffer()))
 }
 
 pub(crate) fn builtin_char_after(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -3058,7 +3055,7 @@ pub(crate) fn builtin_char_after(eval: &mut super::eval::Context, args: Vec<Valu
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let byte_pos = if args.is_empty() || matches!(args[0], Value::NIL) {
+    let byte_pos = if args.is_empty() || args[0].is_nil() {
         (buf.point() < buf.zv).then_some(buf.point())
     } else {
         let pos = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
@@ -3084,7 +3081,7 @@ pub(crate) fn builtin_char_before(eval: &mut super::eval::Context, args: Vec<Val
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let byte_pos = if args.is_empty() || matches!(args[0], Value::NIL) {
+    let byte_pos = if args.is_empty() || args[0].is_nil() {
         (buf.point() > buf.begv).then_some(buf.point())
     } else {
         let pos = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;

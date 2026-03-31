@@ -279,7 +279,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         ctx.specbind(intern("eval-buffer-list"), eval_buffer_list);
 
         let do_allow_print = args.get(4).is_some_and(|v| v.is_truthy());
-        let standard_output = if args.get(1).is_none_or(Value::is_nil) && !do_allow_print {
+        let standard_output = if args.get(1).is_none_or(|v| v.is_nil()) && !do_allow_print {
             Value::symbol("symbolp")
         } else {
             args.get(1).copied().unwrap_or(Value::NIL)
@@ -436,7 +436,7 @@ pub(crate) fn finish_read_event_interactive_in_runtime(
         let Some(event) = runtime.read_char_with_timeout(timeout)? else {
             return Ok(Value::NIL);
         };
-        let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+        let seconds_is_nil_or_omitted = args.get(2).is_none_or(|v| v.is_nil());
         if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
             runtime.set_read_command_keys(vec![event]);
         }
@@ -485,7 +485,7 @@ pub(crate) fn finish_read_char_exclusive_interactive_in_runtime(
             let Some(event) = runtime.read_char_with_timeout(remaining)? else {
                 return Ok(Value::NIL);
             };
-            let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+            let seconds_is_nil_or_omitted = args.get(2).is_none_or(|v| v.is_nil());
             if let Some(n) = event_to_int(&event) {
                 if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
                     runtime.set_read_command_keys(vec![event]);
@@ -509,7 +509,7 @@ pub(crate) fn builtin_read_event_in_runtime(
         ));
     }
     expect_optional_prompt_string(args)?;
-    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+    let seconds_is_nil_or_omitted = args.get(2).is_none_or(|v| v.is_nil());
 
     if let Some(event) = runtime.pop_unread_command_event() {
         if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
@@ -542,7 +542,7 @@ pub(crate) fn builtin_read_char_exclusive_in_runtime(
         ));
     }
     expect_optional_prompt_string(args)?;
-    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+    let seconds_is_nil_or_omitted = args.get(2).is_none_or(|v| v.is_nil());
 
     while let Some(event) = runtime.pop_unread_command_event() {
         if let Some(n) = event_to_int(&event) {

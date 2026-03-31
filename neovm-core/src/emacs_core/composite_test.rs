@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 #[test]
 fn compose_region_internal_min_args() {

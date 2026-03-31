@@ -472,7 +472,7 @@ fn gui_x_query_target_in_state(
 }
 
 fn expect_optional_window_system_frame_arg(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() || matches!(value, Value::make_frame(_)) {
+    if value.is_nil() || value.is_frame() {
         Ok(())
     } else {
         Err(signal(
@@ -487,7 +487,7 @@ fn expect_optional_window_system_frame_arg_in_state(
     value: &Value,
 ) -> Result<(), Flow> {
     if value.is_nil()
-        || matches!(value, Value::make_frame(_))
+        || value.is_frame()
         || live_frame_designator_p_in_state(frames, value)
     {
         Ok(())
@@ -950,7 +950,7 @@ pub(crate) fn builtin_x_display_list(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_x_frame_edges(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-frame-edges", &args, 2)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
+        if !frame.is_nil() && !frame.is_frame() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -964,7 +964,7 @@ pub(crate) fn builtin_x_frame_edges(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_x_frame_geometry(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-frame-geometry", &args, 1)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
+        if !frame.is_nil() && !frame.is_frame() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -1015,7 +1015,7 @@ pub(crate) fn builtin_x_send_client_message(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_x_popup_dialog(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-popup-dialog", &args, 2, 3)?;
 
-    if !matches!(args[0], Value::make_frame(_)) {
+    if !args[0].is_frame() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("windowp"), Value::NIL],
@@ -1240,7 +1240,7 @@ pub(crate) fn builtin_x_export_frames(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_x_focus_frame(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-focus-frame", &args, 1, 2)?;
     let frame = &args[0];
-    if frame.is_nil() || matches!(frame, Value::make_frame(_)) {
+    if frame.is_nil() || frame.is_frame() {
         Err(x_window_system_frame_error())
     } else {
         Err(signal(

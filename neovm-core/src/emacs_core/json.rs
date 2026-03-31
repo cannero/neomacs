@@ -114,14 +114,14 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
         let key = &rest[i];
         let value = &rest[i + 1];
         match key.kind() {
-            ValueKind::Keyword(k) if resolve_sym(*k) == ":object-type" => match value.kind() {
-                ValueKind::Symbol(id) if resolve_sym(*id) == "hash-table" => {
+            ValueKind::Keyword(k) if resolve_sym(k) == ":object-type" => match value.kind() {
+                ValueKind::Symbol(id) if resolve_sym(id) == "hash-table" => {
                     opts.object_type = ObjectType::HashTable
                 }
-                ValueKind::Symbol(id) if resolve_sym(*id) == "alist" => {
+                ValueKind::Symbol(id) if resolve_sym(id) == "alist" => {
                     opts.object_type = ObjectType::Alist
                 }
-                ValueKind::Symbol(id) if resolve_sym(*id) == "plist" => {
+                ValueKind::Symbol(id) if resolve_sym(id) == "plist" => {
                     opts.object_type = ObjectType::Plist
                 }
                 _ => {
@@ -134,11 +134,11 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
                     ));
                 }
             },
-            ValueKind::Keyword(k) if resolve_sym(*k) == ":array-type" => match value.kind() {
-                ValueKind::Symbol(id) if resolve_sym(*id) == "array" => {
+            ValueKind::Keyword(k) if resolve_sym(k) == ":array-type" => match value.kind() {
+                ValueKind::Symbol(id) if resolve_sym(id) == "array" => {
                     opts.array_type = ArrayType::Vector
                 }
-                ValueKind::Symbol(id) if resolve_sym(*id) == "list" => {
+                ValueKind::Symbol(id) if resolve_sym(id) == "list" => {
                     opts.array_type = ArrayType::List
                 }
                 _ => {
@@ -151,10 +151,10 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
                     ));
                 }
             },
-            ValueKind::Keyword(k) if resolve_sym(*k) == ":null-object" => {
+            ValueKind::Keyword(k) if resolve_sym(k) == ":null-object" => {
                 opts.null_object = *value;
             }
-            ValueKind::Keyword(k) if resolve_sym(*k) == ":false-object" => {
+            ValueKind::Keyword(k) if resolve_sym(k) == ":false-object" => {
                 opts.false_object = *value;
             }
             _ => {
@@ -190,10 +190,10 @@ fn parse_serialize_kwargs(args: &[Value], start_index: usize) -> Result<Serializ
         let key = &rest[i];
         let value = &rest[i + 1];
         match key.kind() {
-            ValueKind::Keyword(k) if resolve_sym(*k) == ":null-object" => {
+            ValueKind::Keyword(k) if resolve_sym(k) == ":null-object" => {
                 opts.null_object = *value;
             }
-            ValueKind::Keyword(k) if resolve_sym(*k) == ":false-object" => {
+            ValueKind::Keyword(k) if resolve_sym(k) == ":false-object" => {
                 opts.false_object = *value;
             }
             _ => {
@@ -333,10 +333,10 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
         ValueKind::Nil => Ok("null".to_string()),
 
         // Keywords that were not matched as false/null sentinels.
-        ValueKind::Keyword(k) if resolve_sym(*k) == ":json-false" => Ok("false".to_string()),
+        ValueKind::Keyword(k) if resolve_sym(k) == ":json-false" => Ok("false".to_string()),
         ValueKind::Keyword(k)
             if {
-                let n = resolve_sym(*k);
+                let n = resolve_sym(k);
                 n == ":null" || n == ":json-null"
             } =>
         {
@@ -357,9 +357,9 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
 fn hash_key_to_string(key: &HashKey) -> Result<String, Flow> {
     match key {
         HashKey::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
-        HashKey::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
+        HashKey::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         HashKey::Keyword(id) => {
-            let s = resolve_sym(*id);
+            let s = resolve_sym(id);
             // Strip leading colon if present.
             if let Some(stripped) = s.strip_prefix(':') {
                 Ok(stripped.to_string())

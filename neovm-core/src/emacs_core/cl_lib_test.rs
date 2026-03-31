@@ -556,14 +556,8 @@ fn seq_concatenate_test() {
 
 #[test]
 fn seq_empty_p_test() {
-    assert!(matches!(
-        builtin_seq_empty_p(vec![Value::NIL]).unwrap(),
-        Value::T
-    ));
-    assert!(matches!(
-        builtin_seq_empty_p(vec![Value::string("")]).unwrap(),
-        Value::T
-    ));
+    assert!(builtin_seq_empty_p(vec![Value::NIL]).unwrap().is_t());
+    assert!(builtin_seq_empty_p(vec![Value::string("")]).unwrap().is_t());
     assert!(
         builtin_seq_empty_p(vec![Value::list(vec![Value::fixnum(1)])])
             .unwrap()

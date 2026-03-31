@@ -980,7 +980,7 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
     }
     if counter.is_cons() {
         let first = with_heap(|h| h.cons_car(*cell));
-        if !matches!(first, Value::fixnum(_) | Value::make_float(_) | Value::char(_)) {
+        if !(first.is_fixnum() || first.is_float() || first.as_char().is_some()) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("number-or-marker-p"), first],
@@ -2592,7 +2592,7 @@ pub(crate) fn builtin_insert_file_contents_impl(
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         if visit
-            && (!args.get(2).is_none_or(Value::is_nil) || !args.get(3).is_none_or(Value::is_nil))
+            && (!args.get(2).is_none_or(|v| v.is_nil()) || !args.get(3).is_none_or(|v| v.is_nil()))
         {
             return Err(signal(
                 "error",

@@ -61,7 +61,7 @@ pub(crate) fn builtin_symbolp(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_booleanp(args: Vec<Value>) -> EvalResult {
     expect_args("booleanp", &args, 1)?;
-    Ok(Value::bool_val(matches!(args[0], Value::NIL | Value::T)))
+    Ok(Value::bool_val((args[0].is_nil() || args[0].is_t())))
 }
 
 pub(crate) fn builtin_numberp(args: Vec<Value>) -> EvalResult {
@@ -94,7 +94,7 @@ pub(crate) fn builtin_integer_or_marker_p(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_number_or_marker_p(args: Vec<Value>) -> EvalResult {
     expect_args("number-or-marker-p", &args, 1)?;
     let is_number_or_marker =
-        matches!(args[0], Value::fixnum(_) | Value::make_float(_) | Value::char(_))
+        (args[0].is_fixnum() || args[0].is_float() || args[0].as_char().is_some())
             || super::marker::is_marker(&args[0]);
     Ok(Value::bool_val(is_number_or_marker))
 }

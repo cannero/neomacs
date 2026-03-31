@@ -50,7 +50,7 @@ pub fn is_char_table(v: &Value) -> bool {
     if v.is_vector() {
         let vec = with_heap(|h| h.get_vector(*arc).clone());
         vec.len() >= CT_EXTRA_START
-            && matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == CHAR_TABLE_TAG)
+            && vec[0].as_symbol_id().map_or(false, |id| resolve_sym(id) == CHAR_TABLE_TAG)
     } else {
         false
     }
@@ -61,7 +61,7 @@ pub fn is_bool_vector(v: &Value) -> bool {
     if v.is_vector() {
         let vec = with_heap(|h| h.get_vector(*arc).clone());
         vec.len() >= 2
-            && matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == BOOL_VECTOR_TAG)
+            && vec[0].as_symbol_id().map_or(false, |id| resolve_sym(id) == BOOL_VECTOR_TAG)
     } else {
         false
     }
@@ -73,7 +73,7 @@ pub(crate) fn bool_vector_length(v: &Value) -> Option<i64> {
         return None;
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
-    if vec.len() < 2 || !matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == BOOL_VECTOR_TAG)
+    if vec.len() < 2 || !vec[0].as_symbol_id().map_or(false, |id| resolve_sym(id) == BOOL_VECTOR_TAG)
     {
         return None;
     }
@@ -90,7 +90,7 @@ pub(crate) fn char_table_length(v: &Value) -> Option<i64> {
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
     if vec.len() >= CT_EXTRA_START
-        && matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == CHAR_TABLE_TAG)
+        && vec[0].as_symbol_id().map_or(false, |id| resolve_sym(id) == CHAR_TABLE_TAG)
     {
         Some(CT_LOGICAL_LENGTH)
     } else {
@@ -904,7 +904,7 @@ fn bv_bits(vec: &[Value]) -> Vec<bool> {
     let mut bits = Vec::with_capacity(len);
     for i in 0..len {
         let v = &vec[2 + i];
-        bits.push(matches!(v, Value::fixnum(n) if *n != 0));
+        bits.push(v.as_fixnum().map_or(false, |n| n != 0));
     }
     bits
 }

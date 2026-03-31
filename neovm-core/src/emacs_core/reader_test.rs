@@ -97,8 +97,8 @@ fn read_from_string_integer() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, Value::fixnum(42)));
-            assert!(matches!(&pair_cdr, Value::fixnum(2)));
+            assert!(pair_car.is_fixnum());
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons, got {:?}", result),
     }
@@ -112,8 +112,8 @@ fn read_from_string_symbol() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, ValueKind::Symbol(id) if resolve_sym(*id) == "hello"));
-            assert!(matches!(&pair_cdr, Value::fixnum(5)));
+            assert!(matches!(&pair_car, ValueKind::Symbol(id) if resolve_sym(id) == "hello"));
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons, got {:?}", result),
     }
@@ -129,7 +129,7 @@ fn read_from_string_string_value() {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
             assert_eq!(pair_car.as_str(), Some("hello world"));
-            assert!(matches!(&pair_cdr, Value::fixnum(13)));
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -145,7 +145,7 @@ fn read_from_string_list() {
             let pair_cdr = result.cons_cdr();
             // car should be a list (+ 1 2)
             assert!(pair_car.is_cons());
-            assert!(matches!(&pair_cdr, Value::fixnum(7)));
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -161,8 +161,8 @@ fn read_from_string_with_start() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, Value::fixnum(42)));
-            assert!(matches!(&pair_cdr, Value::fixnum(4)));
+            assert!(pair_car.is_fixnum());
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -218,7 +218,7 @@ fn read_from_string_t() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, Value::T));
+            assert!(pair_car.is_t());
         }
         _ => panic!("Expected cons"),
     }
@@ -248,7 +248,7 @@ fn read_from_string_quoted() {
             let pair_cdr = result.cons_cdr();
             // Should be (quote foo) as a list
             assert!(pair_car.is_cons());
-            assert!(matches!(&pair_cdr, Value::fixnum(4)));
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -277,7 +277,7 @@ fn read_from_string_keyword() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, ValueKind::Keyword(id) if resolve_sym(*id) == ":test"));
+            assert!(matches!(&pair_car, ValueKind::Keyword(id) if resolve_sym(id) == ":test"));
         }
         _ => panic!("Expected cons"),
     }
@@ -325,7 +325,7 @@ fn read_from_string_multiple_forms_reads_first() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, Value::fixnum(42)));
+            assert!(pair_car.is_fixnum());
             // End position should be after "42" (position 2), not after "99"
             match pair_cdr.kind() {
                 ValueKind::Fixnum(n) => assert!(n <= 3, "end pos {} should be <= 3", n),
@@ -349,8 +349,8 @@ fn read_from_string_with_start_and_end() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, Value::fixnum(42)));
-            assert!(matches!(&pair_cdr, Value::fixnum(5)));
+            assert!(pair_car.is_fixnum());
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -2612,7 +2612,7 @@ fn read_from_string_nested_list() {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
             assert!(pair_car.is_cons());
-            assert!(matches!(&pair_cdr, Value::fixnum(13)));
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -2626,9 +2626,9 @@ fn read_from_string_with_leading_whitespace() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, Value::fixnum(42)));
+            assert!(pair_car.is_fixnum());
             // End position should be 5 (after "   42")
-            assert!(matches!(&pair_cdr, Value::fixnum(5)));
+            assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -2670,7 +2670,7 @@ fn read_from_string_hash_syntax() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, Value::fixnum(255)));
+            assert!(pair_car.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }

@@ -24,18 +24,9 @@ fn make_char_table_with_default() {
 #[test]
 fn char_table_p_predicate() {
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
-    assert!(matches!(
-        builtin_char_table_p(vec![ct]).unwrap(),
-        Value::T
-    ));
-    assert!(matches!(
-        builtin_char_table_p(vec![Value::fixnum(5)]).unwrap(),
-        Value::NIL
-    ));
-    assert!(matches!(
-        builtin_char_table_p(vec![Value::NIL]).unwrap(),
-        Value::NIL
-    ));
+    assert!(builtin_char_table_p(vec![ct]).unwrap().is_t());
+    assert!(builtin_char_table_p(vec![Value::fixnum(5)]).unwrap().is_nil());
+    assert!(builtin_char_table_p(vec![Value::NIL]).unwrap().is_nil());
 }
 
 #[test]
@@ -398,14 +389,8 @@ fn make_bool_vector_all_false() {
 #[test]
 fn bool_vector_p_predicate() {
     let bv = builtin_make_bool_vector(vec![Value::fixnum(3), Value::NIL]).unwrap();
-    assert!(matches!(
-        builtin_bool_vector_p(vec![bv]).unwrap(),
-        Value::T
-    ));
-    assert!(matches!(
-        builtin_bool_vector_p(vec![Value::fixnum(0)]).unwrap(),
-        Value::NIL
-    ));
+    assert!(builtin_bool_vector_p(vec![bv]).unwrap().is_t());
+    assert!(builtin_bool_vector_p(vec![Value::fixnum(0)]).unwrap().is_nil());
 }
 
 #[test]

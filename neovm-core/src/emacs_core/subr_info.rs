@@ -287,7 +287,7 @@ pub(crate) fn builtin_native_comp_function_p(args: Vec<Value>) -> EvalResult {
 /// `(subr-primitive-p OBJECT)` -- return t if OBJECT is a primitive subr.
 pub(crate) fn builtin_subr_primitive_p(args: Vec<Value>) -> EvalResult {
     expect_args("subr-primitive-p", &args, 1)?;
-    Ok(Value::bool_val(matches!(&args[0], Value::subr(_))))
+    Ok(Value::bool_val(args[0].as_subr_id().is_some()))
 }
 
 /// `(interpreted-function-p OBJECT)` -- return t if OBJECT is an interpreted

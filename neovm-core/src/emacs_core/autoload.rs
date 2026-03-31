@@ -516,7 +516,7 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
         None => return Ok(Value::NIL),
     };
 
-    let function_origin_requested = if args.len() == 1 || matches!(args[1], Value::NIL) {
+    let function_origin_requested = if args.len() == 1 || args[1].is_nil() {
         true
     } else {
         matches!(args[1].as_symbol_name(), Some("defun"))

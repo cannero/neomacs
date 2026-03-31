@@ -538,12 +538,12 @@ impl HelpFormatter {
 fn format_param_list(params: &super::value::LambdaParams) -> String {
     let mut parts = Vec::new();
     for p in &params.required {
-        parts.push(resolve_sym(*p).to_uppercase());
+        parts.push(resolve_sym(p).to_uppercase());
     }
     if !params.optional.is_empty() {
         parts.push("&optional".to_string());
         for p in &params.optional {
-            parts.push(resolve_sym(*p).to_uppercase());
+            parts.push(resolve_sym(p).to_uppercase());
         }
     }
     if let Some(rest) = params.rest {

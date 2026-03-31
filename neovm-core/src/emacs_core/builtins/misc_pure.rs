@@ -120,7 +120,7 @@ pub(crate) fn builtin_documentation_stringp(args: Vec<Value>) -> EvalResult {
         _ => false,
     };
     Ok(Value::bool_val(
-        matches!(args[0], ValueKind::String | Value::fixnum(_)) || is_compiled_ref,
+        (args[0].is_string() || args[0].is_fixnum()) || is_compiled_ref,
     ))
 }
 

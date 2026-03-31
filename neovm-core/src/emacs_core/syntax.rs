@@ -3083,7 +3083,7 @@ fn syntax_class_and_flags(
 fn parse_commentstop_mode(arg: Option<&Value>) -> CommentStopMode {
     match arg {
         None | Some(ValueKind::Nil) => CommentStopMode::None,
-        Some(ValueKind::Symbol(sym)) if resolve_sym(*sym) == "syntax-table" => {
+        Some(ValueKind::Symbol(sym)) if resolve_sym(sym) == "syntax-table" => {
             CommentStopMode::SyntaxTable
         }
         Some(_) => CommentStopMode::Comment,

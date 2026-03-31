@@ -296,7 +296,7 @@ pub(crate) fn builtin_proper_list_p(args: Vec<Value>) -> EvalResult {
 /// `(subrp OBJ)` -> t if OBJ is a built-in function.
 pub(crate) fn builtin_subrp(args: Vec<Value>) -> EvalResult {
     expect_args("subrp", &args, 1)?;
-    Ok(Value::bool_val(matches!(&args[0], Value::subr(_))))
+    Ok(Value::bool_val(args[0].as_subr_id().is_some()))
 }
 
 /// `(bare-symbol SYMBOL-OR-SYMBOL-WITH-POS)` -> symbol.
@@ -394,10 +394,7 @@ pub(crate) fn builtin_compiled_function_p(args: Vec<Value>) -> EvalResult {
 /// `(closurep OBJ)` -> t if closure.
 pub(crate) fn builtin_closurep(args: Vec<Value>) -> EvalResult {
     expect_args("closurep", &args, 1)?;
-    Ok(Value::bool_val(matches!(
-        &args[0],
-        Value::Lambda(_) | Value::ByteCode(_)
-    )))
+    Ok(Value::bool_val((args[0].is_lambda() || args[0].is_bytecode())))
 }
 
 /// `(natnump OBJ)` -> t if natural number (>= 0).
@@ -640,10 +637,7 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
 /// NeoVM has no bignums, so all integers are fixnums.
 pub(crate) fn builtin_fixnump(args: Vec<Value>) -> EvalResult {
     expect_args("fixnump", &args, 1)?;
-    Ok(Value::bool_val(matches!(
-        args[0],
-        Value::fixnum(_) | Value::char(_)
-    )))
+    Ok(Value::bool_val((args[0].is_fixnum() || args[0].as_char().is_some())))
 }
 
 /// `(bignump OBJ)` — return t if OBJ is a bignum.

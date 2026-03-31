@@ -603,7 +603,7 @@ impl Obarray {
     pub fn all_symbols(&self) -> Vec<&str> {
         self.global_members
             .iter()
-            .map(|id| resolve_sym(*id))
+            .map(|id| resolve_sym(id))
             .collect()
     }
 

@@ -579,7 +579,7 @@ mod tests {
         table.put_property(0, 10, "face", Value::symbol("bold"));
         let val = table.get_property(5, "face").unwrap();
         assert!(
-            matches!(val, Value::symbol(id) if crate::emacs_core::intern::resolve_sym(*id) == "bold")
+            val.as_symbol_id().map_or(false, |id| crate::emacs_core::intern::resolve_sym(id) == "bold")
         );
     }
 
@@ -624,18 +624,18 @@ mod tests {
         // [0, 5) should still have "bold"
         let val = table.get_property(3, "face").unwrap();
         assert!(
-            matches!(val, Value::symbol(id) if crate::emacs_core::intern::resolve_sym(*id) == "bold")
+            val.as_symbol_id().map_or(false, |id| crate::emacs_core::intern::resolve_sym(id) == "bold")
         );
 
         // [5, 15) should have "italic" (overwritten)
         let val = table.get_property(7, "face").unwrap();
         assert!(
-            matches!(val, Value::symbol(id) if crate::emacs_core::intern::resolve_sym(*id) == "italic")
+            val.as_symbol_id().map_or(false, |id| crate::emacs_core::intern::resolve_sym(id) == "italic")
         );
 
         let val = table.get_property(12, "face").unwrap();
         assert!(
-            matches!(val, Value::symbol(id) if crate::emacs_core::intern::resolve_sym(*id) == "italic")
+            val.as_symbol_id().map_or(false, |id| crate::emacs_core::intern::resolve_sym(id) == "italic")
         );
     }
 
@@ -657,17 +657,17 @@ mod tests {
 
         let val = table.get_property(3, "face").unwrap();
         assert!(
-            matches!(val, Value::symbol(id) if crate::emacs_core::intern::resolve_sym(*id) == "default")
+            val.as_symbol_id().map_or(false, |id| crate::emacs_core::intern::resolve_sym(id) == "default")
         );
 
         let val = table.get_property(10, "face").unwrap();
         assert!(
-            matches!(val, Value::symbol(id) if crate::emacs_core::intern::resolve_sym(*id) == "bold")
+            val.as_symbol_id().map_or(false, |id| crate::emacs_core::intern::resolve_sym(id) == "bold")
         );
 
         let val = table.get_property(17, "face").unwrap();
         assert!(
-            matches!(val, Value::symbol(id) if crate::emacs_core::intern::resolve_sym(*id) == "default")
+            val.as_symbol_id().map_or(false, |id| crate::emacs_core::intern::resolve_sym(id) == "default")
         );
     }
 
@@ -1017,7 +1017,7 @@ mod tests {
 
         let val = table.get_property(5, "face").unwrap();
         assert!(
-            matches!(val, Value::symbol(id) if crate::emacs_core::intern::resolve_sym(*id) == "italic")
+            val.as_symbol_id().map_or(false, |id| crate::emacs_core::intern::resolve_sym(id) == "italic")
         );
     }
 

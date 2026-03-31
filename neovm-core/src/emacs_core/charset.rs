@@ -1307,7 +1307,7 @@ pub(crate) fn builtin_define_charset_alias(args: Vec<Value>) -> EvalResult {
     expect_args("define-charset-alias", &args, 2)?;
     let target = require_known_charset(&args[1])?;
     if let Some(id) = &args[0].as_symbol_id() {
-        let alias = resolve_sym(*id);
+        let alias = resolve_sym(id);
         CHARSET_REGISTRY.with(|slot| slot.borrow_mut().define_alias(alias, &target));
     }
     Ok(Value::NIL)

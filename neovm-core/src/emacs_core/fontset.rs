@@ -743,10 +743,10 @@ pub(crate) fn set_fontset_font(
 ) -> Result<Value, Flow> {
     let fontset_name = resolve_fontset_name_arg(fontset)?;
     let add_mode = match add {
-        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) if resolve_sym(*id) == "append" => {
+        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) if resolve_sym(id) == "append" => {
             FontsetAddMode::Append
         }
-        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) if resolve_sym(*id) == "prepend" => {
+        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) if resolve_sym(id) == "prepend" => {
             FontsetAddMode::Prepend
         }
         _ => FontsetAddMode::Overwrite,

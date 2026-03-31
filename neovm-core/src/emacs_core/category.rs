@@ -352,7 +352,7 @@ fn category_set_contains(category_set: &Value, category: char) -> Result<bool, F
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
     let bit_idx = 2 + (category as usize);
-    Ok(matches!(vec.get(bit_idx), Some(Value::fixnum(n)) if *n != 0))
+    Ok(vec.get(bit_idx).and_then(|v| v.as_fixnum()).map_or(false, |n| n != 0))
 }
 
 fn set_category_set_member(

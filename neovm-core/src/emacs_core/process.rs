@@ -1222,10 +1222,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_sequence(value: &Value) -> Result<(), Flow> {
-    if matches!(
-        value,
-        Value::NIL | Value::Cons(_) | Value::Vector(_) | Value::Str(_)
-    ) {
+    if (value.is_nil() || value.is_cons() || value.is_vector() || value.is_string()) {
         Ok(())
     } else {
         Err(signal_wrong_type_sequence(*value))
@@ -1843,7 +1840,7 @@ fn resolve_signal_process_target_in_state(
                         None => SignalProcessTarget::MissingNamedProcess,
                     })
                 }
-                Value::fixnum(pid) if *pid >= 0 => {
+                ValueKind::Fixnum(pid) if *pid >= 0 => {
                     let id = *pid as ProcessId;
                     if processes.get(id).is_some() {
                         Ok(SignalProcessTarget::Process(id))
@@ -4701,7 +4698,7 @@ fn parse_accept_process_output_request(
 
     let just_this_one = target_id.is_some() && args.get(3).is_some_and(|value| value.is_truthy());
     let allow_timers = if target_id.is_some() {
-        !matches!(args.get(3), Some(Value::fixnum(_)))
+        !args.get(3).map_or(false, |v| v.is_fixnum())
     } else {
         true
     };

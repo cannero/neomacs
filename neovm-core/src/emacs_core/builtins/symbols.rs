@@ -230,7 +230,7 @@ pub(crate) fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol
 
     let mut items = Vec::new();
     for (key, value) in &sym.plist {
-        if is_internal_symbol_plist_property(resolve_sym(*key)) {
+        if is_internal_symbol_plist_property(resolve_sym(key)) {
             continue;
         }
         items.push(value_from_symbol_id(*key));
@@ -590,7 +590,7 @@ pub(crate) fn symbol_function_impl(obarray: &Obarray, args: Vec<Value>) -> EvalR
         // GNU Emacs exposes this symbol as autoload-shaped in startup state,
         // then subr-shaped after first invocation triggers autoload materialization.
         if name == "kmacro-name-last-macro"
-            && matches!(function, Value::subr(subr) if resolve_sym(*subr) == "kmacro-name-last-macro")
+            && function.as_subr_id().map_or(false, |subr| resolve_sym(subr) == "kmacro-name-last-macro")
             && obarray
                 .get_property_id(symbol, intern("neovm--kmacro-autoload-promoted"))
                 .is_none()
@@ -712,10 +712,7 @@ pub(crate) fn builtin_func_arity(eval: &mut super::eval::Context, args: Vec<Valu
 
 fn has_startup_subr_wrapper_in_obarray(obarray: &Obarray, name: &str) -> bool {
     let wrapper = format!("neovm--startup-subr-wrapper-{name}");
-    matches!(
-        obarray.symbol_function(&wrapper),
-        Some(Value::subr(subr_id)) if resolve_sym(*subr_id) == name
-    )
+    obarray.symbol_function(&wrapper).and_then(|v| v.as_subr_id()).map_or(false, |subr_id| resolve_sym(subr_id) == name)
 }
 
 fn dispatch_symbol_func_arity_override_in_obarray(
@@ -1592,7 +1589,7 @@ pub(crate) fn builtin_previous_frame(
 pub(crate) fn builtin_raise_frame(args: Vec<Value>) -> EvalResult {
     expect_range_args("raise-frame", &args, 0, 1)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
+        if !frame.is_nil() && !frame.is_frame() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -1667,7 +1664,7 @@ pub(crate) fn builtin_vertical_motion(
     };
     // Validate optional WINDOW arg.
     if let Some(window) = args.get(1) {
-        if !window.is_nil() && !matches!(window, Value::make_window(_)) {
+        if !window.is_nil() && !window.is_window() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("window-live-p"), *window],
@@ -1889,7 +1886,7 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_newline_cache_check(args: Vec<Value>) -> EvalResult {
     expect_range_args("newline-cache-check", &args, 0, 1)?;
     if let Some(buffer) = args.first() {
-        if !buffer.is_nil() && !matches!(buffer, Value::make_buffer(_)) {
+        if !buffer.is_nil() && !buffer.is_buffer() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("bufferp"), *buffer],
@@ -1910,7 +1907,7 @@ pub(crate) fn builtin_old_selected_frame(
 pub(crate) fn builtin_make_frame_invisible(args: Vec<Value>) -> EvalResult {
     expect_range_args("make-frame-invisible", &args, 0, 2)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
+        if !frame.is_nil() && !frame.is_frame() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -2026,7 +2023,7 @@ pub(crate) fn builtin_native_comp_unit_file(args: Vec<Value>) -> EvalResult {
             let items = args[0].as_vector_data().unwrap().clone();
             matches!(
                 items.first(),
-                Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "native-comp-unit"
+                Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "native-comp-unit"
             )
         }
         _ => false,
@@ -2047,7 +2044,7 @@ pub(crate) fn builtin_native_comp_unit_set_file(args: Vec<Value>) -> EvalResult 
             let items = args[0].as_vector_data().unwrap().clone();
             matches!(
                 items.first(),
-                Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "native-comp-unit"
+                Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "native-comp-unit"
             )
         }
         _ => false,
@@ -2113,7 +2110,7 @@ pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
             let items = args[0].as_vector_data().unwrap().clone();
             matches!(
                 items.first(),
-                Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-entity"
+                Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "font-entity"
             )
         }
         _ => false,
@@ -2137,7 +2134,7 @@ pub(crate) fn builtin_open_dribble_file(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_object_intervals(args: Vec<Value>) -> EvalResult {
     expect_args("object-intervals", &args, 1)?;
-    if !matches!(args[0], ValueKind::String | Value::make_buffer(_)) {
+    if !(args[0].is_string() || args[0].is_buffer()) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("buffer-or-string-p"), args[0]],
@@ -2266,7 +2263,7 @@ pub(crate) fn builtin_recent_auto_save_p(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_reconsider_frame_fonts(args: Vec<Value>) -> EvalResult {
     expect_args("reconsider-frame-fonts", &args, 1)?;
-    if !args[0].is_nil() && !matches!(args[0], Value::make_frame(_)) {
+    if !args[0].is_nil() && !args[0].is_frame() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), args[0]],
@@ -2288,14 +2285,14 @@ pub(crate) fn builtin_redirect_debugging_output(args: Vec<Value>) -> EvalResult 
 
 pub(crate) fn builtin_redirect_frame_focus(args: Vec<Value>) -> EvalResult {
     expect_range_args("redirect-frame-focus", &args, 1, 2)?;
-    if !args[0].is_nil() && !matches!(args[0], Value::make_frame(_)) {
+    if !args[0].is_nil() && !args[0].is_frame() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("framep"), args[0]],
         ));
     }
     if let Some(focus_frame) = args.get(1) {
-        if !focus_frame.is_nil() && !matches!(focus_frame, Value::make_frame(_)) {
+        if !focus_frame.is_nil() && !focus_frame.is_frame() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *focus_frame],
@@ -2400,7 +2397,7 @@ pub(crate) fn builtin_set_fontset_font(
 pub(crate) fn builtin_set_frame_window_state_change(args: Vec<Value>) -> EvalResult {
     expect_range_args("set-frame-window-state-change", &args, 0, 2)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
+        if !frame.is_nil() && !frame.is_frame() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -2837,7 +2834,7 @@ fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> 
         matches!(
             expr,
             super::expr::Expr::List(items)
-                if matches!(items.first(), Some(super::expr::Expr::Symbol(head_id)) if resolve_sym(*head_id) == "declare")
+                if matches!(items.first(), Some(super::expr::Expr::Symbol(head_id)) if resolve_sym(head_id) == "declare")
         )
     }
 
@@ -2856,7 +2853,7 @@ fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> 
         let super::expr::Expr::Symbol(head_id) = items.first()? else {
             continue;
         };
-        if resolve_sym(*head_id) != "interactive" {
+        if resolve_sym(head_id) != "interactive" {
             continue;
         }
         let mut interactive = vec![Value::symbol("interactive")];
@@ -2924,7 +2921,7 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if can_skip_doc && matches!(pair_car, ValueKind::String) {
+                if can_skip_doc && pair_car.is_string() {
                     can_skip_doc = false;
                     cursor = pair_cdr;
                     continue;
@@ -4056,8 +4053,8 @@ pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
     }
 
     let looks_interpreted_closure = matches!(items.len(), 3 | 5 | 6)
-        && matches!(items[0], Value::Cons(_) | Value::NIL)
-        && matches!(items[1], Value::Cons(_))
+        && (items[0].is_cons() || items[0].is_nil())
+        && items[1].is_cons()
         && (items.len() < 4 || items[3].is_nil());
     if !looks_interpreted_closure {
         return val;
@@ -4271,7 +4268,7 @@ fn parse_lambda_params_from_expr(expr: &super::super::expr::Expr) -> Result<Lamb
     use super::super::expr::Expr;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
     match expr {
-        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Ok(LambdaParams::simple(vec![])),
+        Expr::Symbol(id) if resolve_sym(id) == "nil" => Ok(LambdaParams::simple(vec![])),
         Expr::List(items) => {
             let mut required = Vec::new();
             let mut optional = Vec::new();
@@ -4282,7 +4279,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
                 let Expr::Symbol(id) = item else {
                     return Err(signal("wrong-type-argument", vec![]));
                 };
-                let name = resolve_sym(*id);
+                let name = resolve_sym(id);
                 match name {
                     "&optional" => {
                         mode = 1;

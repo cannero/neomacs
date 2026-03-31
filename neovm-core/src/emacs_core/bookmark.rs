@@ -546,7 +546,7 @@ pub(crate) fn builtin_bookmark_get_filename(
                 let pair_car = item.cons_car();
                 let pair_cdr = item.cons_cdr();
                 if let Some(id) = &pair_car.as_symbol_id() {
-                    if resolve_sym(*id) == "filename" {
+                    if resolve_sym(id) == "filename" {
                         return Ok(pair_cdr);
                     }
                 }
@@ -581,7 +581,7 @@ pub(crate) fn builtin_bookmark_get_position(
                 let pair_car = item.cons_car();
                 let pair_cdr = item.cons_cdr();
                 if let Some(id) = &pair_car.as_symbol_id() {
-                    if resolve_sym(*id) == "position" {
+                    if resolve_sym(id) == "position" {
                         return Ok(pair_cdr);
                     }
                 }
@@ -615,7 +615,7 @@ pub(crate) fn builtin_bookmark_get_annotation(
                 let pair_car = item.cons_car();
                 let pair_cdr = item.cons_cdr();
                 if let Some(id) = &pair_car.as_symbol_id() {
-                    if resolve_sym(*id) == "annotation" {
+                    if resolve_sym(id) == "annotation" {
                         return Ok(pair_cdr);
                     }
                 }

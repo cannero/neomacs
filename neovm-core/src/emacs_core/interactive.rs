@@ -426,7 +426,7 @@ fn command_modes_from_expr_body(body: &[Expr]) -> Option<Value> {
         let Some(Expr::Symbol(head_id)) = items.first() else {
             continue;
         };
-        if resolve_sym(*head_id) != "interactive" {
+        if resolve_sym(head_id) != "interactive" {
             continue;
         }
         let modes = items.iter().skip(2).map(quote_to_value).collect::<Vec<_>>();
@@ -800,7 +800,7 @@ fn builtin_command_name(name: &str) -> bool {
 fn expr_is_interactive_form(expr: &Expr) -> bool {
     match expr {
         Expr::List(items) => items.first().is_some_and(
-            |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"),
+            |head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "interactive"),
         ),
         _ => false,
     }
@@ -810,7 +810,7 @@ fn expr_is_declare_form(expr: &Expr) -> bool {
     match expr {
         Expr::List(items) => items
             .first()
-            .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "declare")),
+            .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "declare")),
         _ => false,
     }
 }
@@ -2075,7 +2075,7 @@ fn parse_interactive_spec(expr: &Expr) -> Option<ParsedInteractiveSpec> {
     };
     if !items
         .first()
-        .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"))
+        .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(id) == "interactive"))
     {
         return None;
     }
@@ -3160,7 +3160,7 @@ fn binding_matches_definition(binding: &Value, definition: &Value) -> bool {
     // Check if binding is a symbol matching a Subr definition name
     if let Some(bname) = binding.as_symbol_name() {
         if let Some(id) = definition.as_subr_id() {
-            return bname == resolve_sym(*id);
+            return bname == resolve_sym(id);
         }
     }
     binding == definition

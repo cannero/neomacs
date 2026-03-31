@@ -1,7 +1,7 @@
 use super::eval::Context;
 use super::intern::intern;
 use super::parser::parse_forms;
-use super::value::{LambdaData, LambdaParams, Value};
+use super::value::{LambdaData, LambdaParams, Value, ValueKind, VecLikeType};
 
 struct BootstrapMacroSpec {
     name: &'static str,

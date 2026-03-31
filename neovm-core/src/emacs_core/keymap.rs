@@ -2070,7 +2070,7 @@ pub(crate) fn command_remapping_command_name(command: &Value) -> Option<String> 
     Some(match command {
         Value::NIL => "nil".to_string(),
         Value::T => "t".to_string(),
-        Value::symbol(id) => resolve_sym(*id).to_owned(),
+        Value::symbol(id) => resolve_sym(id).to_owned(),
         _ => return None,
     })
 }

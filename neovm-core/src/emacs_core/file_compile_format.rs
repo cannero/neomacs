@@ -87,7 +87,7 @@ impl ExprEncoder {
             Expr::Int(n) => CachedExpr::Int(*n),
             Expr::Float(f) => CachedExpr::Float(*f),
             Expr::Symbol(id) => {
-                let name = resolve_sym(*id).to_owned();
+                let name = resolve_sym(id).to_owned();
                 if is_canonical_symbol_id(*id) {
                     CachedExpr::Symbol(name)
                 } else {
@@ -100,7 +100,7 @@ impl ExprEncoder {
                 }
             }
             Expr::ReaderLoadFileName => CachedExpr::ReaderLoadFileName,
-            Expr::Keyword(id) => CachedExpr::Keyword(resolve_sym(*id).to_owned()),
+            Expr::Keyword(id) => CachedExpr::Keyword(resolve_sym(id).to_owned()),
             Expr::Str(s) => CachedExpr::Str(s.clone()),
             Expr::Char(c) => CachedExpr::Char(*c),
             Expr::List(items) => CachedExpr::List(

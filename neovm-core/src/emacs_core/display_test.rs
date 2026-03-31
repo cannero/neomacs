@@ -193,35 +193,35 @@ fn terminal_parameters_lists_mutated_symbol_entries() {
     assert!(
         entries
             .iter()
-            .any(|entry| matches!(entry, Value::Cons(cell) if {
+            .any(|entry| entry.is_cons() && { /* TODO(tagged): migrate Cons guard */ {
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 pair.car == Value::symbol("normal-erase-is-backspace") && pair.cdr == Value::fixnum(0)
-            }))
+            } })
     );
     assert!(
         entries
             .iter()
-            .any(|entry| matches!(entry, Value::Cons(cell) if {
+            .any(|entry| entry.is_cons() && { /* TODO(tagged): migrate Cons guard */ {
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 pair.car == Value::symbol("keyboard-coding-saved-meta-mode")
                     && pair.cdr == Value::list(vec![Value::T])
-            }))
+            } })
     );
     assert!(
         entries
             .iter()
-            .any(|entry| matches!(entry, Value::Cons(cell) if {
+            .any(|entry| entry.is_cons() && { /* TODO(tagged): migrate Cons guard */ {
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 pair.car == Value::symbol("k1") && pair.cdr == Value::fixnum(1)
-            }))
+            } })
     );
     assert!(
         entries
             .iter()
-            .any(|entry| matches!(entry, Value::Cons(cell) if {
+            .any(|entry| entry.is_cons() && { /* TODO(tagged): migrate Cons guard */ {
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 pair.car == Value::symbol("k2") && pair.cdr == Value::fixnum(2)
-            }))
+            } })
     );
 
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
@@ -495,7 +495,7 @@ fn eval_internal_show_cursor_p_accepts_live_window_designator() {
     let window =
         crate::emacs_core::window_cmds::builtin_selected_window(&mut eval, vec![]).unwrap();
     let result = builtin_internal_show_cursor_p(&mut eval, vec![window]).unwrap();
-    assert!(matches!(result, Value::T | Value::NIL));
+    assert!((result.is_t() || result.is_nil()));
 }
 
 #[test]
@@ -2532,7 +2532,7 @@ fn eval_monitor_attributes_include_bootstrapped_frame() {
 
     let frames = list_to_vec(&frames_value).expect("frames list");
     assert_eq!(frames.len(), 1);
-    assert!(matches!(frames.first(), Some(Value::make_frame(_))));
+    assert!(frames.first().map_or(false, |v| v.is_frame()));
     assert!(!frames[0].is_integer());
     assert_eq!(
         crate::emacs_core::window_cmds::builtin_framep(&mut eval, vec![frames[0]]).unwrap(),
@@ -2578,7 +2578,7 @@ fn eval_monitor_queries_accept_frame_handle_designator() {
             }
         }
     }
-    assert!(matches!(frame, Value::make_frame(_)));
+    assert!(frame.is_frame());
 
     let by_display = builtin_display_monitor_attributes_list(&mut eval, vec![frame]).unwrap();
     let display_list = list_to_vec(&by_display).expect("monitor list");

@@ -34,7 +34,7 @@ fn add_and_notify_watcher() {
     // arg 2: operation
     assert!(args[2].is_symbol_named("set"));
     // arg 3: where (nil)
-    assert!(matches!(&args[3], Value::NIL));
+    assert!(args[3].is_nil());
 }
 
 #[test]

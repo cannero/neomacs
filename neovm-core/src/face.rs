@@ -825,7 +825,7 @@ impl FaceRemapping {
                 }
 
                 // Check if it's a plist (starts with keyword)
-                if matches!(items[0], ValueKind::Keyword(_)) {
+                if items[0].as_keyword_id().is_some() {
                     let face = Face::from_plist("--remap--", &items);
                     return vec![FaceRemapEntry::RemapAttrs(face)];
                 }

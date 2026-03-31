@@ -249,15 +249,9 @@ fn assoc_string_and_car_less_than_car_semantics() {
 
 #[test]
 fn number_predicates() {
-    assert!(matches!(
-        builtin_zerop(vec![Value::fixnum(0)]).unwrap(),
-        Value::T
-    ));
+    assert!(builtin_zerop(vec![Value::fixnum(0)]).unwrap().is_t());
     assert!(builtin_zerop(vec![Value::fixnum(1)]).unwrap().is_nil());
-    assert!(matches!(
-        builtin_natnump(vec![Value::fixnum(5)]).unwrap(),
-        Value::T
-    ));
+    assert!(builtin_natnump(vec![Value::fixnum(5)]).unwrap().is_t());
     assert!(builtin_natnump(vec![Value::fixnum(-1)]).unwrap().is_nil());
 }
 
@@ -407,7 +401,7 @@ fn user_identity_type_contracts() {
 #[test]
 fn emacs_pid() {
     let pid = builtin_emacs_pid(vec![]).unwrap();
-    assert!(matches!(pid, Value::fixnum(n) if n > 0));
+    assert!(pid.as_fixnum().map_or(false, |n| n > 0));
 }
 
 #[test]
@@ -447,7 +441,7 @@ fn garbage_collect_shape_and_arity() {
         .map(|bucket| {
             let bucket_items = super::super::value::list_to_vec(bucket).expect("bucket list");
             match bucket_items.first() {
-                Some(ValueKind::Symbol(id)) => resolve_sym(*id).to_owned(),
+                Some(ValueKind::Symbol(id)) => resolve_sym(id).to_owned(),
                 other => panic!("expected bucket symbol, got {other:?}"),
             }
         })

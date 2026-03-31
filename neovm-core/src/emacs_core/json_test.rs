@@ -213,7 +213,7 @@ fn parse_null() {
 #[test]
 fn parse_true() {
     let result = builtin_json_parse_string(vec![Value::string("true")]);
-    assert!(matches!(result.unwrap(), Value::T));
+    assert!(result.unwrap().is_t());
 }
 
 #[test]
@@ -304,9 +304,9 @@ fn parse_array() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = result.unwrap().as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 3);
-            assert!(matches!(items[0], Value::fixnum(1)));
-            assert!(matches!(items[1], Value::fixnum(2)));
-            assert!(matches!(items[2], Value::fixnum(3)));
+            assert!(items[0].is_fixnum());
+            assert!(items[1].is_fixnum());
+            assert!(items[2].is_fixnum());
         }
         other => panic!("expected vector, got {:?}", result.unwrap()),
     }
@@ -383,7 +383,7 @@ fn parse_object_as_alist() {
             let pair_car = items[0].cons_car();
             let pair_cdr = items[0].cons_cdr();
             assert_eq!(pair_car, Value::symbol("x"));
-            assert!(matches!(pair_cdr, Value::fixnum(10)));
+            assert!(pair_cdr.is_fixnum());
         }
         other => panic!("expected cons, got {:?}", items[0]),
     }
@@ -417,7 +417,7 @@ fn parse_custom_null_object() {
         Value::keyword(intern(":null-object")),
         Value::NIL,
     ]);
-    assert!(matches!(result.unwrap(), Value::NIL));
+    assert!(result.unwrap().is_nil());
 }
 
 #[test]
@@ -493,9 +493,9 @@ fn round_trip_array() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = parsed.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 3);
-            assert!(matches!(items[0], Value::fixnum(1)));
+            assert!(items[0].is_fixnum());
             assert_eq!(items[1].as_str(), Some("two"));
-            assert!(matches!(items[2], Value::T));
+            assert!(items[2].is_t());
         }
         _ => panic!("expected vector"),
     }

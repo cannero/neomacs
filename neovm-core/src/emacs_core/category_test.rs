@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 fn fresh_eval() -> super::super::eval::Context {
     reset_category_thread_locals();

@@ -460,7 +460,7 @@ fn resolve_window_id_or_error_in_state(
 
 fn format_window_designator_for_error(eval: &super::eval::Context, value: &Value) -> String {
     if let Some(wid) = window_id_from_designator(value) {
-        if eval.frames.is_window_object_id(wid) || matches!(value, Value::make_window(_)) {
+        if eval.frames.is_window_object_id(wid) || value.is_window() {
             return format!("#<window {}>", wid.0);
         }
     }
@@ -477,7 +477,7 @@ fn resolve_window_id_or_window_error(
 
 fn format_window_designator_for_error_in_state(frames: &FrameManager, value: &Value) -> String {
     if let Some(wid) = window_id_from_designator(value) {
-        if frames.is_window_object_id(wid) || matches!(value, Value::make_window(_)) {
+        if frames.is_window_object_id(wid) || value.is_window() {
             return format!("#<window {}>", wid.0);
         }
     }
@@ -3016,7 +3016,7 @@ pub(crate) fn builtin_window_list_1(
             ids.sort_by_key(|f| f.0);
             ids
         }
-        Some(Value::symbol(sym)) if resolve_sym(*sym) == "visible" => {
+        Some(Value::symbol(sym)) if resolve_sym(sym) == "visible" => {
             let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids.into_iter()
@@ -3546,7 +3546,7 @@ pub(crate) fn builtin_select_window(
     let (record_selection, run_buffer_list_hook) = {
         let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
         let fid = ensure_selected_frame_id_in_state(frames, buffers);
-        let record_selection = args.get(1).is_none_or(Value::is_nil);
+        let record_selection = args.get(1).is_none_or(|v| v.is_nil());
         remember_selected_window_point_in_state(frames, buffers, fid);
         {
             let frame = frames
@@ -3906,7 +3906,7 @@ pub(crate) fn builtin_switch_to_buffer(
 ) -> EvalResult {
     expect_min_args("switch-to-buffer", &args, 1)?;
     expect_max_args("switch-to-buffer", &args, 3)?;
-    let record_selection = args.get(1).is_none_or(Value::is_nil);
+    let record_selection = args.get(1).is_none_or(|v| v.is_nil());
     let (buf_id, run_buffer_list_hook) = {
         let buf_id = match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Buffer) => {
@@ -4735,7 +4735,7 @@ pub(crate) fn builtin_select_frame(
             vec![Value::symbol("frame-live-p"), args[0]],
         ));
     }
-    if args.get(1).is_none_or(Value::is_nil) {
+    if args.get(1).is_none_or(|v| v.is_nil()) {
         if let Some(selected_wid) = frames.get(fid).map(|f| f.selected_window) {
             let _ = frames.note_window_selected(selected_wid);
         }
@@ -4789,7 +4789,7 @@ pub(crate) fn builtin_select_frame_set_input_focus(
             vec![Value::symbol("frame-live-p"), args[0]],
         ));
     }
-    if args.get(1).is_none_or(Value::is_nil) {
+    if args.get(1).is_none_or(|v| v.is_nil()) {
         if let Some(selected_wid) = frames.get(fid).map(|f| f.selected_window) {
             let _ = frames.note_window_selected(selected_wid);
         }
@@ -5333,7 +5333,7 @@ fn make_frame_plain(
                     let pair_car = item.cons_car();
                     let pair_cdr = item.cons_cdr();
                     if let Some(key) = &pair_car.as_symbol_id() {
-                        match resolve_sym(*key) {
+                        match resolve_sym(key) {
                             "width" => {
                                 if let Some(n) = pair_cdr.as_int() {
                                     width = n as u32;
@@ -5918,7 +5918,7 @@ pub(crate) fn builtin_modify_frame_parameters(
             let pair_car = item.cons_car();
             let pair_cdr = item.cons_cdr();
             if let Some(key) = &pair_car.as_symbol_id() {
-                let key_name = resolve_sym(*key).to_owned();
+                let key_name = resolve_sym(key).to_owned();
                 match key_name.as_str() {
                     "name" => {
                         if let Some(s) = pair_cdr.as_str() {

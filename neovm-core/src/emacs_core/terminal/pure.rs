@@ -1187,7 +1187,7 @@ pub(crate) fn builtin_delete_terminal(
 /// (make-terminal-frame PARMS) -> error (no TTY support)
 pub(crate) fn builtin_make_terminal_frame(args: Vec<Value>) -> EvalResult {
     expect_args("make-terminal-frame", &args, 1)?;
-    if !args[0].is_nil() && !matches!(args[0], Value::Cons(_)) {
+    if !args[0].is_nil() && !args[0].is_cons() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), args[0]],

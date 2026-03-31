@@ -454,10 +454,7 @@ pub(crate) fn builtin_last_kbd_macro(
 /// Compatibility subset: accepts vector and string macro encodings.
 pub(crate) fn builtin_kmacro_p(args: Vec<Value>) -> EvalResult {
     expect_args("kmacro-p", &args, 1)?;
-    Ok(Value::bool_val(matches!(
-        args[0],
-        Value::Vector(_) | Value::Str(_)
-    )))
+    Ok(Value::bool_val((args[0].is_vector() || args[0].is_string())))
 }
 
 /// (kmacro-set-counter COUNTER &optional FORMAT-START) -> nil

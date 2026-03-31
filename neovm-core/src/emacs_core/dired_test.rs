@@ -518,7 +518,7 @@ fn test_file_attributes_directory() {
     let items = list_to_vec(&result).unwrap();
 
     // TYPE should be t for directory.
-    assert!(matches!(items[0], Value::T));
+    assert!(items[0].is_t());
 
     let _ = fs::remove_dir_all(&dir);
 }

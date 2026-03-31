@@ -496,7 +496,7 @@ fn syntax_entry_to_value_simple() {
         let cell_car = val.cons_car();
         let cell_cdr = val.cons_cdr();
         assert!(cell_car.is_fixnum());
-        assert!(matches!(cell_cdr, Value::NIL));
+        assert!(cell_cdr.is_nil());
     } else {
         panic!("Expected cons cell");
     }

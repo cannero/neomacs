@@ -1810,7 +1810,7 @@ impl<'a> Vm<'a> {
 
     fn named_builtin_fast_path_allowed(&self, name: &str) -> bool {
         match self.ctx.obarray.symbol_function(name) {
-            Some(ValueKind::Subr(id)) => resolve_sym(*id) == name,
+            Some(ValueKind::Subr(id)) => resolve_sym(id) == name,
             Some(ValueKind::Nil) | None => true,
             _ => false,
         }
@@ -3896,7 +3896,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
             args.get(2),
             Some(predicate)
                 if !predicate.is_nil()
-                    && !matches!(predicate, Value::symbol(_) | Value::subr(_))
+                    && !(predicate.is_symbol() || predicate.as_subr_id().is_some())
         );
         if needs_eval_predicate {
             let plan = crate::emacs_core::dired::prepare_file_name_completion_in_state(
@@ -4412,7 +4412,7 @@ fn normalize_vm_builtin_error(name: &str, flow: Flow) -> Flow {
     match flow {
         Flow::Signal(mut sig) if sig.symbol_name() == "wrong-number-of-arguments" => {
             if let Some(first) = sig.data.first_mut() {
-                if matches!(first, ValueKind::Symbol(id) if resolve_sym(*id) == name) {
+                if matches!(first, ValueKind::Symbol(id) if resolve_sym(id) == name) {
                     *first = Value::Subr(intern(name));
                 }
             }

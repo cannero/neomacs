@@ -95,7 +95,7 @@ fn expect_initial_input_stringish(value: &Value) -> Result<(), Flow> {
         ValueKind::Cons => {
             let pair_car = value.cons_car();
             let pair_cdr = value.cons_cdr();
-            if !matches!(pair_car, ValueKind::String) {
+            if !pair_car.is_string() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), pair_car],
@@ -116,13 +116,13 @@ fn expect_completing_read_initial_input(value: &Value) -> Result<(), Flow> {
         ValueKind::Cons => {
             let pair_car = value.cons_car();
             let pair_cdr = value.cons_cdr();
-            if !matches!(pair_car, ValueKind::String) {
+            if !pair_car.is_string() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), pair_car],
                 ));
             }
-            if !matches!(pair_cdr, Value::fixnum(_) | ValueKind::Char(_)) {
+            if !(pair_cdr.is_fixnum() || pair_cdr.as_char().is_some()) {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("number-or-marker-p"), pair_cdr],
@@ -398,7 +398,7 @@ fn first_form_byte_code_literal_value(
     let Expr::Symbol(id) = &items[0] else {
         return None;
     };
-    if resolve_sym(*id) != "byte-code-literal" {
+    if resolve_sym(id) != "byte-code-literal" {
         return None;
     }
     let Expr::Vector(values) = &items[1] else {
@@ -424,7 +424,7 @@ fn first_form_hash_table_literal_value(
     let Expr::Symbol(id) = &items[0] else {
         return None;
     };
-    if resolve_sym(*id) != "make-hash-table-from-literal" {
+    if resolve_sym(id) != "make-hash-table-from-literal" {
         return None;
     }
     let Expr::List(quoted) = &items[1] else {
@@ -433,13 +433,13 @@ fn first_form_hash_table_literal_value(
     if quoted.len() != 2 {
         return None;
     }
-    if !matches!(&quoted[0], Expr::Symbol(id) if resolve_sym(*id) == "quote") {
+    if !matches!(&quoted[0], Expr::Symbol(id) if resolve_sym(id) == "quote") {
         return None;
     }
     let Expr::List(spec) = &quoted[1] else {
         return None;
     };
-    if !matches!(spec.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "hash-table") {
+    if !matches!(spec.first(), Some(Expr::Symbol(id)) if resolve_sym(id) == "hash-table") {
         return None;
     }
 
@@ -458,7 +458,7 @@ fn first_form_hash_table_literal_value(
             continue;
         };
         let value = super::eval::Context::quote_to_runtime_value_in_state(obarray, &spec[i + 1]);
-        match resolve_sym(*key_id) {
+        match resolve_sym(key_id) {
             "size" => {
                 size = value.as_int()?;
             }
@@ -664,7 +664,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
         }
         ValueKind::Symbol(id) => Err(signal(
             "void-function",
-            vec![Value::symbol(resolve_sym(*id))],
+            vec![Value::symbol(resolve_sym(id))],
         )),
         ValueKind::T => Err(signal(
             "end-of-file",
@@ -672,7 +672,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
         )),
         ValueKind::Keyword(id) => Err(signal(
             "void-function",
-            vec![Value::symbol(resolve_sym(*id))],
+            vec![Value::symbol(resolve_sym(id))],
         )),
         _ => {
             // Unsupported stream source type for read-char function protocol.
@@ -1851,7 +1851,7 @@ pub(crate) fn builtin_read_char_in_runtime(
         ));
     }
     expect_optional_prompt_string(args)?;
-    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+    let seconds_is_nil_or_omitted = args.get(2).is_none_or(|v| v.is_nil());
 
     if let Some(event) = runtime.peek_unread_command_event() {
         if let Some(n) = event_to_int(&event) {
@@ -2146,7 +2146,7 @@ pub(crate) fn finish_read_char_interactive_in_runtime(
         let Some(event) = runtime.read_char_with_timeout(timeout)? else {
             return Ok(Value::NIL);
         };
-        let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+        let seconds_is_nil_or_omitted = args.get(2).is_none_or(|v| v.is_nil());
         if let Some(n) = event_to_int(&event) {
             if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
                 runtime.set_read_command_keys(vec![event]);

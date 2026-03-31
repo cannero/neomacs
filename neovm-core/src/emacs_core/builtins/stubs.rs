@@ -576,7 +576,7 @@ fn sqlite_handle_id(value: &Value) -> Option<i64> {
         return None;
     }
     match (items[0].kind(), items[1].kind()) {
-        (ValueKind::Keyword(tag), ValueKind::Fixnum(id)) if resolve_sym(*tag) == "sqlite-handle" => Some(id),
+        (ValueKind::Keyword(tag), ValueKind::Fixnum(id)) if resolve_sym(tag) == "sqlite-handle" => Some(id),
         _ => None,
     }
 }
@@ -1056,7 +1056,7 @@ pub(crate) fn builtin_handle_switch_frame(args: Vec<Value>) -> EvalResult {
             ));
         }
     };
-    if !matches!(frame, Value::make_frame(_)) {
+    if !frame.is_frame() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("framep"), frame],
@@ -1092,7 +1092,7 @@ pub(crate) fn builtin_init_image_library(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
     expect_range_args("describe-buffer-bindings", &args, 1, 3)?;
-    if !matches!(args[0], Value::make_buffer(_)) {
+    if !args[0].is_buffer() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("bufferp"), args[0]],
@@ -1100,10 +1100,7 @@ pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
     }
     if let Some(prefixes) = args.get(1) {
         if !prefixes.is_nil()
-            && !matches!(
-                prefixes,
-                Value::Cons(_) | Value::Vector(_) | ValueKind::String | Value::NIL
-            )
+            && !(prefixes.is_cons() || prefixes.is_vector() || prefixes.is_string() || prefixes.is_nil())
         {
             return Err(signal(
                 "wrong-type-argument",
@@ -1328,7 +1325,7 @@ pub(crate) fn builtin_fringe_bitmaps_at_pos(args: Vec<Value>) -> EvalResult {
         }
     }
     if let Some(window) = args.get(1) {
-        if !window.is_nil() && !matches!(window, Value::make_window(_)) {
+        if !window.is_nil() && !window.is_window() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("window-live-p"), *window],
@@ -1571,7 +1568,7 @@ fn is_font_object(value: &Value) -> bool {
             let items = value.as_vector_data().unwrap().clone();
             matches!(
                 items.first(),
-                Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-object"
+                Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "font-object"
             )
         }
         _ => false,
@@ -1582,7 +1579,7 @@ fn is_font_spec(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = value.as_vector_data().unwrap().clone();
-            matches!(items.first(), Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-spec")
+            matches!(items.first(), Some(ValueKind::Keyword(tag)) if resolve_sym(tag) == "font-spec")
         }
         _ => false,
     }
@@ -1719,7 +1716,7 @@ pub(crate) fn builtin_fontset_list(args: Vec<Value>) -> EvalResult {
 }
 
 fn expect_window_live_or_nil(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() || matches!(value, Value::make_window(_)) {
+    if value.is_nil() || value.is_window() {
         Ok(())
     } else {
         Err(signal(
@@ -1730,7 +1727,7 @@ fn expect_window_live_or_nil(value: &Value) -> Result<(), Flow> {
 }
 
 pub(super) fn expect_window_valid_or_nil(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() || matches!(value, Value::make_window(_)) {
+    if value.is_nil() || value.is_window() {
         Ok(())
     } else {
         Err(signal(
@@ -1741,7 +1738,7 @@ pub(super) fn expect_window_valid_or_nil(value: &Value) -> Result<(), Flow> {
 }
 
 fn expect_frame_live_or_nil(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() || matches!(value, Value::make_frame(_)) {
+    if value.is_nil() || value.is_frame() {
         Ok(())
     } else {
         Err(signal(

@@ -803,7 +803,7 @@ fn assq_cdr(list: &Value, prop: &str) -> Option<Value> {
     let mut cursor = *list;
     while cursor.is_cons() {
         let entry = cursor.cons_car();
-        if let Value::Cons(_) = entry
+        if entry.is_cons()
             && entry.cons_car().as_symbol_name() == Some(prop)
         {
             return Some(entry.cons_cdr());
@@ -1050,10 +1050,7 @@ fn write_print_output_to_target(
 }
 
 pub(crate) fn print_target_is_direct(target: Value) -> bool {
-    matches!(
-        target,
-        Value::T | Value::NIL | Value::make_buffer(_) | Value::Str(_)
-    ) || super::marker::is_marker(&target)
+    (target.is_t() || target.is_nil() || target.is_buffer() || target.is_string()) || super::marker::is_marker(&target)
 }
 
 pub(crate) fn dispatch_print_callback_chars(
@@ -1595,7 +1592,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
                 if let Some(name) = chunk[0].as_symbol_name() {
                     table.put_property(0, byte_len, name, chunk[1]);
                 } else if let Some(name) = match &chunk[0] {
-                    Value::keyword(id) => Some(resolve_sym(*id).to_owned()),
+                    Value::keyword(id) => Some(resolve_sym(id).to_owned()),
                     _ => None,
                 } {
                     table.put_property(0, byte_len, &name, chunk[1]);
