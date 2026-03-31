@@ -27,6 +27,10 @@ use std::cell::Cell;
 
 thread_local! {
     static TAGGED_HEAP: Cell<*mut TaggedHeap> = const { Cell::new(std::ptr::null_mut()) };
+    /// Auto-allocated heap for tests that construct Values without a Context.
+    #[cfg(test)]
+    static TEST_FALLBACK_TAGGED_HEAP: std::cell::RefCell<Option<Box<TaggedHeap>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Set the thread-local tagged heap pointer.
@@ -36,14 +40,32 @@ pub fn set_tagged_heap(heap: &mut TaggedHeap) {
 
 /// Access the thread-local tagged heap.
 ///
-/// # Panics
-/// Panics if no heap is set for this thread.
+/// In test mode, auto-creates a fallback heap if none is set.
+/// In production, panics if no heap is set.
 #[inline]
 pub fn with_tagged_heap<R>(f: impl FnOnce(&mut TaggedHeap) -> R) -> R {
     TAGGED_HEAP.with(|h| {
         let ptr = h.get();
-        assert!(!ptr.is_null(), "no TaggedHeap set for this thread");
-        f(unsafe { &mut *ptr })
+        if !ptr.is_null() {
+            return f(unsafe { &mut *ptr });
+        }
+        #[cfg(test)]
+        {
+            TEST_FALLBACK_TAGGED_HEAP.with(|fb| {
+                let mut borrow = fb.borrow_mut();
+                if borrow.is_none() {
+                    *borrow = Some(Box::new(TaggedHeap::new()));
+                }
+                let heap_ref: &mut TaggedHeap = borrow.as_mut().unwrap();
+                let ptr = heap_ref as *mut TaggedHeap;
+                h.set(ptr);
+                f(unsafe { &mut *ptr })
+            })
+        }
+        #[cfg(not(test))]
+        {
+            panic!("no TaggedHeap set for this thread");
+        }
     })
 }
 
