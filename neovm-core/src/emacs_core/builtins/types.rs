@@ -33,7 +33,7 @@ pub(crate) fn builtin_list_of_strings_p(args: Vec<Value>) -> EvalResult {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::T),
             ValueKind::Cons => {
-                let ptr = cell.index as usize;
+                let ptr = cursor.bits();
                 if !seen.insert(ptr) {
                     return Ok(Value::NIL);
                 }
@@ -61,7 +61,7 @@ pub(crate) fn builtin_symbolp(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_booleanp(args: Vec<Value>) -> EvalResult {
     expect_args("booleanp", &args, 1)?;
-    Ok(Value::bool_val((args[0].is_nil() || args[0].is_t())))
+    Ok(Value::bool_val(args[0].is_nil() || args[0].is_t()))
 }
 
 pub(crate) fn builtin_numberp(args: Vec<Value>) -> EvalResult {
@@ -185,10 +185,10 @@ fn autoload_type_of(value: &Value) -> Option<super::autoload::AutoloadType> {
 
 pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("functionp", &args, 1)?;
-    let is_function = if let Some(symbol) = match &args[0] {
-        Value::NIL => Some(intern("nil")),
-        Value::T => Some(intern("t")),
-        Value::symbol(id) | Value::keyword(id) => Some(*id),
+    let is_function = if let Some(symbol) = match args[0].kind() {
+        ValueKind::Nil => Some(intern("nil")),
+        ValueKind::T => Some(intern("t")),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(id),
         _ => None,
     } {
         if let Some(function) =
@@ -243,90 +243,31 @@ pub(crate) fn builtin_type_of_with_ctx(
     ctx: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    // Check for stale BEFORE dispatching
-    let stale_id = match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Vector)
-        | ValueKind::Veclike(VecLikeType::Record)
-        | ValueKind::Cons
-        | ValueKind::Veclike(VecLikeType::HashTable)
-        | ValueKind::String
-        | ValueKind::Veclike(VecLikeType::Lambda)
-        | ValueKind::Veclike(VecLikeType::Macro)
-        | ValueKind::Veclike(VecLikeType::ByteCode)
-        | ValueKind::Veclike(VecLikeType::Overlay)
-        | ValueKind::Veclike(VecLikeType::Marker) => {
-            let is_stale = crate::emacs_core::value::with_heap(|h| {
-                let i = id.index as usize;
-                i < h.generations().len() && h.generations()[i] != id.generation
-            });
-            if is_stale { Some(*id) } else { None }
-        }
-        _ => None,
-    };
-    if let Some(id) = stale_id {
-        let variant = match args[0].kind() {
-            ValueKind::Veclike(VecLikeType::Record) => "record",
-            ValueKind::Veclike(VecLikeType::Vector) => "vector",
-            ValueKind::Cons => "cons",
-            _ => "heap-obj",
-        };
-        eprintln!("STALE-DETECT type-of: {} {:?}", variant, id);
-        eprintln!("  Lisp backtrace ({} frames):", ctx.runtime_backtrace.len());
-        for (i, frame) in ctx.runtime_backtrace.iter().rev().take(10).enumerate() {
-            eprintln!("    #{}: {}", i, frame.function);
-        }
-    }
+    // Stale ObjId detection is not applicable with tagged pointers —
+    // the old generation-based check relied on ObjId indirection which
+    // no longer exists.  Just delegate directly.
+    let _ = ctx; // suppress unused warning
     builtin_type_of(args)
 }
 
 pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     expect_args("cl-type-of", &args, 1)?;
-    // Debug: detect stale ObjId BEFORE accessing heap — return safe value
-    let stale = match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Vector)
-        | ValueKind::Veclike(VecLikeType::Record)
-        | ValueKind::Cons
-        | ValueKind::Veclike(VecLikeType::HashTable)
-        | ValueKind::String
-        | ValueKind::Veclike(VecLikeType::Lambda)
-        | ValueKind::Veclike(VecLikeType::Macro)
-        | ValueKind::Veclike(VecLikeType::ByteCode)
-        | ValueKind::Veclike(VecLikeType::Overlay)
-        | ValueKind::Veclike(VecLikeType::Marker) => crate::emacs_core::value::with_heap(|h| {
-            let i = id.index as usize;
-            i < h.generations().len() && h.generations()[i] != id.generation
-        }),
-        _ => false,
-    };
-    if stale {
-        let variant = match args[0].kind() {
-            ValueKind::Veclike(VecLikeType::Vector) => "vector",
-            ValueKind::Veclike(VecLikeType::Record) => "record",
-            ValueKind::Cons => "cons",
-            ValueKind::Veclike(VecLikeType::HashTable) => "hash-table",
-            ValueKind::String => "string",
-            ValueKind::Veclike(VecLikeType::Lambda) => "interpreted-function",
-            ValueKind::Veclike(VecLikeType::Macro) => "macro",
-            ValueKind::Veclike(VecLikeType::ByteCode) => "byte-code-function",
-            _ => "unknown",
-        };
-        eprintln!(
-            "STALE-DETECT: cl-type-of got stale {} — returning symbol instead of crashing",
-            variant
-        );
-        return Ok(Value::symbol(variant));
-    }
+    // Stale ObjId detection is not applicable with tagged pointers.
     // Records: return the type tag (slot 0).
     // GNU data.c:269-277: if slot 0 is itself a record with len > 1,
     // return slot 1 of that inner record (the class name symbol).
     // This is how EIEIO objects work: slot 0 is the eieio--class
     // record, and slot 1 of that record is the class name.
     if args[0].is_record() {
-        let tag = with_heap(|h| h.get_vector(*id).first().copied());
-        if let Some(ValueKind::Veclike(VecLikeType::Record)) = tag {
-            let tag_vec = with_heap(|h| h.get_vector(tag_id).clone());
-            if tag_vec.len() > 1 {
-                return Ok(tag_vec[1]);
+        let tag = args[0].as_record_data().and_then(|v| v.first().copied());
+        if let Some(tag_val) = tag {
+            if tag_val.is_record() {
+                let tag_vec = tag_val.as_record_data();
+                if let Some(tv) = tag_vec {
+                    if tv.len() > 1 {
+                        return Ok(tv[1]);
+                    }
+                }
             }
         }
         return Ok(tag.unwrap_or_else(|| Value::symbol("record")));
@@ -358,6 +299,7 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Window) => "window",
         ValueKind::Veclike(VecLikeType::Frame) => "frame",
         ValueKind::Veclike(VecLikeType::Timer) => "timer",
+        ValueKind::Unknown => "unknown",
     };
     Ok(Value::symbol(name))
 }

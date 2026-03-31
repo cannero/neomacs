@@ -182,8 +182,8 @@ pub(super) fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        other if super::marker::is_marker(other) => super::marker::marker_position_as_int(other),
-        other => Err(signal(
+        _ if super::marker::is_marker(value) => super::marker::marker_position_as_int(value),
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -197,10 +197,10 @@ pub(super) fn expect_integer_or_marker_eval(
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        other if super::marker::is_marker(other) => {
-            super::marker::marker_position_as_int_eval(eval, other)
+        _ if super::marker::is_marker(value) => {
+            super::marker::marker_position_as_int_eval(eval, value)
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -237,11 +237,11 @@ pub(super) fn expect_number_or_marker(value: &Value) -> Result<NumberOrMarker, F
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
         ValueKind::Char(c) => Ok(NumberOrMarker::Int(c as i64)),
-        ValueKind::Float => Ok(NumberOrMarker::Float(*f)),
-        other if super::marker::is_marker(other) => Ok(NumberOrMarker::Int(
-            super::marker::marker_position_as_int(other)?,
+        ValueKind::Float => Ok(NumberOrMarker::Float(value.xfloat())),
+        _ if super::marker::is_marker(value) => Ok(NumberOrMarker::Int(
+            super::marker::marker_position_as_int(value)?,
         )),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *value],
         )),
@@ -255,11 +255,11 @@ pub(super) fn expect_number_or_marker_eval(
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
         ValueKind::Char(c) => Ok(NumberOrMarker::Int(c as i64)),
-        ValueKind::Float => Ok(NumberOrMarker::Float(*f)),
-        other if super::marker::is_marker(other) => Ok(NumberOrMarker::Int(
-            super::marker::marker_position_as_int_eval(eval, other)?,
+        ValueKind::Float => Ok(NumberOrMarker::Float(value.xfloat())),
+        _ if super::marker::is_marker(value) => Ok(NumberOrMarker::Int(
+            super::marker::marker_position_as_int_eval(eval, value)?,
         )),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *value],
         )),
@@ -270,9 +270,9 @@ pub(super) fn expect_number_or_marker_eval(
 pub(super) fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float => Ok(*f),
+        ValueKind::Float => Ok(value.xfloat()),
         ValueKind::Char(c) => Ok(c as u32 as f64),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *value],
         )),
@@ -4511,7 +4511,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
             };
 
             let mut constants: Vec<Value> = match constants_vec.kind() {
-                ValueKind::Veclike(VecLikeType::Vector) => super::value::constants_vec.as_vector_data().unwrap().clone(),
+                ValueKind::Veclike(VecLikeType::Vector) => constants_vec.as_vector_data().unwrap().clone(),
                 _ => {
                     return Err(super::error::signal(
                         "wrong-type-argument",

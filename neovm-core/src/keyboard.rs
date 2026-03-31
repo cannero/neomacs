@@ -1733,7 +1733,7 @@ fn pending_gnu_timer_in_keyboard_runtime(
         return None;
     };
 
-    let slots = crate::emacs_core::value::with_heap(|heap| heap.get_vector(timer_id).clone());
+    let slots = timer.as_vector_data()?.clone();
     if !(9..=10).contains(&slots.len()) {
         return None;
     }
@@ -1764,7 +1764,7 @@ fn pending_gnu_idle_timer_in_keyboard_runtime(
         return None;
     };
 
-    let slots = crate::emacs_core::value::with_heap(|heap| heap.get_vector(timer_id).clone());
+    let slots = timer.as_vector_data()?.clone();
     if !(9..=10).contains(&slots.len()) {
         return None;
     }
@@ -3071,11 +3071,11 @@ impl crate::emacs_core::eval::Context {
                     self.command_loop
                         .keyboard
                         .unread_event(Self::make_help_echo_event(
-                            Value::Frame(fid.0),
+                            Value::make_frame(fid.0),
                             Value::NIL,
                             Value::NIL,
                             Value::NIL,
-                            ValueKind::Fixnum(0),
+                            Value::fixnum(0),
                         ));
                 }
                 self.command_loop.keyboard.kboard.last_help_echo_event = None;
@@ -3248,10 +3248,9 @@ impl crate::emacs_core::eval::Context {
     ) -> Option<crate::buffer::BufferId> {
         let position = Self::key_sequence_lookup_position(events)?;
         let slots = crate::emacs_core::value::list_to_vec(&position)?;
-        let window_id = match *slots.first()?.kind() {
-            ValueKind::Veclike(VecLikeType::Window) => crate::window::WindowId(id),
-            _ => return None,
-        };
+        let first = *slots.first()?;
+        let wid = first.as_window_id()?;
+        let window_id = crate::window::WindowId(wid);
 
         for frame_id in frames.frame_list() {
             let Some(frame) = frames.get(frame_id) else {
@@ -3490,9 +3489,9 @@ impl crate::emacs_core::eval::Context {
     fn mouse_posn_descriptor_value(desc: MousePosnDescriptor) -> Value {
         let area_or_pos = match desc.area {
             Some(area) => Value::symbol(area),
-            None => desc.metrics.point.map(Value::Int).unwrap_or(Value::NIL),
+            None => desc.metrics.point.map(Value::fixnum).unwrap_or(Value::NIL),
         };
-        let pos = desc.metrics.point.map(Value::Int).unwrap_or(Value::NIL);
+        let pos = desc.metrics.point.map(Value::fixnum).unwrap_or(Value::NIL);
         let col_row = match (desc.metrics.col, desc.metrics.row) {
             (Some(col), Some(row)) => Value::cons(Value::fixnum(col), Value::fixnum(row)),
             _ => Value::NIL,
@@ -4220,10 +4219,7 @@ fn key_sequence_translation_events(translation: Value) -> Option<Vec<Value>> {
     }
 
     if translation.is_vector() {
-        return Some(crate::emacs_core::value::with_heap(|h| {
-            let len = h.vector_len(id);
-            (0..len).map(|i| h.vector_ref(id, i)).collect()
-        }));
+        return Some(translation.as_vector_data()?.to_vec());
     }
 
     if let Some(s) = translation.as_str() {

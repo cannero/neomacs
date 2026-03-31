@@ -37,7 +37,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                 None
             };
             let src = args[0].as_lisp_string().unwrap();
-            let (result, sliced_props) = {
+            let (result, sliced_props) = (|| {
                 let s = src.as_str();
                 let normalize_index =
                     |value: &Value, default: i64, len: i64| -> Result<i64, Flow> {
@@ -130,7 +130,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                     None
                 };
                 Ok::<_, Flow>((result, sliced_props))
-            }?;
+            })()?;
             let new_val = Value::heap_string(result);
 
             // Preserve text properties from source string

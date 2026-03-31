@@ -146,13 +146,17 @@ fn resolve_eval_buffer_id_in_state(
     arg: Option<&Value>,
 ) -> Result<crate::buffer::BufferId, Flow> {
     match arg {
-        None | Some(ValueKind::Nil) => Ok(buffers
+        None => Ok(buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?),
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(*id),
-        Some(ValueKind::String) => Ok({
-            let name = with_heap(|h| h.get_string(*id).to_owned());
+        Some(v) if v.is_nil() => Ok(buffers
+            .current_buffer()
+            .map(|b| b.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?),
+        Some(v) if v.is_buffer() => Ok(v.as_buffer_id().unwrap()),
+        Some(v) if v.is_string() => Ok({
+            let name = v.as_str().unwrap().to_owned();
             buffers
                 .find_buffer_by_name(&name)
                 .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))?
@@ -172,7 +176,10 @@ fn eval_buffer_filename_in_state(
     arg: Option<&Value>,
 ) -> Result<Option<String>, Flow> {
     match arg {
-        None | Some(ValueKind::Nil) => Ok(buffers
+        None => Ok(buffers
+            .get(buffer_id)
+            .and_then(|buffer| buffer.file_name.clone())),
+        Some(v) if v.is_nil() => Ok(buffers
             .get(buffer_id)
             .and_then(|buffer| buffer.file_name.clone())),
         Some(value) => Ok(Some(expect_string(value)?)),
@@ -192,13 +199,15 @@ fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &s
         list_to_vec(&history)
             .unwrap_or_default()
             .into_iter()
-            .filter(|existing| match existing {
-                Value::Cons(id) => with_heap(|heap| {
-                    heap.cons_car(*id)
+            .filter(|existing| {
+                if existing.is_cons() {
+                    existing
+                        .cons_car()
                         .as_str()
                         .is_none_or(|loaded| loaded != path_str)
-                }),
-                _ => true,
+                } else {
+                    true
+                }
             })
             .collect(),
     );

@@ -339,7 +339,7 @@ fn collect_overlay_modification_hooks(
     let mut result = Vec::new();
     for ov_id in overlay_ids {
         if let Some(hooks_val) = buf.overlays.overlay_get_named(ov_id, "modification-hooks") {
-            let ov_val = ValueKind::Veclike(VecLikeType::Overlay);
+            let ov_val = overlay_id_to_value(ov_id);
             for func in value_list_iter(hooks_val) {
                 result.push((func, ov_val));
             }
@@ -378,7 +378,7 @@ fn run_overlay_after_change_hooks(
                     .overlays
                     .overlay_get_named(*ov_id, "insert-in-front-hooks")
                 {
-                    let ov_val = Value::Overlay(*ov_id);
+                    let ov_val = overlay_id_to_value(*ov_id);
                     for func in value_list_iter(hook_val) {
                         hooks.push((func, ov_val, "front"));
                     }
@@ -398,7 +398,7 @@ fn run_overlay_after_change_hooks(
                     .overlays
                     .overlay_get_named(*ov_id, "insert-behind-hooks")
                 {
-                    let ov_val = Value::Overlay(*ov_id);
+                    let ov_val = overlay_id_to_value(*ov_id);
                     for func in value_list_iter(hook_val) {
                         hooks.push((func, ov_val, "behind"));
                     }
@@ -410,7 +410,7 @@ fn run_overlay_after_change_hooks(
         let mod_overlays = buf.overlays.overlays_in(beg, search_end);
         for ov_id in &mod_overlays {
             if let Some(hook_val) = buf.overlays.overlay_get_named(*ov_id, "modification-hooks") {
-                let ov_val = Value::Overlay(*ov_id);
+                let ov_val = overlay_id_to_value(*ov_id);
                 for func in value_list_iter(hook_val) {
                     hooks.push((func, ov_val, "mod"));
                 }
@@ -470,10 +470,10 @@ fn expect_integer_or_marker_in_buffers(
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        other if super::marker::is_marker(other) => {
-            super::marker::marker_position_as_int_with_buffers(buffers, other)
+        _ if value.is_marker() => {
+            super::marker::marker_position_as_int_with_buffers(buffers, value)
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),

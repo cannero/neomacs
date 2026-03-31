@@ -946,29 +946,28 @@ impl<'a> Parser<'a> {
 
             // Construct the hash table value directly during reading,
             // matching GNU Emacs reader behavior.
-            use super::value::{Value, with_heap_mut};
-            let ht_id = with_heap_mut(|h| h.alloc_hash_table(test));
+            use super::value::Value;
+            let ht_value = Value::hash_table(test);
             if size > 0 {
-                with_heap_mut(|h| {
-                    h.get_hash_table_mut(ht_id).size = size;
-                });
+                if let Some(ht) = ht_value.as_hash_table_mut() {
+                    ht.size = size;
+                }
             }
             // Insert key-value pairs
             for (k_expr, v_expr) in &data_pairs {
                 let key = super::eval::quote_to_value(k_expr);
                 let val = super::eval::quote_to_value(v_expr);
-                with_heap_mut(|h| {
-                    let ht_test = h.get_hash_table(ht_id).test.clone();
+                if let Some(ht) = ht_value.as_hash_table_mut() {
+                    let ht_test = ht.test.clone();
                     let hash_key = key.to_hash_key(&ht_test);
-                    let ht = h.get_hash_table_mut(ht_id);
                     ht.data.insert(hash_key.clone(), val);
                     ht.key_snapshots.insert(hash_key.clone(), key);
                     ht.insertion_order.push(hash_key);
-                });
+                }
             }
             return Ok(Expr::OpaqueValueRef(
                 super::eval::OPAQUE_POOL
-                    .with(|pool| pool.borrow_mut().insert(Value::HashTable(ht_id))),
+                    .with(|pool| pool.borrow_mut().insert(ht_value)),
             ));
         }
 
@@ -976,12 +975,12 @@ impl<'a> Parser<'a> {
         // Create a Record value directly during reading, matching GNU reader.
         if let Expr::List(items) = &list {
             if !items.is_empty() {
-                use super::value::{Value, with_heap_mut};
+                use super::value::Value;
                 let vals: Vec<Value> = items.iter().map(super::eval::quote_to_value).collect();
-                let record_id = with_heap_mut(|h| h.alloc_vector(vals));
+                let record_value = Value::make_record(vals);
                 return Ok(Expr::OpaqueValueRef(
                     super::eval::OPAQUE_POOL
-                        .with(|pool| pool.borrow_mut().insert(Value::Record(record_id))),
+                        .with(|pool| pool.borrow_mut().insert(record_value)),
                 ));
             }
         }

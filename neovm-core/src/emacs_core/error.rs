@@ -33,7 +33,7 @@ impl Display for EvalError {
             } => write!(
                 f,
                 "signal {} {}",
-                resolve_sym(symbol),
+                resolve_sym(*symbol),
                 format_signal_payload(raw_data.as_ref(), data),
             ),
             Self::UncaughtThrow { tag, value } => write!(
@@ -135,7 +135,7 @@ pub(crate) fn signal_matches(pattern: &super::expr::Expr, symbol: &str) -> bool 
     use super::expr::Expr;
     match pattern {
         Expr::Symbol(id) => {
-            let name = resolve_sym(id);
+            let name = resolve_sym(*id);
             name == symbol || name == "error" || name == "t"
         }
         Expr::List(items) => items.iter().any(|item| signal_matches(item, symbol)),
@@ -183,7 +183,7 @@ pub fn format_eval_result(result: &Result<Value, EvalError>) -> String {
             raw_data,
         }) => {
             let payload = format_signal_payload(raw_data.as_ref(), data);
-            format!("ERR ({} {})", resolve_sym(symbol), payload)
+            format!("ERR ({} {})", resolve_sym(*symbol), payload)
         }
         Err(EvalError::UncaughtThrow { tag, value }) => {
             format!(
@@ -760,7 +760,7 @@ pub fn format_eval_result_with_eval(
             raw_data,
         }) => {
             let payload = print_signal_payload_with_eval(eval, raw_data.as_ref(), data);
-            format!("ERR ({} {})", resolve_sym(symbol), payload)
+            format!("ERR ({} {})", resolve_sym(*symbol), payload)
         }
         Err(EvalError::UncaughtThrow { tag, value }) => {
             format!(
@@ -815,7 +815,7 @@ pub fn format_eval_result_bytes_with_eval(
             raw_data,
         }) => {
             out.extend_from_slice(b"ERR (");
-            out.extend_from_slice(resolve_sym(symbol).as_bytes());
+            out.extend_from_slice(resolve_sym(*symbol).as_bytes());
             out.push(b' ');
             append_signal_payload_bytes_with_eval(eval, raw_data.as_ref(), data, &mut out);
             out.push(b')');

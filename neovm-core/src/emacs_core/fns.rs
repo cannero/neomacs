@@ -60,7 +60,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
     match val.kind() {
         ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
         )),
@@ -70,7 +70,7 @@ fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
 fn require_int(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *val],
         )),
@@ -78,11 +78,13 @@ fn require_int(val: &Value) -> Result<i64, Flow> {
 }
 
 fn require_int_or_marker(val: &Value) -> Result<i64, Flow> {
+    if val.is_marker() {
+        return super::marker::marker_position_as_int(val);
+    }
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *val],
         )),
@@ -465,11 +467,11 @@ pub(crate) fn builtin_md5(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         )?)),
         ValueKind::Veclike(VecLikeType::Buffer) => Ok(Value::string(md5_hex_for_buffer_in_manager(
             &eval.buffers,
-            *id,
+            object.as_buffer_id().unwrap(),
             args.get(1),
             args.get(2),
         )?)),
-        other => Err(signal(
+        _ => Err(signal(
             "error",
             vec![
                 Value::string("Invalid object argument"),
@@ -678,7 +680,7 @@ fn secure_hash_algorithm_name(val: &Value) -> Result<String, Flow> {
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
         ValueKind::Keyword(id) => Ok(format!(":{}", resolve_sym(id))),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *val],
         )),
@@ -797,9 +799,9 @@ pub(crate) fn builtin_secure_hash(eval: &mut super::eval::Context, args: Vec<Val
     let input = match object.kind() {
         ValueKind::String => hash_slice_for_string(object, args.get(2), args.get(3))?,
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            hash_slice_for_buffer_in_manager(&eval.buffers, *id, args.get(2), args.get(3))?
+            hash_slice_for_buffer_in_manager(&eval.buffers, object.as_buffer_id().unwrap(), args.get(2), args.get(3))?
         }
-        other => {
+        _ => {
             return Err(signal(
                 "error",
                 vec![
@@ -831,7 +833,7 @@ pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Val
             .id
     } else {
         match args[0].kind() {
-            ValueKind::Veclike(VecLikeType::Buffer) => *id,
+            ValueKind::Veclike(VecLikeType::Buffer) => args[0].as_buffer_id().unwrap(),
             ValueKind::String => {
                 let name = args[0].as_str().unwrap().to_owned();
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
@@ -841,7 +843,7 @@ pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Val
                     )
                 })?
             }
-            other => {
+            _ => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), args[0]],
@@ -936,14 +938,9 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
                         break;
                     }
                     // Skip value, move to next key
-                    let after_key = {
-                        let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
-                        cell_cdr
-                    };
+                    let after_key = cursor.cons_cdr();
                     if after_key.is_cons() {
-                        let val_cell_car = after_key.cons_car();
-                        let val_cell_cdr = after_key.cons_cdr();
-                        cursor = val_cell_cdr;
+                        cursor = after_key.cons_cdr();
                     } else {
                         break;
                     }
@@ -954,12 +951,9 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
 
         // Property not found — append to end of widget plist (after type).
         // Prepend (PROPERTY VALUE ...) to the cdr of the first cons cell.
-        let old_cdr = {
-            let cell = read_cons(*first_cell);  // TODO(tagged): replace read_cons with cons accessors
-            cell_cdr
-        };
+        let old_cdr = (*widget).cons_cdr();
         let new_tail = Value::cons(*property, Value::cons(*value, old_cdr));
-        with_heap_mut(|h| h.set_cdr(*first_cell, new_tail));
+        (*widget).set_cdr(new_tail);
     }
 
     Ok(*value)
@@ -1001,7 +995,7 @@ pub(crate) fn builtin_widget_apply(
                 Err(signal("void-function", vec![Value::symbol(name)]))
             }
         }
-        other => Err(signal("invalid-function", vec![function])),
+        _ => Err(signal("invalid-function", vec![function])),
     }
 }
 
@@ -1030,7 +1024,7 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
             }
             Ok(Value::multibyte_string(out))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
         )),
@@ -1051,7 +1045,7 @@ pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
                 &bytes,
             )))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
         )),

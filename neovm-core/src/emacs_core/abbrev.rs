@@ -16,8 +16,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{SymId, intern, intern_uninterned, resolve_sym};
-use super::value::{Value, list_to_vec, with_heap, with_heap_mut, ValueKind, VecLikeType};
-use crate::gc::types::ObjId;
+use super::value::{Value, list_to_vec, ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // AbbrevManager -- kept for backward compat (eval.rs, pdump)
@@ -268,7 +267,8 @@ fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
         match current.kind() {
             ValueKind::Nil => return None,
             ValueKind::Cons => {
-                let (car, cdr) = with_heap(|h| (h.cons_car(id), h.cons_cdr(id)));
+                let car = current.cons_car();
+                let cdr = current.cons_cdr();
                 if let Some(sym_name) = car.as_symbol_name() {
                     if sym_name == name {
                         return Some(car);
@@ -290,30 +290,30 @@ fn symbol_id(value: Value) -> Option<SymId> {
     }
 }
 
-fn obarray_insert_symbol(vec_id: ObjId, sym: Value) {
+fn obarray_insert_symbol(vec_val: Value, sym: Value) {
     let Some(name) = sym.as_symbol_name() else {
         return;
     };
-    let vec_len = with_heap(|h| h.get_vector(vec_id).len());
+    let vec_data = vec_val.as_vector_data().unwrap();
+    let vec_len = vec_data.len();
     if vec_len == 0 {
         return;
     }
     let bucket_idx = obarray_hash(name, vec_len);
-    let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
+    let bucket = vec_data[bucket_idx];
     let new_bucket = Value::cons(sym, bucket);
-    with_heap_mut(|h| {
-        h.get_vector_mut(vec_id)[bucket_idx] = new_bucket;
-    });
+    vec_val.as_vector_data_mut().unwrap()[bucket_idx] = new_bucket;
 }
 
 /// Intern a symbol into a custom obarray (vector). Returns the symbol Value.
-fn obarray_intern(vec_id: ObjId, name: &str) -> Value {
-    let vec_len = with_heap(|h| h.get_vector(vec_id).len());
+fn obarray_intern(vec_val: Value, name: &str) -> Value {
+    let vec_data = vec_val.as_vector_data().unwrap();
+    let vec_len = vec_data.len();
     if vec_len == 0 {
         return Value::symbol(intern_uninterned(name));
     }
     let bucket_idx = obarray_hash(name, vec_len);
-    let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
+    let bucket = vec_data[bucket_idx];
 
     // Check if already interned
     if let Some(sym) = obarray_bucket_find(bucket, name) {
@@ -322,37 +322,37 @@ fn obarray_intern(vec_id: ObjId, name: &str) -> Value {
 
     // Not found: create symbol and prepend to bucket chain
     let sym = Value::symbol(intern_uninterned(name));
-    obarray_insert_symbol(vec_id, sym);
+    obarray_insert_symbol(vec_val, sym);
     sym
 }
 
 /// Look up a symbol in a custom obarray (vector) without interning.
-fn obarray_lookup(vec_id: ObjId, name: &str) -> Option<Value> {
-    let vec_len = with_heap(|h| h.get_vector(vec_id).len());
+fn obarray_lookup(vec_val: Value, name: &str) -> Option<Value> {
+    let vec_data = vec_val.as_vector_data().unwrap();
+    let vec_len = vec_data.len();
     if vec_len == 0 {
         return None;
     }
     let bucket_idx = obarray_hash(name, vec_len);
-    let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
+    let bucket = vec_data[bucket_idx];
     obarray_bucket_find(bucket, name)
 }
 
-fn table_header_symbol(vec_id: ObjId) -> Option<Value> {
-    obarray_lookup(vec_id, ABBREV_TABLE_HEADER_NAME)
+fn table_header_symbol(vec_val: Value) -> Option<Value> {
+    obarray_lookup(vec_val, ABBREV_TABLE_HEADER_NAME)
 }
 
 /// Check if a Value is an abbrev table (obarray with a header symbol carrying
 /// a numeric `:abbrev-table-modiff` property).
 fn is_abbrev_table(eval: &super::eval::Context, value: &Value) -> bool {
-    let vec_id = match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => *id,
-        _ => return false,
-    };
-    let vec_len = with_heap(|h| h.get_vector(vec_id).len());
-    if vec_len == 0 {
+    if !value.is_vector() {
         return false;
     }
-    table_header_symbol(vec_id)
+    let vec_data = value.as_vector_data().unwrap();
+    if vec_data.is_empty() {
+        return false;
+    }
+    table_header_symbol(*value)
         .and_then(symbol_id)
         .and_then(|id| {
             eval.obarray()
@@ -362,8 +362,8 @@ fn is_abbrev_table(eval: &super::eval::Context, value: &Value) -> bool {
 }
 
 /// Collect all symbols from an obarray into a Vec.
-fn obarray_all_symbols(vec_id: ObjId) -> Vec<Value> {
-    let all_slots = with_heap(|h| h.get_vector(vec_id).clone());
+fn obarray_all_symbols(vec_val: Value) -> Vec<Value> {
+    let all_slots = vec_val.as_vector_data().unwrap().clone();
     let mut symbols = Vec::new();
     for slot in &all_slots {
         let mut current = *slot;
@@ -371,7 +371,8 @@ fn obarray_all_symbols(vec_id: ObjId) -> Vec<Value> {
             match current.kind() {
                 ValueKind::Nil => break,
                 ValueKind::Cons => {
-                    let (car, cdr) = with_heap(|h| (h.cons_car(id), h.cons_cdr(id)));
+                    let car = current.cons_car();
+                    let cdr = current.cons_cdr();
                     symbols.push(car);
                     current = cdr;
                 }
@@ -414,20 +415,21 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
         )),
     }
 }
 
-fn expect_abbrev_table(eval: &super::eval::Context, value: &Value) -> Result<ObjId, Flow> {
-    match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) if is_abbrev_table(eval, value) => Ok(*id),
-        _ => Err(signal(
+fn expect_abbrev_table(eval: &super::eval::Context, value: &Value) -> Result<Value, Flow> {
+    if is_abbrev_table(eval, value) {
+        Ok(*value)
+    } else {
+        Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("abbrev-table-p"), *value],
-        )),
+        ))
     }
 }
 
@@ -444,12 +446,8 @@ pub(crate) fn builtin_make_abbrev_table(
 ) -> EvalResult {
     // Create vector of ABBREV_TABLE_DEFAULT_SIZE nil slots
     let table = Value::vector(vec![Value::NIL; ABBREV_TABLE_DEFAULT_SIZE]);
-    let vec_id = match table.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => id,
-        _ => unreachable!(),
-    };
 
-    let header = obarray_intern(vec_id, ABBREV_TABLE_HEADER_NAME);
+    let header = obarray_intern(table, ABBREV_TABLE_HEADER_NAME);
     let header_id = symbol_id(header).expect("abbrev-table header should be a symbol");
     eval.obarray_mut()
         .set_symbol_value_id(header_id, Value::NIL);
@@ -498,17 +496,17 @@ pub(crate) fn builtin_define_abbrev(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("define-abbrev", &args, 3)?;
-    let vec_id = expect_abbrev_table(eval, &args[0])?;
+    let vec_val = expect_abbrev_table(eval, &args[0])?;
     let name = expect_string(&args[1])?;
     let mut props = if args.len() > 4 {
         args[4..].to_vec()
     } else {
         Vec::new()
     };
-    if matches!(
-        props.first(),
-        Some(Value::NIL | Value::fixnum(_) | Value::char(_))
-    ) {
+    if props
+        .first()
+        .is_some_and(|v| v.is_nil() || v.is_fixnum() || v.is_char())
+    {
         let count = props.first().copied().unwrap_or(Value::NIL);
         let system = props.get(1).copied().unwrap_or(Value::NIL);
         props = vec![Value::keyword(":count"), count];
@@ -525,7 +523,7 @@ pub(crate) fn builtin_define_abbrev(
         props.push(Value::fixnum(0));
     }
     props.push(Value::keyword(":abbrev-table-modiff"));
-    props.push(get_table_property(eval, vec_id, ":abbrev-table-modiff").unwrap_or(Value::fixnum(0)));
+    props.push(get_table_property(eval, vec_val, ":abbrev-table-modiff").unwrap_or(Value::fixnum(0)));
     let system_flag = props
         .chunks_exact(2)
         .find(|chunk| chunk[0].as_symbol_name() == Some(":system"))
@@ -533,7 +531,7 @@ pub(crate) fn builtin_define_abbrev(
         .unwrap_or(Value::NIL);
 
     // Intern the abbreviation symbol into the obarray
-    let sym = obarray_intern(vec_id, &name);
+    let sym = obarray_intern(vec_val, &name);
     let sym_id = symbol_id(sym).expect("abbrev symbol should be a symbol");
 
     let existing_expansion = eval.obarray().symbol_value_id(sym_id).cloned();
@@ -580,7 +578,7 @@ pub(crate) fn builtin_define_abbrev(
         eval.obarray_mut()
             .set_symbol_value("abbrevs-changed", Value::T);
     }
-    increment_table_modiff(eval, vec_id);
+    increment_table_modiff(eval, vec_val);
 
     Ok(Value::string(name))
 }
@@ -598,8 +596,8 @@ pub(crate) fn builtin_abbrev_symbol(
     // If TABLE is provided
     if let Some(table_val) = args.get(1) {
         if !table_val.is_nil() {
-            let vec_id = expect_abbrev_table(eval, table_val)?;
-            if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, vec_id) {
+            let vec_val = expect_abbrev_table(eval, table_val)?;
+            if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, vec_val) {
                 return Ok(sym);
             }
             return Ok(Value::NIL);
@@ -613,7 +611,7 @@ pub(crate) fn builtin_abbrev_symbol(
         .cloned()
         .unwrap_or(Value::NIL);
     if global_table.is_vector() {
-        if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, vec_id) {
+        if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, global_table) {
             return Ok(sym);
         }
     }
@@ -633,8 +631,8 @@ pub(crate) fn builtin_abbrev_expansion(
     // If TABLE is provided
     if let Some(table_val) = args.get(1) {
         if !table_val.is_nil() {
-            let vec_id = expect_abbrev_table(eval, table_val)?;
-            if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, vec_id) {
+            let vec_val = expect_abbrev_table(eval, table_val)?;
+            if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, vec_val) {
                 if let Some(sym_id) = symbol_id(sym) {
                     return Ok(eval
                         .obarray()
@@ -654,7 +652,7 @@ pub(crate) fn builtin_abbrev_expansion(
         .cloned()
         .unwrap_or(Value::NIL);
     if global_table.is_vector() {
-        if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, vec_id) {
+        if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, global_table) {
             if let Some(sym_id) = symbol_id(sym) {
                 return Ok(eval
                     .obarray()
@@ -676,22 +674,19 @@ pub(crate) fn builtin_clear_abbrev_table(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("clear-abbrev-table", &args, 1)?;
-    let vec_id = expect_abbrev_table(eval, &args[0])?;
-    let header = table_header_symbol(vec_id)
+    let vec_val = expect_abbrev_table(eval, &args[0])?;
+    let header = table_header_symbol(vec_val)
         .unwrap_or_else(|| Value::symbol(intern_uninterned(ABBREV_TABLE_HEADER_NAME)));
-    let vec_len = with_heap(|h| h.get_vector(vec_id).len());
-    with_heap_mut(|h| {
-        let v = h.get_vector_mut(vec_id);
-        for i in 0..vec_len {
-            v[i] = Value::NIL;
-        }
-    });
-    obarray_insert_symbol(vec_id, header);
+    let vec_data = vec_val.as_vector_data_mut().unwrap();
+    for slot in vec_data.iter_mut() {
+        *slot = Value::NIL;
+    }
+    obarray_insert_symbol(vec_val, header);
     if let Some(header_id) = symbol_id(header) {
         eval.obarray_mut()
             .set_symbol_value_id(header_id, Value::NIL);
     }
-    increment_table_modiff(eval, vec_id);
+    increment_table_modiff(eval, vec_val);
 
     Ok(Value::NIL)
 }
@@ -704,14 +699,14 @@ pub(crate) fn builtin_abbrev_table_get(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("abbrev-table-get", &args, 2)?;
-    let vec_id = expect_abbrev_table(eval, &args[0])?;
+    let vec_val = expect_abbrev_table(eval, &args[0])?;
     let prop = args[1].as_symbol_name().ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), args[1]],
         )
     })?;
-    Ok(get_table_property(eval, vec_id, prop).unwrap_or(Value::NIL))
+    Ok(get_table_property(eval, vec_val, prop).unwrap_or(Value::NIL))
 }
 
 /// (abbrev-table-put TABLE PROP VAL) -> VAL
@@ -722,14 +717,14 @@ pub(crate) fn builtin_abbrev_table_put(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("abbrev-table-put", &args, 3)?;
-    let vec_id = expect_abbrev_table(eval, &args[0])?;
+    let vec_val = expect_abbrev_table(eval, &args[0])?;
     let prop = args[1].as_symbol_name().ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), args[1]],
         )
     })?;
-    let Some(header_id) = table_header_symbol(vec_id).and_then(symbol_id) else {
+    let Some(header_id) = table_header_symbol(vec_val).and_then(symbol_id) else {
         return Ok(Value::NIL);
     };
     eval.obarray_mut()
@@ -737,18 +732,18 @@ pub(crate) fn builtin_abbrev_table_put(
     Ok(args[2])
 }
 
-fn get_table_property(eval: &super::eval::Context, vec_id: ObjId, prop: &str) -> Option<Value> {
-    table_header_symbol(vec_id)
+fn get_table_property(eval: &super::eval::Context, vec_val: Value, prop: &str) -> Option<Value> {
+    table_header_symbol(vec_val)
         .and_then(symbol_id)
         .and_then(|id| eval.obarray().get_property_id(id, intern(prop)).cloned())
 }
 
-fn increment_table_modiff(eval: &mut super::eval::Context, vec_id: ObjId) {
-    let next = match get_table_property(eval, vec_id, ":abbrev-table-modiff") {
-        Some(ValueKind::Fixnum(n)) => n + 1,
+fn increment_table_modiff(eval: &mut super::eval::Context, vec_val: Value) {
+    let next = match get_table_property(eval, vec_val, ":abbrev-table-modiff") {
+        Some(v) if v.is_fixnum() => v.as_fixnum().unwrap() + 1,
         _ => 1,
     };
-    if let Some(header_id) = table_header_symbol(vec_id).and_then(symbol_id) {
+    if let Some(header_id) = table_header_symbol(vec_val).and_then(symbol_id) {
         eval.obarray_mut().put_property_id(
             header_id,
             intern(":abbrev-table-modiff"),
@@ -760,15 +755,15 @@ fn increment_table_modiff(eval: &mut super::eval::Context, vec_id: ObjId) {
 fn find_abbrev_symbol_in_table(
     eval: &super::eval::Context,
     abbrev: &str,
-    vec_id: ObjId,
+    vec_val: Value,
 ) -> Option<Value> {
     let case_fold =
-        !get_table_property(eval, vec_id, ":case-fixed").is_some_and(|value| value.is_truthy());
-    let direct = obarray_lookup(vec_id, abbrev);
+        !get_table_property(eval, vec_val, ":case-fixed").is_some_and(|value| value.is_truthy());
+    let direct = obarray_lookup(vec_val, abbrev);
     let folded = case_fold
         .then(|| abbrev.to_lowercase())
         .and_then(|lowered| {
-            obarray_lookup(vec_id, &lowered).filter(|sym| {
+            obarray_lookup(vec_val, &lowered).filter(|sym| {
                 symbol_id(*sym)
                     .and_then(|id| eval.obarray().get_property_id(id, intern(":case-fixed")))
                     .is_none_or(|value| !value.is_truthy())
@@ -787,11 +782,11 @@ fn find_abbrev_symbol_in_table(
         }
     }
 
-    if let Some(parents) = get_table_property(eval, vec_id, ":parents") {
+    if let Some(parents) = get_table_property(eval, vec_val, ":parents") {
         if let Some(parent_list) = list_to_vec(&parents) {
             for parent in &parent_list {
                 if parent.is_vector() {
-                    if let Some(sym) = find_abbrev_symbol_in_table(eval, abbrev, *parent_id) {
+                    if let Some(sym) = find_abbrev_symbol_in_table(eval, abbrev, *parent) {
                         return Some(sym);
                     }
                 }
@@ -832,11 +827,7 @@ pub(crate) fn builtin_define_abbrev_table(
         builtin_make_abbrev_table(eval, vec![])?
     };
 
-    let vec_id = match table.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => id,
-        _ => unreachable!(),
-    };
-    let header_id = table_header_symbol(vec_id)
+    let header_id = table_header_symbol(table)
         .and_then(symbol_id)
         .expect("abbrev table header should exist");
 
@@ -961,24 +952,21 @@ pub(crate) fn builtin_insert_abbrev_table_description(
         .cloned()
         .unwrap_or(Value::NIL);
 
-    let vec_id = match table_val.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => id,
-        _ => {
-            // Insert empty table description
-            let text = format!("(define-abbrev-table '{})\n", name);
-            if let Some(current_id) = eval.buffers.current_buffer_id() {
-                let insert_pos = eval.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
-                let text_len = text.len();
-                super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
-                let _ = eval.buffers.insert_into_buffer(current_id, &text);
-                super::editfns::signal_after_change(eval, insert_pos, insert_pos + text_len, 0)?;
-            }
-            return Ok(Value::NIL);
+    if !table_val.is_vector() {
+        // Insert empty table description
+        let text = format!("(define-abbrev-table '{})\n", name);
+        if let Some(current_id) = eval.buffers.current_buffer_id() {
+            let insert_pos = eval.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
+            let text_len = text.len();
+            super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
+            let _ = eval.buffers.insert_into_buffer(current_id, &text);
+            super::editfns::signal_after_change(eval, insert_pos, insert_pos + text_len, 0)?;
         }
-    };
+        return Ok(Value::NIL);
+    }
 
     // Collect all abbrev symbols (not the header symbol).
-    let symbols = obarray_all_symbols(vec_id);
+    let symbols = obarray_all_symbols(table_val);
     let mut entries: Vec<(String, String, i64, Option<String>)> = Vec::new();
 
     for sym in &symbols {
@@ -1004,13 +992,7 @@ pub(crate) fn builtin_insert_abbrev_table_description(
             let count = eval
                 .obarray()
                 .get_property_id(sym_id, intern(":count"))
-                .and_then(|v| {
-                    if let Some(n) = v.as_fixnum() {
-                        Some(*n)
-                    } else {
-                        None
-                    }
-                })
+                .and_then(|v| v.as_fixnum())
                 .unwrap_or(0);
             let hook_fn = eval
                 .obarray()

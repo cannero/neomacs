@@ -15,7 +15,7 @@ use super::hashtab::hash_key_to_visible_value;
 use super::intern::resolve_sym;
 use super::reader::KeyboardInputRuntime;
 use super::symbol::Obarray;
-use super::value::{Value, read_cons, with_heap, ValueKind, VecLikeType};
+use super::value::{Value, ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies, same pattern as builtins.rs / builtins_extra.rs)
@@ -90,12 +90,14 @@ fn normalize_symbol_reader_default(default: Value) -> Value {
 }
 
 fn normalize_buffer_reader_default(buffers: &BufferManager, default: Value) -> Value {
-    match first_default_value(default).kind() {
-        ValueKind::Veclike(VecLikeType::Buffer) => buffers
-            .get(id)
+    let first = first_default_value(default);
+    match first.kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => first
+            .as_buffer_id()
+            .and_then(|id| buffers.get(id))
             .map(|buffer| Value::string(&buffer.name))
-            .unwrap_or(ValueKind::Veclike(VecLikeType::Buffer)),
-        other => first_default_value(default),
+            .unwrap_or(first),
+        _ => first,
     }
 }
 
@@ -475,7 +477,7 @@ impl MinibufferManager {
     /// Read the effective `history-length` from the obarray, defaulting to 100.
     pub fn history_length_from_obarray(obarray: &Obarray) -> usize {
         match obarray.symbol_value("history-length") {
-            Some(ValueKind::Fixnum(n)) if *n > 0 => *n as usize,
+            Some(v) if v.is_fixnum() && v.xfixnum() > 0 => v.xfixnum() as usize,
             _ => 100,
         }
     }
@@ -859,7 +861,7 @@ fn symbol_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
 
 fn intern_symbol_reader_result(result: Value) -> Value {
     if result.is_string() {
-        let name = super::value::result.as_str().unwrap().to_owned();
+        let name = result.as_str().unwrap().to_owned();
         return Value::symbol(&name);
     }
     result
@@ -1221,15 +1223,18 @@ fn resolve_minibuffer_buffer_arg(
     buffers: &BufferManager,
     bufferish: Option<&Value>,
 ) -> Result<Option<BufferId>, Flow> {
-    match bufferish {
-        None | Some(ValueKind::Nil) => Ok(buffers.current_buffer_id()),
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(Some(*id)),
-        Some(ValueKind::String) => Ok(bufferish
-            .and_then(|v| v.as_str())
+    let Some(val) = bufferish else {
+        return Ok(buffers.current_buffer_id());
+    };
+    match val.kind() {
+        ValueKind::Nil => Ok(buffers.current_buffer_id()),
+        ValueKind::Veclike(VecLikeType::Buffer) => Ok(val.as_buffer_id()),
+        ValueKind::String => Ok(val
+            .as_str()
             .and_then(|name| buffers.find_buffer_by_name(name))),
-        Some(other) => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("bufferp"), *other],
+            vec![Value::symbol("bufferp"), *val],
         )),
     }
 }
@@ -1351,10 +1356,10 @@ fn completion_candidates_from_list_value(collection: &Value) -> Vec<CompletionCa
 }
 
 fn completion_candidates_from_vector_value(collection: &Value) -> Vec<CompletionCandidate> {
-    if !collection.is_vector() {
+    let Some(items) = collection.as_vector_data() else {
         return Vec::new();
     };
-    let items = with_heap(|h| h.get_vector(*id).clone());
+    let items = items.clone();
     items
         .into_iter()
         .filter_map(|item| {
@@ -1398,15 +1403,17 @@ pub(crate) fn completion_candidates_from_collection_in_state(
     collection: &Value,
 ) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
     let obarray = &ctx.obarray;
-    Ok(match collection {
-        Value::NIL | ValueKind::Cons => Some(completion_candidates_from_list_value(collection)),
-        ValueKind::Veclike(VecLikeType::HashTable) => Some(completion_candidates_from_hash_table(*table_id)),
+    Ok(match collection.kind() {
+        ValueKind::Nil | ValueKind::Cons => Some(completion_candidates_from_list_value(collection)),
+        ValueKind::Veclike(VecLikeType::HashTable) => {
+            Some(completion_candidates_from_hash_table(*collection))
+        }
         ValueKind::Veclike(VecLikeType::Vector) if is_global_obarray_proxy_in_state(obarray, collection) => {
             Some(completion_candidates_from_global_obarray_in_state(obarray))
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
             super::builtins::symbols::expect_obarray_vector_id(collection)?;
-            Some(completion_candidates_from_custom_obarray(*vec_id))
+            Some(completion_candidates_from_custom_obarray(*collection))
         }
         _ => None,
     })
@@ -1550,8 +1557,8 @@ pub(crate) fn builtin_test_completion_with_candidates(
     Ok(Value::NIL)
 }
 
-fn completion_candidates_from_custom_obarray(vec_id: crate::gc::ObjId) -> Vec<CompletionCandidate> {
-    let slots = with_heap(|h| h.get_vector(vec_id).clone());
+fn completion_candidates_from_custom_obarray(collection: Value) -> Vec<CompletionCandidate> {
+    let slots = collection.as_vector_data().unwrap().clone();
     let mut candidates = Vec::new();
     for slot in slots {
         let mut current = slot;
@@ -1577,8 +1584,8 @@ fn completion_candidates_from_custom_obarray(vec_id: crate::gc::ObjId) -> Vec<Co
     candidates
 }
 
-fn completion_candidates_from_hash_table(table_id: crate::gc::ObjId) -> Vec<CompletionCandidate> {
-    let table = with_heap(|h| h.get_hash_table(table_id).clone());
+fn completion_candidates_from_hash_table(collection: Value) -> Vec<CompletionCandidate> {
+    let table = collection.as_hash_table().unwrap().clone();
     let mut candidates = Vec::new();
     for key in &table.insertion_order {
         let Some(value) = table.data.get(key).copied() else {

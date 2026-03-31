@@ -21,7 +21,6 @@ use super::eval::Context;
 use super::intern::resolve_sym;
 use super::value::*;
 use std::collections::{HashMap, HashSet};
-use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local to this module)
@@ -61,10 +60,12 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_integer_or_marker(val: &Value) -> Result<(), Flow> {
+    if val.is_marker() {
+        return Ok(());
+    }
     match val.kind() {
         ValueKind::Fixnum(_) => Ok(()),
-        v if super::marker::is_marker(v) => Ok(()),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *val],
         )),
@@ -105,7 +106,7 @@ fn coding_system_name(val: &Value) -> Result<String, Flow> {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *val],
         )),
@@ -950,14 +951,14 @@ pub(crate) fn builtin_coding_system_put(
             let coerced = match val.kind() {
                 ValueKind::Char(c) => Value::fixnum(c as i64),
                 ValueKind::Fixnum(n) if n >= 0 => Value::fixnum(n),
-                ValueKind::String => Value::fixnum(with_heap(|h| {
-                    h.get_string(*id)
+                ValueKind::String => Value::fixnum(
+                    val.as_str().unwrap()
                         .chars()
                         .next()
                         .map(|ch| ch as i64)
                         .unwrap_or(0)
-                })),
-                other => {
+                ),
+                _ => {
                     return Err(signal(
                         "wrong-type-argument",
                         vec![Value::symbol("characterp"), *val],
@@ -1105,7 +1106,7 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
                 }
             }
             ValueKind::Float => {
-                if *f == 0.0 {
+                if args[1].xfloat() == 0.0 {
                     if is_nil_coding {
                         Value::NIL
                     } else if resolved_base == "binary" {
@@ -1134,7 +1135,7 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
             {
                 Value::NIL
             }
-            other => {
+            _ => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("number-or-marker-p"), args[1]],
@@ -1150,7 +1151,7 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
         ValueKind::Symbol(id) if resolve_sym(id) == "unix" => Some(0),
         ValueKind::Symbol(id) if resolve_sym(id) == "dos" => Some(1),
         ValueKind::Symbol(id) if resolve_sym(id) == "mac" => Some(2),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("fixnump"), args[1]],
@@ -1201,7 +1202,7 @@ pub(crate) fn builtin_coding_system_change_text_conversion(
     let first_eol = match args[0].kind() {
         ValueKind::Nil => Some(0),
         ValueKind::String => None,
-        other => match args[0].as_symbol_name() {
+        _ => match args[0].as_symbol_name() {
             Some(name) if name == "nil" => Some(0),
             Some(name) => {
                 if let Some(resolved) = resolve_runtime_name(mgr, name) {
@@ -1283,7 +1284,7 @@ pub(crate) fn builtin_check_coding_system(
                 Err(signal("coding-system-error", vec![args[0]]))
             }
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), args[0]],
         )),
@@ -1458,7 +1459,7 @@ pub(crate) fn builtin_define_coding_system_internal(
 fn coding_symbol_name_required(val: &Value) -> Result<String, Flow> {
     match val.kind() {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *val],
         )),
@@ -1476,7 +1477,7 @@ pub(crate) fn builtin_define_coding_system_alias(
     let alias = match args[0].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Nil => "nil".to_string(),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), args[0]],
@@ -1492,7 +1493,7 @@ pub(crate) fn builtin_define_coding_system_alias(
                 vec![Value::symbol("coding-system-p"), Value::NIL],
             ));
         }
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), args[1]],
@@ -1571,7 +1572,7 @@ pub(crate) fn builtin_detect_coding_string(
     expect_max_args("detect-coding-string", &args, 2)?;
     match args[0].kind() {
         ValueKind::String => {}
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
@@ -2056,10 +2057,12 @@ fn safe_coding_systems_for_text(
 }
 
 fn marker_or_integer_position(value: &Value) -> Result<i64, Flow> {
+    if value.is_marker() {
+        return super::marker::marker_position_as_int(value);
+    }
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -2075,12 +2078,8 @@ pub(crate) fn builtin_find_coding_systems_region_internal(
 
     if args[0].is_string() {
         let exclude = args.get(2).and_then(super::value::list_to_vec);
-        let (text, multibyte) = with_heap(|heap| {
-            (
-                heap.get_string(string).to_owned(),
-                heap.string_is_multibyte(string),
-            )
-        });
+        let text = args[0].as_str().unwrap().to_owned();
+        let multibyte = args[0].string_is_multibyte();
         return Ok(safe_coding_systems_for_text(
             &eval.coding_systems,
             &text,

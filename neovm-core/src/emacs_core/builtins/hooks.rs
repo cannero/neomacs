@@ -66,8 +66,10 @@ fn expect_optional_live_frame_designator_in_state(
         return Ok(());
     }
     if value.is_frame() {
-        if frames.get(crate::window::FrameId(*id)).is_some() {
-            return Ok(());
+        if let Some(fid) = value.as_frame_id() {
+            if frames.get(crate::window::FrameId(fid)).is_some() {
+                return Ok(());
+            }
         }
     }
     Err(signal(
@@ -477,8 +479,10 @@ pub(super) fn expect_optional_live_window_designator(
         return Ok(());
     }
     if value.is_window() {
-        if eval.frames.is_live_window_id(crate::window::WindowId(*id)) {
-            return Ok(());
+        if let Some(wid) = value.as_window_id() {
+            if eval.frames.is_live_window_id(crate::window::WindowId(wid)) {
+                return Ok(());
+            }
         }
     }
     Err(signal(
@@ -557,7 +561,7 @@ fn window_configuration_parts_from_value(value: &Value) -> Option<(Value, i64)> 
     if !value.is_vector() {
         return None;
     };
-    let items = with_heap(|h| h.get_vector(*data).clone());
+    let items = value.as_vector_data()?;
     if items.len() != 3 || items[0].as_symbol_name() != Some(WINDOW_CONFIGURATION_TAG) {
         return None;
     }
@@ -724,16 +728,13 @@ fn save_selected_window_state_from_value(
     if !value.is_vector() {
         return None;
     };
-    let items = with_heap(|h| h.get_vector(*data).clone());
+    let items = value.as_vector_data()?;
     if items.len() != 4 || items[0].as_symbol_name() != Some(SAVE_SELECTED_WINDOW_STATE_TAG) {
         return None;
     }
     let frame = items[1];
     let window = items[2];
-    let buffer_id = match items[3].kind() {
-        ValueKind::Veclike(VecLikeType::Buffer) => Some(id),
-        _ => None,
-    };
+    let buffer_id = items[3].as_buffer_id();
     Some((frame, window, buffer_id))
 }
 

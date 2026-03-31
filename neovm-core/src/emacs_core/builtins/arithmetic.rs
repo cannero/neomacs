@@ -128,7 +128,7 @@ pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
     expect_args("mod", &args, 2)?;
     let a_raw = expect_number_or_marker(&args[0])?;
     let b_raw = expect_number_or_marker(&args[1])?;
-    match (a_raw.kind(), b_raw.kind()) {
+    match (a_raw, b_raw) {
         (NumberOrMarker::Int(a), NumberOrMarker::Int(b)) => {
             if b == 0 {
                 return Err(signal("arith-error", vec![]));
