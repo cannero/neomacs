@@ -297,7 +297,7 @@ pub(crate) fn builtin_subr_primitive_p(args: Vec<Value>) -> EvalResult {
 /// `Value::ByteCode`).
 pub(crate) fn builtin_interpreted_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("interpreted-function-p", &args, 1)?;
-    Ok(Value::bool_val(matches!(&args[0], ValueKind::Veclike(VecLikeType::Lambda))))
+    Ok(Value::bool_val(args[0].is_lambda()))
 }
 
 /// `(special-form-p OBJECT)` -- return t if OBJECT is a special form.

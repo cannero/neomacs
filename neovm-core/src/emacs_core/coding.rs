@@ -961,7 +961,7 @@ pub(crate) fn builtin_coding_system_put(
                 _ => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("characterp"), *val],
+                        vec![Value::symbol("characterp"), val],
                     ));
                 }
             };
@@ -1222,7 +1222,7 @@ pub(crate) fn builtin_coding_system_change_text_conversion(
                     None
                 }
             }
-            None => args[0],
+            None => None,
         },
     };
 

@@ -61,7 +61,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 const MARK_MARKER_ID: u64 = i64::MAX as u64;
 
 pub(crate) fn is_marker(v: &Value) -> bool {
-    matches!(v, ValueKind::Veclike(VecLikeType::Marker))
+    v.is_marker()
 }
 
 pub(crate) fn make_marker_value(
@@ -78,13 +78,11 @@ pub(crate) fn make_marker_value_with_id(
     insertion_type: bool,
     marker_id: Option<u64>,
 ) -> Value {
-    with_heap_mut(|heap| {
-        Value::Marker(heap.alloc_marker(crate::gc::types::MarkerData {
-            buffer: buffer_id,
-            position,
-            insertion_type,
-            marker_id,
-        }))
+    Value::make_marker(crate::gc::types::MarkerData {
+        buffer: buffer_id,
+        position,
+        insertion_type,
+        marker_id,
     })
 }
 
@@ -121,16 +119,6 @@ pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<BufferId>, Opti
     Some((marker.buffer, marker.position, marker.insertion_type))
 }
 
-pub(crate) fn marker_equal_hash_key(id: crate::gc::ObjId) -> HashKey {
-    let marker = with_heap(|heap| heap.get_marker(id).clone());
-    HashKey::Text(format!(
-        "marker:{:?}:{:?}:{}",
-        marker.buffer.map(|buffer| buffer.0),
-        marker.position,
-        marker.insertion_type
-    ))
-}
-
 /// Tagged-pointer version: compute equal hash key from a marker Value.
 pub(crate) fn marker_equal_hash_key_value(v: &Value) -> HashKey {
     if let Some(marker) = v.as_marker_data() {
@@ -158,9 +146,9 @@ fn is_mark_marker(v: &Value) -> bool {
 
 fn set_marker_id(v: &Value, mid: u64) {
     if v.is_marker() {
-        with_heap_mut(|heap| {
-            heap.get_marker_mut(*id).marker_id = Some(mid);
-        });
+        if let Some(data) = v.as_marker_data_mut() {
+            data.marker_id = Some(mid);
+        }
     }
 }
 
@@ -366,10 +354,10 @@ pub(crate) fn builtin_set_marker_insertion_type_in_buffers(
     expect_args("set-marker-insertion-type", &args, 2)?;
     expect_marker("set-marker-insertion-type", &args[0])?;
     let new_type = args[1].is_truthy();
-    if &args[0].is_marker() {
-        with_heap_mut(|heap| {
-            heap.get_marker_mut(*id).insertion_type = new_type;
-        });
+    if args[0].is_marker() {
+        if let Some(data) = args[0].as_marker_data_mut() {
+            data.insertion_type = new_type;
+        }
     }
 
     if let Some(mid) = marker_id_value(&args[0]) {
@@ -406,21 +394,22 @@ pub(crate) fn builtin_copy_marker_in_buffers(
         false
     };
 
-    match args[0].kind() {
-        v if is_marker(v) => {
-            let buffer_id = marker_buffer_id(v);
+    let src = &args[0];
+    match src.kind() {
+        ValueKind::Veclike(VecLikeType::Marker) => {
+            let buffer_id = marker_buffer_id(src);
 
-            let position = if is_mark_marker(v) {
+            let position = if is_mark_marker(src) {
                 buffer_id
                     .and_then(|buf_id| buffers.get(buf_id))
                     .and_then(|buf| buf.mark_char().map(|m| m as i64 + 1))
-            } else if let Some(mid) = marker_id_value(v) {
+            } else if let Some(mid) = marker_id_value(src) {
                 buffer_id
                     .and_then(|buf_id| buffers.get(buf_id))
                     .and_then(|buf| buf.marker_entry(mid))
                     .map(|marker| marker.char_pos as i64 + 1)
             } else {
-                match marker_position_value(v).kind() {
+                match marker_position_value(src).kind() {
                     ValueKind::Fixnum(n) => Some(n),
                     _ => None,
                 }
@@ -432,12 +421,12 @@ pub(crate) fn builtin_copy_marker_in_buffers(
         }
         ValueKind::Fixnum(n) => {
             let buffer_id = buffers.current_buffer().map(|b| b.id);
-            let marker = make_marker_value(buffer_id, Some(*n), insertion_type);
-            register_marker_in_buffers(buffers, &marker, buffer_id, Some(*n));
+            let marker = make_marker_value(buffer_id, Some(n), insertion_type);
+            register_marker_in_buffers(buffers, &marker, buffer_id, Some(n));
             Ok(marker)
         }
         ValueKind::Nil => Ok(make_marker_value(None, None, insertion_type)),
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[0]],
         )),
@@ -472,8 +461,8 @@ pub(crate) fn builtin_set_marker_in_buffers(
                 let name = args[2].as_str().unwrap().to_owned();
                 buffers.find_buffer_by_name(&name)
             }
-            ValueKind::Veclike(VecLikeType::Buffer) => Some(*id),
-            other => {
+            ValueKind::Veclike(VecLikeType::Buffer) => args[2].as_buffer_id(),
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), args[2]],
@@ -489,8 +478,10 @@ pub(crate) fn builtin_set_marker_in_buffers(
     let position: Option<i64> = match args[1].kind() {
         ValueKind::Nil => None,
         ValueKind::Fixnum(n) => Some(n),
-        v if is_marker(v) => marker_position_as_int_with_buffers(buffers, v).ok(),
-        other => {
+        ValueKind::Veclike(VecLikeType::Marker) => {
+            marker_position_as_int_with_buffers(buffers, &args[1]).ok()
+        }
+        _other => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("integer-or-marker-p"), args[1]],
@@ -517,12 +508,11 @@ pub(crate) fn builtin_set_marker_in_buffers(
 
     register_marker_in_buffers(buffers, &args[0], buffer_id, position);
 
-    if &args[0].is_marker() {
-        with_heap_mut(|heap| {
-            let marker = heap.get_marker_mut(*id);
-            marker.buffer = buffer_id;
-            marker.position = position;
-        });
+    if args[0].is_marker() {
+        if let Some(data) = args[0].as_marker_data_mut() {
+            data.buffer = buffer_id;
+            data.position = position;
+        }
     }
 
     if targets_current_mark {
@@ -564,6 +554,7 @@ pub(crate) fn builtin_move_marker_in_buffers(
 
 /// Register a Lisp marker in the target buffer's marker list so that
 /// insert/delete operations automatically adjust its position.
+#[allow(dead_code)]
 fn register_marker_in_buffer(
     eval: &mut super::eval::Context,
     marker: &Value,

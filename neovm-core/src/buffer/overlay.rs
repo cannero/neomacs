@@ -565,7 +565,7 @@ impl Default for OverlayList {
 impl GcTrace for OverlayList {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for overlay in &self.overlays {
-            roots.push(Value::Overlay(*overlay));
+            roots.push(crate::emacs_core::value::overlay_id_to_value(*overlay));
         }
     }
 }

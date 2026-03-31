@@ -887,7 +887,7 @@ impl<'a> Parser<'a> {
 
         if items
             .first()
-            .is_some_and(|e| matches!(e, Expr::Symbol(id) if resolve_sym(id) == "hash-table"))
+            .is_some_and(|e| matches!(e, Expr::Symbol(id) if resolve_sym(*id) == "hash-table"))
         {
             // Parse keyword args from the list
             let mut test = super::value::HashTableTest::Eql;
@@ -898,8 +898,8 @@ impl<'a> Parser<'a> {
                 // GNU hash table read syntax uses bare symbols (test, data, size)
                 // not keywords (:test, :data, :size). Handle both forms.
                 let kw_name = match &items[i] {
-                    Expr::Keyword(kw) => Some(resolve_sym(kw).to_string()),
-                    Expr::Symbol(sym) => Some(resolve_sym(sym).to_string()),
+                    Expr::Keyword(kw) => Some(resolve_sym(*kw).to_string()),
+                    Expr::Symbol(sym) => Some(resolve_sym(*sym).to_string()),
                     _ => None,
                 };
                 if let Some(kw_name) = kw_name {
@@ -907,7 +907,7 @@ impl<'a> Parser<'a> {
                         match kw_name.trim_start_matches(':') {
                             "test" => {
                                 if let Expr::Symbol(id) = &items[i + 1] {
-                                    test = match resolve_sym(id) {
+                                    test = match resolve_sym(*id) {
                                         "eq" => super::value::HashTableTest::Eq,
                                         "eql" => super::value::HashTableTest::Eql,
                                         "equal" => super::value::HashTableTest::Equal,

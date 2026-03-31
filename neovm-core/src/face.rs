@@ -504,8 +504,8 @@ impl Face {
                     }
                 }
                 "height" => match val.kind() {
-                    ValueKind::Fixnum(n) => face.height = Some(FaceHeight::Absolute(*n as i32)),
-                    ValueKind::Float => face.height = Some(FaceHeight::Relative(*f)),
+                    ValueKind::Fixnum(n) => face.height = Some(FaceHeight::Absolute(n as i32)),
+                    ValueKind::Float => face.height = Some(FaceHeight::Relative(val.xfloat())),
                     _ => {}
                 },
                 "family" => {
@@ -623,7 +623,7 @@ fn parse_underline_value(value: &Value) -> Option<Underline> {
                     }
                     "position" => {
                         if let Some(n) = item.as_fixnum() {
-                            position = Some(*n as i32);
+                            position = Some(n as i32);
                         }
                     }
                     _ => {}
@@ -675,7 +675,7 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
                     .unwrap_or("")
                     .trim_start_matches(':');
                 let item = &items[i + 1];
-                match key.kind() {
+                match key {
                     "line-width" => match item.kind() {
                         ValueKind::Fixnum(n) => width = n as i32,
                         ValueKind::Cons => {

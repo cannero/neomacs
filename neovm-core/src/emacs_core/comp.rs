@@ -34,14 +34,13 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value.kind() {
-        ValueKind::String => Ok(crate::emacs_core::value::with_heap(|h| {
-            h.get_string(*id).to_owned()
-        })),
-        other => Err(signal(
+    if value.is_string() {
+        Ok(value.as_str().unwrap().to_owned())
+    } else {
+        Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
-        )),
+        ))
     }
 }
 

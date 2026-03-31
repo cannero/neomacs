@@ -69,7 +69,7 @@ fn expect_frame_designator(_name: &str, value: &Value) -> Result<(), Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(()),
         ValueKind::Fixnum(id) if id >= 0 && (id as u64) >= FRAME_ID_BASE => Ok(()),
-        ValueKind::Veclike(VecLikeType::Frame) if *id >= FRAME_ID_BASE => Ok(()),
+        ValueKind::Veclike(VecLikeType::Frame) if value.as_frame_id().unwrap() >= FRAME_ID_BASE => Ok(()),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), *value],
@@ -388,7 +388,7 @@ pub(crate) fn builtin_put_image(args: Vec<Value>) -> EvalResult {
     }
 
     // Validate POINT is integer-or-marker in batch.
-    if !&args[1].is_fixnum() || &args[1].is_char() {
+    if !args[1].is_fixnum() || args[1].is_char() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[1]],
@@ -457,13 +457,13 @@ pub(crate) fn builtin_remove_images(args: Vec<Value>) -> EvalResult {
     expect_max_args("remove-images", &args, 3)?;
 
     // Validate START and END are integer-or-marker in batch.
-    if !&args[0].is_fixnum() || &args[0].is_char() {
+    if !args[0].is_fixnum() || args[0].is_char() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[0]],
         ));
     }
-    if !&args[1].is_fixnum() || &args[1].is_char() {
+    if !args[1].is_fixnum() || args[1].is_char() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[1]],

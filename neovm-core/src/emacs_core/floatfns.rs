@@ -28,7 +28,7 @@ fn extract_number(val: &Value) -> Result<f64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Char(c) => Ok(c as u32 as f64),
-        ValueKind::Float => Ok(*f),
+        ValueKind::Float => Ok(val.xfloat()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *val],
@@ -39,7 +39,7 @@ fn extract_number(val: &Value) -> Result<f64, Flow> {
 /// Extract a float argument with `floatp` contract semantics.
 fn extract_float(val: &Value) -> Result<f64, Flow> {
     match val.kind() {
-        ValueKind::Float => Ok(*f),
+        ValueKind::Float => Ok(val.xfloat()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("floatp"), *val],

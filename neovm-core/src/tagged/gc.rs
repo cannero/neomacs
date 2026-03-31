@@ -482,10 +482,10 @@ impl TaggedHeap {
 
     /// Trace children of a vectorlike object, pushing them onto the gray queue.
     unsafe fn trace_veclike(&mut self, ptr: *mut VecLikeHeader) {
-        match (*ptr).type_tag {
+        match unsafe { (*ptr).type_tag } {
             VecLikeType::Vector => {
                 let obj = ptr as *const VectorObj;
-                for val in &(*obj).data {
+                for val in unsafe { &(*obj).data } {
                     if val.is_heap_object() {
                         self.gray_queue.push(*val);
                     }
@@ -493,7 +493,7 @@ impl TaggedHeap {
             }
             VecLikeType::Record => {
                 let obj = ptr as *const RecordObj;
-                for val in &(*obj).data {
+                for val in unsafe { &(*obj).data } {
                     if val.is_heap_object() {
                         self.gray_queue.push(*val);
                     }
@@ -627,11 +627,11 @@ impl TaggedHeap {
         let stack_top: *const u8;
         #[cfg(target_arch = "x86_64")]
         {
-            std::arch::asm!("mov {}, rsp", out(reg) stack_top, options(nomem, nostack));
+            unsafe { std::arch::asm!("mov {}, rsp", out(reg) stack_top, options(nomem, nostack)); }
         }
         #[cfg(target_arch = "aarch64")]
         {
-            std::arch::asm!("mov {}, sp", out(reg) stack_top, options(nomem, nostack));
+            unsafe { std::arch::asm!("mov {}, sp", out(reg) stack_top, options(nomem, nostack)); }
         }
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
         {
@@ -655,7 +655,7 @@ impl TaggedHeap {
         ptr = (ptr + 7) & !7; // Align to 8 bytes
 
         while ptr + 8 <= end {
-            let word = *(ptr as *const usize);
+            let word = unsafe { *(ptr as *const usize) };
             // Check if this looks like a tagged heap pointer
             let tag = word & 0b111;
             match tag {

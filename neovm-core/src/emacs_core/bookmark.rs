@@ -437,7 +437,7 @@ pub(crate) fn builtin_bookmark_delete(
     // GNU Emacs accepts non-string NAME payloads and simply returns nil.
     // Only string names are actionable for deletion.
     if args[0].is_string() {
-        let name = with_heap(|h| h.get_string(*id).to_owned());
+        let name = args[0].as_str().unwrap().to_owned();
         let _ = eval.bookmarks.delete(&name);
     }
     Ok(Value::NIL)
@@ -470,7 +470,7 @@ pub(crate) fn builtin_bookmark_rename(
     let new_name = &args[1];
 
     if old.is_string() {
-        let old_name_str = with_heap(|h| h.get_string(*old_id).to_owned());
+        let old_name_str = old.as_str().unwrap().to_owned();
         if eval.bookmarks.get(&old_name_str).is_none() {
             return Err(signal(
                 "error",
@@ -499,7 +499,7 @@ pub(crate) fn builtin_bookmark_rename(
 
     if old.is_cons() {
         if new_name.is_string() {
-            let name_str = with_heap(|h| h.get_string(*id).to_owned());
+            let name_str = new_name.as_str().unwrap().to_owned();
             return Err(signal(
                 "error",
                 vec![Value::string(format!("Invalid bookmark {name_str}"))],
@@ -671,8 +671,10 @@ fn default_bookmark_file() -> String {
 }
 
 fn active_bookmark_default_file(eval: &super::eval::Context) -> String {
-    if let Some(ValueKind::String) = eval.obarray.symbol_value("bookmark-default-file") {
-        return with_heap(|h| h.get_string(*id).to_owned());
+    if let Some(v) = eval.obarray.symbol_value("bookmark-default-file") {
+        if v.is_string() {
+            return v.as_str().unwrap().to_owned();
+        }
     }
     default_bookmark_file()
 }
@@ -752,7 +754,7 @@ pub(crate) fn builtin_bookmark_save(
     }
 
     let path = if file_arg.is_string() {
-        with_heap(|h| h.get_string(*id).to_owned())
+        file_arg.as_str().unwrap().to_owned()
     } else {
         if !parg.is_nil() {
             return Err(signal(

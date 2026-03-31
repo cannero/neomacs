@@ -250,7 +250,7 @@ pub(crate) fn builtin_format_time_string(args: Vec<Value>) -> EvalResult {
     let timestamp: i64 = if args.len() >= 2 && !args[1].is_nil() {
         match args[1].kind() {
             ValueKind::Fixnum(n) => n,
-            ValueKind::Float => *f as i64,
+            ValueKind::Float => args[1].xfloat() as i64,
             ValueKind::Cons => {
                 // Emacs time value: (HIGH LOW) or (HIGH LOW USEC) or (HIGH LOW USEC PSEC).
                 // Decode as HIGH * 65536 + LOW.

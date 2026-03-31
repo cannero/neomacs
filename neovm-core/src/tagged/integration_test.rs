@@ -90,8 +90,8 @@ fn test_type_dispatch() {
 
     // OLD:
     // match value {
-    //     Value::Nil => "nil",
-    //     Value::True => "t",
+    //     Value::NIL => "nil",
+    //     Value::T => "t",
     //     Value::Int(n) => format!("int:{}", n),
     //     Value::Char(c) => format!("char:{}", c),
     //     Value::Cons(_) => "cons",

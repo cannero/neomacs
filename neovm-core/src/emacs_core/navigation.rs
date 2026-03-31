@@ -953,7 +953,7 @@ pub(crate) fn builtin_transient_mark_mode(
                 }
             }
             ValueKind::Float => {
-                let truncated = *f as i64;
+                let truncated = args[0].xfloat() as i64;
                 if truncated > 0 {
                     Value::T
                 } else {

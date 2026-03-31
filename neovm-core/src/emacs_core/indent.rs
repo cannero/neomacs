@@ -93,8 +93,8 @@ fn tab_width_in_state(
     buf: Option<&Buffer>,
 ) -> usize {
     match dynamic_buffer_or_global_symbol_value(obarray, dynamic, buf, "tab-width") {
-        Some(ValueKind::Fixnum(n)) if n > 0 => n as usize,
-        Some(ValueKind::Char(c)) if (c as u32) > 0 => c as usize,
+        Some(v) if v.is_fixnum() && v.as_fixnum().unwrap() > 0 => v.as_fixnum().unwrap() as usize,
+        Some(v) if v.is_char() && (v.as_char().unwrap() as u32) > 0 => v.as_char().unwrap() as usize,
         _ => 8,
     }
 }

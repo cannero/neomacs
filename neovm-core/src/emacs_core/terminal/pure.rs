@@ -449,7 +449,7 @@ fn decode_terminal_id_eval(eval: &crate::emacs_core::eval::Context, value: &Valu
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Frame) => eval
             .frames
-            .get(crate::window::FrameId(*fid as u64))
+            .get(crate::window::FrameId(value.as_frame_id().unwrap()))
             .and_then(|frame| {
                 TERMINAL_MANAGER.with(|slot| {
                     slot.borrow()
@@ -485,7 +485,7 @@ pub(crate) fn terminal_designator_in_state_p(
         });
     }
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => frames.get(crate::window::FrameId(*fid as u64)).is_some(),
+        ValueKind::Veclike(VecLikeType::Frame) => frames.get(crate::window::FrameId(value.as_frame_id().unwrap())).is_some(),
         _ => false,
     }
 }
@@ -771,7 +771,7 @@ pub(crate) fn builtin_frame_terminal(
             match frame.kind() {
                 ValueKind::Veclike(VecLikeType::Frame) => eval
                     .frames
-                    .get(crate::window::FrameId(*fid as u64))
+                    .get(crate::window::FrameId(frame.as_frame_id().unwrap()))
                     .map(|frame| frame.terminal_id),
                 _ => None,
             }

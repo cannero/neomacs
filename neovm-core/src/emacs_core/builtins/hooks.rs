@@ -647,7 +647,13 @@ pub(crate) fn builtin_current_window_configuration(
             next_window_configuration_serial(),
         ));
     };
-    let frame_id = crate::window::FrameId(frame_raw_id);
+    let Some(fid) = frame.as_frame_id() else {
+        return Ok(make_window_configuration_value(
+            frame,
+            next_window_configuration_serial(),
+        ));
+    };
+    let frame_id = crate::window::FrameId(fid);
     if let Some(frame_state) = eval.frames.get(frame_id) {
         let mut snapshot = WindowConfigurationSnapshot {
             frame_id,
@@ -799,10 +805,10 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
         }
         value => args.first().copied().unwrap_or(Value::NIL),
     };
-    if !frame.is_frame() {
+    let Some(fid) = frame.as_frame_id() else {
         return Ok(Value::NIL);
     };
-    let frame_id = crate::window::FrameId(frame_raw_id);
+    let frame_id = crate::window::FrameId(fid);
     let Some(frame_state) = eval.frames.get(frame_id) else {
         return Ok(Value::NIL);
     };
@@ -864,10 +870,10 @@ pub(crate) fn builtin_run_window_scroll_functions(
         ValueKind::Nil => super::window_cmds::builtin_selected_window(eval, vec![])?,
         value => args.first().copied().unwrap_or(Value::NIL),
     };
-    if !window_arg.is_window() {
+    let Some(wid) = window_arg.as_window_id() else {
         return Ok(Value::NIL);
     };
-    let window_id = crate::window::WindowId(window_raw_id);
+    let window_id = crate::window::WindowId(wid);
     let frame_id = eval.frames.find_window_frame_id(window_id).ok_or_else(|| {
         signal(
             "wrong-type-argument",

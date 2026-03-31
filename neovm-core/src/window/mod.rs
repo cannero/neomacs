@@ -925,12 +925,10 @@ impl Frame {
     pub fn clear_realized_faces(&mut self) {
         self.realized_faces.clear();
         if self.face_hash_table.is_hash_table() {
-            with_heap_mut(|heap| {
-                let table = heap.get_hash_table_mut(table_id);
-                table.data.clear();
-                table.key_snapshots.clear();
-                table.insertion_order.clear();
-            });
+            let table = self.face_hash_table.as_hash_table_mut().unwrap();
+            table.data.clear();
+            table.key_snapshots.clear();
+            table.insertion_order.clear();
         }
     }
 

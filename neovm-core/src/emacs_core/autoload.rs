@@ -352,7 +352,7 @@ pub(crate) fn finish_autoload_do_load_in_state(
             // callbacks) is fine — the function was redefined.
             if let Some(orig) = original_autoload {
                 let same_identity = match (func.kind(), orig.kind()) {
-                    (ValueKind::Cons, ValueKind::Cons) => a == b,
+                    (ValueKind::Cons, ValueKind::Cons) => func.bits() == orig.bits(),
                     _ => false,
                 };
                 if same_identity {
@@ -532,8 +532,10 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
     if let Some(fndef) = eval.obarray.symbol_function(symbol_name).cloned() {
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {
-                if let Some(ValueKind::String) = items.get(1) {
-                    return Ok(Value::string(with_heap(|h| h.get_string(*id).to_owned())));
+                if let Some(v) = items.get(1) {
+                    if v.is_string() {
+                        return Ok(Value::string(v.as_str().unwrap().to_owned()));
+                    }
                 }
             }
         }

@@ -166,6 +166,7 @@ fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
             psecs: 0,
         }),
         ValueKind::Float => {
+            let f = val.xfloat();
             let secs = f.floor() as i64;
             let usecs = ((f - f.floor()) * 1_000_000.0).round() as i64;
             Ok(TimeMicros {

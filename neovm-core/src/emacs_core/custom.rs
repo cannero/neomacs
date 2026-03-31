@@ -209,7 +209,7 @@ pub(crate) fn builtin_local_variable_p(
     let buf = if args.len() > 1 {
         match args[1].kind() {
             ValueKind::Nil => ctx.buffers.current_buffer(),
-            ValueKind::Veclike(VecLikeType::Buffer) => ctx.buffers.get(*id),
+            ValueKind::Veclike(VecLikeType::Buffer) => ctx.buffers.get(args[1].as_buffer_id().unwrap()),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -235,12 +235,17 @@ pub(crate) fn builtin_buffer_local_variables(
     expect_max_args("buffer-local-variables", &args, 1)?;
 
     let id = match args.first() {
-        None | Some(ValueKind::Nil) => ctx
+        None => ctx
             .buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => *id,
+        Some(v) if v.is_nil() => ctx
+            .buffers
+            .current_buffer()
+            .map(|b| b.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
+        Some(v) if v.is_buffer() => v.as_buffer_id().unwrap(),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -358,7 +363,7 @@ pub(crate) fn builtin_default_value(
         None if super::builtins::is_canonical_symbol_id(resolved)
             && resolved_name.starts_with(':') =>
         {
-            Ok(ValueKind::Keyword(resolved))
+            Ok(Value::from_kw_id(resolved))
         }
         None => Err(signal("void-variable", vec![args[0]])),
     }

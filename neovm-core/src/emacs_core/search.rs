@@ -270,7 +270,8 @@ pub(crate) fn builtin_regexp_quote(args: Vec<Value>) -> EvalResult {
 fn parse_replace_regexp_subexp_start(args: &[Value], s: &str) -> Result<(i64, usize), Flow> {
     // args[5] = SUBEXP (optional), args[6] = START (optional)
     let subexp = match args.get(5) {
-        Some(ValueKind::Nil) | None => 0i64,
+        Some(v) if v.is_nil() => 0i64,
+        None => 0i64,
         Some(value) => expect_int(value)?,
     };
     if subexp < 0 {
@@ -301,7 +302,8 @@ fn replace_regexp_in_string_core(
 
     let (subexp, start) = if let Some(so) = start_override {
         let sub = match args.get(5) {
-            Some(ValueKind::Nil) | None => 0i64,
+            Some(v) if v.is_nil() => 0i64,
+        None => 0i64,
             Some(value) => expect_int(value)?,
         };
         (sub, so)

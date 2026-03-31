@@ -180,8 +180,9 @@ fn replace_lax_whitespace_enabled(eval: &super::eval::Context) -> bool {
 
 fn resolve_search_whitespace_regexp(eval: &super::eval::Context) -> Option<String> {
     let raw = match dynamic_or_global_symbol_value(eval, "search-whitespace-regexp") {
-        Some(ValueKind::String) => with_heap(|h| h.get_string(id).to_owned()),
-        Some(ValueKind::Nil) | None => "[ \t\n\r]+".to_string(),
+        Some(v) if v.is_string() => v.as_str().unwrap().to_owned(),
+        Some(v) if v.is_nil() => "[ \t\n\r]+".to_string(),
+        None => "[ \t\n\r]+".to_string(),
         Some(_) => return None,
     };
     Some(raw)

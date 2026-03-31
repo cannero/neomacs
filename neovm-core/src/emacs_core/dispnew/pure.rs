@@ -84,7 +84,7 @@ fn expect_window_designator(value: &Value) -> Result<(), Flow> {
 
 fn live_window_designator_p(eval: &mut crate::emacs_core::eval::Context, value: &Value) -> bool {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => eval.frames.find_window_frame_id(WindowId(*id)).is_some(),
+        ValueKind::Veclike(VecLikeType::Window) => eval.frames.find_window_frame_id(WindowId(value.as_window_id().unwrap())).is_some(),
         ValueKind::Fixnum(id) if id >= 0 => eval
             .frames
             .find_window_frame_id(WindowId(id as u64))
@@ -109,7 +109,7 @@ fn expect_window_designator_eval(
 
 fn live_window_designator_p_in_state(frames: &crate::window::FrameManager, value: &Value) -> bool {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => frames.find_window_frame_id(WindowId(*id)).is_some(),
+        ValueKind::Veclike(VecLikeType::Window) => frames.find_window_frame_id(WindowId(value.as_window_id().unwrap())).is_some(),
         ValueKind::Fixnum(id) if id >= 0 => frames.find_window_frame_id(WindowId(id as u64)).is_some(),
         _ => false,
     }
@@ -131,7 +131,7 @@ fn expect_window_designator_in_state(
 
 fn window_id_from_window_designator(value: &Value) -> Option<WindowId> {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(value.as_window_id().unwrap())),
         ValueKind::Fixnum(id) if id >= 0 => Some(WindowId(id as u64)),
         _ => None,
     }

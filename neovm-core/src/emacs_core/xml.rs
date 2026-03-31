@@ -75,15 +75,19 @@ fn html_parse_fallback(name: &str, args: &[Value]) -> Value {
 }
 
 fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
-    match value.kind() {
-        ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
-        v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *value],
-        )),
+    if let Some(n) = value.as_fixnum() {
+        return Ok(n);
     }
+    if let Some(c) = value.as_char() {
+        return Ok(c as i64);
+    }
+    if super::marker::is_marker(value) {
+        return super::marker::marker_position_as_int(value);
+    }
+    Err(signal(
+        "wrong-type-argument",
+        vec![Value::symbol("integer-or-marker-p"), *value],
+    ))
 }
 
 // ---------------------------------------------------------------------------

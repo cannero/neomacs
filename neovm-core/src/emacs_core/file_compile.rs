@@ -52,7 +52,7 @@ fn compile_toplevel_file_form(
     match form {
         Expr::List(items) if !items.is_empty() => {
             if let Expr::Symbol(id) = &items[0] {
-                let name = resolve_sym(id);
+                let name = resolve_sym(*id);
                 match name {
                     "progn" => {
                         // Flatten: recurse into each sub-form.

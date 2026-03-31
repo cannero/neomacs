@@ -116,7 +116,7 @@ fn compat_gui_set_window_buffer_applies_display_defaults() {
         .set_buffer_local_property(buffer_id, "right-fringe-width", Value::Int(5))
         .expect("right fringe");
     eval.buffer_manager_mut()
-        .set_buffer_local_property(buffer_id, "fringes-outside-margins", Value::True)
+        .set_buffer_local_property(buffer_id, "fringes-outside-margins", Value::T)
         .expect("outside margins");
     eval.buffer_manager_mut()
         .set_buffer_local_property(buffer_id, "scroll-bar-width", Value::Int(11))
@@ -163,15 +163,15 @@ fn compat_split_window_copies_window_display_state() {
             .and_then(Window::display_mut)
             .expect("leaf display");
         display.display_table = Value::Int(17);
-        display.cursor_type = Value::Nil;
+        display.cursor_type = Value::NIL;
         display.left_fringe_width = 3;
         display.right_fringe_width = 5;
         display.fringes_outside_margins = true;
         display.fringes_persistent = true;
         display.scroll_bar_width = 11;
-        display.vertical_scroll_bar_type = Value::True;
+        display.vertical_scroll_bar_type = Value::T;
         display.scroll_bar_height = 7;
-        display.horizontal_scroll_bar_type = Value::Nil;
+        display.horizontal_scroll_bar_type = Value::NIL;
         display.scroll_bars_persistent = true;
     }
 
@@ -196,8 +196,8 @@ fn compat_split_window_copies_window_display_state() {
 
     assert_eq!(original_display.display_table, Value::Int(17));
     assert_eq!(new_display.display_table, Value::Int(17));
-    assert_eq!(original_display.cursor_type, Value::Nil);
-    assert_eq!(new_display.cursor_type, Value::Nil);
+    assert_eq!(original_display.cursor_type, Value::NIL);
+    assert_eq!(new_display.cursor_type, Value::NIL);
     assert_eq!(original_display.left_fringe_width, 3);
     assert_eq!(new_display.left_fringe_width, 3);
     assert_eq!(original_display.right_fringe_width, 5);
@@ -208,12 +208,12 @@ fn compat_split_window_copies_window_display_state() {
     assert!(new_display.fringes_persistent);
     assert_eq!(original_display.scroll_bar_width, 11);
     assert_eq!(new_display.scroll_bar_width, 11);
-    assert_eq!(original_display.vertical_scroll_bar_type, Value::True);
-    assert_eq!(new_display.vertical_scroll_bar_type, Value::True);
+    assert_eq!(original_display.vertical_scroll_bar_type, Value::T);
+    assert_eq!(new_display.vertical_scroll_bar_type, Value::T);
     assert_eq!(original_display.scroll_bar_height, 7);
     assert_eq!(new_display.scroll_bar_height, 7);
-    assert_eq!(original_display.horizontal_scroll_bar_type, Value::Nil);
-    assert_eq!(new_display.horizontal_scroll_bar_type, Value::Nil);
+    assert_eq!(original_display.horizontal_scroll_bar_type, Value::NIL);
+    assert_eq!(new_display.horizontal_scroll_bar_type, Value::NIL);
     assert!(original_display.scroll_bars_persistent);
     assert!(new_display.scroll_bars_persistent);
 }

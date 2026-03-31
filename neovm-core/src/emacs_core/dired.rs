@@ -118,8 +118,8 @@ fn read_directory_names(dir: &str) -> Result<Vec<String>, Flow> {
 
 fn parse_wholenump_count(arg: Option<&Value>) -> Result<Option<usize>, Flow> {
     match arg {
-        Some(ValueKind::Fixnum(n)) if *n >= 0 => Ok(Some(*n as usize)),
-        Some(v @ ValueKind::Fixnum(_)) => Err(signal(
+        Some(v) if v.is_fixnum() && v.as_fixnum().unwrap() >= 0 => Ok(Some(v.as_fixnum().unwrap() as usize)),
+        Some(v) if v.is_fixnum() => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *v],
         )),

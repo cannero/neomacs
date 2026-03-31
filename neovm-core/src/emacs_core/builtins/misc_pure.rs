@@ -34,7 +34,7 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
         return Ok(Value::NIL);
     }
     if args[0].is_string() {
-        if with_heap(|h| h.get_string(*id).is_empty()) {
+        if args[0].as_str().unwrap().is_empty() {
             ctx.clear_current_message();
             return Ok(args[0]);
         }
@@ -178,18 +178,22 @@ pub(crate) fn builtin_invocation_name(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("error", &args, 1)?;
-    let msg = match builtin_format_message(eval, args)?.kind() {
-        ValueKind::String => builtin_format_message(eval, args)?.as_str().unwrap().to_owned(),
-        _ => "error".to_string(),
+    let formatted = builtin_format_message(eval, args)?;
+    let msg = if formatted.is_string() {
+        formatted.as_str().unwrap().to_owned()
+    } else {
+        "error".to_string()
     };
     Err(signal("error", vec![Value::string(msg)]))
 }
 
 pub(crate) fn builtin_user_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("user-error", &args, 1)?;
-    let msg = match builtin_format_message(eval, args)?.kind() {
-        ValueKind::String => builtin_format_message(eval, args)?.as_str().unwrap().to_owned(),
-        _ => "user-error".to_string(),
+    let formatted = builtin_format_message(eval, args)?;
+    let msg = if formatted.is_string() {
+        formatted.as_str().unwrap().to_owned()
+    } else {
+        "user-error".to_string()
     };
     Err(signal("user-error", vec![Value::string(msg)]))
 }

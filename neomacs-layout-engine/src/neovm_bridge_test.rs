@@ -134,7 +134,7 @@ fn test_window_params_from_neovm_internal_returns_none() {
         None,
         false,
         false,
-        Value::True,
+        Value::T,
     );
     assert!(result.is_none(), "Internal windows should return None");
 }
@@ -169,7 +169,7 @@ fn window_params_from_neovm_uses_default_header_line_and_tab_line_values() {
         None,
         true,
         false,
-        Value::True,
+        Value::T,
     )
     .expect("leaf window params");
 
@@ -220,7 +220,7 @@ fn test_window_params_from_neovm_uses_window_point_not_buffer_point() {
         None,
         true,
         false,
-        Value::True,
+        Value::T,
     )
     .expect("window params");
 
@@ -261,7 +261,7 @@ fn test_effective_cursor_spec_nonselected_box_becomes_hollow() {
     let frame = evaluator.frame_manager().get(frame_id).unwrap();
     let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
 
-    let spec = effective_cursor_spec(frame, buffer, false, false, Value::True).unwrap();
+    let spec = effective_cursor_spec(frame, buffer, false, false, Value::T).unwrap();
 
     assert_eq!(spec.cursor_type, 3);
 }
@@ -295,9 +295,9 @@ fn test_window_params_buffer_locals() {
 
     // Set buffer-local variables.
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
-        buf.set_buffer_local("truncate-lines", Value::True);
+        buf.set_buffer_local("truncate-lines", Value::T);
         buf.set_buffer_local("tab-width", Value::Int(4));
-        buf.set_buffer_local("word-wrap", Value::Nil);
+        buf.set_buffer_local("word-wrap", Value::NIL);
     }
 
     let frame_id = evaluator
@@ -477,7 +477,7 @@ fn test_text_prop_check_invisible() {
         buf.zv_char = buf.text.char_count();
         // Mark "hidden" (positions 8..14) as invisible
         buf.text
-            .text_props_put_property(8, 14, "invisible", Value::True);
+            .text_props_put_property(8, 14, "invisible", Value::T);
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -553,7 +553,7 @@ fn test_text_prop_next_change() {
         buf.text.insert_str(0, "aabbcc");
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
-        buf.text.text_props_put_property(2, 4, "face", Value::True);
+        buf.text.text_props_put_property(2, 4, "face", Value::T);
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -997,7 +997,7 @@ fn test_resolve_face_value_symbol() {
 #[test]
 fn test_resolve_face_value_nil() {
     let _evaluator = neovm_core::emacs_core::Context::new();
-    let names = FaceResolver::resolve_face_value(&Value::Nil);
+    let names = FaceResolver::resolve_face_value(&Value::NIL);
     assert!(names.is_empty());
 }
 

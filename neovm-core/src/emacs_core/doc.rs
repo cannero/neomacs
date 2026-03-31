@@ -93,7 +93,7 @@ fn documentation_plan(
     expect_min_max_args("documentation", &args, 1, 2)?;
     let lisp_directory = obarray
         .symbol_value("lisp-directory")
-        .and_then(Value::as_str_owned);
+        .and_then(|v| v.as_str_owned());
 
     // For symbols, Emacs consults the `function-documentation` property first.
     // This can produce docs even when the function cell is non-callable.
@@ -10546,7 +10546,7 @@ fn documentation_property_plan(
     expect_min_max_args("documentation-property", &args, 2, 3)?;
     let lisp_directory = obarray
         .symbol_value("lisp-directory")
-        .and_then(Value::as_str_owned);
+        .and_then(|v| v.as_str_owned());
 
     let sym = args[0].as_symbol_name().ok_or_else(|| {
         signal(

@@ -22,7 +22,7 @@ fn is_valid_ccl_program(program: &Value) -> bool {
         return false;
     };
 
-    let program = with_heap(|h| h.get_vector(*program).clone());
+    let program = program.as_vector_data().unwrap().clone();
     if program.len() < 3 {
         return false;
     }
@@ -150,7 +150,7 @@ fn ccl_program_code_index_message(
     designator_kind: CclProgramDesignatorKind,
 ) -> String {
     let base_len = match program.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.vector_len(*handle) as i64),
+        ValueKind::Veclike(VecLikeType::Vector) => program.as_vector_data().unwrap().len() as i64,
         _ => 0,
     };
     let index = match designator_kind {

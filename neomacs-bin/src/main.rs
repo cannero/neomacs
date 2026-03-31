@@ -723,7 +723,7 @@ fn main() {
     // scanned by the GC, so collections during VM execution can free
     // values that are still referenced by unwind-protect cleanup forms.
     evaluator.set_gc_threshold(usize::MAX);
-    evaluator.set_variable("dump-mode", Value::Nil);
+    evaluator.set_variable("dump-mode", Value::NIL);
     tracing::info!("Context initialized");
 
     // 3. Bootstrap the host-side initial frame/buffers.
@@ -966,9 +966,9 @@ fn bootstrap_default_font_parameter(font_pixel_size: f32) -> Value {
         // face-attribute units (1/10pt) so face derivation still sees the
         // default-face height rather than a raw pixel count.
         Value::keyword("size"),
-        Value::Int(rounded_pixel_size),
+        Value::fixnum(rounded_pixel_size),
         Value::keyword("height"),
-        Value::Int(100),
+        Value::fixnum(100),
     ])
 }
 
@@ -1200,13 +1200,13 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
 
     eval.set_variable("command-line-args", Value::list(argv));
     eval.set_variable("command-line-args-left", Value::list(argv_left));
-    eval.set_variable("command-line-processed", Value::Nil);
+    eval.set_variable("command-line-processed", Value::NIL);
     eval.set_variable(
         "noninteractive",
         if startup.noninteractive {
-            Value::True
+            Value::T
         } else {
-            Value::Nil
+            Value::NIL
         },
     );
     let (terminal_frame, frame_initial_frame, default_minibuffer_frame) = match startup.frontend {
@@ -1220,15 +1220,15 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
                 opening_frame_initial_alist(eval, window_system),
             );
             (
-                Value::Frame(terminal_frame_id.0),
-                Value::Frame(frame_id.0),
-                Value::Frame(frame_id.0),
+                Value::make_frame(terminal_frame_id.0),
+                Value::make_frame(frame_id.0),
+                Value::make_frame(frame_id.0),
             )
         }
         FrontendKind::Tty => {
-            eval.set_variable("window-system", Value::Nil);
-            eval.set_variable("initial-window-system", Value::Nil);
-            (Value::Frame(frame_id.0), Value::Nil, Value::Nil)
+            eval.set_variable("window-system", Value::NIL);
+            eval.set_variable("initial-window-system", Value::NIL);
+            (Value::make_frame(frame_id.0), Value::NIL, Value::NIL)
         }
     };
     eval.set_variable("invocation-name", Value::string(invocation_name));
@@ -1243,7 +1243,7 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
     // Skip the splash screen — its fill-region is extremely slow through
     // with_mirrored_evaluator.  Users who want it can set this to nil in
     // their init file.
-    eval.set_variable("inhibit-startup-screen", Value::True);
+    eval.set_variable("inhibit-startup-screen", Value::T);
 
     // Override Elisp function-get with Rust builtin. The Elisp version
     // (subr.el) uses get/fboundp/symbol-function in a while loop, each
@@ -1252,7 +1252,7 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
     // errors during macroexpand-all in complex startup sequences.
     use neovm_core::emacs_core::intern::intern;
     eval.obarray_mut()
-        .set_symbol_function("function-get", Value::Subr(intern("function-get")));
+        .set_symbol_function("function-get", Value::subr(intern("function-get")));
 }
 
 fn ensure_gnu_startup_terminal_frame(eval: &mut Context, opening_frame_id: FrameId) -> FrameId {

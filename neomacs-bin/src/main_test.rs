@@ -405,11 +405,11 @@ fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
 
     assert_eq!(
         eval.obarray().symbol_value("window-system"),
-        Some(&Value::Nil)
+        Some(&Value::NIL)
     );
     assert_eq!(
         eval.obarray().symbol_value("initial-window-system"),
-        Some(&Value::Nil)
+        Some(&Value::NIL)
     );
     assert_eq!(
         eval.obarray().symbol_value("command-line-args"),
@@ -442,7 +442,7 @@ fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
 
     assert_eq!(
         eval.obarray().symbol_value("noninteractive"),
-        Some(&Value::True)
+        Some(&Value::T)
     );
     assert_eq!(
         eval.obarray().symbol_value("command-line-args"),
@@ -752,7 +752,7 @@ fn bootstrap_gui_state_allows_gnu_frame_initialize_to_delete_terminal_frame() {
     assert_eq!(frame_ids, vec![frame_id]);
     assert_eq!(
         eval.obarray().symbol_value("terminal-frame"),
-        Some(&Value::Nil)
+        Some(&Value::NIL)
     );
 }
 
@@ -1237,8 +1237,8 @@ fn gnu_startup_processes_load_option_from_forwarded_args() {
         .eval_expr(&forms[0])
         .expect("startup load-option probe should evaluate");
     let items = list_to_vec(&result).expect("load-option result list");
-    assert_eq!(items[0], Value::True);
-    assert_eq!(items[1], Value::True);
+    assert_eq!(items[0], Value::T);
+    assert_eq!(items[1], Value::T);
     assert_eq!(
         print_value_with_eval(&mut eval, &items[2]),
         "\"*Neomacs Face Test*\""
@@ -1297,8 +1297,8 @@ fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input()
         .eval_expr(&forms[0])
         .expect("recursive-edit load-option probe should evaluate");
     let items = list_to_vec(&result).expect("recursive-edit result list");
-    assert_eq!(items[0], Value::True);
-    assert_eq!(items[1], Value::True);
+    assert_eq!(items[0], Value::T);
+    assert_eq!(items[1], Value::T);
     assert_eq!(
         print_value_with_eval(&mut eval, &items[2]),
         "\"*Neomacs Face Test*\""
@@ -1312,7 +1312,7 @@ fn gui_bootstrap_accepts_iso_8859_15_coding_primitives() {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
     let probes = [
-        ("known", "(coding-system-p 'iso-8859-15)", Some(Value::True)),
+        ("known", "(coding-system-p 'iso-8859-15)", Some(Value::T)),
         (
             "type",
             "(coding-system-type 'iso-8859-15)",
@@ -1407,7 +1407,7 @@ fn frame_set_background_mode_uses_live_gui_window_system_after_startup_clears_in
         .expect("selected frame after bootstrap")
         .id;
     configure_gnu_startup_state(&mut eval, frame_id, &gui_startup());
-    eval.set_variable("initial-window-system", Value::Nil);
+    eval.set_variable("initial-window-system", Value::NIL);
 
     let forms = parse_forms(
         r#"(condition-case err
@@ -1557,7 +1557,7 @@ fn dark_gui_background_color_dark_predicate_completes() {
     let result = eval
         .eval_expr(&forms[0])
         .expect("color-dark-p probe should evaluate");
-    assert_eq!(result, Value::True);
+    assert_eq!(result, Value::T);
 }
 
 #[test]
@@ -1790,7 +1790,7 @@ fn gnu_startup_clears_terminal_frame_without_deselecting_opening_gui_frame() {
     );
     assert_eq!(
         eval.obarray().symbol_value("terminal-frame"),
-        Some(&Value::Nil),
+        Some(&Value::NIL),
         "GUI startup should clear terminal-frame after the first recursive edit enters the command loop"
     );
 }

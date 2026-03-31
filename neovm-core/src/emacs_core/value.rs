@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::intern::{SymId, intern, resolve_sym};
 use crate::buffer::text_props::TextPropertyTable;
+use crate::gc::GcTrace;
 use crate::gc::types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
@@ -917,7 +918,7 @@ impl TaggedValue {
         let s = s.into();
         add_wrapping(&STRINGS_CONSED, 1);
         add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
-        with_tagged_heap(|h| h.alloc_string(LispString::new(&s, true)))
+        with_tagged_heap(|h| h.alloc_string(LispString::new(s, true)))
     }
 
     /// Allocate a string from a pre-built LispString.
@@ -932,7 +933,7 @@ impl TaggedValue {
         let s = s.into();
         add_wrapping(&STRINGS_CONSED, 1);
         add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
-        with_tagged_heap(|h| h.alloc_string(LispString::new(&s, true)))
+        with_tagged_heap(|h| h.alloc_string(LispString::new(s, true)))
     }
 
     /// Allocate a unibyte string.
@@ -940,7 +941,7 @@ impl TaggedValue {
         let s = s.into();
         add_wrapping(&STRINGS_CONSED, 1);
         add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
-        with_tagged_heap(|h| h.alloc_string(LispString::new(&s, false)))
+        with_tagged_heap(|h| h.alloc_string(LispString::new(s, false)))
     }
 
     /// Allocate a string with text properties.
@@ -1267,6 +1268,16 @@ impl TaggedValue {
         if self.is_marker() {
             let ptr = self.as_veclike_ptr().unwrap() as *const MarkerObj;
             Some(unsafe { &(*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get mutable marker data from a marker value.
+    pub fn as_marker_data_mut(self) -> Option<&'static mut crate::gc::types::MarkerData> {
+        if self.is_marker() {
+            let ptr = self.as_veclike_ptr().unwrap() as *mut MarkerObj;
+            Some(unsafe { &mut (*ptr).data })
         } else {
             None
         }

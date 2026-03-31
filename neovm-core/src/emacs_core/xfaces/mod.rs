@@ -211,8 +211,8 @@ fn upsert_frame_face_hash_entry(table: Value, key: Value, value: Value) {
     if !table.is_hash_table() {
         unreachable!("frame face hash table must be a hash table");
     };
-    with_heap_mut(|heap| {
-        let hash_table = heap.get_hash_table_mut(table_id);
+    {
+        let hash_table = table.as_hash_table_mut().unwrap();
         let hash_key = match key.kind() {
             ValueKind::Symbol(id) => HashKey::Symbol(id),
             ValueKind::Keyword(id) => HashKey::Keyword(id),
@@ -223,7 +223,7 @@ fn upsert_frame_face_hash_entry(table: Value, key: Value, value: Value) {
         }
         hash_table.key_snapshots.insert(hash_key.clone(), key);
         hash_table.data.insert(hash_key, value);
-    });
+    }
 }
 
 #[cfg(test)]

@@ -296,7 +296,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float => Ok(*f),
+        ValueKind::Float => Ok(value.xfloat()),
         ValueKind::Char(c) => Ok(c as u32 as f64),
         other => Err(signal(
             "wrong-type-argument",
@@ -449,7 +449,7 @@ fn parse_idle_timer_delay(value: &Value) -> Result<f64, Flow> {
 
 fn expect_timer_id(value: &Value) -> Result<TimerId, Flow> {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Timer) => Ok(*id),
+        ValueKind::Veclike(VecLikeType::Timer) => Ok(value.as_timer_id().unwrap()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("timerp"), *value],
@@ -560,7 +560,7 @@ pub(crate) fn builtin_cancel_timer(
 /// (timerp OBJECT) -> t or nil
 pub(crate) fn builtin_timerp(args: Vec<Value>) -> EvalResult {
     expect_args("timerp", &args, 1)?;
-    Ok(Value::bool_val(matches!(args[0], Value::make_timer(_))))
+    Ok(Value::bool_val(args[0].is_timer()))
 }
 
 /// (timer-activate TIMER) -> nil
@@ -589,7 +589,7 @@ pub(crate) fn builtin_timer_activate(
     }
 
     let id = match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Timer) => *id,
+        ValueKind::Veclike(VecLikeType::Timer) => args[0].as_timer_id().unwrap(),
         _ => return Err(signal("error", vec![Value::string("Invalid timer")])),
     };
     if !eval.timers.is_timer(id) {

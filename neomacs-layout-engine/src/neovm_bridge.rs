@@ -5,7 +5,7 @@
 
 use neovm_core::buffer::Buffer;
 use neovm_core::emacs_core::symbol::Obarray;
-use neovm_core::emacs_core::value::{list_to_vec, read_cons};
+use neovm_core::emacs_core::value::{list_to_vec, read_cons, ValueKind};
 use neovm_core::emacs_core::{Context, Value};
 use neovm_core::face::{
     Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight,
@@ -40,7 +40,7 @@ fn frame_parameter_int(frame: &Frame, name: &str, default: i64) -> i64 {
     frame
         .parameters
         .get(name)
-        .and_then(Value::as_int)
+        .and_then(|v| v.as_int())
         .unwrap_or(default)
 }
 
@@ -78,14 +78,14 @@ pub fn frame_params_from_neovm(frame: &Frame, face_table: &FaceTable) -> FramePa
 /// Helper: extract an integer buffer-local variable.
 pub(crate) fn buffer_local_int(buffer: &Buffer, name: &str, default: i64) -> i64 {
     match buffer_local_value(buffer, name) {
-        Some(Value::Int(n)) => *n,
+        Some(v) if v.is_fixnum() => v.as_fixnum().unwrap(),
         _ => default,
     }
 }
 
 fn effective_buffer_int(buffer: &Buffer, obarray: &Obarray, name: &str, default: i64) -> i64 {
     match effective_buffer_value(buffer, obarray, name) {
-        Some(Value::Int(n)) => n,
+        Some(v) if v.is_fixnum() => v.as_fixnum().unwrap(),
         _ => default,
     }
 }
@@ -93,20 +93,22 @@ fn effective_buffer_int(buffer: &Buffer, obarray: &Obarray, name: &str, default:
 /// Helper: extract a boolean buffer-local variable (nil = false, anything else = true).
 pub(crate) fn buffer_local_bool(buffer: &Buffer, name: &str) -> bool {
     match buffer_local_value(buffer, name) {
-        Some(Value::Nil) | None => false,
+        Some(v) if v.is_nil() => false,
+        None => false,
         Some(_) => true,
     }
 }
 
 fn effective_buffer_bool(buffer: &Buffer, obarray: &Obarray, name: &str) -> bool {
     match effective_buffer_value(buffer, obarray, name) {
-        Some(Value::Nil) | None => false,
+        Some(v) if v.is_nil() => false,
+        None => false,
         Some(_) => true,
     }
 }
 
 pub(crate) fn buffer_local_string_owned(buffer: &Buffer, name: &str) -> Option<String> {
-    buffer_local_value(buffer, name).and_then(Value::as_str_owned)
+    buffer_local_value(buffer, name).and_then(|v| v.as_str_owned())
 }
 
 fn chrome_face_pixel_height(face: &ResolvedFace, fallback_char_height: f32) -> f32 {
@@ -132,7 +134,7 @@ pub(crate) fn buffer_local_list_values(buffer: &Buffer, name: &str) -> Vec<Value
 
 pub(crate) fn buffer_display_line_numbers_mode(buffer: &Buffer) -> DisplayLineNumbersMode {
     match buffer_local_value(buffer, "display-line-numbers") {
-        Some(Value::True) => DisplayLineNumbersMode::Absolute,
+        Some(v) if v.bits() == Value::T.bits() => DisplayLineNumbersMode::Absolute,
         Some(value) if value.is_symbol_named("relative") => DisplayLineNumbersMode::Relative,
         Some(value) if value.is_symbol_named("visual") => DisplayLineNumbersMode::Visual,
         _ => DisplayLineNumbersMode::Off,
@@ -141,8 +143,8 @@ pub(crate) fn buffer_display_line_numbers_mode(buffer: &Buffer) -> DisplayLineNu
 
 pub(crate) fn buffer_selective_display(buffer: &Buffer) -> i32 {
     match buffer_local_value(buffer, "selective-display") {
-        Some(Value::Int(n)) => *n as i32,
-        Some(Value::True) => i32::MAX,
+        Some(v) if v.is_fixnum() => v.as_fixnum().unwrap() as i32,
+        Some(v) if v.bits() == Value::T.bits() => i32::MAX,
         _ => 0,
     }
 }
@@ -166,7 +168,7 @@ fn parse_cursor_spec(value: &Value) -> Option<CursorSpec> {
         return None;
     }
 
-    if *value == Value::True || value.is_symbol_named("box") {
+    if value.bits() == Value::T.bits() || value.is_symbol_named("box") {
         return Some(CursorSpec {
             cursor_type: 0,
             bar_width: 1,
@@ -190,7 +192,7 @@ fn parse_cursor_spec(value: &Value) -> Option<CursorSpec> {
             bar_width: 2,
         });
     }
-    if matches!(value, Value::Cons(_)) {
+    if value.is_cons() {
         let car = value.cons_car();
         let cdr = value.cons_cdr();
         let bar_width = cdr.as_int().unwrap_or(1).max(0) as i32;
@@ -255,10 +257,10 @@ fn effective_cursor_spec(
     is_minibuffer: bool,
     window_cursor_type: Value,
 ) -> Option<CursorSpec> {
-    let base = if window_cursor_type != Value::True {
+    let base = if window_cursor_type.bits() != Value::T.bits() {
         parse_cursor_spec(&window_cursor_type)
     } else if let Some(buffer_cursor_type) = buffer_local_value(buffer, "cursor-type") {
-        if *buffer_cursor_type == Value::True {
+        if buffer_cursor_type.bits() == Value::T.bits() {
             Some(frame_cursor_spec(frame))
         } else {
             parse_cursor_spec(buffer_cursor_type)
@@ -277,7 +279,7 @@ fn effective_cursor_spec(
 
     let alt_cursor = buffer_local_value(buffer, "cursor-in-non-selected-windows");
     if let Some(value) = alt_cursor
-        && *value != Value::True
+        && value.bits() != Value::T.bits()
     {
         return parse_cursor_spec(value);
     }
@@ -506,8 +508,8 @@ pub fn window_params_from_neovm(
         fill_column_indicator_char: '|',
         fill_column_indicator_fg: 0,
         extra_line_spacing: match buffer_local_value(buffer, "line-spacing") {
-            Some(Value::Int(n)) => *n as f32,
-            Some(Value::Float(f, _)) => *f as f32,
+            Some(v) if v.is_fixnum() => v.as_fixnum().unwrap() as f32,
+            Some(v) if v.is_float() => v.xfloat() as f32,
             _ => 0.0,
         },
         cursor_in_non_selected,
@@ -800,7 +802,8 @@ impl<'a> RustTextPropAccess<'a> {
             .text_props_get_property(bytepos, "invisible");
 
         let is_invisible = match invis {
-            Some(Value::Nil) | None => false,
+            Some(v) if v.is_nil() => false,
+        None => false,
             Some(_) => true, // Any non-nil value means invisible
         };
 
@@ -843,8 +846,9 @@ impl<'a> RustTextPropAccess<'a> {
             .text
             .text_props_get_property(bytepos, "line-spacing")
         {
-            Some(Value::Int(n)) => n as f32,
-            Some(Value::Float(f, _)) => {
+            Some(v) if v.is_fixnum() => v.as_fixnum().unwrap() as f32,
+            Some(v) if v.is_float() => {
+                let f = v.xfloat();
                 if f < 1.0 {
                     // Fraction of base height
                     base_height * (f as f32)
@@ -976,8 +980,8 @@ fn value_as_string(val: &Value) -> Option<String> {
     // Value::Str uses ObjId -- need to resolve through the heap.
     // For now, use the display format as a fallback.
     // TODO: When the heap is accessible, use with_heap(|h| h.get_str(id))
-    match val {
-        Value::Nil => None,
+    match val.kind() {
+        ValueKind::Nil => None,
         _ => {
             // Try to get the string representation.
             // This is a temporary approach -- proper string extraction
@@ -1110,7 +1114,7 @@ pub struct FaceResolver {
 impl FaceResolver {
     fn face_spec_is_plist(items: &[Value]) -> bool {
         match items.first() {
-            Some(Value::Keyword(_)) => true,
+            Some(v) if v.is_keyword() => true,
             Some(item) => item
                 .as_symbol_name()
                 .is_some_and(|name| name.starts_with(':')),
@@ -1322,18 +1326,18 @@ impl FaceResolver {
     }
 
     fn face_name_from_value<'a>(value: &'a Value) -> Option<&'a str> {
-        match value {
-            Value::Symbol(_) | Value::Keyword(_) => value.as_symbol_name(),
-            Value::Str(_) => value.as_str(),
+        match value.kind() {
+            ValueKind::Symbol(_) | ValueKind::Keyword(_) => value.as_symbol_name(),
+            ValueKind::String => value.as_str(),
             _ => None,
         }
     }
 
     fn is_filtered_face_spec(items: &[Value]) -> bool {
         match items.first() {
-            Some(Value::Keyword(_)) => items
+            Some(v) if v.is_keyword() => items
                 .first()
-                .and_then(Value::as_symbol_name)
+                .and_then(|v| v.as_symbol_name())
                 .is_some_and(|name| name == "filtered"),
             Some(item) => item
                 .as_symbol_name()
@@ -1345,21 +1349,21 @@ impl FaceResolver {
     fn buffer_face_remapping_specs(buffer: &Buffer, face_name: &str) -> Option<Value> {
         let mut cursor = buffer.buffer_local_value("face-remapping-alist")?;
         loop {
-            match cursor {
-                Value::Cons(cell) => {
-                    let entry = read_cons(cell);
-                    if let Value::Cons(mapping_cell) = entry.car {
-                        let mapping = read_cons(mapping_cell);
-                        if Self::face_name_from_value(&mapping.car)
-                            .is_some_and(|name| name == face_name)
-                        {
-                            return Some(mapping.cdr);
-                        }
-                    }
-                    cursor = entry.cdr;
-                }
-                _ => return None,
+            if !cursor.is_cons() {
+                return None;
             }
+            let entry_car = cursor.cons_car();
+            let entry_cdr = cursor.cons_cdr();
+            if entry_car.is_cons() {
+                let mapping_car = entry_car.cons_car();
+                let mapping_cdr = entry_car.cons_cdr();
+                if Self::face_name_from_value(&mapping_car)
+                    .is_some_and(|name| name == face_name)
+                {
+                    return Some(mapping_cdr);
+                }
+            }
+            cursor = entry_cdr;
         }
     }
 
@@ -1370,9 +1374,9 @@ impl FaceResolver {
         val: &Value,
         remap_stack: &mut Vec<String>,
     ) -> Option<ResolvedFace> {
-        match val {
-            Value::Nil => None,
-            Value::Symbol(_) | Value::Keyword(_) | Value::Str(_) => {
+        match val.kind() {
+            ValueKind::Nil => None,
+            ValueKind::Symbol(_) | ValueKind::Keyword(_) | ValueKind::String => {
                 let name = Self::face_name_from_value(val)?;
                 if name == "nil" {
                     return None;
@@ -1392,7 +1396,7 @@ impl FaceResolver {
 
                 Some(self.apply_named_face_over(base, name))
             }
-            Value::Cons(_) => {
+            ValueKind::Cons => {
                 let items = list_to_vec(val)?;
                 if items.is_empty() {
                     return None;
@@ -1437,13 +1441,13 @@ impl FaceResolver {
         base: &ResolvedFace,
         val: &Value,
     ) -> Option<ResolvedFace> {
-        match val {
-            Value::Nil => None,
-            Value::Symbol(_) | Value::Keyword(_) => {
+        match val.kind() {
+            ValueKind::Nil => None,
+            ValueKind::Symbol(_) | ValueKind::Keyword(_) => {
                 let name = val.as_symbol_name()?;
                 (name != "nil").then(|| self.apply_named_face_over(base, name))
             }
-            Value::Cons(_) => {
+            ValueKind::Cons => {
                 let items = list_to_vec(val)?;
                 if items.is_empty() {
                     return None;
@@ -1570,9 +1574,9 @@ impl FaceResolver {
     /// - Nil: no face
     /// - Otherwise: empty vec (unrecognized format)
     pub fn resolve_face_value(val: &Value) -> Vec<String> {
-        match val {
-            Value::Nil => Vec::new(),
-            Value::Symbol(_) | Value::Keyword(_) => {
+        match val.kind() {
+            ValueKind::Nil => Vec::new(),
+            ValueKind::Symbol(_) | ValueKind::Keyword(_) => {
                 if let Some(name) = val.as_symbol_name() {
                     if name == "nil" {
                         Vec::new()
@@ -1583,7 +1587,7 @@ impl FaceResolver {
                     Vec::new()
                 }
             }
-            Value::Cons(_) => {
+            ValueKind::Cons => {
                 // Could be a list of face names, or a plist of face attributes.
                 if let Some(items) = list_to_vec(val) {
                     // Check if first item is a keyword (plist like :foreground "red")

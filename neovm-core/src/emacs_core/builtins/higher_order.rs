@@ -100,7 +100,6 @@ where
                         let pair_cdr = cursor.cons_cdr();
                         let item = pair_car;
                         cursor = pair_cdr;
-                        drop(pair);
                         f(item)?;
                     }
                     tail => {
@@ -169,7 +168,6 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
                         let pair_cdr = cursor.cons_cdr();
                         let item = pair_car;
                         cursor = pair_cdr;
-                        drop(pair);
                         ctx.root(cursor);
                         let val = ctx.apply(func, vec![item])?;
                         ctx.root(val);
@@ -221,7 +219,6 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
                         let pair_cdr = cursor.cons_cdr();
                         let item = pair_car;
                         cursor = pair_cdr;
-                        drop(pair);
                         // Root the remaining tail before calling the function.
                         ctx.root(cursor);
                         ctx.apply(func, vec![item])?;
@@ -417,7 +414,7 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
                     ValueKind::Nil => break,
                     ValueKind::Cons => {
                         values.push(cursor.cons_car());
-                        cons_cells.push(cell);
+                        cons_cells.push(cursor);
                         cursor = cursor.cons_cdr();
                     }
                     tail => {
@@ -462,14 +459,13 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
             let sorted_values = sorted_values?;
 
             if in_place {
-                with_heap_mut(|h| *h.get_vector_mut(*v) = sorted_values);
+                *args[0].as_vector_data_mut().unwrap() = sorted_values;
                 Ok(args[0])
             } else {
                 match args[0].kind() {
                     ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(sorted_values)),
                     ValueKind::Veclike(VecLikeType::Record) => {
-                        let id = with_heap_mut(|h| h.alloc_vector(sorted_values));
-                        Ok(ValueKind::Veclike(VecLikeType::Record))
+                        Ok(Value::make_record(sorted_values))
                     }
                     _ => unreachable!(),
                 }

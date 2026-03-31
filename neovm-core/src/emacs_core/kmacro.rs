@@ -454,7 +454,7 @@ pub(crate) fn builtin_last_kbd_macro(
 /// Compatibility subset: accepts vector and string macro encodings.
 pub(crate) fn builtin_kmacro_p(args: Vec<Value>) -> EvalResult {
     expect_args("kmacro-p", &args, 1)?;
-    Ok(Value::bool_val((args[0].is_vector() || args[0].is_string())))
+    Ok(Value::bool_val(args[0].is_vector() || args[0].is_string()))
 }
 
 /// (kmacro-set-counter COUNTER &optional FORMAT-START) -> nil
@@ -522,10 +522,9 @@ fn indirect_macro_function(eval: &super::eval::Context, value: &Value) -> Value 
     let mut seen = HashSet::new();
 
     loop {
-        let Some(symbol_id) = (match current {
-            Value::symbol(id) | Value::keyword(id) => Some(id),
-            Value::T => Some(super::intern::intern("t")),
-            Value::NIL => None,
+        let Some(symbol_id) = (match current.kind() {
+            ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(id),
+            _ if current.bits() == Value::T.bits() => Some(super::intern::intern("t")),
             _ => None,
         }) else {
             return current;
@@ -554,7 +553,7 @@ fn resolve_macro_events(eval: &super::eval::Context, value: &Value) -> Result<Ve
         ValueKind::String => {
             // Each character in the string becomes a Char event.
             let s = indirect_macro_function(eval, value).as_str().unwrap().to_owned();
-            Ok(s.chars().map(Value::Char).collect())
+            Ok(s.chars().map(Value::char).collect())
         }
         _ => Err(signal(
             "error",

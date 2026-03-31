@@ -12,7 +12,7 @@ fn compat_bootstrap_macro_cells_are_scoped_to_source_bootstrap() {
             .obarray()
             .symbol_function("eval-and-compile")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         assert!(
             !matches!(plain_function, Value::Macro(_)),
             "plain Context::new should not seed source-bootstrap macro cells"
@@ -26,7 +26,7 @@ fn compat_bootstrap_macro_cells_are_scoped_to_source_bootstrap() {
             .obarray()
             .symbol_function(name)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         assert!(
             matches!(function, Value::Macro(_)),
             "{name} should be a bootstrap macro cell"
@@ -48,7 +48,7 @@ fn compat_bootstrap_macro_cells_are_scoped_to_source_bootstrap() {
             .obarray()
             .symbol_function(name)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         assert!(
             !matches!(function, Value::Macro(_)),
             "{name} should not be a source-bootstrap macro cell"
@@ -74,10 +74,10 @@ fn compat_source_bootstrap_context_stays_pre_subr_surface() {
             .obarray()
             .symbol_function(name)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         assert_eq!(
             function,
-            Value::Nil,
+            Value::NIL,
             "{name} should remain unavailable before GNU Lisp bootstrap"
         );
     }

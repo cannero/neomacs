@@ -568,7 +568,7 @@ fn fetch2(bytecodes: &[u8], pos: &mut usize, byte_offset: usize) -> Result<u16, 
 fn add_or_find_symbol(constants: &mut Vec<Value>, name: &str) -> u16 {
     let sym = Value::symbol(name);
     for (i, c) in constants.iter().enumerate() {
-        if let (Value::symbol(a), Value::symbol(b)) = (c, &sym) {
+        if let (Some(a), Some(b)) = (c.as_symbol_id(), sym.as_symbol_id()) {
             if a == b {
                 return i as u16;
             }

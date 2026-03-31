@@ -81,14 +81,14 @@ fn eval_status_line_format_value(
                 .obarray()
                 .symbol_value(format_symbol)
                 .copied()
-                .unwrap_or(Value::Nil)
+                .unwrap_or(Value::NIL)
         });
     let expr = Expr::List(vec![
         Expr::Symbol(intern("format-mode-line")),
         Expr::OpaqueValueRef(opaque_pool_insert(format_value)),
         Expr::Bool(false),
-        Expr::OpaqueValueRef(opaque_pool_insert(Value::Window(window_id as u64))),
-        Expr::OpaqueValueRef(opaque_pool_insert(Value::Buffer(BufferId(buffer_id)))),
+        Expr::OpaqueValueRef(opaque_pool_insert(Value::make_window(window_id as u64))),
+        Expr::OpaqueValueRef(opaque_pool_insert(Value::make_buffer(BufferId(buffer_id)))),
     ]);
     evaluator
         .eval_expr(&expr)
@@ -98,17 +98,17 @@ fn eval_status_line_format_value(
 
 fn tab_bar_menu_item_caption(entry: Value) -> Option<String> {
     if let Some(items) = list_to_vec(&entry) {
-        if items.get(1).and_then(Value::as_symbol_name) == Some("menu-item") {
+        if items.get(1).and_then(|v| v.as_symbol_name()) == Some("menu-item") {
             return items.get(2)?.as_str_owned();
         }
     }
 
-    let Value::Cons(cell) = entry else {
+    if !entry.is_cons() {
         return None;
-    };
-    let pair = read_cons(cell);
-    let items = list_to_vec(&pair.cdr)?;
-    if items.first().and_then(Value::as_symbol_name) != Some("menu-item") {
+    }
+    let pair_cdr = entry.cons_cdr();
+    let items = list_to_vec(&pair_cdr)?;
+    if items.first().and_then(|v| v.as_symbol_name()) != Some("menu-item") {
         return None;
     }
     items.get(1)?.as_str_owned()
@@ -137,8 +137,8 @@ fn build_tab_bar_plain_text(
     evaluator
         .eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::Frame(frame_id))),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::make_frame(frame_id))),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
         ]))
         .ok()?;
 
@@ -171,14 +171,14 @@ fn build_tab_bar_plain_text(
         let _ = evaluator.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
             Expr::OpaqueValueRef(opaque_pool_insert(frame)),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
         ]));
     }
     if let Some(window) = saved_window {
         let _ = evaluator.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-window")),
             Expr::OpaqueValueRef(opaque_pool_insert(window)),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
         ]));
     }
     if let Some(buffer_id) = saved_buffer {
@@ -577,9 +577,8 @@ fn next_window_start_for_point_line_continuation(
 /// Check if a Value is a space display spec: a cons whose car is the symbol `space`.
 /// e.g., `(space :width 5)` or `(space :align-to 40)`
 fn is_display_space_spec(val: &neovm_core::emacs_core::Value) -> bool {
-    if let neovm_core::emacs_core::Value::Cons(id) = val {
-        let pair = neovm_core::emacs_core::value::read_cons(*id);
-        return pair.car.is_symbol_named("space");
+    if val.is_cons() {
+        return val.cons_car().is_symbol_named("space");
     }
     false
 }
@@ -598,23 +597,21 @@ fn parse_display_space_width(
         let mut i = 1;
         while i + 1 < items.len() {
             if items[i].is_symbol_named(":width") {
-                match items[i + 1] {
-                    neovm_core::emacs_core::Value::Int(n) => return n as f32 * char_w,
-                    neovm_core::emacs_core::Value::Float(f, _) => return f as f32 * char_w,
-                    _ => {}
+                let item = items[i + 1];
+                if let Some(n) = item.as_fixnum() {
+                    return n as f32 * char_w;
+                } else if item.is_float() {
+                    return item.xfloat() as f32 * char_w;
                 }
             }
             if items[i].is_symbol_named(":align-to") {
-                match items[i + 1] {
-                    neovm_core::emacs_core::Value::Int(n) => {
-                        let target_x = content_x + n as f32 * char_w;
-                        return (target_x - current_x).max(0.0);
-                    }
-                    neovm_core::emacs_core::Value::Float(f, _) => {
-                        let target_x = content_x + f as f32 * char_w;
-                        return (target_x - current_x).max(0.0);
-                    }
-                    _ => {}
+                let item = items[i + 1];
+                if let Some(n) = item.as_fixnum() {
+                    let target_x = content_x + n as f32 * char_w;
+                    return (target_x - current_x).max(0.0);
+                } else if item.is_float() {
+                    let target_x = content_x + item.xfloat() as f32 * char_w;
+                    return (target_x - current_x).max(0.0);
                 }
             }
             i += 2;
@@ -626,9 +623,8 @@ fn parse_display_space_width(
 /// Check if a Value is an image display spec: a cons whose car is the symbol `image`.
 /// e.g., `(image :type png :file "/path/to/image.png")`
 fn is_display_image_spec(val: &neovm_core::emacs_core::Value) -> bool {
-    if let neovm_core::emacs_core::Value::Cons(id) = val {
-        let pair = neovm_core::emacs_core::value::read_cons(*id);
-        return pair.car.is_symbol_named("image");
+    if val.is_cons() {
+        return val.cons_car().is_symbol_named("image");
     }
     false
 }
@@ -795,16 +791,17 @@ fn cursor_style_for_window(params: &WindowParams) -> Option<CursorStyle> {
 /// Returns the raise factor as f32, or None if not a raise spec.
 fn parse_display_raise_factor(prop_val: &neovm_core::emacs_core::Value) -> Option<f32> {
     // Form 1: (raise FACTOR)
-    if let neovm_core::emacs_core::Value::Cons(id) = prop_val {
-        let pair = neovm_core::emacs_core::value::read_cons(*id);
-        if pair.car.is_symbol_named("raise") {
+    if prop_val.is_cons() {
+        let car = prop_val.cons_car();
+        let cdr = prop_val.cons_cdr();
+        if car.is_symbol_named("raise") {
             // cdr should be (FACTOR . nil) or FACTOR
-            if let neovm_core::emacs_core::Value::Cons(cdr_id) = pair.cdr {
-                let cdr_pair = neovm_core::emacs_core::value::read_cons(cdr_id);
-                if let Some(f) = cdr_pair.car.as_number_f64() {
+            if cdr.is_cons() {
+                let cdr_car = cdr.cons_car();
+                if let Some(f) = cdr_car.as_number_f64() {
                     return Some(f as f32);
                 }
-            } else if let Some(f) = pair.cdr.as_number_f64() {
+            } else if let Some(f) = cdr.as_number_f64() {
                 return Some(f as f32);
             }
         }
@@ -834,16 +831,17 @@ fn parse_display_raise_factor(prop_val: &neovm_core::emacs_core::Value) -> Optio
 /// Returns the height scale factor as f32, or None if not a height spec.
 fn parse_display_height_factor(prop_val: &neovm_core::emacs_core::Value) -> Option<f32> {
     // Form 1: (height FACTOR)
-    if let neovm_core::emacs_core::Value::Cons(id) = prop_val {
-        let pair = neovm_core::emacs_core::value::read_cons(*id);
-        if pair.car.is_symbol_named("height") {
+    if prop_val.is_cons() {
+        let car = prop_val.cons_car();
+        let cdr = prop_val.cons_cdr();
+        if car.is_symbol_named("height") {
             // cdr should be (FACTOR . nil) or FACTOR
-            if let neovm_core::emacs_core::Value::Cons(cdr_id) = pair.cdr {
-                let cdr_pair = neovm_core::emacs_core::value::read_cons(cdr_id);
-                if let Some(f) = cdr_pair.car.as_number_f64() {
+            if cdr.is_cons() {
+                let cdr_car = cdr.cons_car();
+                if let Some(f) = cdr_car.as_number_f64() {
                     return Some(f as f32);
                 }
-            } else if let Some(f) = pair.cdr.as_number_f64() {
+            } else if let Some(f) = cdr.as_number_f64() {
                 return Some(f as f32);
             }
         }
@@ -2606,8 +2604,8 @@ impl LayoutEngine {
                     // while symbol values (e.g. `outline`, `hs`) typically indicate that
                     // ellipsis should be shown (via buffer-invisibility-spec).
                     let show_ellipsis = match text_props.get_property(charpos, "invisible") {
-                        Some(neovm_core::emacs_core::Value::True) => false,
-                        Some(neovm_core::emacs_core::Value::Nil) | None => false,
+                        Some(neovm_core::emacs_core::Value::T) => false,
+                        Some(neovm_core::emacs_core::Value::NIL) | None => false,
                         Some(_) => true,
                     };
 
@@ -10257,7 +10255,7 @@ mod tests {
             buf.text
                 .text_props_put_property(sample_byte_start, sample_byte_end, "face", plist);
             buf.goto_byte(0);
-            buf.set_buffer_local("truncate-lines", Value::True);
+            buf.set_buffer_local("truncate-lines", Value::T);
         }
 
         let frame_id = eval.frame_manager_mut().create_frame(
@@ -10856,7 +10854,7 @@ mod tests {
             let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
             buf.insert("aaaa bbbb cccc dddd\n");
             buf.goto_byte(0);
-            buf.set_buffer_local("word-wrap", Value::True);
+            buf.set_buffer_local("word-wrap", Value::T);
         }
         let frame_id = eval
             .frame_manager_mut()
@@ -10927,7 +10925,7 @@ mod tests {
             let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
             buf.insert(&text);
             buf.goto_byte(0);
-            buf.set_buffer_local("truncate-lines", Value::True);
+            buf.set_buffer_local("truncate-lines", Value::T);
         }
         let frame_id = eval
             .frame_manager_mut()
@@ -11392,7 +11390,7 @@ mod tests {
             let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
             buf.insert(&text);
             buf.goto_byte(0);
-            buf.set_buffer_local("word-wrap", Value::True);
+            buf.set_buffer_local("word-wrap", Value::T);
         }
         let frame_id = eval
             .frame_manager_mut()
@@ -11472,7 +11470,7 @@ mod tests {
             let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
             buf.insert(&text);
             buf.goto_byte(0);
-            buf.set_buffer_local("word-wrap", Value::True);
+            buf.set_buffer_local("word-wrap", Value::T);
         }
         let frame_id =
             eval.frame_manager_mut()
@@ -11759,7 +11757,7 @@ mod tests {
         eval.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
             Expr::OpaqueValueRef(opaque_pool_insert(Value::Frame(frame_id.0))),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
         ]))
         .expect("select target frame for tab-bar debug");
         let keymap_debug = match eval.eval_expr(&Expr::List(vec![Expr::Symbol(intern(
@@ -11780,7 +11778,7 @@ mod tests {
                 Expr::Symbol(intern("prin1-to-string")),
                 Expr::List(vec![
                     Expr::Symbol(intern("frame-parameter")),
-                    Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
+                    Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
                     Expr::OpaqueValueRef(opaque_pool_insert(Value::symbol("tabs"))),
                 ]),
             ]))
@@ -11798,7 +11796,7 @@ mod tests {
         eval.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
             Expr::OpaqueValueRef(opaque_pool_insert(Value::Frame(selected_frame.0))),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
         ]))
         .expect("restore selected frame");
 

@@ -85,7 +85,7 @@ fn parse_real_buffer_destination_in_state(
         ValueKind::Nil => Ok((OutputTarget::Discard, false)),
         ValueKind::T | ValueKind::String => Ok((OutputTarget::Buffer(*value), false)),
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            if buffers.get(*id).is_none() {
+            if buffers.get(value.as_buffer_id().unwrap()).is_none() {
                 Err(signal(
                     "error",
                     vec![Value::string("Selecting deleted buffer")],
@@ -189,7 +189,7 @@ fn insert_process_output_in_state(
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             buffers
-                .insert_into_buffer(*id, output)
+                .insert_into_buffer(destination.as_buffer_id().unwrap(), output)
                 .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
             Ok(())
         }

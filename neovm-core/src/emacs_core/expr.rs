@@ -99,7 +99,7 @@ pub fn print_expr(expr: &Expr) -> String {
         Expr::Float(v) => format_float(*v),
         Expr::Symbol(id) => format_symbol_id(*id),
         Expr::ReaderLoadFileName => "#$".to_string(),
-        Expr::Keyword(id) => resolve_sym(id).to_owned(),
+        Expr::Keyword(id) => resolve_sym(*id).to_owned(),
         Expr::Str(s) => format_lisp_string(s),
         Expr::Char(c) => format_char_literal(*c),
         Expr::Bool(true) => "t".to_string(),
@@ -114,7 +114,7 @@ pub fn print_expr(expr: &Expr) -> String {
             }
             if items.len() == 2 {
                 if let Expr::Symbol(id) = &items[0] {
-                    let s = resolve_sym(id);
+                    let s = resolve_sym(*id);
                     if s == "quote" {
                         return format!("'{}", print_expr(&items[1]));
                     }

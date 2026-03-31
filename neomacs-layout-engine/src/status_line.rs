@@ -12,7 +12,7 @@ use neomacs_display_protocol::frame_glyphs::{FrameGlyphBuffer, GlyphRowRole};
 use neomacs_display_protocol::types::{Color, Rect};
 use neovm_core::buffer::text_props::TextPropertyTable;
 use neovm_core::emacs_core::Value;
-use neovm_core::emacs_core::value::get_string_text_properties_table;
+use neovm_core::emacs_core::value::get_string_text_properties_table_for_value;
 use std::collections::HashMap;
 use std::ffi::CStr;
 
@@ -1046,10 +1046,10 @@ impl LayoutEngine {
             kind, x, y, width, height, window_id, char_width, ascent, face, text,
         );
 
-        let Value::Str(str_id) = rendered else {
+        if !rendered.is_string() {
             return Some(spec);
-        };
-        let Some(props) = get_string_text_properties_table(str_id) else {
+        }
+        let Some(props) = get_string_text_properties_table_for_value(rendered) else {
             return Some(spec);
         };
 
