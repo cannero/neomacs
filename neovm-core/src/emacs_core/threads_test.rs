@@ -552,7 +552,10 @@ fn test_builtin_make_thread_preserves_caller_current_buffer() {
             body: vec![
                 Expr::List(vec![
                     Expr::Symbol(intern("set-buffer")),
-                    Expr::OpaqueValue(Value::Buffer(worker_buffer)),
+                    Expr::OpaqueValueRef(
+                        super::super::eval::OPAQUE_POOL
+                            .with(|pool| pool.borrow_mut().insert(Value::Buffer(worker_buffer))),
+                    ),
                 ]),
                 Expr::List(vec![Expr::Symbol(intern("current-buffer"))]),
             ]

@@ -4,7 +4,7 @@ use super::types::{HeapObject, MarkerData, ObjId, OverlayData};
 use crate::buffer::BufferId;
 use crate::emacs_core::bytecode::ByteCodeFunction;
 use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// GC collection phase (tri-color incremental).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,11 +30,6 @@ pub struct LispHeap {
     gc_phase: GcPhase,
     /// Gray worklist — objects marked but whose children haven't been scanned.
     gray_queue: Vec<ObjId>,
-    /// Cache of opaque Value roots from Lambda/Macro body ASTs.
-    /// Avoids re-walking the entire Expr tree on every GC cycle.
-    /// Key = ObjId index, Value = collected opaque Values.
-    /// Invalidated when the object is freed.
-    opaque_roots_cache: HashMap<u32, Vec<ObjId>>,
     /// Stack bottom captured at creation — used by conservative stack scanning.
     /// Points to the deepest (oldest) stack frame of the thread that owns
     /// this heap.
@@ -59,7 +54,6 @@ impl LispHeap {
             gc_threshold: 8192,
             gc_phase: GcPhase::Idle,
             gray_queue: Vec::new(),
-            opaque_roots_cache: HashMap::new(),
             // Will be set by Context::new() from the outermost frame
             stack_bottom: std::ptr::null(),
         }
@@ -793,45 +787,9 @@ impl LispHeap {
             let mut children = Vec::new();
             Self::trace_heap_object(&self.objects[i], &mut children);
 
-            // For Lambda/Macro: use cached opaque roots instead of
-            // re-walking the entire body AST every GC cycle.
-            if matches!(
-                &self.objects[i],
-                HeapObject::Lambda(_) | HeapObject::Macro(_)
-            ) {
-                if let Some(cached) = self.opaque_roots_cache.get(&id.index) {
-                    children.extend_from_slice(cached);
-                } else {
-                    // Compute and cache
-                    let mut opaque = Vec::new();
-                    match &self.objects[i] {
-                        HeapObject::Lambda(d) | HeapObject::Macro(d) => {
-                            for expr in d.body.iter() {
-                                expr.collect_opaque_values(&mut opaque);
-                            }
-                        }
-                        _ => {}
-                    }
-                    let opaque_ids: Vec<ObjId> = opaque
-                        .iter()
-                        .filter_map(|v| match v {
-                            Value::Cons(id)
-                            | Value::Vector(id)
-                            | Value::Record(id)
-                            | Value::HashTable(id)
-                            | Value::Str(id)
-                            | Value::Lambda(id)
-                            | Value::Macro(id)
-                            | Value::ByteCode(id)
-                            | Value::Overlay(id)
-                            | Value::Marker(id) => Some(*id),
-                            _ => None,
-                        })
-                        .collect();
-                    children.extend_from_slice(&opaque_ids);
-                    self.opaque_roots_cache.insert(id.index, opaque_ids);
-                }
-            }
+            // NOTE: OpaqueValue roots from Lambda/Macro body ASTs are now
+            // traced via the thread-local OpaqueValuePool in collect_roots,
+            // not by walking body Expr trees here.
 
             self.gray_queue.extend(children);
         }
@@ -859,43 +817,7 @@ impl LispHeap {
             let mut children = Vec::new();
             Self::trace_heap_object(&self.objects[i], &mut children);
 
-            // For Lambda/Macro: use cached opaque roots (same as mark_all)
-            if matches!(
-                &self.objects[i],
-                HeapObject::Lambda(_) | HeapObject::Macro(_)
-            ) {
-                if let Some(cached) = self.opaque_roots_cache.get(&id.index) {
-                    children.extend_from_slice(cached);
-                } else {
-                    let mut opaque = Vec::new();
-                    match &self.objects[i] {
-                        HeapObject::Lambda(d) | HeapObject::Macro(d) => {
-                            for expr in d.body.iter() {
-                                expr.collect_opaque_values(&mut opaque);
-                            }
-                        }
-                        _ => {}
-                    }
-                    let opaque_ids: Vec<ObjId> = opaque
-                        .iter()
-                        .filter_map(|v| match v {
-                            Value::Cons(id)
-                            | Value::Vector(id)
-                            | Value::Record(id)
-                            | Value::HashTable(id)
-                            | Value::Str(id)
-                            | Value::Lambda(id)
-                            | Value::Macro(id)
-                            | Value::ByteCode(id)
-                            | Value::Overlay(id)
-                            | Value::Marker(id) => Some(*id),
-                            _ => None,
-                        })
-                        .collect();
-                    children.extend_from_slice(&opaque_ids);
-                    self.opaque_roots_cache.insert(id.index, opaque_ids);
-                }
-            }
+            // NOTE: OpaqueValue roots traced via OpaqueValuePool (see mark_all).
 
             self.gray_queue.extend(children);
         }
@@ -906,8 +828,6 @@ impl LispHeap {
     fn sweep_all(&mut self) {
         for i in 0..self.objects.len() {
             if !self.marks[i] && !matches!(self.objects[i], HeapObject::Free) {
-                // Invalidate opaque roots cache for freed lambdas/macros
-                self.opaque_roots_cache.remove(&(i as u32));
                 self.objects[i] = HeapObject::Free;
                 self.generations[i] = self.generations[i].wrapping_add(1);
                 self.free_list.push(i as u32);
@@ -995,10 +915,8 @@ impl LispHeap {
                 if let Some(interactive_val) = &d.interactive {
                     Self::push_value_ids(interactive_val, children);
                 }
-                // NOTE: OpaqueValue roots from body AST are handled by
-                // the opaque_roots_cache in mark_all/mark_some, NOT here.
-                // This avoids the O(n * body_size) cost of re-walking the
-                // entire Expr tree on every GC cycle.
+                // NOTE: OpaqueValueRef indices in body ASTs are traced via
+                // the thread-local OpaqueValuePool in collect_roots, not here.
             }
             HeapObject::ByteCode(bc) => {
                 for c in &bc.constants {
@@ -1068,7 +986,6 @@ impl LispHeap {
             gc_threshold: 8192,
             gc_phase: GcPhase::Idle,
             gray_queue: Vec::new(),
-            opaque_roots_cache: HashMap::new(),
             stack_bottom: std::ptr::null(),
         }
     }

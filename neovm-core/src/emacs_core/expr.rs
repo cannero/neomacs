@@ -25,11 +25,13 @@ pub enum Expr {
     DottedList(Vec<Expr>, Box<Expr>),
     /// Boolean literal — Emacs uses nil/t symbols, but we also accept #t/#f.
     Bool(bool),
-    /// Opaque runtime value (Lambda, ByteCode, Subr, etc.) embedded in code.
+    /// Index into the thread-local `OpaqueValuePool` for a runtime Value
+    /// (Lambda, ByteCode, Subr, etc.) embedded in code.
     /// Produced by `value_to_expr` when converting data structures containing
     /// callable values (e.g., closures inside backquoted defcustom expansions).
-    /// Evaluates to the contained value directly.
-    OpaqueValue(super::value::Value),
+    /// Evaluates to the pooled value directly.  The pool is GC-rooted, so
+    /// the referenced Value always survives collection.
+    OpaqueValueRef(u32),
 }
 
 impl Expr {
@@ -51,11 +53,11 @@ impl Expr {
         }
     }
 
-    /// Check if this Expr tree contains any `OpaqueValue` nodes.
+    /// Check if this Expr tree contains any `OpaqueValueRef` nodes.
     /// Forms containing opaque values cannot be serialized to cache.
     pub fn contains_opaque_value(&self) -> bool {
         match self {
-            Expr::OpaqueValue(_) => true,
+            Expr::OpaqueValueRef(_) => true,
             Expr::ReaderLoadFileName => false,
             Expr::List(items) | Expr::Vector(items) => {
                 items.iter().any(|e| e.contains_opaque_value())
@@ -67,25 +69,12 @@ impl Expr {
         }
     }
 
-    /// Collect all Values embedded in `OpaqueValue` nodes in this Expr tree.
-    /// Used by GC to trace Values inside Lambda/Macro body expressions.
-    pub fn collect_opaque_values(&self, out: &mut Vec<super::value::Value>) {
-        match self {
-            Expr::OpaqueValue(v) => out.push(*v),
-            Expr::ReaderLoadFileName => {}
-            Expr::List(items) | Expr::Vector(items) => {
-                for e in items {
-                    e.collect_opaque_values(out);
-                }
-            }
-            Expr::DottedList(items, last) => {
-                for e in items {
-                    e.collect_opaque_values(out);
-                }
-                last.collect_opaque_values(out);
-            }
-            _ => {} // Leaf nodes: Int, Float, Symbol, Keyword, Str, Char, Bool
-        }
+    /// Collect all Values embedded in opaque nodes in this Expr tree.
+    ///
+    /// With the OpaqueValuePool system, `OpaqueValueRef` indices are traced
+    /// by the pool itself, so this is a no-op.  Kept for API compatibility.
+    pub fn collect_opaque_values(&self, _out: &mut Vec<super::value::Value>) {
+        // Pool handles GC tracing — nothing to collect from Expr trees.
     }
 }
 
@@ -115,7 +104,10 @@ pub fn print_expr(expr: &Expr) -> String {
         Expr::Char(c) => format_char_literal(*c),
         Expr::Bool(true) => "t".to_string(),
         Expr::Bool(false) => "nil".to_string(),
-        Expr::OpaqueValue(v) => format!("{}", v),
+        Expr::OpaqueValueRef(idx) => {
+            let val = super::eval::OPAQUE_POOL.with(|pool| pool.borrow().get(*idx));
+            format!("{}", val)
+        }
         Expr::List(items) => {
             if items.is_empty() {
                 return "nil".to_string();

@@ -118,7 +118,10 @@ pub(crate) fn dump_expr(e: &Expr) -> DumpExpr {
             Box::new(dump_expr(tail)),
         ),
         Expr::Bool(b) => DumpExpr::Bool(*b),
-        Expr::OpaqueValue(v) => DumpExpr::OpaqueValue(dump_value(v)),
+        Expr::OpaqueValueRef(idx) => {
+            let val = crate::emacs_core::eval::OPAQUE_POOL.with(|pool| pool.borrow().get(*idx));
+            DumpExpr::OpaqueValue(dump_value(&val))
+        }
     }
 }
 
@@ -1349,7 +1352,12 @@ pub(crate) fn load_expr(e: &DumpExpr) -> Expr {
             Box::new(load_expr(tail)),
         ),
         DumpExpr::Bool(b) => Expr::Bool(*b),
-        DumpExpr::OpaqueValue(v) => Expr::OpaqueValue(load_value(v)),
+        DumpExpr::OpaqueValue(v) => {
+            let val = load_value(v);
+            Expr::OpaqueValueRef(
+                crate::emacs_core::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(val)),
+            )
+        }
     }
 }
 

@@ -6321,31 +6321,37 @@ fn contains_opaque_value_detection() {
         "plain form should not contain opaque values"
     );
 
-    // Form with OpaqueValue should be detected
+    // Form with OpaqueValueRef should be detected
+    let opaque_idx =
+        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::Int(99)));
     let opaque = Expr::List(vec![
         Expr::Symbol(intern("quote")),
-        Expr::OpaqueValue(Value::Int(99)),
+        Expr::OpaqueValueRef(opaque_idx),
     ]);
     assert!(
         opaque.contains_opaque_value(),
-        "form with OpaqueValue should be detected"
+        "form with OpaqueValueRef should be detected"
     );
 
-    // Nested OpaqueValue in vector
+    // Nested OpaqueValueRef in vector
+    let nested_idx =
+        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::True));
     let nested = Expr::Vector(vec![
         Expr::Int(1),
-        Expr::List(vec![Expr::OpaqueValue(Value::True)]),
+        Expr::List(vec![Expr::OpaqueValueRef(nested_idx)]),
     ]);
     assert!(
         nested.contains_opaque_value(),
-        "nested OpaqueValue should be detected"
+        "nested OpaqueValueRef should be detected"
     );
 
-    // DottedList with OpaqueValue in tail
-    let dotted = Expr::DottedList(vec![Expr::Int(1)], Box::new(Expr::OpaqueValue(Value::Nil)));
+    // DottedList with OpaqueValueRef in tail
+    let tail_idx =
+        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::Nil));
+    let dotted = Expr::DottedList(vec![Expr::Int(1)], Box::new(Expr::OpaqueValueRef(tail_idx)));
     assert!(
         dotted.contains_opaque_value(),
-        "OpaqueValue in dotted tail should be detected"
+        "OpaqueValueRef in dotted tail should be detected"
     );
 
     // DottedList without OpaqueValue

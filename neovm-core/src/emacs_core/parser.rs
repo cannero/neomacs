@@ -870,7 +870,7 @@ impl<'a> Parser<'a> {
         // #s(hash-table size N test T data (k1 v1 k2 v2 ...))
         // GNU Emacs reader creates an actual hash table value during reading.
         // We parse the keyword arguments and construct a Value::HashTable
-        // wrapped in Expr::OpaqueValue so quoting works correctly.
+        // wrapped in Expr::OpaqueValueRef so quoting works correctly.
         let list = self.parse_list_or_dotted()?;
 
         // Check if this is a hash-table or a record/struct
@@ -966,7 +966,10 @@ impl<'a> Parser<'a> {
                     ht.insertion_order.push(hash_key);
                 });
             }
-            return Ok(Expr::OpaqueValue(Value::HashTable(ht_id)));
+            return Ok(Expr::OpaqueValueRef(
+                super::eval::OPAQUE_POOL
+                    .with(|pool| pool.borrow_mut().insert(Value::HashTable(ht_id))),
+            ));
         }
 
         // Not a hash-table — it's a record #s(type field1 field2 ...)
@@ -976,7 +979,10 @@ impl<'a> Parser<'a> {
                 use super::value::{Value, with_heap_mut};
                 let vals: Vec<Value> = items.iter().map(super::eval::quote_to_value).collect();
                 let record_id = with_heap_mut(|h| h.alloc_vector(vals));
-                return Ok(Expr::OpaqueValue(Value::Record(record_id)));
+                return Ok(Expr::OpaqueValueRef(
+                    super::eval::OPAQUE_POOL
+                        .with(|pool| pool.borrow_mut().insert(Value::Record(record_id))),
+                ));
             }
         }
         // Fallback for empty or non-list

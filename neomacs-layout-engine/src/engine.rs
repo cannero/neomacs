@@ -22,6 +22,7 @@ use neomacs_display_protocol::frame_glyphs::{
 use neomacs_display_protocol::types::{Color, Rect};
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
+use neovm_core::emacs_core::eval::opaque_pool_insert;
 use neovm_core::emacs_core::expr::Expr;
 use neovm_core::emacs_core::intern::intern;
 use neovm_core::emacs_core::keymap::is_list_keymap;
@@ -84,10 +85,10 @@ fn eval_status_line_format_value(
         });
     let expr = Expr::List(vec![
         Expr::Symbol(intern("format-mode-line")),
-        Expr::OpaqueValue(format_value),
+        Expr::OpaqueValueRef(opaque_pool_insert(format_value)),
         Expr::Bool(false),
-        Expr::OpaqueValue(Value::Window(window_id as u64)),
-        Expr::OpaqueValue(Value::Buffer(BufferId(buffer_id))),
+        Expr::OpaqueValueRef(opaque_pool_insert(Value::Window(window_id as u64))),
+        Expr::OpaqueValueRef(opaque_pool_insert(Value::Buffer(BufferId(buffer_id)))),
     ]);
     evaluator
         .eval_expr(&expr)
@@ -136,8 +137,8 @@ fn build_tab_bar_plain_text(
     evaluator
         .eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValue(Value::Frame(frame_id)),
-            Expr::OpaqueValue(Value::Nil),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::Frame(frame_id))),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
         ]))
         .ok()?;
 
@@ -169,15 +170,15 @@ fn build_tab_bar_plain_text(
     if let Some(frame) = saved_frame {
         let _ = evaluator.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValue(frame),
-            Expr::OpaqueValue(Value::Nil),
+            Expr::OpaqueValueRef(opaque_pool_insert(frame)),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
         ]));
     }
     if let Some(window) = saved_window {
         let _ = evaluator.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-window")),
-            Expr::OpaqueValue(window),
-            Expr::OpaqueValue(Value::Nil),
+            Expr::OpaqueValueRef(opaque_pool_insert(window)),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
         ]));
     }
     if let Some(buffer_id) = saved_buffer {
@@ -11757,8 +11758,8 @@ mod tests {
         }
         eval.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValue(Value::Frame(frame_id.0)),
-            Expr::OpaqueValue(Value::Nil),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::Frame(frame_id.0))),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
         ]))
         .expect("select target frame for tab-bar debug");
         let keymap_debug = match eval.eval_expr(&Expr::List(vec![Expr::Symbol(intern(
@@ -11767,7 +11768,7 @@ mod tests {
             Ok(value) => eval
                 .eval_expr(&Expr::List(vec![
                     Expr::Symbol(intern("prin1-to-string")),
-                    Expr::OpaqueValue(value),
+                    Expr::OpaqueValueRef(opaque_pool_insert(value)),
                 ]))
                 .ok()
                 .and_then(|rendered| rendered.as_str_owned())
@@ -11779,8 +11780,8 @@ mod tests {
                 Expr::Symbol(intern("prin1-to-string")),
                 Expr::List(vec![
                     Expr::Symbol(intern("frame-parameter")),
-                    Expr::OpaqueValue(Value::Nil),
-                    Expr::OpaqueValue(Value::symbol("tabs")),
+                    Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
+                    Expr::OpaqueValueRef(opaque_pool_insert(Value::symbol("tabs"))),
                 ]),
             ]))
             .ok()
@@ -11796,8 +11797,8 @@ mod tests {
             .unwrap_or_else(|| "<unavailable>".to_string());
         eval.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValue(Value::Frame(selected_frame.0)),
-            Expr::OpaqueValue(Value::Nil),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::Frame(selected_frame.0))),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::Nil)),
         ]))
         .expect("restore selected frame");
 

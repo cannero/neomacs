@@ -216,9 +216,11 @@ impl Compiler {
                 // Treat as regular list call (dotted lists in source are rare)
                 self.compile_list(func, items, for_value);
             }
-            Expr::OpaqueValue(v) => {
+            Expr::OpaqueValueRef(pool_idx) => {
                 if for_value {
-                    let idx = func.add_constant(*v);
+                    let val =
+                        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow().get(*pool_idx));
+                    let idx = func.add_constant(val);
                     self.emit_tracked(func, Op::Constant(idx));
                 }
             }
@@ -1860,7 +1862,7 @@ fn is_literal(expr: &Expr) -> bool {
             | Expr::Str(_)
             | Expr::Char(_)
             | Expr::Keyword(_)
-            | Expr::OpaqueValue(_)
+            | Expr::OpaqueValueRef(_)
             | Expr::Bool(_)
     ) || matches!(expr, Expr::Symbol(id) if resolve_sym(*id) == "nil" || resolve_sym(*id) == "t")
 }
@@ -1904,7 +1906,9 @@ fn literal_to_value(expr: &Expr) -> Value {
                 .rev()
                 .fold(tail_val, |acc, item| Value::cons(item, acc))
         }
-        Expr::OpaqueValue(v) => *v,
+        Expr::OpaqueValueRef(pool_idx) => {
+            super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow().get(*pool_idx))
+        }
     }
 }
 

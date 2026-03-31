@@ -5,6 +5,64 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+/// GC-rooted constant pool for Values embedded in Expr trees.
+/// Replaces Expr::OpaqueValue(Value) with Expr::OpaqueValueRef(u32).
+/// Values in this pool are always traced by GC — no stale ObjIds.
+pub(crate) struct OpaqueValuePool {
+    values: Vec<Option<Value>>,
+    free_list: Vec<u32>,
+}
+
+impl OpaqueValuePool {
+    pub fn new() -> Self {
+        Self {
+            values: Vec::new(),
+            free_list: Vec::new(),
+        }
+    }
+
+    pub fn insert(&mut self, val: Value) -> u32 {
+        if let Some(idx) = self.free_list.pop() {
+            self.values[idx as usize] = Some(val);
+            idx
+        } else {
+            let idx = self.values.len() as u32;
+            self.values.push(Some(val));
+            idx
+        }
+    }
+
+    pub fn get(&self, idx: u32) -> Value {
+        self.values[idx as usize].unwrap_or(Value::Nil)
+    }
+
+    #[allow(dead_code)]
+    pub fn remove(&mut self, idx: u32) {
+        self.values[idx as usize] = None;
+        self.free_list.push(idx);
+    }
+
+    pub fn trace_roots(&self, roots: &mut Vec<Value>) {
+        for val in &self.values {
+            if let Some(v) = val {
+                roots.push(*v);
+            }
+        }
+    }
+}
+
+thread_local! {
+    /// Thread-local opaque value pool used by `value_to_expr` and other code
+    /// that creates `Expr::OpaqueValueRef` nodes without access to `Context`.
+    pub(crate) static OPAQUE_POOL: RefCell<OpaqueValuePool> = RefCell::new(OpaqueValuePool::new());
+}
+
+/// Insert a Value into the thread-local OpaqueValuePool and return its index.
+/// Use the returned index with `Expr::OpaqueValueRef(idx)`.
+pub fn opaque_pool_insert(val: Value) -> u32 {
+    OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(val))
+}
+
 use super::abbrev::AbbrevManager;
 use super::advice::VariableWatcherList;
 use super::autoload::AutoloadManager;
@@ -243,8 +301,8 @@ fn expr_fingerprint(expr: &Expr, hasher: &mut impl std::hash::Hasher, depth: usi
             }
             expr_fingerprint(tail, hasher, depth - 1);
         }
-        Expr::OpaqueValue(v) => {
-            std::mem::discriminant(v).hash(hasher);
+        Expr::OpaqueValueRef(idx) => {
+            idx.hash(hasher);
         }
     }
 }
@@ -346,18 +404,11 @@ enum InterpretedClosureEnvEntry {
 pub(crate) struct MacroExpansionCacheEntry {
     expanded: Rc<Expr>,
     fingerprint: u64,
-    opaque_roots: Vec<Value>,
-    /// GC epoch when this entry was created. If the current gc_count
-    /// differs, opaque Values in the Expr tree may reference collected
-    /// objects — the entry must be discarded and the macro re-expanded.
-    gc_epoch: u64,
 }
 
 impl MacroExpansionCacheEntry {
-    fn new(expanded: Rc<Expr>, fingerprint: u64, gc_epoch: u64) -> Self {
+    fn new(expanded: Rc<Expr>, fingerprint: u64) -> Self {
         Self {
-            opaque_roots: opaque_values_for_expr(&expanded),
-            gc_epoch,
             expanded,
             fingerprint,
         }
@@ -372,7 +423,6 @@ struct InterpretedClosureTrimCacheEntry {
     env_shape: Vec<InterpretedClosureEnvEntry>,
     params: LambdaParams,
     trimmed_body: Rc<Vec<Expr>>,
-    trimmed_body_opaque_roots: Vec<Value>,
     trimmed_env_template: Vec<InterpretedClosureEnvEntry>,
 }
 
@@ -3669,17 +3719,11 @@ impl Context {
         // Literal cache — cached quote_to_value results for pcase eq-memoization
         roots.extend(self.source_literal_cache.values().copied());
 
-        // Macro expansion cache — root any OpaqueValue nodes in cached Expr trees
-        for entry in self.macro_expansion_cache.values() {
-            roots.extend(entry.opaque_roots.iter().copied());
-        }
+        // OpaqueValuePool — root all pooled Values (replaces per-entry opaque_roots)
+        OPAQUE_POOL.with(|pool| pool.borrow().trace_roots(&mut roots));
+
         if let Some(filter_fn) = self.interpreted_closure_filter_fn {
             roots.push(filter_fn);
-        }
-        for entries in self.interpreted_closure_trim_cache.values() {
-            for entry in entries {
-                roots.extend(entry.trimmed_body_opaque_roots.iter().copied());
-            }
         }
 
         // Named call cache — holds a Value when target is Obarray(val)
@@ -4883,37 +4927,6 @@ impl Context {
         val
     }
 
-    /// Check if a macro expansion cache entry has stale opaque roots.
-    /// Returns true if ANY opaque root has a stale ObjId.
-    fn macro_cache_entry_has_stale_roots(
-        &self,
-        entry: &std::rc::Rc<MacroExpansionCacheEntry>,
-    ) -> bool {
-        for val in &entry.opaque_roots {
-            match val {
-                Value::Cons(id)
-                | Value::Vector(id)
-                | Value::Record(id)
-                | Value::HashTable(id)
-                | Value::Str(id)
-                | Value::Lambda(id)
-                | Value::Macro(id)
-                | Value::ByteCode(id)
-                | Value::Overlay(id)
-                | Value::Marker(id) => {
-                    let i = id.index as usize;
-                    if i < self.heap.generations().len()
-                        && self.heap.generations()[i] != id.generation
-                    {
-                        return true; // stale!
-                    }
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-
     /// Open a HandleScope that can be passed between functions.
     /// The scope MUST be closed via `scope.close(ctx)` when done.
     /// Prefer `with_gc_scope` for self-contained blocks.
@@ -5326,8 +5339,8 @@ impl Context {
     }
 
     /// Evaluate a Value as code (like Elisp's `eval`).
-    /// Converts Value to Expr, roots any embedded OpaqueValues (closures,
-    /// bytecode, etc.) so they survive GC, then evaluates.
+    /// Converts Value to Expr, then evaluates.  OpaqueValueRef entries
+    /// are rooted by the OpaqueValuePool automatically.
     pub fn eval_value(&mut self, value: &Value) -> EvalResult {
         let expr = value_to_expr(value);
         self.with_gc_scope(|ctx| {
@@ -5472,7 +5485,7 @@ impl Context {
                 let _ = last;
                 self.eval_list(items)
             }
-            Expr::OpaqueValue(v) => Ok(*v),
+            Expr::OpaqueValueRef(idx) => Ok(OPAQUE_POOL.with(|pool| pool.borrow().get(*idx))),
         }
     }
 
@@ -5828,8 +5841,7 @@ impl Context {
 
                 if let Value::Macro(_) = &func {
                     let expanded = self.expand_macro(func, tail)?;
-                    // Root OpaqueValues (closures, bytecode, etc.) embedded
-                    // in the expansion so they survive GC during eval.
+                    // OpaqueValueRef entries are rooted by OpaqueValuePool.
                     return self.with_gc_scope(|ctx| {
                         let mut opaques = Vec::new();
                         collect_opaque_values(&expanded, &mut opaques);
@@ -5854,18 +5866,10 @@ impl Context {
                             if let Some(cached) =
                                 self.macro_expansion_cache.get(&cache_key).cloned()
                             {
-                                if cached.fingerprint == current_fp
-                                    && cached.gc_epoch == self.gc_count
-                                {
+                                if cached.fingerprint == current_fp {
                                     self.macro_cache_hits += 1;
                                     let expanded = cached.expanded.clone();
-                                    let opaque_roots = cached.opaque_roots.clone();
-                                    return self.with_gc_scope(|ctx| {
-                                        for v in &opaque_roots {
-                                            ctx.push_temp_root(*v);
-                                        }
-                                        ctx.eval(&expanded)
-                                    });
+                                    return self.eval(&expanded);
                                 }
                                 // Fingerprint mismatch → ABA detected, fall through to re-expand
                             }
@@ -5885,8 +5889,9 @@ impl Context {
                                 eval.apply(macro_fn, arg_values)
                             })?;
                             // Root expansion result during value_to_expr traversal
-                            // AND during eval of expanded_expr (OpaqueValues reference
-                            // heap objects reachable only through expanded_value).
+                            // OpaqueValueRef entries are pool-rooted, but the
+                            // expanded_value itself still needs temp-rooting during
+                            // value_to_expr traversal.
                             self.push_temp_root(expanded_value);
                             let expr = value_to_expr(&expanded_value);
                             scope.close(self);
@@ -5904,21 +5909,13 @@ impl Context {
                         let expanded_cache_entry = Rc::new(MacroExpansionCacheEntry::new(
                             expanded_rc.clone(),
                             current_fp,
-                            self.gc_count,
                         ));
-                        if !self.macro_cache_disabled
-                            && expanded_cache_entry.opaque_roots.is_empty()
-                        {
+                        if !self.macro_cache_disabled {
                             self.macro_expansion_cache
-                                .insert(cache_key, expanded_cache_entry.clone());
+                                .insert(cache_key, expanded_cache_entry);
                         }
 
-                        return self.with_gc_scope(|ctx| {
-                            for v in &expanded_cache_entry.opaque_roots {
-                                ctx.push_temp_root(*v);
-                            }
-                            ctx.eval(&expanded_rc)
-                        });
+                        return self.eval(&expanded_rc);
                     }
                 }
 
@@ -6005,10 +6002,11 @@ impl Context {
 
         // Head is an opaque callable value (Lambda, ByteCode, Subr, etc.)
         // embedded in code via value_to_expr (e.g., from eval/macro expansion).
-        if let Expr::OpaqueValue(func) = head {
-            self.push_temp_root(*func);
+        if let Expr::OpaqueValueRef(idx) = head {
+            let func = OPAQUE_POOL.with(|pool| pool.borrow().get(*idx));
+            self.push_temp_root(func);
             let (args, scope) = self.eval_args(tail)?;
-            let result = self.apply(*func, args);
+            let result = self.apply(func, args);
             scope.close(self);
             self.temp_roots.pop();
             return result;
@@ -6993,7 +6991,10 @@ impl Context {
                     Some(Expr::Symbol(s)) if *s == intern("byte-code-literal")
                 ) =>
             {
-                Ok(Expr::OpaqueValue(self.sf_byte_code_literal(&elts[1..])?))
+                let val = self.sf_byte_code_literal(&elts[1..])?;
+                Ok(Expr::OpaqueValueRef(
+                    OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(val)),
+                ))
             }
             Expr::List(items) => Ok(Expr::List(
                 items
@@ -7492,14 +7493,12 @@ impl Context {
         {
             return;
         }
-        let trimmed_body_opaque_roots = opaque_values_for_exprs(lambda_data.body.as_ref());
         bucket.push(InterpretedClosureTrimCacheEntry {
             params_expr: params_expr.clone(),
             body_exprs: body_exprs.to_vec(),
             iform_expr,
             env_shape,
             params: lambda_data.params,
-            trimmed_body_opaque_roots,
             trimmed_body: lambda_data.body,
             trimmed_env_template: interpreted_closure_env_entries(trimmed_env),
         });
@@ -8357,7 +8356,7 @@ impl Context {
         let current_fp = tail_fingerprint(args);
         if !self.macro_cache_disabled {
             if let Some(cached) = self.macro_expansion_cache.get(&cache_key).cloned() {
-                if cached.fingerprint == current_fp && cached.gc_epoch == self.gc_count {
+                if cached.fingerprint == current_fp {
                     self.macro_cache_hits += 1;
                     return Ok(cached.expanded.clone());
                 }
@@ -8398,16 +8397,10 @@ impl Context {
         let expand_elapsed = expand_start.elapsed();
         self.macro_cache_misses += 1;
         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
-        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(
-            result.clone(),
-            current_fp,
-            self.gc_count,
-        ));
-        // Only cache expansions with NO OpaqueValues. Expansions that
-        // embed live heap objects (via Expr::OpaqueValue) can hold stale
-        // ObjIds after GC collects those objects — the Rc<Expr> clone
-        // outlives the GC epoch, producing stale references on reuse.
-        if !self.macro_cache_disabled && cache_entry.opaque_roots.is_empty() {
+        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(result.clone(), current_fp));
+        // With OpaqueValuePool, expansions containing OpaqueValueRef are
+        // safe to cache — the pool keeps referenced Values GC-rooted.
+        if !self.macro_cache_disabled {
             if expand_elapsed.as_millis() > 50 {
                 tracing::warn!(
                     "macro_cache MISS id={id:?} ptr={:#x} took {expand_elapsed:.2?}",
@@ -9300,28 +9293,16 @@ pub fn quote_to_value(expr: &Expr) -> Value {
             let vals = items.iter().map(quote_to_value).collect();
             Value::vector(vals)
         }
-        Expr::OpaqueValue(v) => *v,
+        Expr::OpaqueValueRef(idx) => OPAQUE_POOL.with(|pool| pool.borrow().get(*idx)),
     }
 }
 
-/// Collect all `OpaqueValue` references from an Expr tree into a Vec.
-/// Used to root them in temp_roots before evaluating the Expr.
+/// Collect all opaque value references from an Expr tree into a Vec.
+///
+/// With the OpaqueValuePool system, this is a no-op — the pool handles
+/// GC tracing.  Kept for API compatibility.
 pub(crate) fn collect_opaque_values(expr: &Expr, out: &mut Vec<Value>) {
     expr.collect_opaque_values(out);
-}
-
-fn opaque_values_for_expr(expr: &Expr) -> Vec<Value> {
-    let mut opaque_values = Vec::new();
-    collect_opaque_values(expr, &mut opaque_values);
-    opaque_values
-}
-
-fn opaque_values_for_exprs(exprs: &[Expr]) -> Vec<Value> {
-    let mut opaque_values = Vec::new();
-    for expr in exprs {
-        collect_opaque_values(expr, &mut opaque_values);
-    }
-    opaque_values
 }
 
 fn format_startup_value(value: Option<&Value>) -> String {
@@ -9366,11 +9347,13 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
             let items = with_heap(|h| h.get_vector(*v).clone());
             Expr::Vector(items.iter().map(value_to_expr).collect())
         }
-        Value::Subr(id) => Expr::OpaqueValue(Value::Subr(*id)),
+        Value::Subr(id) => Expr::OpaqueValueRef(
+            OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::Subr(*id))),
+        ),
         // Lambda, Macro, ByteCode, HashTable, Buffer, etc. — preserve as
         // opaque values so they survive the Value→Expr→Value round-trip
         // (e.g., closures embedded in defcustom backquote expansions).
-        other => Expr::OpaqueValue(*other),
+        other => Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(*other))),
     }
 }
 

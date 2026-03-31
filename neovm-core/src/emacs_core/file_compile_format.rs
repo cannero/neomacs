@@ -123,8 +123,8 @@ impl ExprEncoder {
                 Box::new(self.encode(tail)?),
             ),
             Expr::Bool(b) => CachedExpr::Bool(*b),
-            // OpaqueValue (lambdas, subrs, etc.) cannot be serialized.
-            Expr::OpaqueValue(_) => return None,
+            // OpaqueValueRef (lambdas, subrs, etc.) cannot be serialized.
+            Expr::OpaqueValueRef(_) => return None,
         })
     }
 }
@@ -174,7 +174,7 @@ pub fn source_sha256(content: &str) -> String {
 
 /// Serialize compiled forms to `.neobc` binary format.
 ///
-/// Returns `None` if any form contains an `OpaqueValue` that cannot be
+/// Returns `None` if any form contains an `OpaqueValueRef` that cannot be
 /// serialized (e.g., a lambda or subr embedded by eval-when-compile).
 pub fn serialize_neobc(
     source_hash: &str,
