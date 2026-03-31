@@ -97,7 +97,6 @@ use crate::buffer::{BufferManager, InsertionType};
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc::GcTrace;
 use crate::gc::ObjId;
-use crate::gc::heap::LispHeap;
 use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
@@ -772,9 +771,7 @@ pub struct Context {
     pub(crate) subr_registry: Vec<Option<SubrObject>>,
     /// String interner for symbol/keyword/subr names (SymId handles).
     pub(crate) interner: Box<StringInterner>,
-    /// GC-managed heap for cycle-forming Lisp objects (cons, vector, hash-table).
-    pub(crate) heap: Box<LispHeap>,
-    /// Tagged pointer heap (new GC system).
+    /// Tagged pointer heap — sole GC and allocator.
     pub(crate) tagged_heap: Box<crate::tagged::gc::TaggedHeap>,
     /// The obarray — unified symbol table with value cells, function cells, plists.
     pub(crate) obarray: Obarray,
@@ -1501,8 +1498,8 @@ impl Context {
         // Read the thread's stack upper bound from /proc/self/maps.
         #[cfg(target_os = "linux")]
         {
-            if let Some(stack_end) = crate::gc::heap::read_stack_end_from_proc() {
-                ctx.heap.set_stack_bottom(stack_end as *const u8);
+            if let Some(stack_end) = crate::tagged::gc::read_stack_end_from_proc() {
+                ctx.tagged_heap.set_stack_bottom(stack_end as *const u8);
             }
         }
         // Register builtins AFTER new_inner returns — the function is too
@@ -1906,7 +1903,6 @@ impl Context {
         // constructors (symbol, keyword, cons, list, etc.) work during init.
         let mut interner = Box::new(StringInterner::new());
         set_current_interner(&mut interner);
-        let mut heap = Box::new(LispHeap::new());
         let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
@@ -3433,7 +3429,6 @@ impl Context {
         let mut ev = Self {
             subr_registry: Vec::new(),
             interner,
-            heap,
             tagged_heap,
             obarray,
             specpdl: Vec::new(),
@@ -3528,7 +3523,6 @@ impl Context {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_dump(
         interner: Box<StringInterner>,
-        heap: Box<LispHeap>,
         obarray: Obarray,
         lexenv: Value,
         features: Vec<SymId>,
@@ -3570,7 +3564,6 @@ impl Context {
         let mut ev = Self {
             subr_registry: Vec::new(),
             interner,
-            heap,
             tagged_heap,
             obarray,
             specpdl: Vec::new(),
@@ -3649,8 +3642,8 @@ impl Context {
         // Set stack bottom for conservative GC stack scanning (same as Context::new).
         #[cfg(target_os = "linux")]
         {
-            if let Some(stack_end) = crate::gc::heap::read_stack_end_from_proc() {
-                ev.heap.set_stack_bottom(stack_end as *const u8);
+            if let Some(stack_end) = crate::tagged::gc::read_stack_end_from_proc() {
+                ev.tagged_heap.set_stack_bottom(stack_end as *const u8);
             }
         }
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);

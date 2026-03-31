@@ -231,6 +231,10 @@ impl TaggedHeap {
         self.gc_threshold = threshold;
     }
 
+    pub fn allocated_count(&self) -> usize {
+        self.allocated_count
+    }
+
     // -----------------------------------------------------------------------
     // Allocation
     // -----------------------------------------------------------------------
@@ -760,4 +764,19 @@ impl Drop for TaggedHeap {
         }
         // ConsBlocks are dropped automatically (they implement Drop)
     }
+}
+
+/// Read the thread's stack upper bound from `/proc/self/maps` (Linux only).
+/// Returns the highest address of the `[stack]` mapping.
+pub fn read_stack_end_from_proc() -> Option<usize> {
+    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+    for line in maps.lines() {
+        if line.contains("[stack]") {
+            let dash = line.find('-')?;
+            let space = line.find(' ')?;
+            let end_hex = &line[dash + 1..space];
+            return usize::from_str_radix(end_hex, 16).ok();
+        }
+    }
+    None
 }

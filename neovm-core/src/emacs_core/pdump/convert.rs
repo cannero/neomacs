@@ -371,6 +371,15 @@ pub(crate) fn dump_heap(heap: &LispHeap) -> DumpLispHeap {
     }
 }
 
+/// Create an empty heap dump (old heap no longer used).
+pub(crate) fn dump_heap_empty() -> DumpLispHeap {
+    DumpLispHeap {
+        objects: Vec::new(),
+        generations: Vec::new(),
+        free_list: Vec::new(),
+    }
+}
+
 // --- Interner ---
 
 pub(crate) fn dump_interner(interner: &StringInterner) -> DumpStringInterner {
@@ -1275,7 +1284,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
     let string_text_props = crate::emacs_core::value::snapshot_string_text_props();
     DumpContextState {
         interner: dump_interner(&eval.interner),
-        heap: dump_heap(&eval.heap),
+        heap: dump_heap_empty(),
         obarray: dump_obarray(&eval.obarray),
         dynamic: Vec::new(),
         lexenv: dump_value(&eval.lexenv),

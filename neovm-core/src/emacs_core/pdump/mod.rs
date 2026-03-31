@@ -211,7 +211,6 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
 
     let eval = Context::from_dump(
         interner,
-        heap,
         obarray,
         lexenv,
         features,
