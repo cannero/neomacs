@@ -3791,12 +3791,12 @@ impl Context {
 
     /// Get the current GC threshold.
     pub fn gc_threshold(&self) -> usize {
-        self.heap.gc_threshold()
+        self.tagged_heap.gc_threshold()
     }
 
     /// Set the GC threshold. Use usize::MAX to effectively disable GC.
     pub fn set_gc_threshold(&mut self, threshold: usize) {
-        self.heap.set_gc_threshold(threshold);
+        self.tagged_heap.set_gc_threshold(threshold);
     }
 
     /// Set the maximum eval recursion depth.
@@ -4569,7 +4569,8 @@ impl Context {
         self.source_literal_cache.clear();
         self.macro_expansion_cache.clear();
         let roots = self.collect_roots();
-        self.heap.collect(roots.into_iter());
+        // Use the new tagged heap for GC collection
+        self.tagged_heap.collect(roots.into_iter());
         self.gc_pending = false;
         self.gc_count += 1;
         self.run_post_gc_hook();
@@ -4607,7 +4608,7 @@ impl Context {
         // The incremental approach had correctness issues where objects
         // reachable only through the Rust call stack could be swept
         // if the marking phase didn't see them.
-        if self.gc_pending || self.heap.should_collect() {
+        if self.gc_pending || self.tagged_heap.should_collect() {
             self.gc_collect();
         }
     }

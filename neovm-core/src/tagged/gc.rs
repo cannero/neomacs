@@ -223,6 +223,14 @@ impl TaggedHeap {
         self.allocated_count >= self.gc_threshold
     }
 
+    pub fn gc_threshold(&self) -> usize {
+        self.gc_threshold
+    }
+
+    pub fn set_gc_threshold(&mut self, threshold: usize) {
+        self.gc_threshold = threshold;
+    }
+
     // -----------------------------------------------------------------------
     // Allocation
     // -----------------------------------------------------------------------
