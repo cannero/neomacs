@@ -1,7 +1,7 @@
 use super::super::eval::Context;
 use super::*;
-use crate::emacs_core::builtins::{
 use crate::emacs_core::value::{ValueKind, VecLikeType};
+use crate::emacs_core::builtins::{
     builtin_current_buffer, builtin_get_pos_property, builtin_make_indirect_buffer,
 };
 
@@ -36,7 +36,9 @@ fn put_and_get_text_property() {
     // Get at position 3 (1-based, 'l')
     let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(3), Value::symbol("face")]);
     match result {
-        Ok(ValueKind::Symbol(id)) => assert_eq!(resolve_sym(id), "bold"),
+        Ok(v) if v.as_symbol_id().is_some() => {
+            assert_eq!(crate::emacs_core::intern::resolve_sym(v.as_symbol_id().unwrap()), "bold");
+        }
         other => panic!("Expected Symbol(bold), got {:?}", other),
     }
 }
@@ -131,7 +133,7 @@ fn get_char_property_delegates() {
 
     let result =
         builtin_get_char_property(&mut eval, vec![Value::fixnum(3), Value::symbol("help-echo")]);
-    assert!(matches!(result, Ok(ValueKind::String)));
+    assert!(result.unwrap().is_string());
 }
 
 #[test]
@@ -955,7 +957,7 @@ fn make_and_delete_overlay() {
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
-    assert!(matches!(ov, ValueKind::Veclike(VecLikeType::Overlay)));
+    assert!(ov.is_overlay());
 
     // Delete it.
     let result = builtin_delete_overlay(&mut eval, vec![ov]);

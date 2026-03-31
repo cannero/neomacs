@@ -9,7 +9,7 @@ fn fillarray_vector_is_in_place() {
     if !out.is_vector() {
         panic!("expected vector");
     };
-    let values = with_heap(|h: &crate::gc::heap::LispHeap| h.get_vector(values).clone());
+    let values = out.as_vector_data().unwrap().clone();
     assert_eq!(&*values, &[Value::fixnum(9), Value::fixnum(9)]);
 }
 
@@ -102,7 +102,7 @@ fn face_attributes_as_vector_shape() {
     if !out.is_vector() {
         panic!("expected vector");
     };
-    let values = with_heap(|h: &crate::gc::heap::LispHeap| h.get_vector(values).clone());
+    let values = out.as_vector_data().unwrap().clone();
     assert_eq!(values.len(), 20);
 }
 
@@ -114,7 +114,7 @@ fn frame_face_hash_table_uses_eq_test() {
         panic!("expected hash table");
     };
     assert!(matches!(
-        with_heap(|h: &crate::gc::heap::LispHeap| h.get_hash_table(table).test.clone()),
+        out.as_hash_table().unwrap().test.clone(),
         HashTableTest::Eq
     ));
 }

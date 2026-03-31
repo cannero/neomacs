@@ -4,8 +4,8 @@ use crate::emacs_core::dispnew::pure::{
     builtin_redraw_frame, builtin_send_string_to_terminal, reset_dispnew_thread_locals,
 };
 use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::value::ValueKind;
 use crate::emacs_core::terminal::pure::{
-use crate::emacs_core::value::{ValueKind};
     builtin_controlling_tty_p, builtin_frame_terminal, builtin_resume_tty,
     builtin_selected_terminal, builtin_set_terminal_parameter, builtin_suspend_tty,
     builtin_terminal_live_p, builtin_terminal_name, builtin_terminal_parameter,
@@ -193,35 +193,31 @@ fn terminal_parameters_lists_mutated_symbol_entries() {
     assert!(
         entries
             .iter()
-            .any(|entry| entry.is_cons() && { /* TODO(tagged): migrate Cons guard */ {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                pair.car == Value::symbol("normal-erase-is-backspace") && pair.cdr == Value::fixnum(0)
-            } })
+            .any(|entry| entry.is_cons() && {
+                entry.cons_car() == Value::symbol("normal-erase-is-backspace") && entry.cons_cdr() == Value::fixnum(0)
+            })
     );
     assert!(
         entries
             .iter()
-            .any(|entry| entry.is_cons() && { /* TODO(tagged): migrate Cons guard */ {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                pair.car == Value::symbol("keyboard-coding-saved-meta-mode")
-                    && pair.cdr == Value::list(vec![Value::T])
-            } })
+            .any(|entry| entry.is_cons() && {
+                entry.cons_car() == Value::symbol("keyboard-coding-saved-meta-mode")
+                    && entry.cons_cdr() == Value::list(vec![Value::T])
+            })
     );
     assert!(
         entries
             .iter()
-            .any(|entry| entry.is_cons() && { /* TODO(tagged): migrate Cons guard */ {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                pair.car == Value::symbol("k1") && pair.cdr == Value::fixnum(1)
-            } })
+            .any(|entry| entry.is_cons() && {
+                entry.cons_car() == Value::symbol("k1") && entry.cons_cdr() == Value::fixnum(1)
+            })
     );
     assert!(
         entries
             .iter()
-            .any(|entry| entry.is_cons() && { /* TODO(tagged): migrate Cons guard */ {
-                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                pair.car == Value::symbol("k2") && pair.cdr == Value::fixnum(2)
-            } })
+            .any(|entry| entry.is_cons() && {
+                entry.cons_car() == Value::symbol("k2") && entry.cons_cdr() == Value::fixnum(2)
+            })
     );
 
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
@@ -1364,7 +1360,7 @@ fn x_coordinate_sync_and_message_batch_semantics() {
         }
         other => panic!("expected error signal, got {other:?}"),
     }
-    match builtin_x_translate_coordinates(vec![Value::Frame(1)]) {
+    match builtin_x_translate_coordinates(vec![Value::make_frame(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -1425,7 +1421,7 @@ fn x_coordinate_sync_and_message_batch_semantics() {
         }
         other => panic!("expected error signal, got {other:?}"),
     }
-    match builtin_x_frame_list_z_order(vec![Value::Frame(1)]) {
+    match builtin_x_frame_list_z_order(vec![Value::make_frame(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -1566,14 +1562,14 @@ fn x_popup_dialog_and_menu_batch_semantics() {
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
-    match builtin_x_popup_dialog(vec![Value::Frame(1), Value::NIL]) {
+    match builtin_x_popup_dialog(vec![Value::make_frame(1), Value::NIL]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::NIL]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
-    match builtin_x_popup_dialog(vec![Value::Frame(1), Value::list(vec![Value::string("A")])]) {
+    match builtin_x_popup_dialog(vec![Value::make_frame(1), Value::list(vec![Value::string("A")])]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data, vec![Value::symbol("consp"), Value::NIL]);

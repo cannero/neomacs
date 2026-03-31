@@ -253,7 +253,7 @@ fn base64_region_eval_error_shapes() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(sig.data.len(), 3);
-            assert!(matches!(sig.data[0], ValueKind::Veclike(VecLikeType::Buffer)));
+            assert!(sig.data[0].is_buffer());
             assert_eq!(sig.data[1], Value::fixnum(0));
             assert_eq!(sig.data[2], Value::fixnum(2));
         }
@@ -448,7 +448,7 @@ fn md5_eval_buffer_range_errors() {
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
-    match builtin_md5(&mut eval, vec![Value::Buffer(id), Value::fixnum(5)]) {
+    match builtin_md5(&mut eval, vec![Value::make_buffer(id), Value::fixnum(5)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(sig.data, vec![Value::fixnum(5), Value::NIL]);
@@ -483,7 +483,7 @@ fn md5_eval_deleted_buffer_errors() {
     let id = eval.buffers.create_buffer("*md5-doomed*");
     assert!(eval.buffers.kill_buffer(id));
 
-    match builtin_md5(&mut eval, vec![Value::Buffer(id)]) {
+    match builtin_md5(&mut eval, vec![Value::make_buffer(id)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -714,7 +714,7 @@ fn secure_hash_eval_deleted_buffer_errors() {
     let id = eval.buffers.create_buffer("*secure-doomed*");
     assert!(eval.buffers.kill_buffer(id));
 
-    match builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), Value::Buffer(id)]) {
+    match builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), Value::make_buffer(id)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(

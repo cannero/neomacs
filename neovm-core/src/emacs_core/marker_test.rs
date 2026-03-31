@@ -181,14 +181,14 @@ fn point_min_and_max_markers_follow_narrowing() {
     let min_marker = builtin_point_min_marker(&mut eval, vec![]).expect("point-min-marker");
     let max_marker = builtin_point_max_marker(&mut eval, vec![]).expect("point-max-marker");
 
-    assert!(matches!(
-        call_marker_position(vec![min_marker]),
-        Ok(Value::fixnum(2))
-    ));
-    assert!(matches!(
-        call_marker_position(vec![max_marker]),
-        Ok(Value::fixnum(4))
-    ));
+    assert_eq!(
+        call_marker_position(vec![min_marker]).unwrap(),
+        Value::fixnum(2)
+    );
+    assert_eq!(
+        call_marker_position(vec![max_marker]).unwrap(),
+        Value::fixnum(4)
+    );
 }
 
 #[test]
@@ -199,10 +199,10 @@ fn mark_marker_follows_cached_mark_char_position() {
     let _ = eval.buffers.set_buffer_mark(buf_id, 'é'.len_utf8());
 
     let marker = builtin_mark_marker(&mut eval, vec![]).expect("mark-marker");
-    assert!(matches!(
-        call_marker_position(vec![marker]),
-        Ok(Value::fixnum(2))
-    ));
+    assert_eq!(
+        call_marker_position(vec![marker]).unwrap(),
+        Value::fixnum(2)
+    );
 }
 
 #[test]

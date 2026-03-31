@@ -1,8 +1,8 @@
 use super::*;
 use crate::emacs_core::Context;
 use crate::emacs_core::value::{
-use crate::emacs_core::value::{ValueKind};
-    StringTextPropertyRun, get_string_text_properties_table, set_string_text_properties,
+    ValueKind, StringTextPropertyRun, get_string_text_properties_table_for_value,
+    set_string_text_properties_for_value,
 };
 
 #[test]
@@ -466,10 +466,8 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
     .expect("format-mode-line propertize");
 
     assert_eq!(rendered.as_str(), Some("abc"));
-    if !rendered.is_string() {
-        panic!("expected string result");
-    };
-    let props = get_string_text_properties_table(id).expect("mode-line text properties");
+    assert!(rendered.is_string(), "expected string result");
+    let props = get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
         props.get_property(0, "face").copied(),
         Some(Value::symbol("bold"))
@@ -487,11 +485,9 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
     eval.buffers.set_current(buffer_id);
 
     let format = Value::string("%b!");
-    if !format.is_string() {
-        panic!("expected string format");
-    };
-    set_string_text_properties(
-        id,
+    assert!(format.is_string(), "expected string format");
+    set_string_text_properties_for_value(
+        format,
         vec![StringTextPropertyRun {
             start: 0,
             end: 3,
@@ -511,7 +507,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
     if !rendered.is_string() {
         panic!("expected string result");
     };
-    let props = get_string_text_properties_table(id).expect("mode-line text properties");
+    let props = get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
         props.get_property(0, "face").copied(),
         Some(Value::symbol("bold"))
@@ -580,10 +576,8 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
     .expect("format-mode-line face arg");
 
     assert_eq!(rendered.as_str(), Some("ab"));
-    if !rendered.is_string() {
-        panic!("expected string result");
-    };
-    let props = get_string_text_properties_table(id).expect("mode-line text properties");
+    assert!(rendered.is_string(), "expected string result");
+    let props = get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
         props.get_property(0, "face").copied(),
         Some(Value::list(vec![
@@ -617,11 +611,9 @@ fn test_format_mode_line_integer_face_argument_discards_text_properties() {
     .expect("format-mode-line face int");
 
     assert_eq!(rendered, Value::string("abc"));
-    if !rendered.is_string() {
-        panic!("expected string result");
-    };
+    assert!(rendered.is_string(), "expected string result");
     assert!(
-        get_string_text_properties_table(id).is_none(),
+        get_string_text_properties_table_for_value(rendered).is_none(),
         "integer FACE arg should drop text properties"
     );
 }
@@ -644,10 +636,8 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
     .expect("format-mode-line fixnum padding");
 
     assert_eq!(rendered.as_str(), Some("x    "));
-    if !rendered.is_string() {
-        panic!("expected string result");
-    };
-    let props = get_string_text_properties_table(id).expect("mode-line text properties");
+    assert!(rendered.is_string(), "expected string result");
+    let props = get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
         props.get_property(0, "face").copied(),
         Some(Value::symbol("bold"))

@@ -260,7 +260,7 @@ mod tests {
         if !table.is_hash_table() {
             panic!("face--new-frame-defaults must be a hash table");
         };
-        let test = with_heap(|heap| heap.get_hash_table(id).test.clone());
+        let test = table.as_hash_table().unwrap().test.clone();
         assert_eq!(test, HashTableTest::Eq);
     }
 
@@ -272,7 +272,7 @@ mod tests {
         if !out.is_hash_table() {
             panic!("expected hash table");
         };
-        let len = with_heap(|heap| heap.get_hash_table(id).data.len());
+        let len = out.as_hash_table().unwrap().data.len();
         assert_eq!(len, 0);
     }
 
@@ -317,8 +317,8 @@ mod tests {
         if !table.is_hash_table() {
             panic!("face--new-frame-defaults must be a hash table");
         };
-        let has_seeded_faces = with_heap(|heap| {
-            let hash_table = heap.get_hash_table(id);
+        let has_seeded_faces = {
+            let hash_table = table.as_hash_table().unwrap();
             hash_table
                 .data
                 .contains_key(&HashKey::Symbol(crate::emacs_core::intern::intern(
@@ -327,7 +327,7 @@ mod tests {
                 && hash_table.data.contains_key(&HashKey::Symbol(
                     crate::emacs_core::intern::intern("mode-line"),
                 ))
-        });
+        };
         assert!(
             has_seeded_faces,
             "face--new-frame-defaults should be preseeded with GNU face entries"

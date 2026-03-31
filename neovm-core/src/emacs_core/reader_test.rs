@@ -112,7 +112,7 @@ fn read_from_string_symbol() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, ValueKind::Symbol(id) if resolve_sym(id) == "hello"));
+            assert!(pair_car.as_symbol_id().is_some() && resolve_sym(pair_car.as_symbol_id().unwrap()) == "hello");
             assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons, got {:?}", result),
@@ -176,7 +176,7 @@ fn read_from_string_float() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, ValueKind::Float if (*f - 3.14).abs() < 1e-10));
+            assert!(pair_car.as_float().is_some() && (pair_car.as_float().unwrap() - 3.14).abs() < 1e-10);
         }
         _ => panic!("Expected cons"),
     }
@@ -277,7 +277,7 @@ fn read_from_string_keyword() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(&pair_car, ValueKind::Keyword(id) if resolve_sym(id) == ":test"));
+            assert!(pair_car.as_keyword_id().is_some() && resolve_sym(pair_car.as_keyword_id().unwrap()) == ":test");
         }
         _ => panic!("Expected cons"),
     }
@@ -518,10 +518,7 @@ fn shared_read_from_minibuffer_runtime_runs_setup_and_exit_hooks_around_edit() {
     if !result.is_string() {
         panic!("expected string result, got {result:?}");
     };
-    assert_eq!(
-        crate::emacs_core::value::with_heap(|heap| heap.get_string(result_id).to_owned()),
-        ""
-    );
+    assert_eq!(result.as_str().unwrap(), "");
     assert_eq!(*order.borrow(), vec!["setup", "edit", "exit"]);
 }
 
@@ -1447,8 +1444,8 @@ fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
     if !outer_cdr.is_cons() {
         panic!("expected inner cons");
     };
-    let inner_car = outer.cdr.cons_car();
-    let inner_cdr = outer.cdr.cons_cdr();
+    let inner_car = outer_cdr.cons_car();
+    let inner_cdr = outer_cdr.cons_cdr();
     assert_eq!(inner_car, Value::fixnum(24));
     assert_eq!(inner_cdr, Value::fixnum(40));
 }
@@ -2889,19 +2886,19 @@ fn read_from_string_hash_table_literal_returns_hash_table() {
     if !&pair_car.is_hash_table() {
         panic!("expected hash table object");
     };
-    let table = with_heap(|h| h.get_hash_table(*table_ref).clone());
+    let table = pair_car.as_hash_table().unwrap();
     assert!(matches!(table.test, HashTableTest::Equal));
     assert_eq!(table.size, 3);
     assert_eq!(table.data.len(), 2);
     assert_eq!(table.key_snapshots.len(), 2);
-    assert!(matches!(
-        table.data.get(&HashKey::from_str("a")),
+    assert_eq!(
+        table.data.get(&HashKey::from_str("a")).copied(),
         Some(Value::fixnum(1))
-    ));
-    assert!(matches!(
-        table.data.get(&HashKey::from_str("b")),
+    );
+    assert_eq!(
+        table.data.get(&HashKey::from_str("b")).copied(),
         Some(Value::fixnum(2))
-    ));
+    );
 }
 
 #[test]
@@ -2917,18 +2914,18 @@ fn read_buffer_hash_table_literal_returns_hash_table() {
     if !value.is_hash_table() {
         panic!("expected hash table object");
     };
-    let table = with_heap(|h| h.get_hash_table(table_ref).clone());
+    let table = value.as_hash_table().unwrap();
     assert!(matches!(table.test, HashTableTest::Equal));
     assert_eq!(table.size, 3);
     assert_eq!(table.data.len(), 2);
-    assert!(matches!(
-        table.data.get(&HashKey::from_str("a")),
+    assert_eq!(
+        table.data.get(&HashKey::from_str("a")).copied(),
         Some(Value::fixnum(1))
-    ));
-    assert!(matches!(
-        table.data.get(&HashKey::from_str("b")),
+    );
+    assert_eq!(
+        table.data.get(&HashKey::from_str("b")).copied(),
         Some(Value::fixnum(2))
-    ));
+    );
 }
 
 #[test]
@@ -3075,7 +3072,7 @@ fn read_from_string_hash_bracket_preserves_vector() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(pair_car, ValueKind::Veclike(VecLikeType::Vector)));
+            assert!(matches!(pair_car.kind(), ValueKind::Veclike(VecLikeType::Vector)));
         }
         other => panic!("Expected cons from read-from-string, got {other:?}"),
     }

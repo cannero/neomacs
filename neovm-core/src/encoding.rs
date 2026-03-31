@@ -706,7 +706,7 @@ pub(crate) fn builtin_multibyte_string_p(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_unibyte_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("unibyte-string-p", &args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::bool_val(with_heap(|h| !h.string_is_multibyte(*id)))),
+        ValueKind::String => Ok(Value::bool_val(!args[0].string_is_multibyte())),
         _ => Ok(Value::NIL),
     }
 }
@@ -873,7 +873,7 @@ pub(crate) fn builtin_max_char(args: Vec<Value>) -> EvalResult {
 mod tests {
     use super::*;
     use crate::emacs_core::error::Flow;
-    use crate::emacs_core::value::get_string_text_properties;
+    use crate::emacs_core::value::{get_string_text_properties, get_string_text_properties_for_value};
 
     #[test]
     fn ascii_width() {
@@ -1223,7 +1223,7 @@ mod tests {
         if !decoded.is_string() {
             panic!("decode-coding-string should return a string");
         };
-        let props = get_string_text_properties(id).expect("decoded string should be propertized");
+        let props = get_string_text_properties_for_value(decoded).expect("decoded string should be propertized");
         assert_eq!(props.len(), 1);
         assert_eq!(props[0].start, 0);
         assert_eq!(props[0].end, 1);
@@ -1241,7 +1241,7 @@ mod tests {
         if !encoded.is_string() {
             panic!("encode-coding-string should return a string");
         };
-        assert!(!with_heap(|h| h.string_is_multibyte(id)));
+        assert!(!encoded.string_is_multibyte());
         assert_eq!(
             encoded.as_str().unwrap().to_owned(),
             bytes_to_unibyte_storage_string(&[0xE9])
@@ -1258,7 +1258,7 @@ mod tests {
         if !decoded.is_string() {
             panic!("decode-coding-string should return a string");
         };
-        assert!(!with_heap(|h| h.string_is_multibyte(id)));
+        assert!(!decoded.string_is_multibyte());
         assert_eq!(
             decoded.as_str().unwrap().to_owned(),
             bytes_to_unibyte_storage_string(&[0xC3, 0xA9])
@@ -1301,7 +1301,7 @@ mod tests {
             panic!("encode-coding-string should return a string");
         };
         assert_eq!(
-            with_heap(|heap| heap.get_string(id).to_owned()),
+            encoded.as_str().unwrap().to_owned(),
             bytes_to_unibyte_storage_string(b"a\r\nb")
         );
 
@@ -1314,7 +1314,7 @@ mod tests {
             panic!("decode-coding-string should return a string");
         };
         assert_eq!(
-            with_heap(|heap| heap.get_string(id).to_owned()),
+            decoded.as_str().unwrap().to_owned(),
             bytes_to_unibyte_storage_string(b"a\nb")
         );
     }

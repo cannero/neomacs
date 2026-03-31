@@ -111,9 +111,9 @@ fn plist_get(plist: &Value, key: &Value) -> Value {
                     }
                 }
                 // Skip the value entry.
-                match pair.cdr.kind() {
+                match pair_cdr.kind() {
                     ValueKind::Cons => {
-                        cursor = pair.cdr.cons_cdr();
+                        cursor = pair_cdr.cons_cdr();
                     }
                     _ => return Value::NIL,
                 }

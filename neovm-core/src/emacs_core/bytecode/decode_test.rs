@@ -149,13 +149,13 @@ fn decode_switch_preserves_hash_table_byte_targets() {
     if !table.is_hash_table() {
         panic!("expected hash table constant");
     };
-    crate::emacs_core::value::with_heap_mut(|heap| {
-        let ht = heap.get_hash_table_mut(table_id);
+    {
+        let ht = table.as_hash_table_mut().unwrap();
         let key = Value::symbol("foo").to_hash_key(&ht.test);
         ht.data.insert(key.clone(), Value::fixnum(8));
         ht.key_snapshots.insert(key.clone(), Value::symbol("foo"));
         ht.insertion_order.push(key);
-    });
+    }
 
     // byte 0: constant key
     // byte 1: constant switch-table
@@ -184,14 +184,14 @@ fn decode_switch_preserves_hash_table_byte_targets() {
         ]
     );
 
-    let raw_target = crate::emacs_core::value::with_heap(|heap| {
-        heap.get_hash_table(table_id)
+    let raw_target = {
+        table.as_hash_table().unwrap()
             .data
             .values()
             .next()
             .copied()
             .expect("switch table target")
-    });
+    };
     assert_eq!(raw_target, Value::fixnum(8));
     assert_eq!(offset_map.get(&8), Some(&6));
 }

@@ -132,6 +132,7 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
     .expect("builtin mod should evaluate");
     match float_mod.kind() {
         ValueKind::Float => {
+            let f = float_mod.as_float().unwrap();
             assert_eq!(f, 0.0);
             assert!(!f.is_sign_negative(), "expected +0.0");
         }
@@ -149,6 +150,7 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
     .expect("builtin mod should evaluate");
     match neg_zero_mod.kind() {
         ValueKind::Float => {
+            let f = neg_zero_mod.as_float().unwrap();
             assert_eq!(f, 0.0);
             assert!(f.is_sign_negative(), "expected -0.0");
         }
@@ -344,7 +346,7 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
     match pos_inf.kind() {
-        ValueKind::Float => assert!(f.is_infinite() && f.is_sign_positive()),
+        ValueKind::Float => { let f = pos_inf.as_float().unwrap(); assert!(f.is_infinite() && f.is_sign_positive()); }
         other => panic!("expected float, got {other:?}"),
     }
 
@@ -358,7 +360,7 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
     match neg_inf.kind() {
-        ValueKind::Float => assert!(f.is_infinite() && f.is_sign_negative()),
+        ValueKind::Float => { let f = neg_inf.as_float().unwrap(); assert!(f.is_infinite() && f.is_sign_negative()); }
         other => panic!("expected float, got {other:?}"),
     }
 
@@ -372,7 +374,7 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
     match neg_nan.kind() {
-        ValueKind::Float => assert!(f.is_nan() && f.is_sign_negative()),
+        ValueKind::Float => { let f = neg_nan.as_float().unwrap(); assert!(f.is_nan() && f.is_sign_negative()); }
         other => panic!("expected float, got {other:?}"),
     }
 }
@@ -440,7 +442,7 @@ fn pure_dispatch_typed_append_flattens_bytecode_slots() {
     assert_eq!(slots.len(), 4);
     assert!((slots[0].is_cons() || slots[0].is_nil()));
     assert!((slots[1].is_nil() || slots[1].is_string()));
-    assert!(matches!(slots[2], ValueKind::Veclike(VecLikeType::Vector)));
+    assert!(slots[2].is_vector());
     assert!(slots[3].is_fixnum());
 }
 
@@ -488,7 +490,7 @@ fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
     assert_eq!(slots.len(), 4);
     assert!((slots[0].is_cons() || slots[0].is_nil()));
     assert!((slots[1].is_nil() || slots[1].is_string()));
-    assert!(matches!(slots[2], ValueKind::Veclike(VecLikeType::Vector)));
+    assert!(slots[2].is_vector());
     assert!(slots[3].is_fixnum());
 }
 
@@ -536,7 +538,7 @@ fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
     ]);
 
     let converted = super::symbols::try_convert_nested_compiled_literal(closure_vec);
-    assert!(matches!(converted, ValueKind::Veclike(VecLikeType::Lambda)));
+    assert!(converted.is_lambda());
 
     let out = eval
         .apply(converted, vec![Value::fixnum(41)])
@@ -810,13 +812,12 @@ fn accessible_keymaps_reports_root_and_prefix_paths() {
     let all_items = list_to_vec(&all).expect("accessible-keymaps should return list");
     assert_eq!(all_items.len(), 2);
 
-    let first = match all_items[0].kind() {
-        ValueKind::Cons => read_cons(*cell),  // TODO(tagged): replace read_cons with cons accessors
-        other => panic!("expected cons cell, got {other:?}"),
-    };
-    assert_eq!(first.car, Value::vector(vec![]));
+    assert!(all_items[0].is_cons(), "expected cons cell");
+    let first_car = all_items[0].cons_car();
+    let first_cdr = all_items[0].cons_cdr();
+    assert_eq!(first_car, Value::vector(vec![]));
     assert_eq!(
-        builtin_keymapp(&mut eval, vec![first.cdr]).unwrap(),
+        builtin_keymapp(&mut eval, vec![first_cdr]).unwrap(),
         Value::T
     );
 
@@ -825,11 +826,9 @@ fn accessible_keymaps_reports_root_and_prefix_paths() {
             .unwrap();
     let filtered_items = list_to_vec(&filtered).expect("filtered accessible-keymaps list");
     assert_eq!(filtered_items.len(), 1);
-    let only = match filtered_items[0].kind() {
-        ValueKind::Cons => read_cons(*cell),  // TODO(tagged): replace read_cons with cons accessors
-        other => panic!("expected cons cell, got {other:?}"),
-    };
-    assert_eq!(only.car, Value::vector(vec![Value::fixnum(24)]));
+    assert!(filtered_items[0].is_cons(), "expected cons cell");
+    let only_car = filtered_items[0].cons_car();
+    assert_eq!(only_car, Value::vector(vec![Value::fixnum(24)]));
 
     let no_match =
         builtin_accessible_keymaps(&mut eval, vec![root, Value::vector(vec![Value::fixnum(97)])])
@@ -1397,6 +1396,8 @@ fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
     if !indirect.is_buffer() {
         panic!("expected buffer object");
     };
+    let base_id = base.as_buffer_id().unwrap();
+    let indirect_id = indirect.as_buffer_id().unwrap();
 
     assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![indirect]).unwrap(),
@@ -1453,6 +1454,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     if !base.is_buffer() {
         panic!("expected buffer object");
     };
+    let base_id = base.as_buffer_id().unwrap();
 
     let _ = builtin_set_buffer(&mut eval, vec![base]).unwrap();
     let _ =
@@ -1501,6 +1503,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     if !cloned.is_buffer() {
         panic!("expected buffer object");
     };
+    let cloned_id = cloned.as_buffer_id().unwrap();
 
     assert_eq!(
         eval.buffers
@@ -1562,6 +1565,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
     if !base.is_buffer() {
         panic!("expected buffer object");
     };
+    let base_id = base.as_buffer_id().unwrap();
 
     let _ = builtin_set_buffer(&mut eval, vec![base]).unwrap();
     let _ =
@@ -1577,6 +1581,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
     if !indirect.is_buffer() {
         panic!("expected buffer object");
     };
+    let indirect_id = indirect.as_buffer_id().unwrap();
 
     let indirect_buf = eval.buffers.get(indirect_id).expect("indirect buffer");
     assert_eq!(
@@ -1925,14 +1930,11 @@ fn insert_inherit_variants_reuse_insert_semantics() {
 fn insert_copies_string_text_properties_into_buffer() {
     let mut eval = super::super::eval::Context::new();
     let text = Value::string("xy");
-    let str_id = match text.kind() {
-        ValueKind::String => id,
-        other => panic!("expected string value, got {other:?}"),
-    };
+    assert!(text.is_string(), "expected string value");
 
     let mut table = crate::buffer::text_props::TextPropertyTable::new();
     table.put_property(0, 2, "face", Value::symbol("bold"));
-    crate::emacs_core::value::set_string_text_properties_table(str_id, table);
+    crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
 
     assert_eq!(builtin_insert(&mut eval, vec![text]).unwrap(), Value::NIL);
 
@@ -2043,14 +2045,11 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
     .unwrap();
 
     let text = Value::string("X");
-    let str_id = match text.kind() {
-        ValueKind::String => id,
-        other => panic!("expected string value, got {other:?}"),
-    };
+    assert!(text.is_string(), "expected string value");
     let mut table = crate::buffer::text_props::TextPropertyTable::new();
     table.put_property(0, 1, "face", Value::symbol("italic"));
     table.put_property(0, 1, "mouse-face", Value::symbol("highlight"));
-    crate::emacs_core::value::set_string_text_properties_table(str_id, table);
+    crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
 
     builtin_insert_and_inherit(&mut eval, vec![text]).unwrap();
 
@@ -2946,7 +2945,7 @@ fn byte_position_and_clear_bitmap_semantics() {
                 sig.data,
                 vec![
                     Value::symbol("clear-buffer-auto-save-failure"),
-                    ValueKind::Fixnum(1)
+                    Value::fixnum(1)
                 ]
             );
         }
@@ -3040,7 +3039,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
         other,
         eval.buffers
             .find_buffer_by_name("*Messages*")
-            .map(Value::Buffer)
+            .map(Value::make_buffer)
             .expect("messages buffer")
     );
 
@@ -3050,7 +3049,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
         visible_ok,
         eval.buffers
             .find_buffer_by_name("*scratch*")
-            .map(Value::Buffer)
+            .map(Value::make_buffer)
             .expect("scratch buffer")
     );
 
@@ -3060,7 +3059,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
         from_non_buffer,
         eval.buffers
             .find_buffer_by_name("*Messages*")
-            .map(Value::Buffer)
+            .map(Value::make_buffer)
             .expect("messages buffer")
     );
 
@@ -3070,7 +3069,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
         from_missing_name,
         eval.buffers
             .find_buffer_by_name("*Messages*")
-            .map(Value::Buffer)
+            .map(Value::make_buffer)
             .expect("messages buffer")
     );
 
@@ -3698,7 +3697,7 @@ fn pure_dispatch_typed_define_hash_table_test_registers_alias() {
         panic!("expected hash table");
     };
     assert!(matches!(
-        with_heap(|h| h.get_hash_table(table).test.clone()),
+        table.as_hash_table().unwrap().test.clone(),
         HashTableTest::Eq
     ));
 }
@@ -3736,7 +3735,7 @@ fn pure_dispatch_typed_define_hash_table_test_accepts_equal_including_properties
         panic!("expected hash table");
     };
     assert!(matches!(
-        with_heap(|h| h.get_hash_table(table).test.clone()),
+        table.as_hash_table().unwrap().test.clone(),
         HashTableTest::Equal
     ));
 }
@@ -3786,7 +3785,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
         panic!("expected hash table");
     };
     assert!(matches!(
-        with_heap(|h| h.get_hash_table(first).test.clone()),
+        first.as_hash_table().unwrap().test.clone(),
         HashTableTest::Eq
     ));
 
@@ -3810,7 +3809,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
         panic!("expected hash table");
     };
     assert!(matches!(
-        with_heap(|h| h.get_hash_table(second).test.clone()),
+        second.as_hash_table().unwrap().test.clone(),
         HashTableTest::Equal
     ));
 }
@@ -3958,9 +3957,9 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     if !&made.is_vector() {
         panic!("obarray-make should return vector");
     };
-    let created = with_heap(|h| h.get_vector(*created).clone());
-    assert_eq!(created.len(), 3);
-    assert!(created.iter().all(|v| v.is_nil()));
+    let created_data = made.as_vector_data().unwrap().clone();
+    assert_eq!(created_data.len(), 3);
+    assert!(created_data.iter().all(|v| v.is_nil()));
 
     let default = dispatch_builtin_pure("obarray-make", vec![])
         .expect("builtin obarray-make should resolve")
@@ -3968,7 +3967,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     if !&default.is_vector() {
         panic!("obarray-make default should return vector");
     };
-    assert_eq!(with_heap(|h| h.get_vector(*default).len()), 1511);
+    assert_eq!(default.as_vector_data().unwrap().len(), 1511);
 
     let table = Value::vector(vec![Value::NIL, Value::list(vec![Value::symbol("x")])]);
     let cleared = dispatch_builtin_pure("obarray-clear", vec![table])
@@ -3979,7 +3978,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
         panic!("table should stay vector");
     };
     assert!(
-        with_heap(|h| h.get_vector(*cleared).clone())
+        table.as_vector_data().unwrap()
             .iter()
             .all(|v| v.is_nil())
     );
@@ -5284,7 +5283,7 @@ fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
             assert_eq!(sig.symbol_name(), "module-open-failed");
             assert_eq!(sig.data.first(), Some(&Value::string(module_path)));
             assert!(
-                matches!(sig.data.get(1), Some(ValueKind::String)),
+                sig.data.get(1).map_or(false, |v| v.is_string()),
                 "module-open-failed should include string error message payload"
             );
         }
@@ -5544,7 +5543,7 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin make-byte-code should resolve")
     .expect("builtin make-byte-code should evaluate");
     assert!(
-        matches!(make_byte_code, ValueKind::Veclike(VecLikeType::ByteCode)),
+        make_byte_code.is_bytecode(),
         "make-byte-code should return a ByteCode value, got {:?}",
         make_byte_code
     );
@@ -5579,11 +5578,11 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     if !bc.constants[0].is_hash_table() {
         panic!("expected hash-table constant, got {:?}", bc.constants[0]);
     };
-    let entry = with_heap(|heap| {
-        let table = heap.get_hash_table(table_id);
+    let entry = {
+        let table = bc.constants[0].as_hash_table().unwrap();
         let key = Value::symbol("foo").to_hash_key(&table.test);
         table.data.get(&key).copied()
-    });
+    };
     assert_eq!(entry, Some(Value::fixnum(42)));
 
     let make_char = dispatch_builtin_pure("make-char", vec![Value::fixnum(1)])
@@ -5620,7 +5619,7 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin make-interpreted-closure should resolve")
     .expect("builtin make-interpreted-closure should evaluate");
     // make-interpreted-closure now returns a Lambda value (not nil)
-    assert!(matches!(make_interpreted, ValueKind::Veclike(VecLikeType::Lambda)));
+    assert!(make_interpreted.is_lambda());
 }
 
 #[test]
@@ -6601,6 +6600,7 @@ fn display_update_for_mouse_movement_updates_shared_mouse_state() {
     if !frame.is_frame() {
         panic!("selected-frame should return a frame");
     };
+    let frame_id = frame.as_frame_id().unwrap();
     if let Some(frame) = eval.frames.get_mut(crate::window::FrameId(frame_id)) {
         frame.char_width = 8.0;
         frame.char_height = 16.0;
@@ -6641,6 +6641,7 @@ fn set_mouse_position_builtins_update_shared_mouse_state() {
     if !frame.is_frame() {
         panic!("selected-frame should return a frame");
     };
+    let frame_id = frame.as_frame_id().unwrap();
     if let Some(frame) = eval.frames.get_mut(crate::window::FrameId(frame_id)) {
         frame.char_width = 8.0;
         frame.char_height = 16.0;
@@ -6884,7 +6885,7 @@ fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
         panic!("expected hash table");
     };
     assert!(matches!(
-        with_heap(|h| h.get_hash_table(table).test.clone()),
+        face_table.as_hash_table().unwrap().test.clone(),
         HashTableTest::Eq
     ));
 
@@ -7116,7 +7117,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
         panic!("expected vector");
     };
     assert_eq!(
-        with_heap(|h| h.get_vector(values).len()),
+        face.as_vector_data().unwrap().len(),
         FACE_ATTRIBUTES_VECTOR_LEN
     );
 
@@ -7130,7 +7131,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
         panic!("expected vector");
     };
     assert_eq!(
-        with_heap(|h| h.get_vector(values).len()),
+        attrs.as_vector_data().unwrap().len(),
         FACE_ATTRIBUTES_VECTOR_LEN
     );
 
@@ -9676,7 +9677,7 @@ fn register_code_conversion_map_publishes_symbol_properties() {
     let map_id_value = match map_id.kind() {
         ValueKind::Fixnum(id) => {
             assert!(id >= 0);
-            ValueKind::Fixnum(id)
+            Value::fixnum(id)
         }
         other => panic!("expected integer map id, got {other:?}"),
     };
@@ -9727,7 +9728,7 @@ fn register_ccl_program_publishes_symbol_properties() {
     let program_id_value = match program_id.kind() {
         ValueKind::Fixnum(id) => {
             assert!(id > 0);
-            ValueKind::Fixnum(id)
+            Value::fixnum(id)
         }
         other => panic!("expected integer program id, got {other:?}"),
     };

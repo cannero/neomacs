@@ -477,6 +477,7 @@ fn close_font_requires_font_object() {
 
 #[test]
 fn close_font_accepts_tagged_font_object_and_checks_arity() {
+    let _eval = crate::emacs_core::Context::new(); // sets up heap
     let font_obj = Value::vector(vec![Value::keyword("font-object"), Value::fixnum(1)]);
     assert!(builtin_close_font(vec![font_obj]).unwrap().is_nil());
     assert!(
@@ -556,7 +557,7 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
     let start = "a".len();
     let end = start + "好".len();
     table.put_property(start, end, "face", face);
-    crate::emacs_core::value::set_string_text_properties_table(id, table);
+    crate::emacs_core::value::set_string_text_properties_table_for_value(string, table);
 
     let font = builtin_font_at(&mut eval, vec![Value::fixnum(1), Value::NIL, string]).unwrap();
     assert!(
@@ -612,7 +613,7 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
     // float value from the face spec instead of converting to decipoints.
     let height = builtin_font_get(vec![font, Value::keyword("height")]).unwrap();
     match height.kind() {
-        ValueKind::Float => assert!((v - 1.2).abs() < 1e-9, "expected 1.2, got {v}"),
+        ValueKind::Float => { let v = height.as_float().unwrap(); assert!((v - 1.2).abs() < 1e-9, "expected 1.2, got {v}"); }
         other => panic!("expected Float(1.2), got {other:?}"),
     }
 }
@@ -1214,7 +1215,7 @@ fn font_info_eval_accepts_font_object_on_live_gui_frame() {
     if !info.is_vector() {
         panic!("expected font info vector");
     };
-    let values = with_heap(|heap| heap.get_vector(id).clone());
+    let values = info.as_vector_data().unwrap().clone();
     assert_eq!(values.len(), 14);
     assert_eq!(values[3].as_int(), Some(18));
     assert_eq!(values[10].as_int(), Some(9));
@@ -1481,7 +1482,7 @@ fn merge_face_attribute_height_relative_over_relative() {
     ])
     .unwrap();
     match result.kind() {
-        ValueKind::Float => assert!((value - 1.8).abs() < 1e-9),
+        ValueKind::Float => { let value = result.as_float().unwrap(); assert!((value - 1.8).abs() < 1e-9); }
         other => panic!("expected float result, got {other:?}"),
     }
 }

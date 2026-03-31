@@ -14,7 +14,7 @@ fn compat_bootstrap_macro_cells_are_scoped_to_source_bootstrap() {
             .copied()
             .unwrap_or(Value::NIL);
         assert!(
-            !matches!(plain_function, Value::Macro(_)),
+            !plain_function.is_macro(),
             "plain Context::new should not seed source-bootstrap macro cells"
         );
     }
@@ -28,7 +28,7 @@ fn compat_bootstrap_macro_cells_are_scoped_to_source_bootstrap() {
             .copied()
             .unwrap_or(Value::NIL);
         assert!(
-            matches!(function, Value::Macro(_)),
+            function.is_macro(),
             "{name} should be a bootstrap macro cell"
         );
     }
@@ -50,7 +50,7 @@ fn compat_bootstrap_macro_cells_are_scoped_to_source_bootstrap() {
             .copied()
             .unwrap_or(Value::NIL);
         assert!(
-            !matches!(function, Value::Macro(_)),
+            !function.is_macro(),
             "{name} should not be a source-bootstrap macro cell"
         );
     }

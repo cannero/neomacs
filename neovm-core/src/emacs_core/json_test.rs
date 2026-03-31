@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // -----------------------------------------------------------------------
@@ -97,12 +98,9 @@ fn serialize_vector() {
 #[test]
 fn serialize_hash_table() {
     let ht = Value::hash_table(HashTableTest::Equal);
-    if let Value::HashTable(ref table_arc) = ht {
-        with_heap_mut(|h| {
-            h.get_hash_table_mut(*table_arc)
-                .data
-                .insert(HashKey::from_str("name"), Value::string("Alice"));
-        });
+    {
+        let table = ht.as_hash_table_mut().unwrap();
+        table.data.insert(HashKey::from_str("name"), Value::string("Alice"));
     }
     let result = builtin_json_serialize(vec![ht]);
     assert_eq!(result.unwrap().as_str(), Some("{\"name\":\"Alice\"}"));
@@ -237,19 +235,19 @@ fn parse_negative_integer() {
 
 #[test]
 fn parse_float() {
-    let result = builtin_json_parse_string(vec![Value::string("3.14")]);
-    match result.unwrap().kind() {
-        ValueKind::Float => assert!((f - 3.14).abs() < 1e-10),
-        other => panic!("expected float, got {:?}", result.unwrap()),
+    let val = builtin_json_parse_string(vec![Value::string("3.14")]).unwrap();
+    match val.kind() {
+        ValueKind::Float => assert!((val.as_float().unwrap() - 3.14).abs() < 1e-10),
+        _ => panic!("expected float, got {:?}", val),
     }
 }
 
 #[test]
 fn parse_float_exponent() {
-    let result = builtin_json_parse_string(vec![Value::string("1.5e2")]);
-    match result.unwrap().kind() {
-        ValueKind::Float => assert!((f - 150.0).abs() < 1e-10),
-        other => panic!("expected float, got {:?}", result.unwrap()),
+    let val = builtin_json_parse_string(vec![Value::string("1.5e2")]).unwrap();
+    match val.kind() {
+        ValueKind::Float => assert!((val.as_float().unwrap() - 150.0).abs() < 1e-10),
+        _ => panic!("expected float, got {:?}", val),
     }
 }
 
@@ -290,25 +288,25 @@ fn parse_empty_array() {
     let mut heap = crate::gc::heap::LispHeap::new();
     crate::emacs_core::value::set_current_heap(&mut heap);
 
-    let result = builtin_json_parse_string(vec![Value::string("[]")]);
-    match result.unwrap().kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => assert!(result.unwrap().as_vector_data().unwrap().is_empty()),
-        other => panic!("expected vector, got {:?}", result.unwrap()),
+    let val = builtin_json_parse_string(vec![Value::string("[]")]).unwrap();
+    match val.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => assert!(val.as_vector_data().unwrap().is_empty()),
+        _ => panic!("expected vector, got {:?}", val),
     }
 }
 
 #[test]
 fn parse_array() {
-    let result = builtin_json_parse_string(vec![Value::string("[1, 2, 3]")]);
-    match result.unwrap().kind() {
+    let val = builtin_json_parse_string(vec![Value::string("[1, 2, 3]")]).unwrap();
+    match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = result.unwrap().as_vector_data().unwrap().clone();
+            let items = val.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 3);
             assert!(items[0].is_fixnum());
             assert!(items[1].is_fixnum());
             assert!(items[2].is_fixnum());
         }
-        other => panic!("expected vector, got {:?}", result.unwrap()),
+        _ => panic!("expected vector, got {:?}", val),
     }
 }
 
@@ -328,32 +326,32 @@ fn parse_array_as_list() {
 
 #[test]
 fn parse_empty_object() {
-    let result = builtin_json_parse_string(vec![Value::string("{}")]);
-    match result.unwrap().kind() {
+    let val = builtin_json_parse_string(vec![Value::string("{}")]).unwrap();
+    match val.kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = result.unwrap().as_hash_table().unwrap().clone();
+            let table = val.as_hash_table().unwrap();
             assert!(table.data.is_empty());
         }
-        other => panic!("expected hash-table, got {:?}", result.unwrap()),
+        _ => panic!("expected hash-table, got {:?}", val),
     }
 }
 
 #[test]
 fn parse_object_hash_table() {
-    let result = builtin_json_parse_string(vec![Value::string("{\"a\": 1, \"b\": 2}")]);
-    match result.unwrap().kind() {
+    let val = builtin_json_parse_string(vec![Value::string("{\"a\": 1, \"b\": 2}")]).unwrap();
+    match val.kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = result.unwrap().as_hash_table().unwrap().clone();
+            let table = val.as_hash_table().unwrap();
             assert_eq!(table.data.len(), 2);
             assert_eq!(table.key_snapshots.len(), 2);
-            assert!(matches!(
-                table.data.get(&HashKey::from_str("a")),
-                Some(Value::fixnum(1))
-            ));
-            assert!(matches!(
-                table.data.get(&HashKey::from_str("b")),
-                Some(Value::fixnum(2))
-            ));
+            assert_eq!(
+                table.data.get(&HashKey::from_str("a")).map(|v| v.as_fixnum()),
+                Some(Some(1))
+            );
+            assert_eq!(
+                table.data.get(&HashKey::from_str("b")).map(|v| v.as_fixnum()),
+                Some(Some(2))
+            );
             assert!(matches!(
                 table.key_snapshots.get(&HashKey::from_str("a")),
                 Some(key) if key.as_str() == Some("a")
@@ -363,7 +361,7 @@ fn parse_object_hash_table() {
                 Some(key) if key.as_str() == Some("b")
             ));
         }
-        other => panic!("expected hash-table, got {:?}", result.unwrap()),
+        _ => panic!("expected hash-table, got {:?}", val),
     }
 }
 
@@ -504,22 +502,19 @@ fn round_trip_array() {
 #[test]
 fn round_trip_object() {
     let ht = Value::hash_table(HashTableTest::Equal);
-    if let Value::HashTable(ref table_arc) = ht {
-        with_heap_mut(|h| {
-            h.get_hash_table_mut(*table_arc)
-                .data
-                .insert(HashKey::from_str("key"), Value::fixnum(99));
-        });
+    {
+        let table = ht.as_hash_table_mut().unwrap();
+        table.data.insert(HashKey::from_str("key"), Value::fixnum(99));
     }
     let serialized = builtin_json_serialize(vec![ht]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
     match parsed.kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = parsed.as_hash_table().unwrap().clone();
-            assert!(matches!(
-                table.data.get(&HashKey::from_str("key")),
-                Some(Value::fixnum(99))
-            ));
+            let table = parsed.as_hash_table().unwrap();
+            assert_eq!(
+                table.data.get(&HashKey::from_str("key")).map(|v| v.as_fixnum()),
+                Some(Some(99))
+            );
         }
         _ => panic!("expected hash-table"),
     }
@@ -546,10 +541,10 @@ fn encode_backspace_formfeed() {
 #[test]
 fn parse_large_number_as_float() {
     // Number too large for i64.
-    let result = builtin_json_parse_string(vec![Value::string("99999999999999999999")]);
-    match result.unwrap().kind() {
+    let val = builtin_json_parse_string(vec![Value::string("99999999999999999999")]).unwrap();
+    match val.kind() {
         ValueKind::Float => {} // OK — fell back to f64
-        other => panic!("expected float for large number, got {:?}", result.unwrap()),
+        _ => panic!("expected float for large number, got {:?}", val),
     }
 }
 

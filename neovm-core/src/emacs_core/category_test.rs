@@ -24,7 +24,7 @@ fn make_category_table_matches_gnu_shape() {
     if !docs.is_vector() {
         panic!("expected docstring vector");
     };
-    assert_eq!(with_heap(|h| h.get_vector(docs_arc).len()), 95);
+    assert_eq!(docs.as_vector_data().unwrap().len(), 95);
     assert!(
         super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(1)])
             .unwrap()
@@ -79,11 +79,9 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
         super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)]).unwrap();
     let copy_docs =
         super::super::chartable::builtin_char_table_extra_slot(vec![copy, Value::fixnum(0)]).unwrap();
-    let (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) = (table_docs, copy_docs)
-    else {
-        panic!("expected category docstring vectors");
-    };
-    assert_ne!(table_docs_arc, copy_docs_arc);
+    assert!(table_docs.is_vector(), "expected category docstring vector");
+    assert!(copy_docs.is_vector(), "expected category docstring vector");
+    assert_ne!(table_docs, copy_docs);
 }
 
 #[test]

@@ -1405,13 +1405,13 @@ fn vm_switch_branches_using_hash_table_jump_table() {
     if !table.is_hash_table() {
         panic!("expected hash table constant");
     };
-    crate::emacs_core::value::with_heap_mut(|heap| {
-        let ht = heap.get_hash_table_mut(table_id);
+    {
+        let ht = table.as_hash_table_mut().unwrap();
         let key = Value::symbol("foo").to_hash_key(&ht.test);
         ht.data.insert(key.clone(), Value::fixnum(8));
         ht.key_snapshots.insert(key.clone(), Value::symbol("foo"));
         ht.insertion_order.push(key);
-    });
+    }
 
     let func = ByteCodeFunction {
         ops: vec![
@@ -7210,7 +7210,7 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
     let err = vm
         .execute(&func, vec![Value::fixnum(1)])
         .expect_err("bytecode arity must be validated at VM entry");
-    match map_flow(err).kind() {
+    match map_flow(err) {
         EvalError::Signal { symbol, data, .. } => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(

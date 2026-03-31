@@ -21,7 +21,7 @@ fn compat_macro_cache_keeps_opaque_values_alive_across_gc() {
     let forms = parse_forms("(opaque-macro)").expect("parse macro call");
     let first = eval.eval_expr(&forms[0]).expect("first macro expansion");
     assert!(
-        matches!(first, Value::Lambda(_)),
+        first.is_lambda(),
         "macro expansion should yield a runtime closure, got {first:?}"
     );
 
@@ -35,7 +35,7 @@ fn compat_macro_cache_keeps_opaque_values_alive_across_gc() {
         .eval_expr(&forms[0])
         .expect("second macro expansion after GC");
     assert!(
-        matches!(second, Value::Lambda(_)),
+        second.is_lambda(),
         "macro expansion should still yield a runtime closure after GC, got {second:?}"
     );
 }

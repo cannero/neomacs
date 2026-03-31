@@ -441,7 +441,7 @@ fn garbage_collect_shape_and_arity() {
         .map(|bucket| {
             let bucket_items = super::super::value::list_to_vec(bucket).expect("bucket list");
             match bucket_items.first() {
-                Some(ValueKind::Symbol(id)) => resolve_sym(id).to_owned(),
+                Some(v) if v.as_symbol_id().is_some() => crate::emacs_core::intern::resolve_sym(v.as_symbol_id().unwrap()).to_owned(),
                 other => panic!("expected bucket symbol, got {other:?}"),
             }
         })

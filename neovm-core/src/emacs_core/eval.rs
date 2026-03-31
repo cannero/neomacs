@@ -774,6 +774,8 @@ pub struct Context {
     pub(crate) interner: Box<StringInterner>,
     /// GC-managed heap for cycle-forming Lisp objects (cons, vector, hash-table).
     pub(crate) heap: Box<LispHeap>,
+    /// Tagged pointer heap (new GC system).
+    pub(crate) tagged_heap: Box<crate::tagged::gc::TaggedHeap>,
     /// The obarray — unified symbol table with value cells, function cells, plists.
     pub(crate) obarray: Obarray,
     /// Specpdl — special binding stack that writes directly to the obarray.
@@ -1909,6 +1911,8 @@ impl Context {
         set_current_interner(&mut interner);
         let mut heap = Box::new(LispHeap::new());
         set_current_heap(&mut heap);
+        let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
+        crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
         // Clear any caches that hold heap-allocated Values (ObjIds) from a
         // previous heap. Critical for test isolation when multiple Contexts
@@ -3434,6 +3438,7 @@ impl Context {
             subr_registry: Vec::new(),
             interner,
             heap,
+            tagged_heap,
             obarray,
             specpdl: Vec::new(),
             lexenv: Value::NIL,
@@ -3509,6 +3514,7 @@ impl Context {
         // Re-point anyway to be explicit about thread-local state.
         set_current_interner(&mut ev.interner);
         set_current_heap(&mut ev.heap);
+        crate::tagged::gc::set_tagged_heap(&mut ev.tagged_heap);
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
         super::category::restore_standard_category_table_object(ev.standard_category_table);
         ev.sync_thread_runtime_bindings();
@@ -3563,11 +3569,14 @@ impl Context {
         let throw_on_input_symbol = intern("throw-on-input");
         obarray.make_special_id(throw_on_input_symbol);
         let kill_emacs_symbol = intern("kill-emacs");
+        let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
+        crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
         let mut ev = Self {
             subr_registry: Vec::new(),
             interner,
             heap,
+            tagged_heap,
             obarray,
             specpdl: Vec::new(),
             lexenv,
@@ -3642,6 +3651,7 @@ impl Context {
         // Re-point thread-local pointers to the evaluator's owned boxes.
         set_current_interner(&mut ev.interner);
         set_current_heap(&mut ev.heap);
+        crate::tagged::gc::set_tagged_heap(&mut ev.tagged_heap);
         // Set stack bottom for conservative GC stack scanning (same as Context::new).
         #[cfg(target_os = "linux")]
         {
@@ -3801,6 +3811,7 @@ impl Context {
     pub fn setup_thread_locals(&mut self) {
         set_current_interner(&mut self.interner);
         set_current_heap(&mut self.heap);
+        crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         super::syntax::restore_standard_syntax_table_object(self.standard_syntax_table);
         super::category::restore_standard_category_table_object(self.standard_category_table);
     }
@@ -5298,6 +5309,7 @@ impl Context {
 
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, EvalError> {
         set_current_heap(&mut self.heap);
+        crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         self.with_gc_scope(|ctx| {
             let mut opaques = Vec::new();
             collect_opaque_values(expr, &mut opaques);
@@ -5325,6 +5337,7 @@ impl Context {
 
     pub fn eval_forms(&mut self, forms: &[Expr]) -> Vec<Result<Value, EvalError>> {
         set_current_heap(&mut self.heap);
+        crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         let saved_len = self.temp_roots.len();
         let mut results = Vec::with_capacity(forms.len());
         for form in forms {

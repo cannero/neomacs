@@ -110,22 +110,22 @@ fn compat_gui_set_window_buffer_applies_display_defaults() {
     let buffer_name = " *gui-swb-display*";
     let buffer_id = eval.buffer_manager_mut().create_buffer(buffer_name);
     eval.buffer_manager_mut()
-        .set_buffer_local_property(buffer_id, "left-fringe-width", Value::Int(3))
+        .set_buffer_local_property(buffer_id, "left-fringe-width", Value::fixnum(3))
         .expect("left fringe");
     eval.buffer_manager_mut()
-        .set_buffer_local_property(buffer_id, "right-fringe-width", Value::Int(5))
+        .set_buffer_local_property(buffer_id, "right-fringe-width", Value::fixnum(5))
         .expect("right fringe");
     eval.buffer_manager_mut()
         .set_buffer_local_property(buffer_id, "fringes-outside-margins", Value::T)
         .expect("outside margins");
     eval.buffer_manager_mut()
-        .set_buffer_local_property(buffer_id, "scroll-bar-width", Value::Int(11))
+        .set_buffer_local_property(buffer_id, "scroll-bar-width", Value::fixnum(11))
         .expect("scroll bar width");
     eval.buffer_manager_mut()
         .set_buffer_local_property(buffer_id, "vertical-scroll-bar", Value::symbol("left"))
         .expect("vertical scroll bar");
     eval.buffer_manager_mut()
-        .set_buffer_local_property(buffer_id, "scroll-bar-height", Value::Int(7))
+        .set_buffer_local_property(buffer_id, "scroll-bar-height", Value::fixnum(7))
         .expect("scroll bar height");
     eval.buffer_manager_mut()
         .set_buffer_local_property(buffer_id, "horizontal-scroll-bar", Value::symbol("bottom"))
@@ -162,7 +162,7 @@ fn compat_split_window_copies_window_display_state() {
             .find_window_mut(original_window_id)
             .and_then(Window::display_mut)
             .expect("leaf display");
-        display.display_table = Value::Int(17);
+        display.display_table = Value::fixnum(17);
         display.cursor_type = Value::NIL;
         display.left_fringe_width = 3;
         display.right_fringe_width = 5;
@@ -194,8 +194,8 @@ fn compat_split_window_copies_window_display_state() {
         .and_then(Window::display)
         .expect("new display");
 
-    assert_eq!(original_display.display_table, Value::Int(17));
-    assert_eq!(new_display.display_table, Value::Int(17));
+    assert_eq!(original_display.display_table, Value::fixnum(17));
+    assert_eq!(new_display.display_table, Value::fixnum(17));
     assert_eq!(original_display.cursor_type, Value::NIL);
     assert_eq!(new_display.cursor_type, Value::NIL);
     assert_eq!(original_display.left_fringe_width, 3);

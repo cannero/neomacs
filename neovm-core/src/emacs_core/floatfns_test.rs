@@ -5,6 +5,7 @@ use crate::emacs_core::value::{ValueKind};
 fn assert_float_eq(val: &Value, expected: f64, epsilon: f64) {
     match val.kind() {
         ValueKind::Float => {
+            let f = val.as_float().unwrap();
             assert!(
                 (f - expected).abs() < epsilon,
                 "expected {} but got {}",
@@ -73,6 +74,7 @@ fn test_frexp() {
         let pair_cdr = result.cons_cdr();
         match pair_car.kind() {
             ValueKind::Float => {
+                let f = pair_car.as_float().unwrap();
                 assert_eq!(f, 0.0);
                 assert!(f.is_sign_negative(), "expected negative zero");
             }
@@ -164,6 +166,7 @@ fn test_fround() {
     let result = builtin_fround(vec![Value::make_float(-0.5)]).unwrap();
     match result.kind() {
         ValueKind::Float => {
+            let f = result.as_float().unwrap();
             assert_eq!(f, 0.0);
             assert!(f.is_sign_negative(), "expected negative zero");
         }

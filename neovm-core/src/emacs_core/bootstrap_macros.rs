@@ -78,7 +78,7 @@ mod tests {
             .symbol_function_id(intern("eval-and-compile"))
             .copied()
             .expect("eval-and-compile bootstrap macro");
-        assert!(matches!(eval_and_compile, ValueKind::Veclike(VecLikeType::Macro)));
+        assert!(eval_and_compile.is_macro());
 
         for name in [
             "defvar-local",

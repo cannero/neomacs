@@ -576,11 +576,8 @@ fn make_bv(bits: &[bool]) -> Value {
 
 /// Assert that a bool-vector has the expected bits.
 fn assert_bv_bits(bv: &Value, expected: &[bool]) {
-    let arc = match bv.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => a,
-        _ => panic!("expected a vector"),
-    };
-    let vec = with_heap(|h| h.get_vector(*arc).clone());
+    assert!(bv.is_vector(), "expected a vector");
+    let vec = bv.as_vector_data().unwrap().clone();
     let len = bv_length(&vec) as usize;
     assert_eq!(len, expected.len(), "bool-vector length mismatch");
     let bits = bv_bits(&vec);

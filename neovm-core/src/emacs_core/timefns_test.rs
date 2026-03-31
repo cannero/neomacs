@@ -291,7 +291,7 @@ fn builtin_current_time_wrong_arity() {
 fn builtin_float_time_no_args() {
     let result = builtin_float_time(vec![]).unwrap();
     match result.kind() {
-        ValueKind::Float => assert!(f > 1_000_000_000.0),
+        ValueKind::Float => { let f = result.as_float().unwrap(); assert!(f > 1_000_000_000.0); }
         _ => panic!("expected float"),
     }
 }
@@ -308,7 +308,7 @@ fn builtin_float_time_from_list() {
     ]);
     let result = builtin_float_time(vec![list]).unwrap();
     match result.kind() {
-        ValueKind::Float => assert!((f - 1_700_000_000.5).abs() < 1e-3),
+        ValueKind::Float => { let f = result.as_float().unwrap(); assert!((f - 1_700_000_000.5).abs() < 1e-3); }
         _ => panic!("expected float"),
     }
 }
@@ -317,7 +317,7 @@ fn builtin_float_time_from_list() {
 fn builtin_float_time_from_integer() {
     let result = builtin_float_time(vec![Value::fixnum(42)]).unwrap();
     match result.kind() {
-        ValueKind::Float => assert!((f - 42.0).abs() < 1e-9),
+        ValueKind::Float => { let f = result.as_float().unwrap(); assert!((f - 42.0).abs() < 1e-9); }
         _ => panic!("expected float"),
     }
 }
@@ -547,7 +547,7 @@ fn builtin_time_convert_to_integer() {
 fn builtin_time_convert_to_float() {
     let result = builtin_time_convert(vec![Value::fixnum(1000), Value::symbol("float")]).unwrap();
     match result.kind() {
-        ValueKind::Float => assert!((f - 1000.0).abs() < 1e-9),
+        ValueKind::Float => { let f = result.as_float().unwrap(); assert!((f - 1000.0).abs() < 1e-9); }
         _ => panic!("expected float"),
     }
 }
@@ -558,9 +558,8 @@ fn builtin_time_convert_with_t() {
     let result = builtin_time_convert(vec![Value::fixnum(42), Value::T]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
-            let snap = super::super::value::read_cons(*id);  // TODO(tagged): replace read_cons with cons accessors
-            let ticks = snap.car.as_int().expect("expected int ticks");
-            let hz = snap.cdr.as_int().expect("expected int hz");
+            let ticks = result.cons_car().as_int().expect("expected int ticks");
+            let hz = result.cons_cdr().as_int().expect("expected int hz");
             assert_eq!(hz, 1_000_000);
             assert_eq!(ticks, 42_000_000);
         }
@@ -631,7 +630,7 @@ fn builtin_set_time_zone_rule_invalid_spec() {
     let _guard = tz_test_lock();
     reset_tz_rule();
 
-    match builtin_set_time_zone_rule(vec![Value::Keyword(intern(":x"))]) {
+    match builtin_set_time_zone_rule(vec![Value::keyword(":x")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -658,7 +657,7 @@ fn builtin_current_time_zone_with_zone_arg() {
         Value::list(vec![Value::fixnum(3600), Value::string("+01")])
     );
 
-    match builtin_current_time_zone(vec![Value::NIL, Value::Keyword(intern(":x"))]) {
+    match builtin_current_time_zone(vec![Value::NIL, Value::keyword(":x")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -745,7 +744,7 @@ fn time_subtract_with_usec_borrow() {
 fn float_time_nil_arg() {
     let result = builtin_float_time(vec![Value::NIL]).unwrap();
     match result.kind() {
-        ValueKind::Float => assert!(f > 1_000_000_000.0),
+        ValueKind::Float => { let f = result.as_float().unwrap(); assert!(f > 1_000_000_000.0); }
         _ => panic!("expected float"),
     }
 }

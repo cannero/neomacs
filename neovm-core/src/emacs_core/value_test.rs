@@ -275,13 +275,7 @@ fn vector_operations() {
     with_test_heap(|| {
         let v = Value::vector(vec![Value::fixnum(10), Value::fixnum(20), Value::fixnum(30)]);
         assert!(v.is_vector());
-        let items = super::with_heap(|h| {
-            let id = match v.kind() {
-                ValueKind::Veclike(VecLikeType::Vector) => id,
-                _ => panic!(),
-            };
-            h.get_vector(id).clone()
-        });
+        let items = v.as_vector_data().unwrap().clone();
         assert_eq!(items.len(), 3);
         assert_eq!(items[0], Value::fixnum(10));
         assert_eq!(items[1], Value::fixnum(20));

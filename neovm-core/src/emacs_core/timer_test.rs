@@ -632,7 +632,7 @@ fn test_eval_run_at_time_and_cancel() {
     );
     assert!(result.is_ok());
     let timer_val = result.unwrap();
-    assert!(matches!(timer_val, Value::make_timer(_)));
+    assert!(timer_val.is_timer());
 
     // cancel-timer
     let result = builtin_cancel_timer(&mut eval, vec![timer_val]);
@@ -640,8 +640,8 @@ fn test_eval_run_at_time_and_cancel() {
     assert!(result.unwrap().is_nil());
 
     // Verify it's cancelled
-    if timer_val.is_timer() {
-        assert!(!eval.timers.timer_active_p(id));
+    if let Some(timer_id) = timer_val.as_timer_id() {
+        assert!(!eval.timers.timer_active_p(timer_id));
     }
 }
 
@@ -659,11 +659,11 @@ fn test_eval_run_with_idle_timer() {
     let timer_val = result.unwrap();
 
     // Should be a timer
-    assert!(matches!(timer_val, Value::make_timer(_)));
+    assert!(timer_val.is_timer());
 
     // The timer should be idle
-    if timer_val.is_timer() {
-        let timer = eval.timers.timers.iter().find(|t| t.id == id).unwrap();
+    if let Some(timer_id) = timer_val.as_timer_id() {
+        let timer = eval.timers.timers.iter().find(|t| t.id == timer_id).unwrap();
         assert!(timer.idle);
     }
 }
@@ -679,7 +679,7 @@ fn test_eval_run_at_time_accepts_nil_and_string_specs() {
         vec![Value::NIL, Value::NIL, Value::symbol("cb-from-nil")],
     )
     .expect("nil time spec should be accepted");
-    assert!(matches!(from_nil, Value::make_timer(_)));
+    assert!(from_nil.is_timer());
 
     let from_string = builtin_run_at_time(
         &mut eval,
@@ -690,7 +690,7 @@ fn test_eval_run_at_time_accepts_nil_and_string_specs() {
         ],
     )
     .expect("string time spec should be accepted");
-    assert!(matches!(from_string, Value::make_timer(_)));
+    assert!(from_string.is_timer());
 }
 
 #[test]
@@ -900,7 +900,7 @@ fn test_eval_run_with_idle_timer_nil_ok_string_error() {
     let from_nil =
         builtin_run_with_idle_timer(&mut eval, vec![Value::NIL, Value::NIL, Value::symbol("cb")])
             .expect("nil idle delay should be accepted");
-    assert!(matches!(from_nil, Value::make_timer(_)));
+    assert!(from_nil.is_timer());
 
     let from_string = builtin_run_with_idle_timer(
         &mut eval,
@@ -930,16 +930,16 @@ fn test_eval_timer_activate() {
     let timer_val = result.unwrap();
     builtin_cancel_timer(&mut eval, vec![timer_val]).unwrap();
 
-    if &timer_val.is_timer() {
-        assert!(!eval.timers.timer_active_p(*id));
+    if let Some(timer_id) = timer_val.as_timer_id() {
+        assert!(!eval.timers.timer_active_p(timer_id));
     }
 
     // Reactivate
     let result = builtin_timer_activate(&mut eval, vec![timer_val]);
     assert!(result.is_ok());
 
-    if &timer_val.is_timer() {
-        assert!(eval.timers.timer_active_p(*id));
+    if let Some(timer_id) = timer_val.as_timer_id() {
+        assert!(eval.timers.timer_active_p(timer_id));
     }
 
     // Active timers cannot be activated again.

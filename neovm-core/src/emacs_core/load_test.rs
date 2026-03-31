@@ -232,10 +232,10 @@ fn bootstrap_fixture_path(
 }
 
 fn format_eval_error(eval: &Context, err: &EvalError) -> String {
-    match err.kind() {
+    match err {
         EvalError::Signal { symbol, data, .. } => {
             let mut items = Vec::with_capacity(data.len() + 1);
-            items.push(Value::Symbol(*symbol));
+            items.push(Value::symbol(resolve_sym(*symbol)));
             items.extend(data.iter().copied());
             crate::emacs_core::print::print_value_with_buffers(&Value::list(items), &eval.buffers)
         }
@@ -2563,20 +2563,14 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
         .symbol_value("face--new-frame-defaults")
         .copied()
         .expect("face hash table backfilled");
-    if !table.is_hash_table() {
-        panic!("face--new-frame-defaults must be a hash table");
-    };
-    let test = with_heap(|heap| heap.get_hash_table(id).test.clone());
-    assert_eq!(test, HashTableTest::Eq);
-    let has_seeded_faces = with_heap(|heap| {
-        let hash_table = heap.get_hash_table(id);
-        hash_table
+    let ht = table.as_hash_table().expect("face--new-frame-defaults must be a hash table");
+    assert_eq!(ht.test, HashTableTest::Eq);
+    let has_seeded_faces = ht
+        .data
+        .contains_key(&HashKey::Symbol(intern("default")))
+        && ht
             .data
-            .contains_key(&HashKey::Symbol(intern("default")))
-            && hash_table
-                .data
-                .contains_key(&HashKey::Symbol(intern("mode-line")))
-    });
+            .contains_key(&HashKey::Symbol(intern("mode-line")));
     assert!(
         has_seeded_faces,
         "face--new-frame-defaults should be preseeded with GNU face entries"
@@ -5641,7 +5635,7 @@ fn macroexpand_all_pcase_terminates() {
             load_file(eval, &path).unwrap_or_else(|e| {
                 let msg = match &e {
                     EvalError::Signal { symbol, data, .. } => {
-                        let sym = crate::emacs_core::intern::resolve_sym(symbol);
+                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
                     }
@@ -5882,7 +5876,7 @@ fn pcase_integer_literal_pattern() {
             load_file(eval, &path).unwrap_or_else(|e| {
                 let msg = match &e {
                     EvalError::Signal { symbol, data, .. } => {
-                        let sym = crate::emacs_core::intern::resolve_sym(symbol);
+                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
                     }
@@ -6082,7 +6076,7 @@ fn key_parse_modifier_bits() {
             Err(e) => {
                 let msg = match &e {
                     EvalError::Signal { symbol, data, .. } => {
-                        let sym = super::super::intern::resolve_sym(symbol);
+                        let sym = super::super::intern::resolve_sym(*symbol);
                         let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
                         format!("({sym} {})", data_strs.join(" "))
                     }
@@ -6101,7 +6095,7 @@ fn key_parse_modifier_bits() {
     let result = eval.eval_expr(&forms[0]);
     match &result {
         Err(EvalError::Signal { symbol, data, .. }) => {
-            let sym = super::super::intern::resolve_sym(symbol);
+            let sym = super::super::intern::resolve_sym(*symbol);
             let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
             panic!("key-parse \"C-x\" failed: ({sym} {})", data_strs.join(" "));
         }

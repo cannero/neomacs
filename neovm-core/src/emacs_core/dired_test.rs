@@ -181,7 +181,7 @@ fn test_directory_files_and_attributes_count_and_id_format() {
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
     let attrs = if items[0].is_cons() {
-        with_heap(|h| h.cons_cdr(*cell))
+        items[0].cons_cdr()
     } else {
         panic!("expected cons pair");
     };

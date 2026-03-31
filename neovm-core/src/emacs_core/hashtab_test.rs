@@ -7,8 +7,8 @@ use crate::emacs_core::builtins::{
 fn hash_table_keys_values_basics() {
     let table = Value::hash_table(HashTableTest::Equal);
     if table.is_hash_table() {
-        with_heap_mut(|h| {
-            let raw = h.get_hash_table_mut(*ht);
+        {
+            let raw = table.as_hash_table_mut().unwrap();
             let test = raw.test.clone();
             let key_alpha = Value::symbol("alpha").to_hash_key(&test);
             raw.data.insert(key_alpha.clone(), Value::fixnum(1));
@@ -16,7 +16,7 @@ fn hash_table_keys_values_basics() {
             let key_beta = Value::symbol("beta").to_hash_key(&test);
             raw.data.insert(key_beta.clone(), Value::fixnum(2));
             raw.insertion_order.push(key_beta);
-        });
+        }
     } else {
         panic!("expected hash table");
     }
@@ -90,22 +90,10 @@ fn hash_table_rehash_options_are_ignored() {
 
 #[test]
 fn sxhash_variants_return_fixnums_and_preserve_hash_contracts() {
-    assert!(matches!(
-        builtin_sxhash_eq(vec![Value::symbol("foo")]),
-        Ok(Value::fixnum(_))
-    ));
-    assert!(matches!(
-        builtin_sxhash_eql(vec![Value::symbol("foo")]),
-        Ok(Value::fixnum(_))
-    ));
-    assert!(matches!(
-        builtin_sxhash_equal(vec![Value::symbol("foo")]),
-        Ok(Value::fixnum(_))
-    ));
-    assert!(matches!(
-        builtin_sxhash_equal_including_properties(vec![Value::symbol("foo")]),
-        Ok(Value::fixnum(_))
-    ));
+    assert!(builtin_sxhash_eq(vec![Value::symbol("foo")]).unwrap().is_fixnum());
+    assert!(builtin_sxhash_eql(vec![Value::symbol("foo")]).unwrap().is_fixnum());
+    assert!(builtin_sxhash_equal(vec![Value::symbol("foo")]).unwrap().is_fixnum());
+    assert!(builtin_sxhash_equal_including_properties(vec![Value::symbol("foo")]).unwrap().is_fixnum());
 
     let left = Value::string("x");
     let right = Value::string("x");
@@ -445,8 +433,8 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
     ])
     .expect("hash table");
     if table.is_hash_table() {
-        with_heap_mut(|h| {
-            let raw = h.get_hash_table_mut(*ht);
+        {
+            let raw = table.as_hash_table_mut().unwrap();
             let test = raw.test.clone();
             let key_a = Value::string("a").to_hash_key(&test);
             raw.data.insert(key_a.clone(), Value::symbol("value-a"));
@@ -454,7 +442,7 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
             let key_b = Value::string("b").to_hash_key(&test);
             raw.data.insert(key_b.clone(), Value::symbol("value-b"));
             raw.insertion_order.push(key_b);
-        });
+        }
     } else {
         panic!("expected hash table");
     }
@@ -631,7 +619,7 @@ fn internal_hash_table_buckets_equal_preserve_first_key_identity_on_overwrite() 
     if !&entries[0].is_cons() {
         panic!("expected alist cons entry");
     };
-    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+    let pair_car = entries[0].cons_car();
     assert_eq!(pair_car.as_str(), Some("x"));
     assert!(eq_value(&pair_car, &key_a));
     assert!(!eq_value(&pair_car, &key_b));

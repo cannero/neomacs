@@ -34,9 +34,10 @@ fn copy_alist_basic() {
     // Original and copy should have equal structure
     assert!(equal_value(&alist, &result, 0));
     // But the cons cells should not be eq (different heap objects)
-    if let (Value::Cons(a), Value::Cons(b)) = (&items[0], &list_to_vec(&alist).unwrap()[0]) {
-        assert_ne!(a, b);
-    }
+    assert!(items[0].is_cons());
+    let orig_first = &list_to_vec(&alist).unwrap()[0];
+    assert!(orig_first.is_cons());
+    assert_ne!(items[0], *orig_first);
 }
 
 #[test]

@@ -2774,10 +2774,9 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
-        other => panic!("expected frame object, got {other:?}"),
-    };
+    let created_id = crate::window::FrameId(
+        created.as_frame_id().unwrap_or_else(|| panic!("expected frame object, got {:?}", created))
+    );
     assert_ne!(created_id, fid);
     let frame = ev.frames.get(created_id).expect("created frame");
     assert_eq!(ev.frames.frame_list().len(), 2);
@@ -2816,10 +2815,9 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
-        other => panic!("expected frame object, got {other:?}"),
-    };
+    let created_id = crate::window::FrameId(
+        created.as_frame_id().unwrap_or_else(|| panic!("expected frame object, got {:?}", created))
+    );
     assert_ne!(created_id, fid);
     assert_eq!(ev.frames.frame_list().len(), 2);
     let frame = ev.frames.get(created_id).expect("created opening frame");
@@ -2856,10 +2854,9 @@ fn x_create_frame_reserves_tab_bar_space_above_root_window() {
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
-        other => panic!("expected frame object, got {other:?}"),
-    };
+    let created_id = crate::window::FrameId(
+        created.as_frame_id().unwrap_or_else(|| panic!("expected frame object, got {:?}", created))
+    );
     let frame = ev.frames.get(created_id).expect("created frame");
 
     assert_eq!(frame.tab_bar_height, 16);
@@ -2900,10 +2897,9 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
     ]);
     let created = super::builtin_make_frame(&mut ev, vec![params]).expect("make-frame");
 
-    let created_id = match created.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
-        other => panic!("expected frame object, got {other:?}"),
-    };
+    let created_id = crate::window::FrameId(
+        created.as_frame_id().unwrap_or_else(|| panic!("expected frame object, got {:?}", created))
+    );
     let frame = ev.frames.get(created_id).expect("created opening frame");
     assert_eq!(frame.effective_window_system(), Some(Value::symbol("neo")));
     assert_eq!(frame.width, 800);
@@ -2962,10 +2958,9 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
-        other => panic!("expected frame object, got {other:?}"),
-    };
+    let created_id = crate::window::FrameId(
+        created.as_frame_id().unwrap_or_else(|| panic!("expected frame object, got {:?}", created))
+    );
     let frame = ev.frames.get(created_id).expect("created opening frame");
     assert_eq!(frame.width, 1500);
     assert_eq!(frame.height, 1900);
@@ -3005,10 +3000,9 @@ fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geom
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
-        other => panic!("expected frame object, got {other:?}"),
-    };
+    let created_id = crate::window::FrameId(
+        created.as_frame_id().unwrap_or_else(|| panic!("expected frame object, got {:?}", created))
+    );
     let frame = ev.frames.get(created_id).expect("created opening frame");
     assert_eq!(frame.width, 1500);
     assert_eq!(frame.height, 1900);

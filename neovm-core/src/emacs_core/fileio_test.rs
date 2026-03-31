@@ -2533,6 +2533,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
     if !found.is_buffer() {
         panic!("expected Buffer");
     };
+    let buf_id = found.as_buffer_id().unwrap();
     let fbuf = eval_find.buffers.get(buf_id).unwrap();
     assert_eq!(fbuf.buffer_string(), "alpha\n");
     assert_eq!(fbuf.file_name.as_deref(), Some(alpha_str.as_str()));
@@ -2675,7 +2676,7 @@ fn test_find_file_noselect() {
     let buf_val = result.unwrap();
     match buf_val.kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            let buf = eval.buffers.get(*id).unwrap();
+            let buf = eval.buffers.get(buf_val.as_buffer_id().unwrap()).unwrap();
             assert_eq!(buf.buffer_string(), "file content here");
             assert!(buf.file_name.is_some());
             assert!(!buf.is_modified());
@@ -2686,10 +2687,9 @@ fn test_find_file_noselect() {
     // Calling again with the same file should return the same buffer
     let result2 = builtin_find_file_noselect(&mut eval, vec![Value::string(&path_str)]);
     assert!(result2.is_ok());
-    match (buf_val.kind(), result2.unwrap().kind()) {
-        (ValueKind::Veclike(VecLikeType::Buffer), ValueKind::Veclike(VecLikeType::Buffer)) => assert_eq!(a, b),
-        _ => panic!("Expected matching Buffer values"),
-    }
+    let buf_val2 = result2.unwrap();
+    assert!(buf_val.is_buffer() && buf_val2.is_buffer());
+    assert_eq!(buf_val, buf_val2);
 
     // Clean up
     let _ = fs::remove_dir_all(&dir);
@@ -2706,14 +2706,15 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
         vec![Value::string("/tmp/neovm_nonexistent_file_xyz.txt")],
     );
     assert!(result.is_ok());
-    match result.unwrap().kind() {
+    let nonexistent_buf = result.unwrap();
+    match nonexistent_buf.kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            let buf = eval.buffers.get(id).unwrap();
+            let buf = eval.buffers.get(nonexistent_buf.as_buffer_id().unwrap()).unwrap();
             // Buffer should be empty for a nonexistent file
             assert_eq!(buf.buffer_string(), "");
             assert!(buf.file_name.is_some());
         }
-        other => panic!("Expected Buffer, got {:?}", result.unwrap()),
+        other => panic!("Expected Buffer, got {:?}", nonexistent_buf),
     }
 }
 

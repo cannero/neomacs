@@ -1377,7 +1377,7 @@ fn this_command_keys_uses_read_command_key_chars() {
     match vec_result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = vec_result.as_vector_data().unwrap().clone();
-            assert_eq!(items.as_slice(), &[ValueKind::Fixnum(97)]);
+            assert_eq!(items.as_slice(), &[Value::fixnum(97)]);
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -1408,7 +1408,7 @@ fn this_single_command_keys_prefers_read_command_key_vector() {
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = result.as_vector_data().unwrap().clone();
-            assert_eq!(items.as_slice(), &[ValueKind::Fixnum(97)]);
+            assert_eq!(items.as_slice(), &[Value::fixnum(97)]);
         }
         other => panic!("expected vector, got {other:?}"),
     }

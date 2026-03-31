@@ -580,7 +580,7 @@ fn copy_syntax_table_returns_fresh_syntax_table() {
     assert_eq!(subtype, Value::symbol("syntax-table"));
 
     match (source.kind(), copied.kind()) {
-        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_ne!(a, b),
+        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_ne!(source, copied),
         other => panic!("expected vector-backed char tables, got {other:?}"),
     }
 }
@@ -712,7 +712,7 @@ fn syntax_table_and_standard_default_to_same_object() {
     let current = builtin_syntax_table(&mut eval, vec![]).unwrap();
     let standard = builtin_standard_syntax_table(vec![]).unwrap();
     match (current.kind(), standard.kind()) {
-        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_eq!(a, b),
+        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_eq!(current, standard),
         other => panic!("expected syntax-table vectors, got {other:?}"),
     }
 }
@@ -742,7 +742,7 @@ fn set_syntax_table_updates_current_buffer_only() {
     eval.buffers.set_current(other_id);
     let other = builtin_syntax_table(&mut eval, vec![]).unwrap();
     match (other.kind(), custom.kind()) {
-        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_ne!(a, b),
+        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_ne!(other, custom),
         pair => panic!("expected syntax-table vectors, got {pair:?}"),
     }
 
