@@ -1,5 +1,5 @@
 use super::*;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Vector operations
@@ -21,7 +21,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) if super::chartable::is_char_table(&args[0]) => {
             let ch = expect_char_table_index(&args[1])?;
-            super::chartable::builtin_char_table_range(vec![args[0], ValueKind::Fixnum(ch)])
+            super::chartable::builtin_char_table_range(vec![args[0], Value::fixnum(ch)])
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = idx_fixnum as usize;
@@ -65,7 +65,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
             let codes = decode_storage_char_codes(&s);
             codes
                 .get(idx)
-                .map(|cp| Value::Int(*cp as i64))
+                .map(|cp| Value::fixnum(*cp as i64))
                 .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
         }
         // In official Emacs, closures support aref for oclosure slot access.
@@ -98,7 +98,7 @@ pub(crate) fn aset_string_replacement(
     index: &Value,
     new_element: &Value,
 ) -> Result<Value, Flow> {
-    if !array.is_string() /* TODO(tagged): `original` was Value::Str(original), rewrite let-else */ {
+    if !array.is_string() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *array],
@@ -146,7 +146,7 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) if super::chartable::is_char_table(&args[0]) => {
             let ch = expect_char_table_index(&args[1])?;
-            super::chartable::builtin_set_char_table_range(vec![args[0], ValueKind::Fixnum(ch), args[2]])
+            super::chartable::builtin_set_char_table_range(vec![args[0], Value::fixnum(ch), args[2]])
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = expect_fixnum(&args[1])? as usize;
@@ -181,7 +181,7 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
                 if store_idx >= vec_len {
                     return Err(signal("args-out-of-range", vec![args[0], args[1]]));
                 }
-                let val = Value::Int(if args[2].is_truthy() { 1 } else { 0 });
+                let val = Value::fixnum(if args[2].is_truthy() { 1 } else { 0 });
                 with_heap_mut(|h| h.get_vector_mut(*v)[store_idx] = val);
                 return Ok(args[2]);
             }
@@ -234,7 +234,7 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
                 result.extend(
                     decode_storage_char_codes(&s)
                         .into_iter()
-                        .map(|cp| Value::Int(cp as i64)),
+                        .map(|cp| Value::fixnum(cp as i64)),
                 );
             }
             ValueKind::Nil => {}
@@ -500,7 +500,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
         }
     }
     let table = Value::hash_table_with_options(test, size, weakness, 1.5, 0.8125);
-    if &table.is_hash_table() /* TODO(tagged): `table_ref` was Value::HashTable(table_ref), now use accessor */ {
+    if table.is_hash_table() {
         with_heap_mut(|h| h.get_hash_table_mut(*table_ref).test_name = test_name);
     }
     Ok(table)
@@ -624,7 +624,7 @@ pub(crate) fn builtin_char_to_string(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), args[0]],
         )),
     }
 }

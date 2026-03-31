@@ -63,7 +63,7 @@ fn expect_wholenump(val: &Value) -> Result<i64, Flow> {
         ValueKind::Fixnum(n) if n >= 0 => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("wholenump"), *other],
+            vec![Value::symbol("wholenump"), *val],
         )),
     }
 }
@@ -73,7 +73,7 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *val],
         )),
     }
 }
@@ -89,7 +89,7 @@ fn expect_char(val: &Value) -> Result<char, Flow> {
         }),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *val],
         )),
     }
 }
@@ -97,10 +97,10 @@ fn expect_char(val: &Value) -> Result<char, Flow> {
 fn expect_character_code(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if (0..=MAX_EMACS_CHAR).contains(n) => Ok(n),
+        ValueKind::Fixnum(n) if (0..=MAX_EMACS_CHAR).contains(&n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *val],
         )),
     }
 }
@@ -163,7 +163,7 @@ pub(crate) fn builtin_copy_alist(args: Vec<Value>) -> EvalResult {
                         let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
                         Value::cons(inner_pair.car, inner_pair.cdr)
                     }
-                    other => *other,
+                    other => *cursor,
                 };
                 result.push(entry);
                 cursor = pair.cdr;
@@ -191,7 +191,7 @@ pub(crate) fn builtin_rassoc(args: Vec<Value>) -> EvalResult {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
                 let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if &pair.car.is_cons() /* TODO(tagged): `inner` was ValueKind::Cons, now use accessor */ {
+                if &pair.car.is_cons() {
                     let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
                     if equal_value(&inner_pair.cdr, key, 0) {
                         return Ok(pair.car);
@@ -220,7 +220,7 @@ pub(crate) fn builtin_rassq(args: Vec<Value>) -> EvalResult {
             ValueKind::Nil => return Ok(Value::NIL),
             ValueKind::Cons => {
                 let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if &pair.car.is_cons() /* TODO(tagged): `inner` was ValueKind::Cons, now use accessor */ {
+                if &pair.car.is_cons() {
                     let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
                     if eq_value(&inner_pair.cdr, key) {
                         return Ok(pair.car);
@@ -284,7 +284,7 @@ pub(crate) fn builtin_safe_length(args: Vec<Value>) -> EvalResult {
         }
 
         // Brent's: check if hare caught up to tortoise
-        if let (Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */, Value::Cons(b) /* TODO(tagged): convert Value::Cons to new API */) = (&hare, &tortoise) {
+        if let (Value::Cons(a), Value::Cons(b)) = (&hare, &tortoise) {
             if a == b {
                 return Ok(Value::fixnum(length));
             }
@@ -323,7 +323,7 @@ pub(crate) fn builtin_subst_char_in_string(args: Vec<Value>) -> EvalResult {
 /// `(string-to-multibyte STRING)` -- convert unibyte storage bytes to multibyte chars.
 pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-multibyte", &args, 1)?;
-    if args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    if args[0].is_string() {
         if with_heap(|h| h.string_is_multibyte(id)) {
             return Ok(args[0]);
         }
@@ -337,7 +337,7 @@ pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
 /// `(string-to-unibyte STRING)` -- convert to unibyte storage.
 pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-unibyte", &args, 1)?;
-    if args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    if args[0].is_string() {
         if !with_heap(|h| h.string_is_multibyte(id)) {
             return Ok(args[0]);
         }
@@ -376,7 +376,7 @@ pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
 /// `(string-as-unibyte STRING)` -- reinterpret as unibyte byte sequence.
 pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-unibyte", &args, 1)?;
-    if args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    if args[0].is_string() {
         if !with_heap(|h| h.string_is_multibyte(id)) {
             return Ok(args[0]);
         }
@@ -412,7 +412,7 @@ pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
 /// `(string-as-multibyte STRING)` -- reinterpret unibyte storage as multibyte.
 pub(crate) fn builtin_string_as_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-multibyte", &args, 1)?;
-    if args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    if args[0].is_string() {
         if with_heap(|h| h.string_is_multibyte(id)) {
             return Ok(args[0]);
         }
@@ -483,7 +483,7 @@ pub(crate) fn builtin_locale_info(args: Vec<Value>) -> EvalResult {
             Value::string("December"),
         ])),
         ValueKind::Symbol(item) if resolve_sym(item) == "paper" => {
-            Ok(Value::list(vec![ValueKind::Fixnum(210), ValueKind::Fixnum(297)]))
+            Ok(Value::list(vec![Value::fixnum(210), Value::fixnum(297)]))
         }
         _ => Ok(Value::NIL),
     }
@@ -516,14 +516,14 @@ pub(crate) fn builtin_backtrace_frame(
 
     match nframes.kind() {
         0 => {
-            let mut frame = vec![ValueKind::T, Value::symbol("backtrace-frame"), ValueKind::Fixnum(0)];
+            let mut frame = vec![ValueKind::T, Value::symbol("backtrace-frame"), Value::fixnum(0)];
             if args.len() > 1 {
                 frame.push(args[1]);
             }
             Ok(Value::list(frame))
         }
         1 => {
-            let mut call = vec![Value::symbol("backtrace-frame"), ValueKind::Fixnum(1)];
+            let mut call = vec![Value::symbol("backtrace-frame"), Value::fixnum(1)];
             if args.len() > 1 {
                 call.push(args[1]);
             }
@@ -647,7 +647,7 @@ fn runtime_backtrace_frames_from_base(
 ) -> Result<Vec<super::eval::RuntimeBacktraceFrame>, Flow> {
     let mut offset = 0usize;
     let mut base_function = base;
-    if base.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if base.is_cons() {
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         if let Some(raw_offset) = pair.car.as_fixnum() {
             if raw_offset < 0 {

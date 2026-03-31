@@ -35,7 +35,7 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *val],
         )),
     }
 }
@@ -46,7 +46,7 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *val],
         )),
     }
 }
@@ -56,7 +56,7 @@ fn expect_sequence_string(val: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), *val],
         )),
     }
 }

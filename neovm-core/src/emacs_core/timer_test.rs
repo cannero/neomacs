@@ -640,7 +640,7 @@ fn test_eval_run_at_time_and_cancel() {
     assert!(result.unwrap().is_nil());
 
     // Verify it's cancelled
-    if timer_val.is_timer() /* TODO(tagged): `id` was Value::Timer(id), now use accessor */ {
+    if timer_val.is_timer() {
         assert!(!eval.timers.timer_active_p(id));
     }
 }
@@ -662,7 +662,7 @@ fn test_eval_run_with_idle_timer() {
     assert!(matches!(timer_val, Value::make_timer(_)));
 
     // The timer should be idle
-    if timer_val.is_timer() /* TODO(tagged): `id` was Value::Timer(id), now use accessor */ {
+    if timer_val.is_timer() {
         let timer = eval.timers.timers.iter().find(|t| t.id == id).unwrap();
         assert!(timer.idle);
     }
@@ -930,7 +930,7 @@ fn test_eval_timer_activate() {
     let timer_val = result.unwrap();
     builtin_cancel_timer(&mut eval, vec![timer_val]).unwrap();
 
-    if &timer_val.is_timer() /* TODO(tagged): `id` was Value::Timer(id), now use accessor */ {
+    if &timer_val.is_timer() {
         assert!(!eval.timers.timer_active_p(*id));
     }
 
@@ -938,7 +938,7 @@ fn test_eval_timer_activate() {
     let result = builtin_timer_activate(&mut eval, vec![timer_val]);
     assert!(result.is_ok());
 
-    if &timer_val.is_timer() /* TODO(tagged): `id` was Value::Timer(id), now use accessor */ {
+    if &timer_val.is_timer() {
         assert!(eval.timers.timer_active_p(*id));
     }
 

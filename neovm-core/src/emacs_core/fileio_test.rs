@@ -346,7 +346,7 @@ fn test_builtin_delete_file_accepts_optional_trash_arg() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("delete-file"), ValueKind::Fixnum(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("delete-file"), Value::fixnum(3)]);
         }
         other => panic!("expected signal, got {:?}", other),
     }
@@ -896,7 +896,7 @@ fn test_builtin_file_truename_counter_validation() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("expected signal, got {:?}", other),
     }
@@ -974,7 +974,7 @@ fn test_builtin_make_temp_file_validation() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("sequencep"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("sequencep"), Value::fixnum(1)]);
         }
         other => panic!("expected signal, got {:?}", other),
     }
@@ -987,7 +987,7 @@ fn test_builtin_make_temp_file_validation() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("expected signal, got {:?}", other),
     }
@@ -1125,7 +1125,7 @@ fn test_builtin_access_file_semantics() {
     match file_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
@@ -1138,7 +1138,7 @@ fn test_builtin_access_file_semantics() {
     match op_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
@@ -2324,7 +2324,7 @@ fn test_insert_file_contents_beg_end_semantics() {
     match bad_offset {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("file-offset"), Value::Int(-1)]);
+            assert_eq!(sig.data, vec![Value::symbol("file-offset"), Value::fixnum(-1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2376,7 +2376,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("insert-file-contents"), ValueKind::Fixnum(6)]
+                vec![Value::symbol("insert-file-contents"), Value::fixnum(6)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2428,7 +2428,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
     match write_bad {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("write-region"), ValueKind::Fixnum(8)]);
+            assert_eq!(sig.data, vec![Value::symbol("write-region"), Value::fixnum(8)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2473,7 +2473,7 @@ fn test_find_file_noselect_arity_bounds() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("find-file-noselect"), ValueKind::Fixnum(5)]
+                vec![Value::symbol("find-file-noselect"), Value::fixnum(5)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2530,7 +2530,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
         .set_symbol_value("default-directory", Value::string(&default_dir));
     let found =
         builtin_find_file_noselect(&mut eval_find, vec![Value::string("alpha.txt")]).unwrap();
-    if !found.is_buffer() /* TODO(tagged): `buf_id` was Value::Buffer(buf_id), rewrite let-else */ {
+    if !found.is_buffer() {
         panic!("expected Buffer");
     };
     let fbuf = eval_find.buffers.get(buf_id).unwrap();
@@ -2571,7 +2571,7 @@ fn test_write_region_bounds_and_order_semantics() {
         match err {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "args-out-of-range");
-                assert_eq!(sig.data, vec![current, ValueKind::Fixnum(start), ValueKind::Fixnum(end)]);
+                assert_eq!(sig.data, vec![current, Value::fixnum(start), Value::fixnum(end)]);
             }
             other => panic!("unexpected flow: {other:?}"),
         }
@@ -2698,7 +2698,7 @@ fn test_find_file_noselect() {
 #[test]
 fn test_find_file_noselect_nonexistent() {
     use super::super::eval::Context;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
     let mut eval = Context::new();
     let result = builtin_find_file_noselect(

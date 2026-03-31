@@ -532,7 +532,7 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
     if let Some(fndef) = eval.obarray.symbol_function(symbol_name).cloned() {
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {
-                if let Some(Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) = items.get(1) {
+                if let Some(ValueKind::String) = items.get(1) {
                     return Ok(Value::string(with_heap(|h| h.get_string(*id).to_owned())));
                 }
             }

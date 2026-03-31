@@ -51,7 +51,7 @@ pub fn undo_list_record_insert(undo_list: &mut Value, beg: usize, len: usize, pt
         if head.is_cons() {
             let car = head.cons_car();
             let cdr = head.cons_cdr();
-            if let (Value::fixnum(prev_beg), Value::fixnum(prev_end)) = (car, cdr) {
+            if let (Some(prev_beg), Some(prev_end)) = (car.as_fixnum(), cdr.as_fixnum()) {
                 if prev_end == beg1 {
                     // Merge: extend the existing insert entry.
                     head.set_cdr(Value::fixnum(prev_end + len as i64));

@@ -34,7 +34,7 @@ fn copy_alist_basic() {
     // Original and copy should have equal structure
     assert!(equal_value(&alist, &result, 0));
     // But the cons cells should not be eq (different heap objects)
-    if let (Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */, Value::Cons(b) /* TODO(tagged): convert Value::Cons to new API */) = (&items[0], &list_to_vec(&alist).unwrap()[0]) {
+    if let (Value::Cons(a), Value::Cons(b)) = (&items[0], &list_to_vec(&alist).unwrap()[0]) {
         assert_ne!(a, b);
     }
 }
@@ -56,7 +56,7 @@ fn rassoc_found() {
     ]);
     let result = builtin_rassoc(vec![Value::fixnum(2), alist]).unwrap();
     // Should return (b . 2)
-    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if result.is_cons() {
         let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert!(eq_value(&pair.car, &Value::symbol("b")));
     } else {
@@ -78,7 +78,7 @@ fn rassq_found() {
         Value::cons(Value::symbol("y"), Value::symbol("no")),
     ]);
     let result = builtin_rassq(vec![Value::symbol("yes"), alist]).unwrap();
-    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if result.is_cons() {
         let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert!(eq_value(&pair.car, &Value::symbol("x")));
     } else {
@@ -155,7 +155,7 @@ fn make_list_validates_wholenump_length() {
     match negative {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("wholenump"), Value::Int(-1)]);
+            assert_eq!(sig.data, vec![Value::symbol("wholenump"), Value::fixnum(-1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -625,7 +625,7 @@ fn backtrace_frame_internal_tracks_runtime_funcall_interactively_marker() {
 #[test]
 fn sf_save_current_buffer_restores() {
     use super::super::expr::Expr;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
     let mut ev = super::super::eval::Context::new();
     // Create a buffer and make it current
     let buf_id = ev.buffers.create_buffer("*test*");

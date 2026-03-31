@@ -766,7 +766,7 @@ pub struct Context {
     ///
     /// GNU Emacs dispatches subrs from the function object itself rather than
     /// paying an extra hash-table lookup. NeoVM's function cells still store
-    /// `Value::Subr(sym_id)`, but the registry backing that value is a direct
+    /// `Value::subr(sym_id)`, but the registry backing that value is a direct
     /// slot table so builtin dispatch follows symbol identity, not name hashing.
     pub(crate) subr_registry: Vec<Option<SubrObject>>,
     /// String interner for symbol/keyword/subr names (SymId handles).
@@ -1126,7 +1126,7 @@ pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option
     // GNU eval:
     // - non-nil atom => lexical mode enabled, empty interpreter environment.
     // - cons         => lexical mode enabled with explicit interpreter env.
-    if !arg.is_cons() /* TODO(tagged): `_` was Value::Cons(_), rewrite let-else */ {
+    if !arg.is_cons() {
         return Ok((true, None));
     };
 
@@ -2321,9 +2321,9 @@ impl Context {
         );
         obarray.set_symbol_value("yes-or-no-prompt", Value::string("(yes or no) "));
         // Float-valued C variables
-        obarray.set_symbol_value("gc-cons-percentage", Value::make_float(0.1) /* TODO(tagged): dropped float id `0` */);
-        obarray.set_symbol_value("max-mini-window-height", Value::make_float(0.25) /* TODO(tagged): dropped float id `0` */);
-        obarray.set_symbol_value("image-scaling-factor", Value::make_float(1.0) /* TODO(tagged): dropped float id `0` */);
+        obarray.set_symbol_value("gc-cons-percentage", Value::make_float(0.1));
+        obarray.set_symbol_value("max-mini-window-height", Value::make_float(0.25));
+        obarray.set_symbol_value("image-scaling-factor", Value::make_float(1.0));
         // Display engine C variables (xdisp.c)
         obarray.set_symbol_value("global-mode-string", Value::NIL);
         // File loading C variables (lread.c)
@@ -3774,7 +3774,7 @@ impl Context {
         // Match data — SearchedString::Heap holds a live ObjId
         if let Some(ref md) = self.match_data {
             if let Some(crate::emacs_core::regex::SearchedString::Heap(id)) = &md.searched_string {
-                roots.push(Value::Str(*id) /* TODO(tagged): convert Value::Str to new API */);
+                roots.push(Value::Str(*id));
             }
         }
 
@@ -4340,7 +4340,7 @@ impl Context {
     }
 
     fn pending_gnu_timer(timer: Value) -> Option<PendingGnuTimer> {
-        if !timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), rewrite let-else */ {
+        if !timer.is_vector() {
             return None;
         };
 
@@ -4366,13 +4366,13 @@ impl Context {
                 high_seconds: slots[1].as_int()?,
                 low_seconds: slots[2].as_int()?,
                 usecs: slots[3].as_int()?,
-                psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
+                psecs: slots.get(8).and_then(|v| v.as_int()).unwrap_or(0),
             },
         })
     }
 
     fn pending_gnu_idle_timer(timer: Value) -> Option<PendingGnuTimer> {
-        if !timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), rewrite let-else */ {
+        if !timer.is_vector() {
             return None;
         };
 
@@ -4395,7 +4395,7 @@ impl Context {
                 high_seconds: slots[1].as_int()?,
                 low_seconds: slots[2].as_int()?,
                 usecs: slots[3].as_int()?,
-                psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
+                psecs: slots.get(8).and_then(|v| v.as_int()).unwrap_or(0),
             },
         })
     }
@@ -5765,7 +5765,7 @@ impl Context {
             // shadowing. The current source-compatible path keeps this empty.
             if super::subr_info::is_evaluator_sf_skip_macroexpand(name) {
                 if let Some(func) = self.obarray.symbol_function(name) {
-                    let is_macro = matches!(func, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
+                    let is_macro = matches!(func, ValueKind::Veclike(VecLikeType::Macro))
                         || (func.is_cons() && func.cons_car().is_symbol_named("macro"));
                     if is_macro {
                         if let Some(result) = self.try_special_form(name, tail) {
@@ -5787,7 +5787,7 @@ impl Context {
                 // — non-macro aliases are handled by the apply path below.
                 if let Some(alias_id) = func.as_symbol_id() {
                     if let Some(resolved) = self.obarray.indirect_function(resolve_sym(alias_id)) {
-                        let is_macro = matches!(resolved, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
+                        let is_macro = matches!(resolved, ValueKind::Veclike(VecLikeType::Macro))
                             || (resolved.is_cons() && resolved.cons_car().is_symbol_named("macro"));
                         if is_macro {
                             func = resolved;
@@ -5805,7 +5805,7 @@ impl Context {
                         vec![func, Value::symbol(name), Value::symbol("macro")],
                     )?;
                     if let Some(loaded_macro) = self.obarray.symbol_function_id(sym_id).cloned() {
-                        let is_loaded_macro = matches!(loaded_macro, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
+                        let is_loaded_macro = matches!(loaded_macro, ValueKind::Veclike(VecLikeType::Macro))
                             || (loaded_macro.is_cons()
                                 && loaded_macro.cons_car().is_symbol_named("macro"));
                         if is_loaded_macro {
@@ -5814,7 +5814,7 @@ impl Context {
                     }
                 }
 
-                if &func.is_macro() /* TODO(tagged): `_` was Value::Macro(_), now use accessor */ {
+                if &func.is_macro() {
                     let expanded = self.expand_macro(func, tail)?;
                     // OpaqueValueRef entries are rooted by OpaqueValuePool.
                     return self.with_gc_scope(|ctx| {
@@ -5828,7 +5828,7 @@ impl Context {
                 }
                 // Handle cons-cell macros: (macro . fn) — used by byte-run.el's
                 // (defalias 'defmacro (cons 'macro #'(lambda ...)))
-                if func.is_cons() /* TODO(tagged): `cons_id` was Value::Cons(cons_id), now use accessor */ {
+                if func.is_cons() {
                     let car = func.cons_car();
                     if car.is_symbol_named("macro") {
                         let cache_key = (
@@ -7116,7 +7116,7 @@ impl Context {
         };
 
         let mut constants: Vec<Value> = match constants_vec {
-            Value::Vector(id) /* TODO(tagged): convert Value::Vector to new API */ => with_heap(|h| h.get_vector(id).clone()),
+            ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(id).clone()),
             _ => Vec::new(),
         };
 
@@ -7232,9 +7232,9 @@ impl Context {
         let entry = {
             let mut cursor = after_load_alist;
             let mut found = Value::NIL;
-            while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            while cursor.is_cons() {
                 let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if pair.car.is_cons() /* TODO(tagged): `inner` was Value::Cons(inner), now use accessor */ {
+                if pair.car.is_cons() {
                     let inner_pair = crate::emacs_core::value::read_cons(inner);  // TODO(tagged): replace read_cons with cons accessors
                     if inner_pair.car == feature {
                         found = pair.car;
@@ -7252,7 +7252,7 @@ impl Context {
         // Call funcall on each callback in the cdr.
         let callbacks = entry.cons_cdr();
         let mut cursor = callbacks;
-        while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        while cursor.is_cons() {
             let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             let callback = pair.car;
             self.apply(callback, vec![])?;
@@ -7273,7 +7273,7 @@ impl Context {
             _ => None,
         };
         let filename_str = filename.as_ref().and_then(|v| match v {
-            Value::Str(oid) /* TODO(tagged): convert Value::Str to new API */ => Some(self.heap.get_string(*oid).to_string()),
+            ValueKind::String => Some(self.heap.get_string(*oid).to_string()),
             _ => None,
         });
         match plan_require_in_state(
@@ -7446,7 +7446,7 @@ impl Context {
         if !eq_value(&current_fn, &expected_fn) {
             return;
         }
-        if !result.is_lambda() /* TODO(tagged): `id` was Value::Lambda(id), rewrite let-else */ {
+        if !result.is_lambda() {
             return;
         };
         let lambda_data = self.heap.get_lambda(*id).clone();
@@ -7826,7 +7826,7 @@ impl Context {
     pub(crate) fn instantiate_callable_cons_form(&mut self, function: Value) -> EvalResult {
         let items =
             list_to_vec(&function).ok_or_else(|| signal("invalid-function", vec![function]))?;
-        let Some(head_name) = items.first().and_then(Value::as_symbol_name) else {
+        let Some(head_name) = items.first().and_then(|v| v.as_symbol_name()) else {
             return Err(signal("invalid-function", vec![function]));
         };
 
@@ -7862,7 +7862,7 @@ impl Context {
             _ => return Err(signal("invalid-function", vec![function])),
         };
 
-        let docstring_value = if matches!(items.get(body_start), Some(Value::Str(_) /* TODO(tagged): convert Value::Str to new API */))
+        let docstring_value = if matches!(items.get(body_start), Some(ValueKind::String))
             && items.get(body_start + 1).is_some()
         {
             let value = items[body_start];
@@ -7888,7 +7888,7 @@ impl Context {
             };
             if declare
                 .first()
-                .and_then(Value::as_symbol_name)
+                .and_then(|v| v.as_symbol_name())
                 .is_some_and(|name| name == "declare")
             {
                 body_start += 1;
@@ -8271,7 +8271,7 @@ impl Context {
                 if args.len() != 2 {
                     return Err(signal(
                         "wrong-number-of-arguments",
-                        vec![Value::Subr(intern("throw")), Value::Int(args.len() as i64)],
+                        vec![Value::Subr(intern("throw")), Value::fixnum(args.len() as i64)],
                     ));
                 }
                 let tag = args[0];
@@ -8316,7 +8316,7 @@ impl Context {
         macro_val: Value,
         args: &[Expr],
     ) -> Result<Rc<Expr>, Flow> {
-        if !macro_val.is_macro() /* TODO(tagged): `id` was Value::Macro(id), rewrite let-else */ {
+        if !macro_val.is_macro() {
             return Err(signal("invalid-macro", vec![]));
         };
 
@@ -8357,7 +8357,7 @@ impl Context {
         }
 
         let expanded_value = self.with_macro_expansion_scope(|eval| {
-            eval.apply_lambda(&lambda_data, arg_values, Value::Macro(id) /* TODO(tagged): convert Value::Macro to new API */)
+            eval.apply_lambda(&lambda_data, arg_values, Value::Macro(id))
         })?;
         // Root expansion result during value_to_expr traversal
         self.push_temp_root(expanded_value);
@@ -8422,7 +8422,7 @@ impl Context {
                 ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
                 ValueKind::Keyword(sym) => ((sym.0 as u64) << 8) ^ 0x21,
                 ValueKind::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
-                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => (id as u64) ^ 0x23,
+                ValueKind::Float => (id as u64) ^ 0x23,
                 ValueKind::Cons
                 | ValueKind::Veclike(VecLikeType::Vector)
                 | ValueKind::Veclike(VecLikeType::Record)
@@ -9292,7 +9292,7 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
         ValueKind::Nil => Expr::Symbol(intern("nil")),
         ValueKind::T => Expr::Symbol(intern("t")),
         ValueKind::Fixnum(n) => Expr::Int(n),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Expr::Float(*f),
+        ValueKind::Float => Expr::Float(*f),
         ValueKind::Symbol(id) => Expr::Symbol(id),
         ValueKind::Keyword(id) => Expr::Keyword(id),
         ValueKind::String => Expr::Str(with_heap(|h| h.get_string(*id).to_owned())),
@@ -9328,7 +9328,7 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
         // Lambda, Macro, ByteCode, HashTable, Buffer, etc. — preserve as
         // opaque values so they survive the Value→Expr→Value round-trip
         // (e.g., closures embedded in defcustom backquote expansions).
-        other => Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(*other))),
+        other => Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(*value))),
     }
 }
 

@@ -40,7 +40,7 @@ fn expect_string_arg(value: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|heap| heap.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -356,7 +356,7 @@ pub(crate) fn builtin_lock_buffer(eval: &mut super::eval::Context, args: Vec<Val
         current
             .buffer_local_value("buffer-file-truename")
             .and_then(|value| match value {
-                Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+                ValueKind::String => Some(with_heap(|heap| heap.get_string(id).to_owned())),
                 _ => None,
             })
             .map(|filename| resolve_filename_for_eval(eval, &filename))
@@ -381,7 +381,7 @@ pub(crate) fn builtin_unlock_buffer(
         return Ok(Value::NIL);
     };
     if current.modified_state_value().is_truthy()
-        && let Some(Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) = current.buffer_local_value("buffer-file-truename")
+        && let Some(ValueKind::String) = current.buffer_local_value("buffer-file-truename")
     {
         let filename = with_heap(|heap| heap.get_string(id).to_owned());
         let filename = resolve_filename_for_eval(eval, &filename);

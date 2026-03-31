@@ -13,8 +13,8 @@
 //! - **Bool-vector**: A `Value::Vector` whose first element is the tag symbol
 //!   `--bool-vector--`.  The layout is:
 //!   `[--bool-vector-- SIZE ...BITS...]`
-//!   where SIZE is `Value::Int(length)` and each subsequent element is
-//!   `Value::Int(0)` or `Value::Int(1)`.
+//!   where SIZE is `Value::fixnum(length)` and each subsequent element is
+//!   `Value::fixnum(0)` or `Value::fixnum(1)`.
 
 use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
@@ -47,7 +47,7 @@ const BV_SIZE: usize = 1; // Value::Int — logical length
 
 /// Return `true` if `v` is a char-table (tagged vector).
 pub fn is_char_table(v: &Value) -> bool {
-    if v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
+    if v.is_vector() {
         let vec = with_heap(|h| h.get_vector(*arc).clone());
         vec.len() >= CT_EXTRA_START
             && matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == CHAR_TABLE_TAG)
@@ -58,7 +58,7 @@ pub fn is_char_table(v: &Value) -> bool {
 
 /// Return `true` if `v` is a bool-vector (tagged vector).
 pub fn is_bool_vector(v: &Value) -> bool {
-    if v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
+    if v.is_vector() {
         let vec = with_heap(|h| h.get_vector(*arc).clone());
         vec.len() >= 2
             && matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == BOOL_VECTOR_TAG)
@@ -69,7 +69,7 @@ pub fn is_bool_vector(v: &Value) -> bool {
 
 /// Return the logical bit length if `v` is a bool-vector.
 pub(crate) fn bool_vector_length(v: &Value) -> Option<i64> {
-    if !v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
+    if !v.is_vector() {
         return None;
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
@@ -85,7 +85,7 @@ pub(crate) fn bool_vector_length(v: &Value) -> Option<i64> {
 
 /// Return the logical sequence length if `v` is a char-table.
 pub(crate) fn char_table_length(v: &Value) -> Option<i64> {
-    if !v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
+    if !v.is_vector() {
         return None;
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
@@ -211,7 +211,7 @@ pub fn make_char_table_with_extra_slots(sub_type: Value, default: Value, n_extra
 /// Set a single character entry in a char-table Value (for bootstrap code).
 /// Panics if `table` is not a char-table Vector.
 pub fn ct_set_single(table: &Value, ch: i64, value: Value) {
-    if table.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
+    if table.is_vector() {
         with_heap_mut(|h| {
             let vec = h.get_vector_mut(*arc);
             ct_set_char(vec, ch, value);
@@ -294,7 +294,7 @@ pub(crate) fn builtin_set_char_table_range(args: Vec<Value>) -> EvalResult {
             if min > max {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![ValueKind::Fixnum(min), ValueKind::Fixnum(max)],
+                    vec![Value::fixnum(min), Value::fixnum(max)],
                 ));
             }
             ct_set_range(&mut vec, min, max, *value);
@@ -343,7 +343,7 @@ fn ct_get_char(vec: &[Value], ch: i64) -> Option<Value> {
             ValueKind::Cons => {
                 // Range entry: key is (MIN . MAX)
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                if let (ValueKind::Fixnum(min), ValueKind::Fixnum(max)) = (&pair.car, &pair.cdr) {
+                if let (Value::fixnum(min), Value::fixnum(max)) = (&pair.car, &pair.cdr) {
                     if ch >= min && ch <= max {
                         match_value = Some(vec[i + 1]);
                     }
@@ -605,7 +605,7 @@ fn ct_collect_raw_entries(vec: &[Value]) -> Vec<RawEntry> {
             }),
             ValueKind::Cons => {
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-                if let (ValueKind::Fixnum(min), ValueKind::Fixnum(max)) = (&pair.car, &pair.cdr) {
+                if let (Value::fixnum(min), Value::fixnum(max)) = (&pair.car, &pair.cdr) {
                     raws.push(RawEntry {
                         start: min,
                         end: max,
@@ -657,7 +657,7 @@ fn effective_runs_value_at(entries: &[EffectiveRun], ch: i64) -> Option<Value> {
 }
 
 fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
-    if !table.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
+    if !table.is_vector() {
         return vec![EffectiveRun {
             start: 0,
             end: MAX_CHAR,
@@ -756,7 +756,7 @@ pub(crate) fn char_table_external_slots(table: &Value) -> Option<Vec<Value>> {
         return None;
     }
 
-    if !table.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
+    if !table.is_vector() {
         return None;
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());

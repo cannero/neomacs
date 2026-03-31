@@ -1,5 +1,5 @@
 use super::*;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // String operations
@@ -73,7 +73,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                             "args-out-of-range",
                             vec![
                                 args[0],
-                                args.get(1).cloned().unwrap_or(ValueKind::Fixnum(0)),
+                                args.get(1).cloned().unwrap_or(Value::fixnum(0)),
                                 args.get(2).cloned().unwrap_or(ValueKind::Nil),
                             ],
                         ));
@@ -102,7 +102,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         "args-out-of-range",
                         vec![
                             args[0],
-                            args.get(1).cloned().unwrap_or(ValueKind::Fixnum(0)),
+                            args.get(1).cloned().unwrap_or(Value::fixnum(0)),
                             args.get(2).cloned().unwrap_or(ValueKind::Nil),
                         ],
                     ));
@@ -115,7 +115,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         "args-out-of-range",
                         vec![
                             args[0],
-                            args.get(1).cloned().unwrap_or(ValueKind::Fixnum(0)),
+                            args.get(1).cloned().unwrap_or(Value::fixnum(0)),
                             args.get(2).cloned().unwrap_or(ValueKind::Nil),
                         ],
                     )
@@ -175,7 +175,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                     "args-out-of-range",
                     vec![
                         args[0],
-                        args.get(1).cloned().unwrap_or(ValueKind::Fixnum(0)),
+                        args.get(1).cloned().unwrap_or(Value::fixnum(0)),
                         args.get(2).cloned().unwrap_or(ValueKind::Nil),
                     ],
                 ));
@@ -252,7 +252,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                 ValueKind::Fixnum(n) => push_concat_int(result, n),
                 other => Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("characterp"), *other],
+                    vec![Value::symbol("characterp"), *value],
                 )),
             }
         }
@@ -271,7 +271,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                     let mut parts = Vec::new();
                     let mut multibyte = false;
                     for arg in &args {
-                        if arg.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+                        if arg.is_string() {
                             let string = h.get_lisp_string(*id);
                             string.append_parts_to(&mut parts);
                             multibyte |= string.multibyte;
@@ -284,7 +284,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         }
 
         let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg {
-            Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => acc + with_heap(|h| h.get_string(*id).len()),
+            ValueKind::String => acc + with_heap(|h| h.get_string(*id).len()),
             _ => acc,
         });
         let mut result = String::with_capacity(preallocated_len);
@@ -336,7 +336,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         let new_val = Value::string(&result);
 
         // Preserve text properties from string sources
-        if &new_val.is_string() /* TODO(tagged): `new_id` was Value::Str(new_id), now use accessor */ {
+        if new_val.is_string() {
             let mut combined_table = crate::buffer::text_props::TextPropertyTable::new();
             let mut has_props = false;
             for (src_id, offset) in &string_sources {
@@ -449,10 +449,10 @@ pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("number-to-string", &args, 1)?;
     match args[0].kind() {
         ValueKind::Fixnum(n) => Ok(Value::string(n.to_string())),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::string(super::print::format_float(*f))),
+        ValueKind::Float => Ok(Value::string(super::print::format_float(*f))),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), args[0]],
         )),
     }
 }
@@ -468,22 +468,22 @@ pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
                 Ok(ValueKind::Char(ch))
             } else {
-                Ok(Value::Char(c))
+                Ok(Value::char(c))
             }
         }
         ValueKind::Fixnum(n) => {
             if n < 0 {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), Value::Int(n)],
+                    vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
                 ))
             } else {
-                Ok(Value::Int(upcase_char_code_emacs_compat(n)))
+                Ok(Value::fixnum(upcase_char_code_emacs_compat(n)))
             }
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("char-or-string-p"), *other],
+            vec![Value::symbol("char-or-string-p"), args[0]],
         )),
     }
 }
@@ -626,22 +626,22 @@ pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
                 Ok(ValueKind::Char(ch))
             } else {
-                Ok(Value::Char(c))
+                Ok(Value::char(c))
             }
         }
         ValueKind::Fixnum(n) => {
             if n < 0 {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), Value::Int(n)],
+                    vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
                 ))
             } else {
-                Ok(Value::Int(downcase_char_code_emacs_compat(n)))
+                Ok(Value::fixnum(downcase_char_code_emacs_compat(n)))
             }
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("char-or-string-p"), *other],
+            vec![Value::symbol("char-or-string-p"), args[0]],
         )),
     }
 }
@@ -1039,7 +1039,7 @@ fn do_format(
                 let n = match args[arg_idx].kind() {
                     ValueKind::Fixnum(i) => i,
                     ValueKind::Char(c) => c as i64,
-                    ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f as i64,
+                    ValueKind::Float => *f as i64,
                     _ => {
                         return Err(format_spec_type_mismatch_error());
                     }
@@ -1145,14 +1145,14 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), *other],
+                vec![Value::symbol("characterp"), args[1]],
             ));
         }
     };
 
     // GNU Emacs alloc.c: `make-string` returns a unibyte string only when the
     // initializer is ASCII and the optional MULTIBYTE arg is nil/omitted.
-    let multibyte = args.get(2).is_some_and(Value::is_truthy) || ch > 0x7f;
+    let multibyte = args.get(2).is_some_and(|v| v.is_truthy()) || ch > 0x7f;
 
     let unit = encode_char_code_for_string_storage(ch, multibyte).ok_or_else(|| {
         signal(
@@ -1177,7 +1177,7 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
                 if code < 0 {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("characterp"), ValueKind::Fixnum(code)],
+                        vec![Value::symbol("characterp"), Value::fixnum(code)],
                     ));
                 }
                 if let Some(ch) = char::from_u32(code as u32) {
@@ -1187,7 +1187,7 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
                 } else {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("characterp"), ValueKind::Fixnum(code)],
+                        vec![Value::symbol("characterp"), Value::fixnum(code)],
                     ));
                 }
             }

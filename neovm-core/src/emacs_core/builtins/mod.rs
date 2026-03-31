@@ -101,7 +101,7 @@ pub(super) fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -112,7 +112,7 @@ pub(super) fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("fixnump"), *other],
+            vec![Value::symbol("fixnump"), *value],
         )),
     }
 }
@@ -131,13 +131,13 @@ pub(super) fn expect_char_table_index(value: &Value) -> Result<i64, Flow> {
 
 pub(super) fn expect_char_equal_code(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
-        ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(n) => Ok(n),
+        ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(&n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
         other => {
             maybe_trace_characterp_nil(other, "expect_char_equal_code");
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), *other],
+                vec![Value::symbol("characterp"), *value],
             ))
         }
     }
@@ -146,12 +146,12 @@ pub(super) fn expect_char_equal_code(value: &Value) -> Result<i64, Flow> {
 pub(super) fn expect_character_code(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(n) => Ok(n),
+        ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(&n) => Ok(n),
         other => {
             maybe_trace_characterp_nil(other, "expect_character_code");
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), *other],
+                vec![Value::symbol("characterp"), *value],
             ))
         }
     }
@@ -185,7 +185,7 @@ pub(super) fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
         other if super::marker::is_marker(other) => super::marker::marker_position_as_int(other),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -202,7 +202,7 @@ pub(super) fn expect_integer_or_marker_eval(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -237,13 +237,13 @@ pub(super) fn expect_number_or_marker(value: &Value) -> Result<NumberOrMarker, F
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
         ValueKind::Char(c) => Ok(NumberOrMarker::Int(c as i64)),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(NumberOrMarker::Float(*f)),
+        ValueKind::Float => Ok(NumberOrMarker::Float(*f)),
         other if super::marker::is_marker(other) => Ok(NumberOrMarker::Int(
             super::marker::marker_position_as_int(other)?,
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), *value],
         )),
     }
 }
@@ -255,13 +255,13 @@ pub(super) fn expect_number_or_marker_eval(
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
         ValueKind::Char(c) => Ok(NumberOrMarker::Int(c as i64)),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(NumberOrMarker::Float(*f)),
+        ValueKind::Float => Ok(NumberOrMarker::Float(*f)),
         other if super::marker::is_marker(other) => Ok(NumberOrMarker::Int(
             super::marker::marker_position_as_int_eval(eval, other)?,
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), *value],
         )),
     }
 }
@@ -270,11 +270,11 @@ pub(super) fn expect_number_or_marker_eval(
 pub(super) fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Float => Ok(*f),
         ValueKind::Char(c) => Ok(c as u32 as f64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), *value],
         )),
     }
 }
@@ -441,7 +441,7 @@ pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -463,7 +463,7 @@ pub(super) fn expect_strict_string(value: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -4511,7 +4511,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
             };
 
             let mut constants: Vec<Value> = match constants_vec {
-                Value::Vector(id) /* TODO(tagged): convert Value::Vector to new API */ => super::value::with_heap(|h| h.get_vector(id).clone()),
+                ValueKind::Veclike(VecLikeType::Vector) => super::value::with_heap(|h| h.get_vector(id).clone()),
                 _ => {
                     return Err(super::error::signal(
                         "wrong-type-argument",

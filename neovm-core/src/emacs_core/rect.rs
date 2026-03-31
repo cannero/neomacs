@@ -59,7 +59,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -70,7 +70,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(value.as_str().unwrap().to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }

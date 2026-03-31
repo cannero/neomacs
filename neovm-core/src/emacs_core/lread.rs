@@ -41,7 +41,7 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -54,7 +54,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -193,7 +193,7 @@ fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &s
             .unwrap_or_default()
             .into_iter()
             .filter(|existing| match existing {
-                Value::Cons(id) /* TODO(tagged): convert Value::Cons to new API */ => with_heap(|heap| {
+                Value::Cons(id) => with_heap(|heap| {
                     heap.cons_car(*id)
                         .as_str()
                         .is_none_or(|loaded| loaded != path_str)
@@ -278,7 +278,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         ctx.root(eval_buffer_list);
         ctx.specbind(intern("eval-buffer-list"), eval_buffer_list);
 
-        let do_allow_print = args.get(4).is_some_and(Value::is_truthy);
+        let do_allow_print = args.get(4).is_some_and(|v| v.is_truthy());
         let standard_output = if args.get(1).is_none_or(Value::is_nil) && !do_allow_print {
             Value::symbol("symbolp")
         } else {

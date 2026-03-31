@@ -51,7 +51,7 @@ use crate::face::{
 };
 use crate::gc::heap::LispHeap;
 use crate::gc::types::{HeapObject, ObjId};
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Dump direction: Runtime → Dump
@@ -75,7 +75,7 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         ValueKind::Nil => DumpValue::Nil,
         ValueKind::T => DumpValue::True,
         ValueKind::Fixnum(n) => DumpValue::Int(n),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => DumpValue::Float(f, id),
+        ValueKind::Float => DumpValue::Float(f, id),
         ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
         ValueKind::Keyword(s) => DumpValue::Keyword(dump_sym_id(s)),
         ValueKind::String => DumpValue::Str(dump_obj_id(id)),
@@ -1312,18 +1312,18 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
         DumpValue::Float(f, id) => Value::make_float(*f) /* TODO(tagged): dropped float id `*id` */,
         DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),
         DumpValue::Keyword(s) => Value::keyword(load_sym_id(s)),
-        DumpValue::Str(id) => Value::Str(load_obj_id(id) /* TODO(tagged): convert Value::Str to new API */),
-        DumpValue::Cons(id) => Value::Cons(load_obj_id(id) /* TODO(tagged): convert Value::Cons to new API */),
-        DumpValue::Vector(id) => Value::Vector(load_obj_id(id) /* TODO(tagged): convert Value::Vector to new API */),
-        DumpValue::Record(id) => Value::Record(load_obj_id(id) /* TODO(tagged): convert Value::Record to new API */),
-        DumpValue::HashTable(id) => Value::HashTable(load_obj_id(id) /* TODO(tagged): convert Value::HashTable to new API */),
-        DumpValue::Lambda(id) => Value::Lambda(load_obj_id(id) /* TODO(tagged): convert Value::Lambda to new API */),
-        DumpValue::Macro(id) => Value::Macro(load_obj_id(id) /* TODO(tagged): convert Value::Macro to new API */),
+        DumpValue::Str(id) => Value::Str(load_obj_id(id)),
+        DumpValue::Cons(id) => Value::Cons(load_obj_id(id)),
+        DumpValue::Vector(id) => Value::Vector(load_obj_id(id)),
+        DumpValue::Record(id) => Value::Record(load_obj_id(id)),
+        DumpValue::HashTable(id) => Value::HashTable(load_obj_id(id)),
+        DumpValue::Lambda(id) => Value::Lambda(load_obj_id(id)),
+        DumpValue::Macro(id) => Value::Macro(load_obj_id(id)),
         DumpValue::Char(c) => Value::char(*c),
         DumpValue::Subr(s) => Value::subr(load_sym_id(s)),
-        DumpValue::ByteCode(id) => Value::ByteCode(load_obj_id(id) /* TODO(tagged): convert Value::ByteCode to new API */),
-        DumpValue::Marker(id) => Value::Marker(load_obj_id(id) /* TODO(tagged): convert Value::Marker to new API */),
-        DumpValue::Overlay(id) => Value::Overlay(load_obj_id(id) /* TODO(tagged): convert Value::Overlay to new API */),
+        DumpValue::ByteCode(id) => Value::ByteCode(load_obj_id(id)),
+        DumpValue::Marker(id) => Value::Marker(load_obj_id(id)),
+        DumpValue::Overlay(id) => Value::Overlay(load_obj_id(id)),
         DumpValue::Buffer(bid) => Value::make_buffer(BufferId(bid.0)),
         DumpValue::Window(w) => Value::make_window(*w),
         DumpValue::Frame(f) => Value::make_frame(*f),

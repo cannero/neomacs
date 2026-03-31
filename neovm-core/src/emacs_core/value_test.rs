@@ -235,7 +235,7 @@ fn value_is_copy_and_16_bytes() {
 #[test]
 fn float_equality() {
     use super::equal_value;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
     with_test_heap(|| {
         // 1.0 == 1.0
         assert!(equal_value(

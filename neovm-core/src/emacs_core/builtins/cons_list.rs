@@ -1,5 +1,5 @@
 use super::*;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Cons / List operations
@@ -297,7 +297,7 @@ pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Nil => Ok(Value::fixnum(0)),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
-            Ok(Value::Int(closure_vector_length(&args[0]).unwrap()))
+            Ok(Value::fixnum(closure_vector_length(&args[0]).unwrap()))
         }
         ValueKind::Cons => match list_length(&args[0]) {
             Some(n) => Ok(Value::fixnum(n as i64)),
@@ -350,7 +350,7 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), *sequence],
         )),
     }
 }
@@ -382,7 +382,7 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), *sequence],
         )),
     }
 }
@@ -417,7 +417,7 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), *sequence],
         )),
     }
 }
@@ -461,7 +461,7 @@ fn nthcdr_impl(n: i64, list: Value) -> EvalResult {
 
     // Convert Lambda to cons list for traversal.
     let mut cursor = match list {
-        Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */ => lambda_to_cons_list(&list).unwrap_or(Value::NIL),
+        ValueKind::Veclike(VecLikeType::Lambda) => lambda_to_cons_list(&list).unwrap_or(Value::NIL),
         other => other,
     };
     for _ in 0..(n as usize) {
@@ -531,7 +531,7 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
                 elements.extend(
                     decode_storage_char_codes(&s)
                         .into_iter()
-                        .map(|cp| Value::Int(cp as i64)),
+                        .map(|cp| Value::fixnum(cp as i64)),
                 );
             }
             _ => {
@@ -851,7 +851,7 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             }
             let new_val = Value::string(&s);
             // Copy text properties
-            if &new_val.is_string() /* TODO(tagged): `new_id` was ValueKind::String, now use accessor */ {
+            if new_val.is_string() {
                 if let Some(table) = get_string_text_properties_table(*id) {
                     set_string_text_properties_table(*new_id, table);
                 }
@@ -873,7 +873,7 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), args[0]],
         )),
     }
 }
@@ -922,7 +922,7 @@ where
     }
 
     let mut prev = match &head {
-        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => *cell,
+        Value::Cons(cell) => *cell,
         Value::NIL => return Ok(Value::NIL),
         _ => unreachable!("head must be list"),
     };
@@ -985,7 +985,7 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
             let mut kept = Vec::new();
             let s = with_heap(|h| h.get_string(*id).to_owned());
             for cp in decode_storage_char_codes(&s) {
-                let ch = Value::Int(cp as i64);
+                let ch = Value::fixnum(cp as i64);
                 if equal_value(elt, &ch, 0) {
                     changed = true;
                 } else {
@@ -999,7 +999,7 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), args[1]],
         )),
     }
 }
@@ -1024,7 +1024,7 @@ pub(crate) fn builtin_elt(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) | ValueKind::String => builtin_aref(vec![args[0], args[1]]),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), args[0]],
         )),
     }
 }
@@ -1041,7 +1041,7 @@ pub(crate) fn builtin_nconc(args: Vec<Value>) -> EvalResult {
         let is_last = index + 1 == args.len();
 
         if is_last {
-            if let Some(Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */) = &last_cons {
+            if let Some(Value::Cons(cell)) = &last_cons {
                 with_heap_mut(|h| h.set_cdr(*cell, *arg));
                 return Ok(result_head.unwrap_or(*arg));
             }

@@ -358,7 +358,7 @@ fn is_abbrev_table(eval: &super::eval::Context, value: &Value) -> bool {
             eval.obarray()
                 .get_property_id(id, intern(":abbrev-table-modiff"))
         })
-        .is_some_and(Value::is_integer)
+        .is_some_and(|v| v.is_integer())
 }
 
 /// Collect all symbols from an obarray into a Vec.
@@ -416,7 +416,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -612,7 +612,7 @@ pub(crate) fn builtin_abbrev_symbol(
         .symbol_value("global-abbrev-table")
         .cloned()
         .unwrap_or(Value::NIL);
-    if global_table.is_vector() /* TODO(tagged): `vec_id` was Value::Vector(vec_id), now use accessor */ {
+    if global_table.is_vector() {
         if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, vec_id) {
             return Ok(sym);
         }
@@ -653,7 +653,7 @@ pub(crate) fn builtin_abbrev_expansion(
         .symbol_value("global-abbrev-table")
         .cloned()
         .unwrap_or(Value::NIL);
-    if global_table.is_vector() /* TODO(tagged): `vec_id` was Value::Vector(vec_id), now use accessor */ {
+    if global_table.is_vector() {
         if let Some(sym) = find_abbrev_symbol_in_table(eval, &name, vec_id) {
             if let Some(sym_id) = symbol_id(sym) {
                 return Ok(eval
@@ -790,7 +790,7 @@ fn find_abbrev_symbol_in_table(
     if let Some(parents) = get_table_property(eval, vec_id, ":parents") {
         if let Some(parent_list) = list_to_vec(&parents) {
             for parent in &parent_list {
-                if parent.is_vector() /* TODO(tagged): `parent_id` was Value::Vector(parent_id), now use accessor */ {
+                if parent.is_vector() {
                     if let Some(sym) = find_abbrev_symbol_in_table(eval, abbrev, *parent_id) {
                         return Some(sym);
                     }
@@ -872,7 +872,7 @@ pub(crate) fn builtin_define_abbrev_table(
 
     // Process DOCSTRING (3rd arg) -- store as table property if it's a string
     if let Some(docstring) = args.get(2) {
-        if docstring.is_string() /* TODO(tagged): `_` was Value::Str(_), now use accessor */ {
+        if docstring.is_string() {
             eval.obarray_mut()
                 .put_property_id(header_id, intern(":docstring"), *docstring);
         }

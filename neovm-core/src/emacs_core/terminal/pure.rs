@@ -6,7 +6,7 @@
 use crate::emacs_core::error::{EvalResult, Flow, signal};
 use crate::emacs_core::value::*;
 use std::cell::RefCell;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Thread-local terminal state
@@ -585,7 +585,7 @@ fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
         ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(*value),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), *value],
         )),
     }
 }
@@ -1187,7 +1187,7 @@ pub(crate) fn builtin_delete_terminal(
 /// (make-terminal-frame PARMS) -> error (no TTY support)
 pub(crate) fn builtin_make_terminal_frame(args: Vec<Value>) -> EvalResult {
     expect_args("make-terminal-frame", &args, 1)?;
-    if !args[0].is_nil() && !matches!(args[0], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */) {
+    if !args[0].is_nil() && !matches!(args[0], Value::Cons(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), args[0]],

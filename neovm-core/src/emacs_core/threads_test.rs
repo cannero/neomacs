@@ -453,7 +453,7 @@ fn test_builtin_thread_signal_current_thread_raises() {
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "foo");
-            assert_eq!(sig.raw_data, Some(ValueKind::Fixnum(1)));
+            assert_eq!(sig.raw_data, Some(Value::fixnum(1)));
         }
         other => panic!("expected signal from thread-signal current thread, got {other:?}"),
     }
@@ -528,7 +528,7 @@ fn test_builtin_thread_buffer_disposition_round_trips() {
 fn test_builtin_thread_set_buffer_disposition_rejects_non_nil_main_thread_value() {
     let mut eval = Context::new();
     let main_thread = builtin_current_thread(&mut eval, vec![]).unwrap();
-    match builtin_thread_set_buffer_disposition(&mut eval, vec![main_thread, Value::True]) {
+    match builtin_thread_set_buffer_disposition(&mut eval, vec![main_thread, Value::T]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data, vec![Value::symbol("null"), ValueKind::T]);
@@ -719,7 +719,7 @@ fn test_builtin_condition_mutex_wrong_type_argument() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("condition-variable-p"), ValueKind::Fixnum(1)]
+                vec![Value::symbol("condition-variable-p"), Value::fixnum(1)]
             );
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
@@ -815,7 +815,7 @@ fn test_sf_with_mutex_wrong_args() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::cons(ValueKind::Fixnum(1), ValueKind::Fixnum(1)), ValueKind::Fixnum(0)]
+                vec![Value::cons(Value::fixnum(1), Value::fixnum(1)), Value::fixnum(0)]
             );
         }
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),

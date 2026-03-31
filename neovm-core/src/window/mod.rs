@@ -907,7 +907,7 @@ impl Frame {
     }
 
     pub fn frame_parameter_int(&self, key: &str) -> Option<i64> {
-        self.parameters.get(key).and_then(Value::as_int)
+        self.parameters.get(key).and_then(|v| v.as_int())
     }
 
     pub fn realized_face(&self, name: &str) -> Option<&RuntimeFace> {
@@ -924,7 +924,7 @@ impl Frame {
 
     pub fn clear_realized_faces(&mut self) {
         self.realized_faces.clear();
-        if self.face_hash_table.is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), now use accessor */ {
+        if self.face_hash_table.is_hash_table() {
             with_heap_mut(|heap| {
                 let table = heap.get_hash_table_mut(table_id);
                 table.data.clear();

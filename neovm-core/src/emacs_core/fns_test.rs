@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::{print, string_escape};
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 /// Test helper: create a minimal eval context for widget-apply tests.
 fn test_eval_ctx() -> crate::emacs_core::eval::Context {
@@ -254,8 +254,8 @@ fn base64_region_eval_error_shapes() {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(sig.data.len(), 3);
             assert!(matches!(sig.data[0], ValueKind::Veclike(VecLikeType::Buffer)));
-            assert_eq!(sig.data[1], ValueKind::Fixnum(0));
-            assert_eq!(sig.data[2], ValueKind::Fixnum(2));
+            assert_eq!(sig.data[1], Value::fixnum(0));
+            assert_eq!(sig.data[2], Value::fixnum(2));
         }
         other => panic!("expected args-out-of-range, got {other:?}"),
     }
@@ -325,7 +325,7 @@ fn md5_string_index_type_error() {
 
 #[test]
 fn md5_invalid_object_errors() {
-    match call_fns_builtin!(builtin_md5, vec![Value::Nil]) {
+    match call_fns_builtin!(builtin_md5, vec![Value::NIL]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -448,10 +448,10 @@ fn md5_eval_buffer_range_errors() {
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
-    match builtin_md5(&mut eval, vec![Value::Buffer(id), Value::Int(5)]) {
+    match builtin_md5(&mut eval, vec![Value::Buffer(id), Value::fixnum(5)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(5), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::fixnum(5), ValueKind::Nil]);
         }
         other => panic!("expected args-out-of-range signal, got {other:?}"),
     }
@@ -996,7 +996,7 @@ fn widget_get_found() {
         Value::fixnum(42),
     ]);
     let r = builtin_widget_get(vec![widget, Value::keyword("value")]).unwrap();
-    assert!(matches!(r, Value::fixnum(42)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
@@ -1018,11 +1018,11 @@ fn widget_put_existing() {
         Value::fixnum(1),
     ]);
     let r = builtin_widget_put(vec![widget, Value::keyword("value"), Value::fixnum(99)]).unwrap();
-    assert!(matches!(r, Value::fixnum(99)));
+    assert!(r.is_fixnum());
 
     // Verify it was modified
     let got = builtin_widget_get(vec![widget, Value::keyword("value")]).unwrap();
-    assert!(matches!(got, Value::fixnum(99)));
+    assert!(got.is_fixnum());
 }
 
 #[test]
@@ -1097,7 +1097,7 @@ fn widget_apply_non_callable_property_signals_invalid_function() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "invalid-function");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(7)]);
+            assert_eq!(sig.data, vec![Value::fixnum(7)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }

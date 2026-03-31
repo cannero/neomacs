@@ -527,7 +527,7 @@ fn delete_terminal_noelisp_ignores_host_delete_failures() {
 #[test]
 fn make_terminal_frame_signals_unknown_type() {
     reset_terminal_thread_locals();
-    match builtin_make_terminal_frame(vec![Value::Nil]) {
+    match builtin_make_terminal_frame(vec![Value::NIL]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(sig.data, vec![Value::string("Unknown terminal type")]);

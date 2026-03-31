@@ -41,7 +41,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -439,12 +439,12 @@ pub(crate) fn builtin_capitalize(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Char(c) => {
             let code = c as i64;
-            Ok(Value::Int(upcase_char(code)))
+            Ok(Value::fixnum(upcase_char(code)))
         }
         ValueKind::Fixnum(n) => Ok(Value::fixnum(upcase_char(n))),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("char-or-string-p"), *other],
+            vec![Value::symbol("char-or-string-p"), args[0]],
         )),
     }
 }
@@ -486,12 +486,12 @@ pub(crate) fn builtin_upcase_initials(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Char(c) => {
             let code = c as i64;
-            Ok(Value::Int(upcase_char(code)))
+            Ok(Value::fixnum(upcase_char(code)))
         }
         ValueKind::Fixnum(n) => Ok(Value::fixnum(upcase_char(n))),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("char-or-string-p"), *other],
+            vec![Value::symbol("char-or-string-p"), args[0]],
         )),
     }
 }
@@ -675,7 +675,7 @@ pub(crate) fn builtin_char_resolve_modifiers(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("fixnump"), *other],
+                vec![Value::symbol("fixnump"), args[0]],
             ));
         }
     };

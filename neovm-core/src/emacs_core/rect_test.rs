@@ -212,7 +212,7 @@ fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
             bytecode
                 .constants
                 .iter()
-                .map(Value::as_symbol_name)
+                .map(|v| v.as_symbol_name())
                 .collect::<Vec<_>>(),
             vec![Some("killed-rectangle"), Some("insert-rectangle")]
         );

@@ -695,7 +695,7 @@ impl PrefixArg {
             PrefixArg::Numeric(n) => Value::fixnum(*n),
             PrefixArg::Raw(n) => {
                 let val = 4i64.pow(*n as u32);
-                Value::list(vec![ValueKind::Fixnum(val)])
+                Value::list(vec![Value::fixnum(val)])
             }
         }
     }
@@ -1729,7 +1729,7 @@ fn sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
 fn pending_gnu_timer_in_keyboard_runtime(
     timer: Value,
 ) -> Option<crate::emacs_core::eval::PendingGnuTimer> {
-    if !timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), rewrite let-else */ {
+    if !timer.is_vector() {
         return None;
     };
 
@@ -1752,7 +1752,7 @@ fn pending_gnu_timer_in_keyboard_runtime(
             high_seconds: slots[1].as_int()?,
             low_seconds: slots[2].as_int()?,
             usecs: slots[3].as_int()?,
-            psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
+            psecs: slots.get(8).and_then(|v| v.as_int()).unwrap_or(0),
         },
     })
 }
@@ -1760,7 +1760,7 @@ fn pending_gnu_timer_in_keyboard_runtime(
 fn pending_gnu_idle_timer_in_keyboard_runtime(
     timer: Value,
 ) -> Option<crate::emacs_core::eval::PendingGnuTimer> {
-    if !timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), rewrite let-else */ {
+    if !timer.is_vector() {
         return None;
     };
 
@@ -1783,7 +1783,7 @@ fn pending_gnu_idle_timer_in_keyboard_runtime(
             high_seconds: slots[1].as_int()?,
             low_seconds: slots[2].as_int()?,
             usecs: slots[3].as_int()?,
-            psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
+            psecs: slots.get(8).and_then(|v| v.as_int()).unwrap_or(0),
         },
     })
 }
@@ -2389,7 +2389,7 @@ impl crate::emacs_core::eval::Context {
     /// 3. `key-translation-map` — user-defined key translations
     ///
     /// Returns (key_events_as_emacs_values, binding).
-    /// binding is Value::Nil if the key sequence is undefined.
+    /// binding is Value::NIL if the key sequence is undefined.
     pub(crate) fn read_key_sequence(
         &mut self,
     ) -> Result<(Vec<Value>, Value), crate::emacs_core::error::Flow> {
@@ -3021,7 +3021,7 @@ impl crate::emacs_core::eval::Context {
             ],
         )
         .ok()?;
-        if !pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+        if !pair.is_cons() {
             return None;
         };
         let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -4217,7 +4217,7 @@ fn key_sequence_translation_events(translation: Value) -> Option<Vec<Value>> {
         return None;
     }
 
-    if translation.is_vector() /* TODO(tagged): `id` was Value::Vector(id), now use accessor */ {
+    if translation.is_vector() {
         return Some(crate::emacs_core::value::with_heap(|h| {
             let len = h.vector_len(id);
             (0..len).map(|i| h.vector_ref(id, i)).collect()

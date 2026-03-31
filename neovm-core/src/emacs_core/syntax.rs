@@ -1148,7 +1148,7 @@ pub(crate) fn builtin_string_to_syntax(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -1506,7 +1506,7 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("fixnump"), *other],
+                vec![Value::symbol("fixnump"), args[0]],
             ));
         }
     };
@@ -1531,7 +1531,7 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
         n => {
             return Err(signal(
                 "args-out-of-range",
-                vec![ValueKind::Fixnum(15), ValueKind::Fixnum(n)],
+                vec![Value::fixnum(15), Value::fixnum(n)],
             ));
         }
     };
@@ -1576,7 +1576,7 @@ pub(crate) fn builtin_matching_paren_in_buffers(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), *other],
+                vec![Value::symbol("characterp"), *class],
             ));
         }
     };
@@ -1741,7 +1741,7 @@ pub(crate) fn modify_syntax_entry_in_buffers(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), *class],
             ));
         }
     };
@@ -1809,7 +1809,7 @@ pub(crate) fn builtin_char_syntax_in_buffers(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), *other],
+                vec![Value::symbol("characterp"), *class],
             ));
         }
     };
@@ -1845,7 +1845,7 @@ pub(crate) fn builtin_syntax_after_in_buffers(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("number-or-marker-p"), *other],
+                vec![Value::symbol("number-or-marker-p"), *class],
             ));
         }
     };
@@ -1900,7 +1900,7 @@ pub(crate) fn builtin_forward_comment_in_buffers(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("integerp"), *other],
+                vec![Value::symbol("integerp"), *class],
             ));
         }
     };
@@ -2624,7 +2624,7 @@ pub(crate) fn builtin_forward_word(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), *other],
+                    vec![Value::symbol("integerp"), args[0]],
                 ));
             }
         }
@@ -2658,7 +2658,7 @@ pub(crate) fn builtin_forward_word_in_buffers(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), *other],
+                    vec![Value::symbol("integerp"), args[0]],
                 ));
             }
         }
@@ -2692,7 +2692,7 @@ pub(crate) fn builtin_backward_word(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), *other],
+                    vec![Value::symbol("integerp"), args[0]],
                 ));
             }
         }
@@ -2728,7 +2728,7 @@ pub(crate) fn builtin_forward_sexp(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), *other],
+                    vec![Value::symbol("integerp"), args[0]],
                 ));
             }
         }
@@ -2766,7 +2766,7 @@ pub(crate) fn builtin_backward_sexp(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), *other],
+                    vec![Value::symbol("integerp"), args[0]],
                 ));
             }
         }
@@ -2807,7 +2807,7 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("integer-or-marker-p"), *other],
+                vec![Value::symbol("integer-or-marker-p"), args[0]],
             ));
         }
     };
@@ -2816,7 +2816,7 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("integerp"), *other],
+                vec![Value::symbol("integerp"), args[1]],
             ));
         }
     };
@@ -2825,7 +2825,7 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("integerp"), *other],
+                vec![Value::symbol("integerp"), args[2]],
             ));
         }
     };
@@ -2861,7 +2861,7 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("number-or-marker-p"), *other],
+                vec![Value::symbol("number-or-marker-p"), args[0]],
             ));
         }
     };
@@ -2870,7 +2870,7 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("integerp"), *other],
+                vec![Value::symbol("integerp"), args[1]],
             ));
         }
     };
@@ -3425,7 +3425,7 @@ pub(crate) fn builtin_parse_partial_sexp(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("number-or-marker-p"), *other],
+                vec![Value::symbol("number-or-marker-p"), args[0]],
             ));
         }
     };
@@ -3434,7 +3434,7 @@ pub(crate) fn builtin_parse_partial_sexp(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("number-or-marker-p"), *other],
+                vec![Value::symbol("number-or-marker-p"), args[1]],
             ));
         }
     };
@@ -3493,7 +3493,7 @@ pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Val
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("number-or-marker-p"), *other],
+                    vec![Value::symbol("number-or-marker-p"), args[0]],
                 ));
             }
         }
@@ -3531,7 +3531,7 @@ pub(crate) fn builtin_syntax_ppss_flush_cache(
         ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(Value::NIL),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), args[0]],
         )),
     }
 }
@@ -3566,7 +3566,7 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -3576,7 +3576,7 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), *other],
+                    vec![Value::symbol("integerp"), args[1]],
                 ));
             }
         }
@@ -3640,7 +3640,7 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -3650,7 +3650,7 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("integerp"), *other],
+                    vec![Value::symbol("integerp"), args[1]],
                 ));
             }
         }

@@ -131,7 +131,7 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
     .expect("builtin mod should resolve")
     .expect("builtin mod should evaluate");
     match float_mod.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+        ValueKind::Float => {
             assert_eq!(f, 0.0);
             assert!(!f.is_sign_negative(), "expected +0.0");
         }
@@ -148,7 +148,7 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
     .expect("builtin mod should resolve")
     .expect("builtin mod should evaluate");
     match neg_zero_mod.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+        ValueKind::Float => {
             assert_eq!(f, 0.0);
             assert!(f.is_sign_negative(), "expected -0.0");
         }
@@ -344,7 +344,7 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
     match pos_inf.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f.is_infinite() && f.is_sign_positive()),
+        ValueKind::Float => assert!(f.is_infinite() && f.is_sign_positive()),
         other => panic!("expected float, got {other:?}"),
     }
 
@@ -358,7 +358,7 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
     match neg_inf.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f.is_infinite() && f.is_sign_negative()),
+        ValueKind::Float => assert!(f.is_infinite() && f.is_sign_negative()),
         other => panic!("expected float, got {other:?}"),
     }
 
@@ -372,7 +372,7 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
     match neg_nan.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f.is_nan() && f.is_sign_negative()),
+        ValueKind::Float => assert!(f.is_nan() && f.is_sign_negative()),
         other => panic!("expected float, got {other:?}"),
     }
 }
@@ -438,10 +438,10 @@ fn pure_dispatch_typed_append_flattens_bytecode_slots() {
         .expect("builtin append should evaluate");
     let slots = list_to_vec(&result).expect("bytecode append should produce a proper list");
     assert_eq!(slots.len(), 4);
-    assert!(matches!(slots[0], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::NIL));
-    assert!(matches!(slots[1], Value::NIL | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */));
-    assert!(matches!(slots[2], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */));
-    assert!(matches!(slots[3], Value::fixnum(_)));
+    assert!(matches!(slots[0], Value::Cons(_) | Value::NIL));
+    assert!(matches!(slots[1], Value::NIL | ValueKind::String));
+    assert!(matches!(slots[2], ValueKind::Veclike(VecLikeType::Vector)));
+    assert!(slots[3].is_fixnum());
 }
 
 #[test]
@@ -481,15 +481,15 @@ fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
     let result = dispatch_builtin_pure("vconcat", vec![bc])
         .expect("builtin vconcat should resolve")
         .expect("builtin vconcat should evaluate");
-    if !result.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
+    if !result.is_vector() {
         panic!("expected vector result, got {result:?}");
     };
     let slots = with_heap(|h| h.get_vector(id).clone());
     assert_eq!(slots.len(), 4);
-    assert!(matches!(slots[0], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::NIL));
-    assert!(matches!(slots[1], Value::NIL | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */));
-    assert!(matches!(slots[2], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */));
-    assert!(matches!(slots[3], Value::fixnum(_)));
+    assert!(matches!(slots[0], Value::Cons(_) | Value::NIL));
+    assert!(matches!(slots[1], Value::NIL | ValueKind::String));
+    assert!(matches!(slots[2], ValueKind::Veclike(VecLikeType::Vector)));
+    assert!(slots[3].is_fixnum());
 }
 
 #[test]
@@ -536,7 +536,7 @@ fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
     ]);
 
     let converted = super::symbols::try_convert_nested_compiled_literal(closure_vec);
-    assert!(matches!(converted, Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */));
+    assert!(matches!(converted, ValueKind::Veclike(VecLikeType::Lambda)));
 
     let out = eval
         .apply(converted, vec![Value::fixnum(41)])
@@ -581,7 +581,7 @@ fn pure_dispatch_typed_string_comparisons_accept_symbol_designators() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(7)],);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(7)],);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -656,7 +656,7 @@ fn pure_dispatch_typed_downcase_unicode_edge_payloads_match_oracle() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("char-or-string-p"), Value::Int(-1)]
+                vec![Value::symbol("char-or-string-p"), Value::fixnum(-1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -735,7 +735,7 @@ fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("char-or-string-p"), Value::Int(-1)]
+                vec![Value::symbol("char-or-string-p"), Value::fixnum(-1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1043,7 +1043,7 @@ fn eval_builtin_rejects_too_many_args() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("eval"), ValueKind::Fixnum(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("eval"), Value::fixnum(3)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -1111,7 +1111,7 @@ fn kill_buffer_optional_arg_and_error_semantics() {
     match type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -1165,7 +1165,7 @@ fn get_buffer_create_accepts_optional_second_arg() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("get-buffer-create"), ValueKind::Fixnum(3)]
+                vec![Value::symbol("get-buffer-create"), Value::fixnum(3)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1183,7 +1183,7 @@ fn buffer_creation_helpers_reject_missing_required_name_arg() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("get-buffer-create"), ValueKind::Fixnum(0)]
+                vec![Value::symbol("get-buffer-create"), Value::fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1196,7 +1196,7 @@ fn buffer_creation_helpers_reject_missing_required_name_arg() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("generate-new-buffer-name"), ValueKind::Fixnum(0)]
+                vec![Value::symbol("generate-new-buffer-name"), Value::fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1273,7 +1273,7 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("stringp"), Value::list(vec![ValueKind::Fixnum(1)])]
+                vec![Value::symbol("stringp"), Value::list(vec![Value::fixnum(1)])]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1350,7 +1350,7 @@ fn buffer_base_buffer_and_last_name_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-base-buffer"), ValueKind::Fixnum(2)]
+                vec![Value::symbol("buffer-base-buffer"), Value::fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1363,7 +1363,7 @@ fn buffer_base_buffer_and_last_name_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-last-name"), ValueKind::Fixnum(2)]
+                vec![Value::symbol("buffer-last-name"), Value::fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1387,7 +1387,7 @@ fn buffer_base_buffer_and_last_name_semantics() {
 fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-base*");
-    if !base.is_buffer() /* TODO(tagged): `base_id` was Value::Buffer(base_id), rewrite let-else */ {
+    if !base.is_buffer() {
         panic!("expected buffer object");
     };
 
@@ -1397,7 +1397,7 @@ fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
     let indirect =
         builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*mib-indirect*")])
             .expect("make-indirect-buffer should create a buffer");
-    if !indirect.is_buffer() /* TODO(tagged): `indirect_id` was Value::Buffer(indirect_id), rewrite let-else */ {
+    if !indirect.is_buffer() {
         panic!("expected buffer object");
     };
 
@@ -1453,7 +1453,7 @@ fn make_indirect_buffer_rejects_duplicate_and_empty_names() {
 fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-clone-base*");
-    if !base.is_buffer() /* TODO(tagged): `base_id` was Value::Buffer(base_id), rewrite let-else */ {
+    if !base.is_buffer() {
         panic!("expected buffer object");
     };
 
@@ -1501,7 +1501,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
         vec![base, Value::string("*mib-clone*"), Value::T],
     )
     .expect("clone indirect buffer");
-    if !cloned.is_buffer() /* TODO(tagged): `cloned_id` was Value::Buffer(cloned_id), rewrite let-else */ {
+    if !cloned.is_buffer() {
         panic!("expected buffer object");
     };
 
@@ -1520,7 +1520,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     assert_eq!(
         eval.obarray()
             .symbol_value("mib-last-clone-buffer")
-            .and_then(Value::as_str),
+            .and_then(|v| v.as_str()),
         Some("*mib-clone*")
     );
     assert_eq!(
@@ -1547,7 +1547,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     assert_eq!(
         eval.obarray()
             .symbol_value("mib-last-clone-buffer")
-            .and_then(Value::as_str),
+            .and_then(|v| v.as_str()),
         Some("*mib-clone-inhibit*"),
         "clone-indirect-buffer-hook should still run"
     );
@@ -1562,7 +1562,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
 fn make_indirect_buffer_clone_nil_resets_buffer_state() {
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-clone-nil-base*");
-    if !base.is_buffer() /* TODO(tagged): `base_id` was Value::Buffer(base_id), rewrite let-else */ {
+    if !base.is_buffer() {
         panic!("expected buffer object");
     };
 
@@ -1577,7 +1577,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
     let indirect =
         builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*mib-default*")])
             .expect("indirect buffer without clone");
-    if !indirect.is_buffer() /* TODO(tagged): `indirect_id` was Value::Buffer(indirect_id), rewrite let-else */ {
+    if !indirect.is_buffer() {
         panic!("expected buffer object");
     };
 
@@ -1589,7 +1589,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
     assert_eq!(
         indirect_buf
             .get_buffer_local("mode-name")
-            .and_then(Value::as_str),
+            .and_then(|v| v.as_str()),
         Some("Fundamental")
     );
 }
@@ -1665,7 +1665,7 @@ fn buffer_modified_tick_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-chars-modified-tick"), ValueKind::Fixnum(2)]
+                vec![Value::symbol("buffer-chars-modified-tick"), Value::fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1916,7 +1916,7 @@ fn insert_inherit_variants_reuse_insert_semantics() {
                 sig.data,
                 vec![
                     Value::symbol("char-or-string-p"),
-                    Value::list(vec![ValueKind::Fixnum(1)])
+                    Value::list(vec![Value::fixnum(1)])
                 ]
             );
         }
@@ -2125,7 +2125,7 @@ fn insert_buffer_substring_inserts_source_region() {
     match bad_designator {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(9)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(9)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2185,7 +2185,7 @@ fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(1), ValueKind::Fixnum(5)]);
+            assert_eq!(sig.data, vec![Value::fixnum(1), Value::fixnum(5)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2274,7 +2274,7 @@ fn ntake_destructively_truncates_lists() {
     match type_error {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::fixnum(3)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2413,7 +2413,7 @@ fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(1), ValueKind::Nil]);
+            assert_eq!(sig.data, vec![Value::fixnum(1), ValueKind::Nil]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2581,7 +2581,7 @@ fn split_window_internal_validates_core_argument_types() {
     match side_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("symbolp"), ValueKind::Fixnum(9)]);
+            assert_eq!(sig.data, vec![Value::symbol("symbolp"), Value::fixnum(9)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2684,7 +2684,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("cancel-kbd-macro-events"), ValueKind::Fixnum(1)]
+                vec![Value::symbol("cancel-kbd-macro-events"), Value::fixnum(1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2726,7 +2726,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     match barf_range {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(0), ValueKind::Fixnum(0)]);
+            assert_eq!(sig.data, vec![Value::fixnum(0), Value::fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2748,7 +2748,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("barf-if-buffer-read-only"), ValueKind::Fixnum(2)]
+                vec![Value::symbol("barf-if-buffer-read-only"), Value::fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2778,7 +2778,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("bury-buffer-internal"), ValueKind::Fixnum(0)]
+                vec![Value::symbol("bury-buffer-internal"), Value::fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2872,7 +2872,7 @@ fn byte_position_and_clear_bitmap_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("byte-to-position"), ValueKind::Fixnum(2)]
+                vec![Value::symbol("byte-to-position"), Value::fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2912,7 +2912,7 @@ fn byte_position_and_clear_bitmap_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("bitmap-spec-p"), ValueKind::Fixnum(0)]
+                vec![Value::symbol("bitmap-spec-p"), Value::fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2930,7 +2930,7 @@ fn byte_position_and_clear_bitmap_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("clear-face-cache"), ValueKind::Fixnum(2)]
+                vec![Value::symbol("clear-face-cache"), Value::fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -3085,7 +3085,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("other-buffer"), ValueKind::Fixnum(4)]);
+            assert_eq!(sig.data, vec![Value::symbol("other-buffer"), Value::fixnum(4)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3172,7 +3172,7 @@ fn featurep_subfeatures_property_must_be_list() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3193,7 +3193,7 @@ fn featurep_rejects_more_than_two_args() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("featurep"), ValueKind::Fixnum(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("featurep"), Value::fixnum(3)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3233,7 +3233,7 @@ fn pure_dispatch_typed_propertize_non_string_signals_stringp() {
     match result {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3250,7 +3250,7 @@ fn pure_dispatch_typed_propertize_odd_property_list_signals_arity() {
     match result {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("propertize"), ValueKind::Fixnum(2)]);
+            assert_eq!(sig.data, vec![Value::symbol("propertize"), Value::fixnum(2)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3307,7 +3307,7 @@ fn pure_dispatch_typed_unibyte_string_validates_range_and_type() {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(
                 sig.data,
-                vec![ValueKind::Fixnum(256), ValueKind::Fixnum(0), ValueKind::Fixnum(255)]
+                vec![Value::fixnum(256), Value::fixnum(0), Value::fixnum(255)]
             );
         }
         other => panic!("expected signal flow, got {other:?}"),
@@ -3429,7 +3429,7 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
     match negative {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::Int(-1)],);
+            assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::fixnum(-1)],);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3442,7 +3442,7 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)],
+                vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)],
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -3538,7 +3538,7 @@ fn pure_dispatch_typed_aset_string_errors_match_oracle() {
     match out_of_range {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::string("abc"), Value::Int(-1)]);
+            assert_eq!(sig.data, vec![Value::string("abc"), Value::fixnum(-1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3697,7 +3697,7 @@ fn pure_dispatch_typed_define_hash_table_test_registers_alias() {
         .expect("hash-table-test should evaluate");
     assert_eq!(observed, alias);
 
-    if !table.is_hash_table() /* TODO(tagged): `table` was Value::HashTable(table), rewrite let-else */ {
+    if !table.is_hash_table() {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -3735,7 +3735,7 @@ fn pure_dispatch_typed_define_hash_table_test_accepts_equal_including_properties
         .expect("hash-table-test should evaluate");
     assert_eq!(observed, alias);
 
-    if !table.is_hash_table() /* TODO(tagged): `table` was Value::HashTable(table), rewrite let-else */ {
+    if !table.is_hash_table() {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -3785,7 +3785,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
         .expect("hash-table-test should evaluate for initial alias mapping");
     assert_eq!(first_name, Value::symbol(alias_name));
 
-    if !first.is_hash_table() /* TODO(tagged): `first` was Value::HashTable(first), rewrite let-else */ {
+    if !first.is_hash_table() {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -3809,7 +3809,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
         .expect("hash-table-test should evaluate after alias redefinition");
     assert_eq!(second_name, Value::symbol(alias_name));
 
-    if !second.is_hash_table() /* TODO(tagged): `second` was Value::HashTable(second), rewrite let-else */ {
+    if !second.is_hash_table() {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -3889,7 +3889,7 @@ fn pure_dispatch_typed_expt_and_isnan_type_errors_match_oracle() {
     match isnan_non_float {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("floatp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("floatp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3958,7 +3958,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     let made = dispatch_builtin_pure("obarray-make", vec![Value::fixnum(3)])
         .expect("builtin obarray-make should resolve")
         .expect("builtin obarray-make should evaluate");
-    if !&made.is_vector() /* TODO(tagged): `created` was Value::Vector(created), rewrite let-else */ {
+    if !&made.is_vector() {
         panic!("obarray-make should return vector");
     };
     let created = with_heap(|h| h.get_vector(*created).clone());
@@ -3968,7 +3968,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     let default = dispatch_builtin_pure("obarray-make", vec![])
         .expect("builtin obarray-make should resolve")
         .expect("builtin obarray-make should evaluate");
-    if !&default.is_vector() /* TODO(tagged): `default` was Value::Vector(default), rewrite let-else */ {
+    if !&default.is_vector() {
         panic!("obarray-make default should return vector");
     };
     assert_eq!(with_heap(|h| h.get_vector(*default).len()), 1511);
@@ -3978,7 +3978,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
         .expect("builtin obarray-clear should resolve")
         .expect("builtin obarray-clear should evaluate");
     assert!(cleared.is_nil());
-    if !&table.is_vector() /* TODO(tagged): `cleared` was Value::Vector(cleared), rewrite let-else */ {
+    if !&table.is_vector() {
         panic!("table should stay vector");
     };
     assert!(
@@ -3993,7 +3993,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     match wrong_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("obarrayp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("obarrayp"), Value::fixnum(1)]);
         }
         other => panic!("expected signal, got: {other:?}"),
     }
@@ -4423,7 +4423,7 @@ fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
     match record_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("record"), ValueKind::Fixnum(0)]);
+            assert_eq!(sig.data, vec![Value::symbol("record"), Value::fixnum(0)]);
         }
         other => panic!("expected signal, got: {other:?}"),
     }
@@ -5069,7 +5069,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
                 sig.data,
                 vec![
                     Value::symbol("listp"),
-                    Value::cons(ValueKind::Fixnum(1), ValueKind::Fixnum(2))
+                    Value::cons(Value::fixnum(1), Value::fixnum(2))
                 ]
             );
         }
@@ -5085,7 +5085,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
                 sig.data,
                 vec![
                     Value::symbol("listp"),
-                    Value::cons(Value::string("doc"), ValueKind::Fixnum(2))
+                    Value::cons(Value::string("doc"), Value::fixnum(2))
                 ]
             );
         }
@@ -5547,7 +5547,7 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin make-byte-code should resolve")
     .expect("builtin make-byte-code should evaluate");
     assert!(
-        matches!(make_byte_code, Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */),
+        matches!(make_byte_code, ValueKind::Veclike(VecLikeType::ByteCode)),
         "make-byte-code should return a ByteCode value, got {:?}",
         make_byte_code
     );
@@ -5579,7 +5579,7 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     let bc = make_byte_code_with_hash
         .get_bytecode_data()
         .expect("make-byte-code should produce bytecode data");
-    if !bc.constants[0].is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), rewrite let-else */ {
+    if !bc.constants[0].is_hash_table() {
         panic!("expected hash-table constant, got {:?}", bc.constants[0]);
     };
     let entry = with_heap(|heap| {
@@ -5623,7 +5623,7 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin make-interpreted-closure should resolve")
     .expect("builtin make-interpreted-closure should evaluate");
     // make-interpreted-closure now returns a Lambda value (not nil)
-    assert!(matches!(make_interpreted, Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */));
+    assert!(matches!(make_interpreted, ValueKind::Veclike(VecLikeType::Lambda)));
 }
 
 #[test]
@@ -5878,7 +5878,7 @@ fn negative_match_group_signals_args_out_of_range() {
     match match_string_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(-1), ValueKind::Fixnum(0)]);
+            assert_eq!(sig.data, vec![Value::fixnum(-1), Value::fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -5888,7 +5888,7 @@ fn negative_match_group_signals_args_out_of_range() {
     match match_beginning_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(-1), ValueKind::Fixnum(0)]);
+            assert_eq!(sig.data, vec![Value::fixnum(-1), Value::fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -5898,7 +5898,7 @@ fn negative_match_group_signals_args_out_of_range() {
     match match_end_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(-1), ValueKind::Fixnum(0)]);
+            assert_eq!(sig.data, vec![Value::fixnum(-1), Value::fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -5915,7 +5915,7 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
     match substring_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![current, Value::Int(-1), ValueKind::Fixnum(2)]);
+            assert_eq!(sig.data, vec![current, Value::fixnum(-1), Value::fixnum(2)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -5925,7 +5925,7 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
     match delete_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![current, Value::Int(-1), ValueKind::Fixnum(2)]);
+            assert_eq!(sig.data, vec![current, Value::fixnum(-1), Value::fixnum(2)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -5935,7 +5935,7 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
     match narrow_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(-1), ValueKind::Fixnum(2)]);
+            assert_eq!(sig.data, vec![Value::fixnum(-1), Value::fixnum(2)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -6509,7 +6509,7 @@ fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
     let filled = dispatch_builtin_pure("fillarray", vec![vector, Value::fixnum(9)])
         .expect("fillarray should resolve")
         .expect("fillarray should evaluate");
-    if !filled.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
+    if !filled.is_vector() {
         panic!("expected vector");
     };
     assert_eq!(
@@ -6601,7 +6601,7 @@ fn display_update_for_mouse_movement_updates_shared_mouse_state() {
     let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
         .expect("selected-frame should evaluate");
-    if !frame.is_frame() /* TODO(tagged): `frame_id` was Value::Frame(frame_id), rewrite let-else */ {
+    if !frame.is_frame() {
         panic!("selected-frame should return a frame");
     };
     if let Some(frame) = eval.frames.get_mut(crate::window::FrameId(frame_id)) {
@@ -6641,7 +6641,7 @@ fn set_mouse_position_builtins_update_shared_mouse_state() {
     let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
         .expect("selected-frame should evaluate");
-    if !frame.is_frame() /* TODO(tagged): `frame_id` was Value::Frame(frame_id), rewrite let-else */ {
+    if !frame.is_frame() {
         panic!("selected-frame should return a frame");
     };
     if let Some(frame) = eval.frames.get_mut(crate::window::FrameId(frame_id)) {
@@ -6883,7 +6883,7 @@ fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
     let face_table = dispatch_builtin_pure("frame--face-hash-table", vec![])
         .expect("frame--face-hash-table should resolve")
         .expect("frame--face-hash-table should evaluate");
-    if !face_table.is_hash_table() /* TODO(tagged): `table` was Value::HashTable(table), rewrite let-else */ {
+    if !face_table.is_hash_table() {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -7115,7 +7115,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
     let face = dispatch_builtin_pure("face-attributes-as-vector", vec![Value::NIL])
         .expect("face-attributes-as-vector should resolve")
         .expect("face-attributes-as-vector should evaluate");
-    if !face.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
+    if !face.is_vector() {
         panic!("expected vector");
     };
     assert_eq!(
@@ -7129,7 +7129,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
     let attrs = dispatch_builtin_pure("font-face-attributes", vec![font_object])
         .expect("font-face-attributes should resolve")
         .expect("font-face-attributes should evaluate");
-    if !attrs.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
+    if !attrs.is_vector() {
         panic!("expected vector");
     };
     assert_eq!(
@@ -7718,7 +7718,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         match err {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-                assert_eq!(sig.data, vec![Value::symbol(symbol), ValueKind::Fixnum(0)]);
+                assert_eq!(sig.data, vec![Value::symbol(symbol), Value::fixnum(0)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -7740,7 +7740,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         match wrong_type {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+                assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -7773,7 +7773,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         match negative_char {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::Int(-1)]);
+                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::fixnum(-1)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -7790,7 +7790,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
+                    vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -8022,7 +8022,7 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
+                vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)]
             );
         }
         other => panic!("expected signal, got: {other:?}"),
@@ -8094,7 +8094,7 @@ fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
+                vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)]
             );
         }
         other => panic!("expected signal, got: {other:?}"),
@@ -8151,7 +8151,7 @@ fn insert_char_nonunicode_char_code_bounds_match_oracle() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
+                vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)]
             );
         }
         other => panic!("expected signal, got: {other:?}"),
@@ -8195,7 +8195,7 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("char-or-string-p"), ValueKind::Fixnum(0x40_0000)]
+                vec![Value::symbol("char-or-string-p"), Value::fixnum(0x40_0000)]
             );
         }
         other => panic!("expected signal, got: {other:?}"),
@@ -8327,7 +8327,7 @@ fn format_message_and_message_signal_strict_format_errors() {
         match err {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::Int(-1)]);
+                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::fixnum(-1)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -8346,7 +8346,7 @@ fn format_message_and_message_signal_strict_format_errors() {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
+                    vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -8718,8 +8718,8 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
     match t_arity.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car, ValueKind::Fixnum(1));
-            assert_eq!(pair.cdr, ValueKind::Fixnum(1));
+            assert_eq!(pair.car, Value::fixnum(1));
+            assert_eq!(pair.cdr, Value::fixnum(1));
         }
         other => panic!("expected cons arity pair, got {other:?}"),
     }
@@ -8729,8 +8729,8 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
     match keyword_arity.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.car, ValueKind::Fixnum(1));
-            assert_eq!(pair.cdr, ValueKind::Fixnum(1));
+            assert_eq!(pair.car, Value::fixnum(1));
+            assert_eq!(pair.cdr, Value::fixnum(1));
         }
         other => panic!("expected cons arity pair, got {other:?}"),
     }
@@ -8914,7 +8914,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
     match env_type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -8930,7 +8930,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
     match invalid_env_function {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "invalid-function");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(42)]);
+            assert_eq!(sig.data, vec![Value::fixnum(42)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -8959,7 +8959,7 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
     match improper_macro {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -9430,7 +9430,7 @@ fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -9511,7 +9511,7 @@ fn defvaralias_rejects_invalid_inputs_and_cycles() {
     match type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("symbolp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("symbolp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -9621,7 +9621,7 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
     match put_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -9991,7 +9991,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
     match malformed {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10054,7 +10054,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
     match program_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10112,7 +10112,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
     match map_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10226,7 +10226,7 @@ fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10259,7 +10259,7 @@ fn get_byte_string_semantics_match_oracle_edges() {
     match out_of_range {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::string("abc"), ValueKind::Fixnum(3)]);
+            assert_eq!(sig.data, vec![Value::string("abc"), Value::fixnum(3)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10269,7 +10269,7 @@ fn get_byte_string_semantics_match_oracle_edges() {
     match negative {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("wholenump"), Value::Int(-1)]);
+            assert_eq!(sig.data, vec![Value::symbol("wholenump"), Value::fixnum(-1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10330,7 +10330,7 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
     match zero {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(0), ValueKind::Fixnum(1), ValueKind::Fixnum(4)]);
+            assert_eq!(sig.data, vec![Value::fixnum(0), Value::fixnum(1), Value::fixnum(4)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10339,7 +10339,7 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
     match end {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(4), ValueKind::Fixnum(1), ValueKind::Fixnum(4)]);
+            assert_eq!(sig.data, vec![Value::fixnum(4), Value::fixnum(1), Value::fixnum(4)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }

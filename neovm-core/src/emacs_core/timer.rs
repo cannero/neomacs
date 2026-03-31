@@ -296,11 +296,11 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Float => Ok(*f),
         ValueKind::Char(c) => Ok(c as u32 as f64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), *value],
         )),
     }
 }
@@ -311,7 +311,7 @@ fn expect_fixnum_like(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("fixnump"), *other],
+            vec![Value::symbol("fixnump"), *value],
         )),
     }
 }
@@ -393,7 +393,7 @@ fn parse_spaced_run_at_time_delay(tokens: &[&str]) -> Option<f64> {
 fn parse_run_at_time_delay(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(0.0),
-        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ | ValueKind::Char(_) => expect_number(value),
+        ValueKind::Fixnum(_) | ValueKind::Float | ValueKind::Char(_) => expect_number(value),
         ValueKind::String => {
             let s_str = value.as_str().unwrap();
             let spec = s_str.trim();
@@ -439,7 +439,7 @@ fn parse_run_at_time_delay(value: &Value) -> Result<f64, Flow> {
 fn parse_idle_timer_delay(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(0.0),
-        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ | ValueKind::Char(_) => expect_number(value),
+        ValueKind::Fixnum(_) | ValueKind::Float | ValueKind::Char(_) => expect_number(value),
         _ => Err(signal(
             "error",
             vec![Value::string("Invalid time specification")],
@@ -452,7 +452,7 @@ fn expect_timer_id(value: &Value) -> Result<TimerId, Flow> {
         ValueKind::Veclike(VecLikeType::Timer) => Ok(*id),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("timerp"), *other],
+            vec![Value::symbol("timerp"), *value],
         )),
     }
 }

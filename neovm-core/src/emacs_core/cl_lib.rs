@@ -56,7 +56,7 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *val],
         )),
     }
 }
@@ -64,11 +64,11 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
 fn expect_number_or_marker(val: &Value) -> Result<f64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Float => Ok(*f),
         ValueKind::Char(c) => Ok(c as i64 as f64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), *val],
         )),
     }
 }
@@ -192,7 +192,7 @@ pub(crate) fn builtin_cl_rest(args: Vec<Value>) -> EvalResult {
         ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(*cell))),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("listp"), *other],
+            vec![Value::symbol("listp"), args[0]],
         )),
     }
 }
@@ -291,12 +291,12 @@ fn seq_position_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
         ValueKind::String => Ok(with_heap(|h| {
             h.get_string(*s)
                 .chars()
-                .map(|ch| Value::Int(ch as i64))
+                .map(|ch| Value::fixnum(ch as i64))
                 .collect()
         })),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), *seq],
         )),
     }
 }
@@ -339,7 +339,7 @@ fn seq_collect_concat_arg(arg: &Value) -> Result<Vec<Value>, Flow> {
         ValueKind::String => Ok(with_heap(|h| {
             h.get_string(*s)
                 .chars()
-                .map(|ch| Value::Int(ch as i64))
+                .map(|ch| Value::fixnum(ch as i64))
                 .collect()
         })),
         other => Err(signal(
@@ -377,7 +377,7 @@ pub(crate) fn builtin_seq_reverse(args: Vec<Value>) -> EvalResult {
                     other => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("characterp"), *other],
+                            vec![Value::symbol("characterp"), args[0]],
                         ));
                     }
                 };
@@ -440,7 +440,7 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), args[0]],
         )),
     }
 }
@@ -498,7 +498,7 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), args[0]],
         )),
     }
 }
@@ -541,10 +541,10 @@ pub(crate) fn builtin_seq_subseq(args: Vec<Value>) -> EvalResult {
 
     match args[0].kind() {
         ValueKind::Nil | ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) | ValueKind::String => {
-            let dropped = builtin_seq_drop(vec![args[0], ValueKind::Fixnum(start)])?;
+            let dropped = builtin_seq_drop(vec![args[0], Value::fixnum(start)])?;
             if let Some(end_idx) = end {
                 let span = end_idx - start;
-                builtin_seq_take(vec![dropped, ValueKind::Fixnum(span)])
+                builtin_seq_take(vec![dropped, Value::fixnum(span)])
             } else {
                 Ok(dropped)
             }
@@ -605,7 +605,7 @@ pub(crate) fn builtin_seq_concatenate(args: Vec<Value>) -> EvalResult {
                     other => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("characterp"), *other],
+                            vec![Value::symbol("characterp"), *value],
                         ));
                     }
                 };
@@ -628,7 +628,7 @@ pub(crate) fn builtin_seq_empty_p(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::bool_val(with_heap(|h| h.vector_len(*v)) == 0)),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), args[0]],
         )),
     }
 }
@@ -688,7 +688,7 @@ pub(crate) fn builtin_seq_position(
 ) -> EvalResult {
     expect_min_args("seq-position", &args, 2)?;
     let seq = &args[0];
-    if matches!(seq, Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */ | Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */) {
+    if matches!(seq, ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode)) {
         return Ok(Value::NIL);
     }
     let target = args[1];
@@ -1005,7 +1005,7 @@ pub(crate) fn builtin_cl_map(eval: &mut super::eval::Context, args: Vec<Value>) 
                             .ok_or_else(|| {
                                 signal(
                                     "wrong-type-argument",
-                                    vec![Value::symbol("characterp"), ValueKind::Fixnum(n)],
+                                    vec![Value::symbol("characterp"), Value::fixnum(n)],
                                 )
                             })?,
                         other => {

@@ -436,8 +436,8 @@ fn builtin_signal_atom_preserves_raw_payload() {
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(1)]);
-            assert_eq!(sig.raw_data, Some(ValueKind::Fixnum(1)));
+            assert_eq!(sig.data, vec![Value::fixnum(1)]);
+            assert_eq!(sig.raw_data, Some(Value::fixnum(1)));
         }
         _ => panic!("expected signal"),
     }
@@ -947,7 +947,7 @@ fn builtin_error_message_string_not_cons() {
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(42)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::fixnum(42)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }

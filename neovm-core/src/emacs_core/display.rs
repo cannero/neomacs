@@ -66,7 +66,7 @@ pub(crate) fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
         ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(*value),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), *value],
         )),
     }
 }
@@ -252,7 +252,7 @@ fn expect_display_designator_eval(
     if value.is_nil() || terminal_designator_p(value) || live_frame_designator_p(eval, value) {
         return Ok(());
     }
-    if value.is_string() /* TODO(tagged): `_` was Value::Str(_), now use accessor */ {
+    if value.is_string() {
         let display = value.as_str().unwrap();
         return Err(display_does_not_exist_error(display));
     }
@@ -332,7 +332,7 @@ fn x_display_query_first_arg_error(value: &Value) -> Flow {
             } else {
                 signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), *other],
+                    vec![Value::symbol("frame-live-p"), *value],
                 )
             }
         }
@@ -1031,7 +1031,7 @@ pub(crate) fn builtin_x_popup_dialog(args: Vec<Value>) -> EvalResult {
     }
 
     let (title, rest) = match contents {
-        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+        Value::Cons(cell) => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             (pair.car, pair.cdr)
         }
@@ -1071,7 +1071,7 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     }
 
     let (position_car, position_cdr) = match position {
-        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+        Value::Cons(cell) => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             (pair.car, pair.cdr)
         }
@@ -1134,7 +1134,7 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     }
 
     let (title, rest) = match menu {
-        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+        Value::Cons(cell) => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             (pair.car, pair.cdr)
         }
@@ -1171,7 +1171,7 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     };
 
     let (pane_title, pane_items) = match pane {
-        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+        Value::Cons(cell) => {
             let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             (pair.car, pair.cdr)
         }
@@ -1294,7 +1294,7 @@ pub(crate) fn builtin_x_setup_function_keys(args: Vec<Value>) -> EvalResult {
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("frame-live-p"), *other],
+            vec![Value::symbol("frame-live-p"), args[0]],
         )),
     }
 }
@@ -1397,7 +1397,7 @@ pub(crate) fn builtin_x_parse_geometry(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), args[0]],
         )),
     }
 }
@@ -1692,7 +1692,7 @@ pub(crate) fn builtin_x_open_connection(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), args[0]],
         )),
     }
 }
@@ -1731,7 +1731,7 @@ pub(crate) fn builtin_x_close_connection(
             } else {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), *other],
+                    vec![Value::symbol("frame-live-p"), args[0]],
                 ))
             }
         }

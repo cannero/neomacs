@@ -54,7 +54,7 @@ fn expect_integer_or_marker(arg: &Value) -> Result<(), Flow> {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *arg],
         )),
     }
 }
@@ -64,7 +64,7 @@ fn expect_fixnum_arg(name: &str, arg: &Value) -> Result<(), Flow> {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol(name), *other],
+            vec![Value::symbol(name), *arg],
         )),
     }
 }
@@ -645,7 +645,7 @@ impl ModeLineRendered {
         };
         let byte_offset = self.text.len();
         self.text.push_str(text);
-        if let Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ = value
+        if let ValueKind::String = value
             && let Some(props) = get_string_text_properties_table(*id)
         {
             self.text_props.append_shifted(&props, byte_offset);
@@ -674,7 +674,7 @@ impl ModeLineRendered {
                 .take(end_char - start_char)
                 .collect::<String>(),
         );
-        if let Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ = value
+        if let ValueKind::String = value
             && let Some(props) = get_string_text_properties_table(*id)
         {
             self.text_props
@@ -780,7 +780,7 @@ impl ModeLineRendered {
             self.apply_default_face(face);
         }
         let value = Value::string(self.text);
-        if value.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+        if value.is_string() {
             set_string_text_properties_table(id, self.text_props);
         }
         value
@@ -1596,7 +1596,7 @@ fn expand_mode_line_percent_in_state(
             index += 1;
         }
 
-        let props_at_percent = if value.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+        let props_at_percent = if value.is_string() {
             get_string_text_properties_table(*id)
                 .map(|table| table.get_properties(char_to_byte_pos(fmt_str, percent_char_pos)))
                 .unwrap_or_default()
@@ -1877,7 +1877,7 @@ pub(crate) fn builtin_invisible_p(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Fixnum(v) => {
             if v == 0 {
-                Err(signal("args-out-of-range", vec![Value::Int(v)]))
+                Err(signal("args-out-of-range", vec![Value::fixnum(v)]))
             } else if v < 0 {
                 Ok(Value::symbol("t"))
             } else {
@@ -1886,7 +1886,7 @@ pub(crate) fn builtin_invisible_p(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Char(ch) => {
             if ch == '\0' {
-                Err(signal("args-out-of-range", vec![Value::Char(ch)]))
+                Err(signal("args-out-of-range", vec![Value::char(ch)]))
             } else {
                 Ok(ValueKind::Nil)
             }
@@ -2056,7 +2056,7 @@ fn pos_visible_in_window_p_impl(
 ) -> EvalResult {
     expect_args_range("pos-visible-in-window-p", &args, 0, 3)?;
     validate_optional_window_designator_in_state(&*frames, args.get(1), "window-live-p")?;
-    let partially = args.get(2).is_some_and(Value::is_truthy);
+    let partially = args.get(2).is_some_and(|v| v.is_truthy());
     if let Some((_, metrics)) =
         resolve_exact_visible_metrics(frames, buffers, args.get(1), args.first())?
     {
@@ -2220,15 +2220,15 @@ pub(crate) fn builtin_move_point_visually(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Fixnum(v) => Err(signal(
             "args-out-of-range",
-            vec![Value::Int(v), Value::Int(v)],
+            vec![Value::fixnum(v), Value::fixnum(v)],
         )),
         ValueKind::Char(ch) => Err(signal(
             "args-out-of-range",
-            vec![Value::Char(ch), Value::Char(ch)],
+            vec![Value::char(ch), Value::char(ch)],
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("fixnump"), *other],
+            vec![Value::symbol("fixnump"), args[0]],
         )),
     }
 }
@@ -2599,7 +2599,7 @@ fn validate_optional_buffer_designator_in_state(
     if bufferish.is_nil() {
         return Ok(());
     }
-    if bufferish.is_buffer() /* TODO(tagged): `id` was Value::Buffer(id), now use accessor */ {
+    if bufferish.is_buffer() {
         if buffers.get(*id).is_some() {
             return Ok(());
         }
@@ -2809,7 +2809,7 @@ fn resolve_live_window_identity(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("window-live-p"), *other],
+                vec![Value::symbol("window-live-p"), *windowish],
             ));
         }
     };
@@ -3016,7 +3016,7 @@ fn resolve_posn_at_xy_window(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("framep"), *other],
+                vec![Value::symbol("framep"), *frameish],
             ));
         }
     };
@@ -3078,7 +3078,7 @@ fn posn_at_x_y_impl(
         }
         None => unreachable!(),
     };
-    let whole = args.get(3).is_some_and(Value::is_truthy);
+    let whole = args.get(3).is_some_and(|v| v.is_truthy());
     let Some((fid, wid, window_relative_input)) = resolve_posn_at_xy_window(frames, args.get(2))?
     else {
         return Ok(Value::NIL);

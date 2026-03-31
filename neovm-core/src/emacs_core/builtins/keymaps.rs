@@ -79,7 +79,7 @@ pub(crate) fn expect_key_events(value: &Value) -> Result<Vec<Value>, Flow> {
                     other => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("arrayp"), *other],
+                            vec![Value::symbol("arrayp"), *value],
                         ));
                     }
                 }
@@ -118,7 +118,7 @@ pub(super) fn builtin_accessible_keymaps(
 
 pub(crate) fn builtin_accessible_keymaps_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     use super::value::with_heap;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
     expect_min_args("accessible-keymaps", &args, 1)?;
     expect_max_args("accessible-keymaps", &args, 2)?;
@@ -162,10 +162,10 @@ use super::value::{ValueKind, VecLikeType};
             let filtered: Vec<Value> = all_out
                 .into_iter()
                 .filter(|entry| {
-                    if entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                    if entry.is_cons() {
                         let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                         // pair.car is the prefix vector
-                        if pair.car.is_vector() /* TODO(tagged): `vid` was Value::Vector(vid), now use accessor */ {
+                        if pair.car.is_vector() {
                             let entry_prefix = with_heap(|h| h.get_vector(vid).clone());
                             if entry_prefix.len() >= prefix_events.len() {
                                 return entry_prefix[..prefix_events.len()] == prefix_events[..];
@@ -235,7 +235,7 @@ pub(super) fn builtin_define_key(eval: &mut super::eval::Context, args: Vec<Valu
     let keymap = expect_keymap(eval, &args[0])?;
     let mut events = expect_key_events(&args[1])?;
     let def = args[2];
-    let remove = args.get(3).is_some_and(Value::is_truthy);
+    let remove = args.get(3).is_some_and(|v| v.is_truthy());
     // Expand meta-prefixed events to ESC + base, matching GNU Emacs
     // Fdefine_key's metized handling.
     if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(eval.obarray(), &events) {
@@ -253,7 +253,7 @@ pub(super) fn builtin_define_key(eval: &mut super::eval::Context, args: Vec<Valu
 pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("lookup-key", &args, 2)?;
     expect_max_args("lookup-key", &args, 3)?;
-    let t_ok = args.get(2).is_some_and(Value::is_truthy);
+    let t_ok = args.get(2).is_some_and(|v| v.is_truthy());
     let events = expect_key_events(&args[1])?;
     let keymaps = resolve_lookup_keymaps_in_runtime(eval, &args[0])?;
 
@@ -274,7 +274,7 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
     expect_max_args("lookup-key", &args, 3)?;
     // 3rd arg ACCEPT-DEFAULTS: when non-nil, accept (t . COMMAND) default bindings.
     // GNU keymap.c:1248: bool t_ok = !NILP (accept_default);
-    let t_ok = args.get(2).is_some_and(Value::is_truthy);
+    let t_ok = args.get(2).is_some_and(|v| v.is_truthy());
 
     let events = expect_key_events(&args[1])?;
 
@@ -465,7 +465,7 @@ pub(crate) fn builtin_current_active_maps_impl(
     args: &[Value],
 ) -> EvalResult {
     expect_max_args("current-active-maps", &args, 2)?;
-    let obey_overriding_local_maps = args.first().is_some_and(Value::is_truthy);
+    let obey_overriding_local_maps = args.first().is_some_and(|v| v.is_truthy());
     let maps = current_active_maps_for_position(ctx, obey_overriding_local_maps, args.get(1))?;
     Ok(Value::list(maps))
 }
@@ -533,7 +533,7 @@ pub(crate) fn plan_keymap_iteration(keymap: Value) -> KeymapIterationPlan {
                 let items = with_heap(|h| h.get_vector(*obj_id).clone());
                 for (idx, binding) in items.iter().enumerate() {
                     if !binding.is_nil() {
-                        bindings.push((Value::Int(idx as i64), *binding));
+                        bindings.push((Value::fixnum(idx as i64), *binding));
                     }
                 }
             }
@@ -741,7 +741,7 @@ pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
                     mod_bits &= !KEY_CHAR_CTRL;
                 }
             }
-            Ok(Value::Int(code | mod_bits))
+            Ok(Value::fixnum(code | mod_bits))
         }
         ValueKind::Symbol(id) => {
             let name = resolve_sym(id);
@@ -776,7 +776,7 @@ pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
 pub(super) fn builtin_text_char_description(args: Vec<Value>) -> EvalResult {
     expect_args("text-char-description", &args, 1)?;
     let code = match args[0].kind() {
-        ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(n) => n,
+        ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(&n) => n,
         ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
@@ -859,7 +859,7 @@ pub(super) fn parse_event_symbol_prefixes(mut name: &str) -> (Vec<Value>, &str) 
 /// `(single-key-description KEY &optional NO-ANGLES)` -> string
 pub(super) fn builtin_single_key_description(args: Vec<Value>) -> EvalResult {
     expect_range_args("single-key-description", &args, 1, 2)?;
-    let no_angles = args.get(1).is_some_and(Value::is_truthy);
+    let no_angles = args.get(1).is_some_and(|v| v.is_truthy());
     Ok(Value::string(describe_single_key_value(
         &args[0], no_angles,
     )?))

@@ -16,7 +16,7 @@ use super::value::{
     read_cons, with_heap,
 };
 use crate::gc::types::ObjId;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PrintOptions {
@@ -279,7 +279,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
         ValueKind::Nil => out.push_str("nil"),
         ValueKind::T => out.push_str("t"),
         ValueKind::Fixnum(v) => write!(out, "{}", v).unwrap(),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => out.push_str(&format_float(*f)),
+        ValueKind::Float => out.push_str(&format_float(*f)),
         ValueKind::Symbol(id) => out.push_str(&format_symbol(id, state.options)),
         ValueKind::Keyword(id) => out.push_str(resolve_sym(id)),
         ValueKind::String => {
@@ -556,7 +556,7 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
                 count += 1;
 
                 // Check if cdr is a cons that has a circle label
-                if cursor.is_cons() /* TODO(tagged): `_` was ValueKind::Cons, now use accessor */ {
+                if cursor.is_cons() {
                     if let Some(ref circle) = state.circle {
                         if let Some(key) = object_identity_key(&cursor) {
                             if let Some(label) = circle.number_table.get(&key) {
@@ -671,7 +671,7 @@ fn format_marker_handle(
         return None;
     }
 
-    if !value.is_marker() /* TODO(tagged): `marker_id` was Value::Marker(marker_id), rewrite let-else */ {
+    if !value.is_marker() {
         return None;
     };
     let marker = with_heap(|heap| heap.get_marker(*marker_id).clone());
@@ -701,7 +701,7 @@ fn format_overlay_handle(
     value: &Value,
     buffers: Option<&crate::buffer::BufferManager>,
 ) -> Option<String> {
-    if !value.is_overlay() /* TODO(tagged): `id` was Value::Overlay(id), rewrite let-else */ {
+    if !value.is_overlay() {
         return None;
     };
 
@@ -930,7 +930,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
         ValueKind::Fixnum(v) => v.to_string(),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => format_float(*f),
+        ValueKind::Float => format_float(*f),
         ValueKind::Symbol(id) => format_symbol(id, options),
         ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         ValueKind::String => {
@@ -1052,7 +1052,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         ValueKind::Nil => out.extend_from_slice(b"nil"),
         ValueKind::T => out.extend_from_slice(b"t"),
         ValueKind::Fixnum(v) => out.extend_from_slice(v.to_string().as_bytes()),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => out.extend_from_slice(format_float(*f).as_bytes()),
+        ValueKind::Float => out.extend_from_slice(format_float(*f).as_bytes()),
         ValueKind::Symbol(id) => append_symbol_bytes(id, out, options),
         ValueKind::Keyword(id) => out.extend_from_slice(resolve_sym(id).as_bytes()),
         ValueKind::String => {

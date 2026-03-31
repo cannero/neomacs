@@ -29,7 +29,7 @@ pub(crate) fn builtin_get_pos_property_impl(
                 vec![
                     Value::fixnum(pos),
                     Value::symbol(prop.clone()),
-                    Value::Str(str_id) /* TODO(tagged): convert Value::Str to new API */,
+                    ValueKind::String,
                 ],
             )?);
         }
@@ -132,7 +132,7 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
     let pos = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
     // --- String OBJECT ---
-    if let Some(Value::Str(str_id) /* TODO(tagged): convert Value::Str to new API */) = args.get(1) {
+    if let Some(ValueKind::String) = args.get(1) {
         let str_id = *str_id;
         let s = with_heap(|h| h.get_string(str_id).to_owned());
         let table = get_string_text_properties_table(str_id).unwrap_or_default();
@@ -166,7 +166,7 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
                     let check = if prev > 0 { prev - 1 } else { 0 };
                     let new_props = table.get_properties(check);
                     if new_props != current_props {
-                        return Ok(Value::Int(textprop::string_byte_to_elisp_pos(&s, prev)));
+                        return Ok(Value::fixnum(textprop::string_byte_to_elisp_pos(&s, prev)));
                     }
                     if prev == 0 {
                         break;
@@ -220,14 +220,14 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
             Some(prev) => {
                 if let (Some(lim_byte), Some(lv)) = (byte_limit, limit_val) {
                     if prev <= lim_byte {
-                        return Ok(ValueKind::Fixnum(lv));
+                        return Ok(Value::fixnum(lv));
                     }
                 }
 
                 let check = if prev > 0 { prev - 1 } else { 0 };
                 let new_props = buf.text.text_props_get_properties(check);
                 if new_props != current_props {
-                    return Ok(Value::Int(buf.text.byte_to_char(prev) as i64 + 1));
+                    return Ok(Value::fixnum(buf.text.byte_to_char(prev) as i64 + 1));
                 }
 
                 if prev == 0 {
@@ -289,7 +289,7 @@ pub(crate) fn builtin_next_single_char_property_change_in_buffers(
     expect_min_args("next-single-char-property-change", &args, 2)?;
     expect_max_args("next-single-char-property-change", &args, 4)?;
 
-    if let Some(Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) = args.get(2) {
+    if let Some(ValueKind::String) = args.get(2) {
         if let Some(limit) = args.get(3) {
             if !limit.is_nil() {
                 return Ok(Value::fixnum(expect_integer_or_marker(limit)?));
@@ -341,7 +341,7 @@ pub(crate) fn builtin_previous_single_char_property_change_in_buffers(
     expect_min_args("previous-single-char-property-change", &args, 2)?;
     expect_max_args("previous-single-char-property-change", &args, 4)?;
 
-    if let Some(Value::Str(_) /* TODO(tagged): convert Value::Str to new API */) = args.get(2) {
+    if let Some(ValueKind::String) = args.get(2) {
         if let Some(limit) = args.get(3) {
             if !limit.is_nil() {
                 return Ok(Value::fixnum(expect_integer_or_marker(limit)?));
@@ -682,7 +682,7 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
         let default_entry = default_nonsticky
             .as_ref()
             .and_then(|value| assq_cdr(value, name));
-        let default_rear_nonsticky = default_entry.as_ref().is_some_and(Value::is_truthy);
+        let default_rear_nonsticky = default_entry.as_ref().is_some_and(|v| v.is_truthy());
         let default_front_sticky = matches!(default_entry, Some(Value::NIL));
 
         let mut use_left =
@@ -723,7 +723,7 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
         let default_entry = default_nonsticky
             .as_ref()
             .and_then(|value| assq_cdr(value, name));
-        let default_rear_nonsticky = default_entry.as_ref().is_some_and(Value::is_truthy);
+        let default_rear_nonsticky = default_entry.as_ref().is_some_and(|v| v.is_truthy());
         let default_front_sticky = matches!(default_entry, Some(Value::NIL));
         let left_nonsticky = matches_rear_nonsticky(left_rear, name);
         let right_sticky = matches_front_sticky(right_front, name) || default_front_sticky;
@@ -801,9 +801,9 @@ fn matches_rear_nonsticky(value: Value, prop: &str) -> bool {
 
 fn assq_cdr(list: &Value, prop: &str) -> Option<Value> {
     let mut cursor = *list;
-    while cursor.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
+    while cursor.is_cons() {
         let entry = cursor.cons_car();
-        if let Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ = entry
+        if let Value::Cons(_) = entry
             && entry.cons_car().as_symbol_name() == Some(prop)
         {
             return Some(entry.cons_cdr());
@@ -815,7 +815,7 @@ fn assq_cdr(list: &Value, prop: &str) -> Option<Value> {
 
 fn value_list_contains_symbol(list: &Value, prop: &str) -> bool {
     let mut cursor = *list;
-    while cursor.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
+    while cursor.is_cons() {
         let item = cursor.cons_car();
         if item.as_symbol_name() == Some(prop) {
             return true;
@@ -1029,7 +1029,7 @@ fn write_print_output_to_target(
                 })?;
             let _ = super::marker::builtin_set_marker_in_buffers(
                 buffers,
-                vec![other, ValueKind::Fixnum(new_marker_pos), ValueKind::Veclike(VecLikeType::Buffer)],
+                vec![other, Value::fixnum(new_marker_pos), ValueKind::Veclike(VecLikeType::Buffer)],
             )?;
 
             if let Some(saved_id) = saved_current {
@@ -1118,7 +1118,7 @@ fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result
             // Root the callable target across eval.apply().
             eval.with_gc_scope_result(|ctx| {
                 ctx.root(other);
-                ctx.apply(other, vec![Value::Int('\n' as i64)])?;
+                ctx.apply(other, vec![Value::fixnum('\n' as i64)])?;
                 Ok(())
             })?;
             Ok(())
@@ -1513,7 +1513,7 @@ pub(crate) fn finish_write_char_in_eval(
         other => {
             eval.with_gc_scope_result(|ctx| {
                 ctx.root(other);
-                ctx.apply(other, vec![ValueKind::Fixnum(char_code)])?;
+                ctx.apply(other, vec![Value::fixnum(char_code)])?;
                 Ok(())
             })?;
         }
@@ -1548,7 +1548,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -1569,7 +1569,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     };
 
     // Copy existing text properties from source string
-    if &args[0].is_string() /* TODO(tagged): `src_id` was Value::Str(src_id), now use accessor */ {
+    if args[0].is_string() {
         if let Some(src_table) = get_string_text_properties_table(*src_id) {
             set_string_text_properties_table(new_id, src_table);
         }
@@ -1610,7 +1610,7 @@ pub(crate) fn builtin_current_cpu_time(args: Vec<Value>) -> EvalResult {
     expect_args("current-cpu-time", &args, 0)?;
     use std::sync::OnceLock;
     use std::time::Instant;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
     static CPU_TIME_START: OnceLock<Instant> = OnceLock::new();
     let start = CPU_TIME_START.get_or_init(Instant::now);
     let ticks = start.elapsed().as_micros() as i64;

@@ -52,7 +52,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -753,7 +753,7 @@ pub(crate) fn builtin_skip_chars_forward(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -808,7 +808,7 @@ pub(crate) fn builtin_skip_chars_backward(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -952,7 +952,7 @@ pub(crate) fn builtin_transient_mark_mode(
                     ValueKind::Nil
                 }
             }
-            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+            ValueKind::Float => {
                 let truncated = *f as i64;
                 if truncated > 0 {
                     ValueKind::T

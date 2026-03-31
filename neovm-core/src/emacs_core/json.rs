@@ -222,7 +222,7 @@ fn value_matches(a: &Value, b: &Value) -> bool {
         (ValueKind::Nil, ValueKind::Nil) => true,
         (ValueKind::T, ValueKind::T) => true,
         (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => x == y,
-        (ValueKind::Float /* TODO(tagged): extract float via .xfloat() */, ValueKind::Float /* TODO(tagged): extract float via .xfloat() */) => x.to_bits() == y.to_bits(),
+        (ValueKind::Float, ValueKind::Float) => x.to_bits() == y.to_bits(),
         (ValueKind::Symbol(x), ValueKind::Symbol(y)) => x == y,
         (ValueKind::Keyword(x), ValueKind::Keyword(y)) => x == y,
         (ValueKind::String, ValueKind::String) => with_heap(|h| h.get_string(*x) == h.get_string(*y)),
@@ -256,7 +256,7 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
 
         ValueKind::Fixnum(n) => Ok(n.to_string()),
 
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+        ValueKind::Float => {
             if f.is_nan() || f.is_infinite() {
                 return Err(signal(
                     "json-serialize-error",
@@ -388,7 +388,7 @@ fn symbol_object_key(value: &Value) -> Result<String, Flow> {
         ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), *value],
         )),
     }
 }
@@ -888,7 +888,7 @@ impl<'a> JsonParser<'a> {
             return Ok(ht);
         }
 
-        if let Value::HashTable(ref table_arc) /* TODO(tagged): convert Value::HashTable to new API */ = ht {
+        if let Value::HashTable(ref table_arc) = ht {
             loop {
                 self.skip_ws();
                 let key = self.parse_string_raw()?;
@@ -1051,7 +1051,7 @@ pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };

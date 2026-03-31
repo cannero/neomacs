@@ -901,7 +901,7 @@ impl super::eval::Context {
         // atimer/process-fd callbacks in `wait_reading_process_output`.
         while let Some(timer) = self.next_due_gnu_timer_snapshot() {
             fired_any = true;
-            if timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), now use accessor */ {
+            if timer.is_vector() {
                 crate::emacs_core::value::with_heap_mut(|heap| {
                     heap.get_vector_mut(timer_id)[0] = Value::T
                 });
@@ -1216,7 +1216,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -1224,7 +1224,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 fn expect_sequence(value: &Value) -> Result<(), Flow> {
     if matches!(
         value,
-        Value::NIL | Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ | Value::Str(_)
+        Value::NIL | Value::Cons(_) | Value::Vector(_) | Value::Str(_)
     ) {
         Ok(())
     } else {
@@ -1302,7 +1302,7 @@ pub(crate) fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow
             }
             Ok(out)
         }
-        other => Err(signal_wrong_type_sequence(*other)),
+        other => Err(signal_wrong_type_sequence(*value)),
     }
 }
 
@@ -1313,7 +1313,7 @@ pub(crate) fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
         v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -1365,7 +1365,7 @@ fn signal_wrong_type_string(value: Value) -> Flow {
 pub(crate) fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*s).to_owned())),
-        other => Err(signal_wrong_type_string(*other)),
+        other => Err(signal_wrong_type_string(*value)),
     }
 }
 
@@ -1606,7 +1606,7 @@ fn resolve_buffer_name_for_process_lookup_in_state(
                 .map(|buf| buf.name.clone()))
         }
         ValueKind::Veclike(VecLikeType::Buffer) => Ok(buffers.get(*id).map(|buf| buf.name.clone())),
-        other => Err(signal_wrong_type_string(*other)),
+        other => Err(signal_wrong_type_string(*value)),
     }
 }
 
@@ -1835,7 +1835,7 @@ fn resolve_signal_process_target_in_state(
     if let Some(v) = value {
         if !v.is_nil() {
             return match v {
-                Value::Str(name) /* TODO(tagged): convert Value::Str to new API */ => {
+                ValueKind::String => {
                     let name_str = with_heap(|h| h.get_string(*name).to_owned());
                     Ok(match processes.find_by_name(&name_str) {
                         Some(id) => SignalProcessTarget::Process(id),
@@ -2278,7 +2278,7 @@ struct HostInterfaceEntry {
 }
 
 fn vector_nonnegative_integers(value: &Value) -> Option<Vec<i64>> {
-    if !value.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
+    if !value.is_vector() {
         return None;
     };
     let locked = with_heap(|h| h.get_vector(*values).clone());
@@ -2594,7 +2594,7 @@ fn interface_entry(name: &str, address: Value, full: bool) -> Value {
     }
 
     let (broadcast, netmask) = match &address {
-        Value::Vector(values) /* TODO(tagged): convert Value::Vector to new API */ if with_heap(|h| h.vector_len(*values)) == 9 => {
+        ValueKind::Veclike(VecLikeType::Vector) if with_heap(|h| h.vector_len(*values)) == 9 => {
             (loopback_ipv6_broadcast(), loopback_ipv6_netmask())
         }
         _ => (loopback_ipv4_broadcast(), loopback_ipv4_netmask()),
@@ -2752,7 +2752,7 @@ pub(crate) fn builtin_internal_default_signal_process_impl(
             if let Some(proc) = processes.get_mut(id) {
                 proc.status = ProcessStatus::Signal(signal_num);
             }
-            Ok(ValueKind::Fixnum(0))
+            Ok(Value::fixnum(0))
         }
         SignalProcessTarget::MissingNamedProcess => Ok(Value::NIL),
         SignalProcessTarget::Pid(pid) => Ok(Value::fixnum(if pid_exists(pid) { 0 } else { -1 })),
@@ -2942,7 +2942,7 @@ pub(crate) fn builtin_gnutls_boot(eval: &mut super::eval::Context, args: Vec<Val
                 return Err(signal(
                     "gnutls-error",
                     vec![
-                        Value::Int(-1),
+                        Value::fixnum(-1),
                         Value::string("TLS handshake: unexpected EOF"),
                     ],
                 ));
@@ -2951,7 +2951,7 @@ pub(crate) fn builtin_gnutls_boot(eval: &mut super::eval::Context, args: Vec<Val
                 return Err(signal(
                     "gnutls-error",
                     vec![
-                        Value::Int(-1),
+                        Value::fixnum(-1),
                         Value::string(format!("TLS handshake: {}", e)),
                     ],
                 ));
@@ -3106,7 +3106,7 @@ pub(crate) fn builtin_format_network_address_impl(args: Vec<Value>) -> EvalResul
         ));
     }
 
-    let omit_port = args.get(1).is_some_and(Value::is_truthy);
+    let omit_port = args.get(1).is_some_and(|v| v.is_truthy());
     match args[0].kind() {
         ValueKind::String => Ok(Value::string(with_heap(|h| h.get_string(*s).to_owned()))),
         ValueKind::Nil => Ok(Value::NIL),
@@ -3155,7 +3155,7 @@ pub(crate) fn builtin_network_interface_list_impl(args: Vec<Value>) -> EvalResul
         ));
     }
 
-    let full = args.first().is_some_and(Value::is_truthy);
+    let full = args.first().is_some_and(|v| v.is_truthy());
     let family = args.get(1).cloned().unwrap_or(Value::NIL);
     let include_ipv4 = if family.is_nil() {
         true
@@ -3852,7 +3852,7 @@ pub(crate) fn builtin_set_network_process_option_impl(
             vec![Value::string("Process is not a network process")],
         ));
     }
-    if args.get(3).is_some_and(Value::is_truthy) {
+    if args.get(3).is_some_and(|v| v.is_truthy()) {
         return Ok(Value::NIL);
     }
     Err(signal(
@@ -4268,18 +4268,18 @@ pub(crate) fn builtin_signal_process_impl(
                 }
                 proc.status = ProcessStatus::Signal(signal_num);
             }
-            Ok(ValueKind::Fixnum(0))
+            Ok(Value::fixnum(0))
         }
         SignalProcessTarget::MissingNamedProcess => Ok(Value::NIL),
         SignalProcessTarget::Pid(pid) => {
             #[cfg(unix)]
             {
                 let result = unsafe { libc::kill(pid as i32, signal_num) };
-                Ok(Value::Int(result as i64))
+                Ok(Value::fixnum(result as i64))
             }
             #[cfg(not(unix))]
             {
-                Ok(Value::Int(if pid_exists(pid) { 0 } else { -1 }))
+                Ok(Value::fixnum(if pid_exists(pid) { 0 } else { -1 }))
             }
         }
     }
@@ -4671,7 +4671,7 @@ fn parse_accept_process_output_request(
     let timeout_ms: u64 = {
         let secs = args.get(1).and_then(|v| match v {
             Value::fixnum(n) if !v.is_nil() => Some(*n as f64),
-            Value::make_float(f) /* TODO(tagged): dropped float id `_` */ => Some(*f),
+            Value::make_float(f) => Some(*f),
             _ => None,
         });
         let ms = args
@@ -4764,7 +4764,7 @@ pub(crate) fn builtin_process_status_impl(
                 return Err(signal_wrong_type_processp(args[0]));
             }
         }
-        Value::Str(s) /* TODO(tagged): convert Value::Str to new API */ => {
+        ValueKind::String => {
             let name = with_heap(|h| h.get_string(*s).to_owned());
             processes.find_by_name(&name)
         }
@@ -4821,9 +4821,9 @@ pub(crate) fn builtin_process_exit_status_impl(
         ProcessStatus::Exit(code) => Ok(Value::fixnum(code as i64)),
         ProcessStatus::Signal(sig) => {
             if proc.kind == ProcessKind::Real {
-                Ok(Value::Int(sig as i64))
+                Ok(Value::fixnum(sig as i64))
             } else {
-                Ok(ValueKind::Fixnum(0))
+                Ok(Value::fixnum(0))
             }
         }
         _ => Ok(Value::fixnum(0)),
@@ -5756,7 +5756,7 @@ pub(crate) fn builtin_process_contact_impl(
                 ValueKind::Fixnum(port),
             ]);
             if key.is_nil() {
-                Ok(Value::list(vec![ValueKind::Nil, ValueKind::Fixnum(port)]))
+                Ok(Value::list(vec![ValueKind::Nil, Value::fixnum(port)]))
             } else if key == ValueKind::T {
                 Ok(Value::list(vec![
                     Value::keyword(":name"),
@@ -6101,7 +6101,7 @@ pub(crate) fn builtin_getenv_internal(
 /// Each entry is "VARIABLE=VALUE" or just "VARIABLE" (no value).
 fn getenv_from_list(varname: &str, env_list: Value) -> EvalResult {
     use crate::emacs_core::value::list_to_vec;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
     let prefix = format!("{}=", varname);
     if let Some(entries) = list_to_vec(&env_list) {
         for entry in &entries {

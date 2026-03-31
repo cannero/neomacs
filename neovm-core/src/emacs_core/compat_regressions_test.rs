@@ -6,7 +6,7 @@ fn fillarray_vector_is_in_place() {
     let vec = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
     let out = crate::emacs_core::builtins::builtin_fillarray(vec![vec, Value::fixnum(9)]).unwrap();
     assert_eq!(out, vec);
-    if !out.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
+    if !out.is_vector() {
         panic!("expected vector");
     };
     let values = with_heap(|h: &crate::gc::heap::LispHeap| h.get_vector(values).clone());
@@ -99,7 +99,7 @@ fn define_hash_table_test_requires_symbol_name() {
 fn face_attributes_as_vector_shape() {
     let out =
         crate::emacs_core::builtins::builtin_face_attributes_as_vector(vec![Value::NIL]).unwrap();
-    if !out.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
+    if !out.is_vector() {
         panic!("expected vector");
     };
     let values = with_heap(|h: &crate::gc::heap::LispHeap| h.get_vector(values).clone());
@@ -110,7 +110,7 @@ fn face_attributes_as_vector_shape() {
 fn frame_face_hash_table_uses_eq_test() {
     let mut eval = crate::emacs_core::Context::new();
     let out = crate::emacs_core::xfaces::builtin_frame_face_hash_table(&mut eval, vec![]).unwrap();
-    if !out.is_hash_table() /* TODO(tagged): `table` was Value::HashTable(table), rewrite let-else */ {
+    if !out.is_hash_table() {
         panic!("expected hash table");
     };
     assert!(matches!(

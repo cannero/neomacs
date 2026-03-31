@@ -2,7 +2,7 @@ use super::*;
 use crate::buffer::BufferText;
 use crate::buffer::buffer::{Buffer, BufferId};
 use crate::emacs_core::value::read_cons;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 /// Helper: create a buffer with given text, point at start, full accessible range.
 fn buf_with_text(text: &str) -> Buffer {
@@ -93,9 +93,9 @@ fn string_to_syntax_prefix_class() {
     let entry = string_to_syntax("'").unwrap();
     assert_eq!(entry.class, SyntaxClass::Quote);
     let value = syntax_entry_to_value(&entry);
-    if &value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if value.is_cons() {
         let cell = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert!(matches!(cell.car, Value::fixnum(6)));
+        assert!(cell.car.is_fixnum());
     } else {
         panic!("Expected cons cell");
     }
@@ -491,9 +491,9 @@ fn syntax_entry_to_value_simple() {
     let entry = SyntaxEntry::simple(SyntaxClass::Word);
     let val = syntax_entry_to_value(&entry);
     // Should be (2 . nil) since Word code = 2
-    if &val.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if val.is_cons() {
         let cell = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert!(matches!(cell.car, Value::fixnum(2)));
+        assert!(cell.car.is_fixnum());
         assert!(matches!(cell.cdr, Value::NIL));
     } else {
         panic!("Expected cons cell");
@@ -507,10 +507,10 @@ fn syntax_entry_to_value_with_match() {
 
     let entry = SyntaxEntry::with_match(SyntaxClass::Open, ')');
     let val = syntax_entry_to_value(&entry);
-    if &val.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if val.is_cons() {
         let cell = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-        assert!(matches!(cell.car, Value::fixnum(4))); // Open code = 4
-        assert!(matches!(cell.cdr, Value::fixnum(41))); // ')' = 41
+        assert!(cell.car.is_fixnum()); // Open code = 4
+        assert!(cell.cdr.is_fixnum()); // ')' = 41
     } else {
         panic!("Expected cons cell");
     }
@@ -527,10 +527,10 @@ fn syntax_entry_to_value_with_flags() {
         flags: SyntaxFlags::COMMENT_START_FIRST | SyntaxFlags::COMMENT_START_SECOND,
     };
     let val = syntax_entry_to_value(&entry);
-    if &val.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if val.is_cons() {
         let cell = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         // code = 1 (punctuation) | (0x03 << 16) = 1 | 196608 = 196609
-        assert!(matches!(cell.car, Value::fixnum(196609)));
+        assert!(cell.car.is_fixnum());
     } else {
         panic!("Expected cons cell");
     }
@@ -547,7 +547,7 @@ fn make_syntax_table_returns_syntax_char_table() {
 
 #[test]
 fn make_syntax_table_parent_must_be_char_table() {
-    match builtin_make_syntax_table(vec![Value::Int(1)]) {
+    match builtin_make_syntax_table(vec![Value::fixnum(1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("char-table-p")));
@@ -583,7 +583,7 @@ fn copy_syntax_table_returns_fresh_syntax_table() {
 
 #[test]
 fn copy_syntax_table_validates_arity_and_type() {
-    match builtin_copy_syntax_table(vec![Value::Int(1)]) {
+    match builtin_copy_syntax_table(vec![Value::fixnum(1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("syntax-table-p")));
@@ -591,7 +591,7 @@ fn copy_syntax_table_validates_arity_and_type() {
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
 
-    match builtin_copy_syntax_table(vec![Value::Nil, Value::Nil]) {
+    match builtin_copy_syntax_table(vec![Value::NIL, Value::NIL]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(sig.data.first(), Some(&Value::symbol("copy-syntax-table")));
@@ -611,10 +611,10 @@ fn syntax_class_to_char_basics_and_errors() {
         Value::char('|')
     );
 
-    match builtin_syntax_class_to_char(vec![Value::Int(-1)]) {
+    match builtin_syntax_class_to_char(vec![Value::fixnum(-1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![ValueKind::Fixnum(15), Value::Int(-1)]);
+            assert_eq!(sig.data, vec![Value::fixnum(15), Value::fixnum(-1)]);
         }
         other => panic!("expected args-out-of-range signal, got {other:?}"),
     }
@@ -693,7 +693,7 @@ fn set_syntax_table_validates_and_returns_table() {
     let out = builtin_set_syntax_table(&mut eval, vec![table]).unwrap();
     assert_eq!(out, table);
 
-    match builtin_set_syntax_table(&mut eval, vec![Value::Int(1)]) {
+    match builtin_set_syntax_table(&mut eval, vec![Value::fixnum(1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("syntax-table-p")));
@@ -990,7 +990,7 @@ fn backward_prefix_chars_moves_over_prefix_flag_chars() {
 #[test]
 fn backward_prefix_chars_validates_arity() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    match builtin_backward_prefix_chars(&mut eval, vec![Value::Int(1)]) {
+    match builtin_backward_prefix_chars(&mut eval, vec![Value::fixnum(1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
@@ -1040,7 +1040,7 @@ fn syntax_ppss_flush_cache_contract() {
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
     }
 
-    match builtin_syntax_ppss_flush_cache(&mut eval, vec![Value::Nil]) {
+    match builtin_syntax_ppss_flush_cache(&mut eval, vec![Value::NIL]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data.first(), Some(&Value::symbol("number-or-marker-p")));

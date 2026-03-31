@@ -2474,7 +2474,7 @@ fn load_file_records_load_history() {
     let first = super::super::value::list_to_vec(&entries[0]).expect("entry is a list");
     let path_str = file.to_string_lossy().to_string();
     assert_eq!(
-        first.first().and_then(Value::as_str),
+        first.first().and_then(|v| v.as_str()),
         Some(path_str.as_str())
     );
     assert_eq!(
@@ -2530,19 +2530,19 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
     assert!(
         eval.obarray()
             .symbol_value("system-configuration")
-            .is_some_and(Value::is_string),
+            .is_some_and(|v| v.is_string()),
         "system-configuration should be backfilled to a string"
     );
     assert!(
         eval.obarray()
             .symbol_value("system-configuration-options")
-            .is_some_and(Value::is_string),
+            .is_some_and(|v| v.is_string()),
         "system-configuration-options should be backfilled to a string"
     );
     assert!(
         eval.obarray()
             .symbol_value("system-configuration-features")
-            .is_some_and(Value::is_string),
+            .is_some_and(|v| v.is_string()),
         "system-configuration-features should be backfilled to a string"
     );
     assert!(
@@ -2563,7 +2563,7 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
         .symbol_value("face--new-frame-defaults")
         .copied()
         .expect("face hash table backfilled");
-    if !table.is_hash_table() /* TODO(tagged): `id` was Value::HashTable(id), rewrite let-else */ {
+    if !table.is_hash_table() {
         panic!("face--new-frame-defaults must be a hash table");
     };
     let test = with_heap(|heap| heap.get_hash_table(id).test.clone());
@@ -2612,19 +2612,19 @@ fn nested_load_restores_parent_load_file_name() {
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-parent-seen")
-            .and_then(Value::as_str),
+            .and_then(|v| v.as_str()),
         Some(parent_str.as_str())
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-child-seen")
-            .and_then(Value::as_str),
+            .and_then(|v| v.as_str()),
         Some(child_str.as_str())
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-parent-after-child")
-            .and_then(Value::as_str),
+            .and_then(|v| v.as_str()),
         Some(parent_str.as_str())
     );
     assert_eq!(
@@ -4661,7 +4661,7 @@ fn auth_source_backend_exposes_type_slot() {
     });
     let items = crate::emacs_core::value::list_to_vec(&result).expect("probe result list");
     assert_eq!(items.first().copied(), Some(Value::symbol("netrc")));
-    assert_eq!(items.get(1).and_then(Value::as_str), Some("test"));
+    assert_eq!(items.get(1).and_then(|v| v.as_str()), Some("test"));
 
     let slot_names = crate::emacs_core::value::list_to_vec(&items[2]).expect("slot names list");
     assert!(

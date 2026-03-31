@@ -649,7 +649,7 @@ fn expect_string(val: &Value) -> Result<String, crate::emacs_core::error::Flow> 
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *val],
         )),
     }
 }
@@ -667,7 +667,7 @@ pub(crate) fn builtin_char_width(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), *other],
+                vec![Value::symbol("characterp"), args[0]],
             ));
         }
     };
@@ -730,7 +730,7 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[1]],
             ));
         }
     };
@@ -778,7 +778,7 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[1]],
             ));
         }
     };
@@ -815,7 +815,7 @@ pub(crate) fn builtin_char_or_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-or-string-p", &args, 1)?;
     let is_char_or_string = match args[0].kind() {
         ValueKind::Char(_) | ValueKind::String => true,
-        ValueKind::Fixnum(n) => (0..=MAX_CHAR_CODE).contains(n),
+        ValueKind::Fixnum(n) => (0..=MAX_CHAR_CODE).contains(&n),
         _ => false,
     };
     Ok(Value::bool_val(is_char_or_string))
@@ -830,7 +830,7 @@ pub(crate) fn builtin_char_displayable_p(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("number-or-marker-p"), *other],
+                vec![Value::symbol("number-or-marker-p"), args[0]],
             ));
         }
     };
@@ -942,7 +942,7 @@ mod tests {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
+                    vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -990,7 +990,7 @@ mod tests {
         match negative {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::Int(-1)]);
+                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::fixnum(-1)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -1002,7 +1002,7 @@ mod tests {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
+                    vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -1054,7 +1054,7 @@ mod tests {
         match wrong_arity {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-                assert_eq!(sig.data, vec![Value::symbol("max-char"), ValueKind::Fixnum(2)]);
+                assert_eq!(sig.data, vec![Value::symbol("max-char"), Value::fixnum(2)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -1075,7 +1075,7 @@ mod tests {
                 assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("encode-coding-string"), ValueKind::Fixnum(5)]
+                    vec![Value::symbol("encode-coding-string"), Value::fixnum(5)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -1094,7 +1094,7 @@ mod tests {
                 assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("decode-coding-string"), ValueKind::Fixnum(5)]
+                    vec![Value::symbol("decode-coding-string"), Value::fixnum(5)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -1220,7 +1220,7 @@ mod tests {
         let encoded = Value::unibyte_string(bytes_to_unibyte_storage_string(&[0xE9]));
         let decoded = builtin_decode_coding_string(vec![encoded, Value::symbol("latin-1")])
             .expect("latin-1 decode should succeed");
-        if !decoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+        if !decoded.is_string() {
             panic!("decode-coding-string should return a string");
         };
         let props = get_string_text_properties(id).expect("decoded string should be propertized");
@@ -1238,7 +1238,7 @@ mod tests {
         let source = Value::unibyte_string(bytes_to_unibyte_storage_string(&[0xE9]));
         let encoded =
             builtin_encode_coding_string(vec![source, Value::symbol("no-conversion")]).unwrap();
-        if !encoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+        if !encoded.is_string() {
             panic!("encode-coding-string should return a string");
         };
         assert!(!with_heap(|h| h.string_is_multibyte(id)));
@@ -1255,7 +1255,7 @@ mod tests {
                 .expect("encoding should succeed");
         let decoded =
             builtin_decode_coding_string(vec![encoded, Value::symbol("no-conversion")]).unwrap();
-        if !decoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+        if !decoded.is_string() {
             panic!("decode-coding-string should return a string");
         };
         assert!(!with_heap(|h| h.string_is_multibyte(id)));
@@ -1297,7 +1297,7 @@ mod tests {
             Value::symbol("raw-text-dos"),
         ])
         .unwrap();
-        if !encoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+        if !encoded.is_string() {
             panic!("encode-coding-string should return a string");
         };
         assert_eq!(
@@ -1310,7 +1310,7 @@ mod tests {
             Value::symbol("raw-text-dos"),
         ])
         .unwrap();
-        if !decoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+        if !decoded.is_string() {
             panic!("decode-coding-string should return a string");
         };
         assert_eq!(

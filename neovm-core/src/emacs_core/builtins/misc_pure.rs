@@ -33,7 +33,7 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
         ctx.clear_current_message();
         return Ok(Value::NIL);
     }
-    if &args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    if args[0].is_string() {
         if with_heap(|h| h.get_string(*id).is_empty()) {
             ctx.clear_current_message();
             return Ok(args[0]);
@@ -119,7 +119,7 @@ pub(crate) fn builtin_documentation_stringp(args: Vec<Value>) -> EvalResult {
         _ => false,
     };
     Ok(Value::bool_val(
-        matches!(args[0], Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ | Value::fixnum(_)) || is_compiled_ref,
+        matches!(args[0], ValueKind::String | Value::fixnum(_)) || is_compiled_ref,
     ))
 }
 

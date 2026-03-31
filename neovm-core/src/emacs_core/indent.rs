@@ -57,7 +57,7 @@ fn expect_fixnump(val: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("fixnump"), *other],
+            vec![Value::symbol("fixnump"), *val],
         )),
     }
 }
@@ -68,7 +68,7 @@ fn expect_wholenump(val: &Value) -> Result<usize, Flow> {
         ValueKind::Char(c) => Ok(c as usize),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("wholenump"), *other],
+            vec![Value::symbol("wholenump"), *val],
         )),
     }
 }

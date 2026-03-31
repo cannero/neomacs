@@ -213,7 +213,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -224,7 +224,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -259,7 +259,7 @@ fn expect_register(value: &Value) -> Result<char, Flow> {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *value],
         )),
     }
 }
@@ -457,7 +457,7 @@ pub(crate) fn builtin_get_register(
         Some(RegisterContent::Number(n)) => Ok(Value::fixnum(*n)),
         Some(RegisterContent::Position { buffer, point }) => Ok(Value::cons(
             Value::string(buffer.clone()),
-            Value::Int(*point as i64),
+            Value::fixnum(*point as i64),
         )),
         Some(RegisterContent::Rectangle(lines)) => {
             let vals: Vec<Value> = lines.iter().map(|l| Value::string(l.clone())).collect();
@@ -504,7 +504,7 @@ pub(crate) fn builtin_set_register(
             eval.registers.clear(reg);
             return Ok(ValueKind::Nil);
         }
-        other => RegisterContent::FrameConfig(*other),
+        other => RegisterContent::FrameConfig(args[1]),
     };
     eval.registers.set(reg, content);
     Ok(Value::NIL)

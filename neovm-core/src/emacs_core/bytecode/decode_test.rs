@@ -146,7 +146,7 @@ fn decode_discard_n() {
 #[test]
 fn decode_switch_preserves_hash_table_byte_targets() {
     let table = Value::hash_table(HashTableTest::Eq);
-    if !table.is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), rewrite let-else */ {
+    if !table.is_hash_table() {
         panic!("expected hash table constant");
     };
     crate::emacs_core::value::with_heap_mut(|heap| {

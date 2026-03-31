@@ -165,7 +165,7 @@ fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
             usecs: 0,
             psecs: 0,
         }),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+        ValueKind::Float => {
             let secs = f.floor() as i64;
             let usecs = ((f - f.floor()) * 1_000_000.0).round() as i64;
             Ok(TimeMicros {
@@ -214,7 +214,7 @@ fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), *val],
         )),
     }
 }
@@ -746,7 +746,7 @@ pub(crate) fn builtin_time_convert(args: Vec<Value>) -> EvalResult {
             // Use microsecond resolution: TICKS = secs*1000000 + usecs, HZ = 1000000
             let hz: i64 = 1_000_000;
             let ticks = tm.secs * hz + tm.usecs;
-            Ok(Value::cons(ValueKind::Fixnum(ticks), ValueKind::Fixnum(hz)))
+            Ok(Value::cons(Value::fixnum(ticks), Value::fixnum(hz)))
         }
         ValueKind::Symbol(id) => match resolve_sym(id) {
             "list" => Ok(tm.to_list()),
@@ -757,7 +757,7 @@ pub(crate) fn builtin_time_convert(args: Vec<Value>) -> EvalResult {
         ValueKind::Fixnum(_) => {
             // When FORM is an integer, Emacs returns a cons (TICKS . HZ).
             // We approximate by returning (TICKS . 1) where TICKS = seconds.
-            Ok(Value::cons(Value::Int(tm.secs), ValueKind::Fixnum(1)))
+            Ok(Value::cons(Value::fixnum(tm.secs), Value::fixnum(1)))
         }
         _ => Ok(tm.to_list()),
     }

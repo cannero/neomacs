@@ -192,7 +192,7 @@ fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
         ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), *value],
         )),
     }
 }

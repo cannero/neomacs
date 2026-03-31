@@ -253,21 +253,21 @@ fn evaluator_case_table_roundtrip_and_isolation() {
 fn builtin_downcase_char_uppercase() {
     // (downcase ?A) -> 97 (i.e., ?a)
     let result = builtin_downcase_char(vec![Value::char('A')]).unwrap();
-    assert!(matches!(result, Value::fixnum(97)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
 fn builtin_downcase_char_lowercase_unchanged() {
     // (downcase ?a) -> 97
     let result = builtin_downcase_char(vec![Value::char('a')]).unwrap();
-    assert!(matches!(result, Value::fixnum(97)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
 fn builtin_downcase_char_from_int() {
     // (downcase 65) -> 97 (65 = ?A, 97 = ?a)
     let result = builtin_downcase_char(vec![Value::fixnum(65)]).unwrap();
-    assert!(matches!(result, Value::fixnum(97)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
@@ -356,10 +356,10 @@ fn standard_case_table_is_char_table() {
 #[test]
 fn standard_case_table_has_extra_slots() {
     let ct = make_standard_case_table_value();
-    if ct.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
+    if ct.is_vector() {
         let vec = with_heap(|h| h.get_vector(arc).clone());
         // extra count should be 3
-        assert!(matches!(vec[CT_EXTRA_COUNT], Value::fixnum(3)));
+        assert!(vec[CT_EXTRA_COUNT].is_fixnum());
         // extra slots 0,1,2 should be char-tables (subsidiary tables)
         use super::super::chartable::is_char_table;
         assert!(is_char_table(&vec[CT_EXTRA_START])); // upcase

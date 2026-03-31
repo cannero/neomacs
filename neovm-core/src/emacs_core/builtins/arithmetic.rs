@@ -140,7 +140,7 @@ pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
             } else {
                 r
             };
-            Ok(ValueKind::Fixnum(r))
+            Ok(Value::fixnum(r))
         }
         (a, b) => {
             let a = match a {
@@ -171,14 +171,14 @@ pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         // Official Emacs uses wrapping arithmetic for 1+ (no overflow error).
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_add(1))),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(f + 1.0)),
+        ValueKind::Float => Ok(Value::make_float(f + 1.0)),
         ValueKind::Char(c) => Ok(Value::fixnum(c as i64 + 1)),
         other if super::marker::is_marker(other) => Ok(Value::fixnum(
             super::marker::marker_position_as_int(other)?.wrapping_add(1),
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), args[0]],
         )),
     }
 }
@@ -188,14 +188,14 @@ pub(crate) fn builtin_sub1(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         // Official Emacs uses wrapping arithmetic for 1- (no overflow error).
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_sub(1))),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(f - 1.0)),
+        ValueKind::Float => Ok(Value::make_float(f - 1.0)),
         ValueKind::Char(c) => Ok(Value::fixnum(c as i64 - 1)),
         other if super::marker::is_marker(other) => Ok(Value::fixnum(
             super::marker::marker_position_as_int(other)?.wrapping_sub(1),
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), args[0]],
         )),
     }
 }
@@ -212,7 +212,7 @@ pub(crate) fn builtin_max(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         }
     }
     match best_value.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(best_value),
+        ValueKind::Fixnum(_) | ValueKind::Float => Ok(best_value),
         ValueKind::Char(c) => Ok(Value::fixnum(c as i64)),
         other if super::marker::is_marker(&other) => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &other)?,
@@ -233,7 +233,7 @@ pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         }
     }
     match best_value.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(best_value),
+        ValueKind::Fixnum(_) | ValueKind::Float => Ok(best_value),
         ValueKind::Char(c) => Ok(Value::fixnum(c as i64)),
         other if super::marker::is_marker(&other) => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &other)?,
@@ -249,10 +249,10 @@ pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
             n.checked_abs()
                 .ok_or_else(|| signal("overflow-error", vec![]))?,
         )),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(f.abs())),
+        ValueKind::Float => Ok(Value::make_float(f.abs())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), args[0]],
         )),
     }
 }
@@ -399,10 +399,10 @@ pub(crate) fn builtin_float(args: Vec<Value>) -> EvalResult {
     expect_args("float", &args, 1)?;
     match args[0].kind() {
         ValueKind::Fixnum(n) => Ok(Value::make_float(n as f64)),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(*f) /* TODO(tagged): dropped float id `*id` */),
+        ValueKind::Float => Ok(Value::make_float(*f) /* TODO(tagged): dropped float id `*id` */),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), args[0]],
         )),
     }
 }
@@ -411,10 +411,10 @@ pub(crate) fn builtin_float(args: Vec<Value>) -> EvalResult {
 fn value_to_f64(_name: &str, v: &Value) -> Result<f64, Flow> {
     match v.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Float => Ok(*f),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), *v],
         )),
     }
 }
@@ -432,11 +432,11 @@ fn rounding_with_divisor(
     if args.len() == 1 {
         match args[0].kind() {
             ValueKind::Fixnum(n) => return Ok(Value::fixnum(n)),
-            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => return Ok(Value::fixnum(round_fn(*f) as i64)),
+            ValueKind::Float => return Ok(Value::fixnum(round_fn(*f) as i64)),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("numberp"), *other],
+                    vec![Value::symbol("numberp"), args[0]],
                 ));
             }
         }
@@ -447,7 +447,7 @@ fn rounding_with_divisor(
         return Err(signal("arith-error", vec![]));
     }
     // If both are integers and division is exact, use integer path
-    if let (Value::fixnum(a), Value::fixnum(d)) = (&args[0], &args[1]) {
+    if let (Some(a), Some(d)) = (&args[0].as_fixnum(), &args[1].as_fixnum()) {
         return Ok(Value::fixnum(int_div(*a, *d)));
     }
     let dividend = value_to_f64(name, &args[0])?;
@@ -613,7 +613,7 @@ pub(crate) fn builtin_random(args: Vec<Value>) -> EvalResult {
                 if lim <= 0 {
                     return Err(signal("args-out-of-range", vec![*limit]));
                 }
-                return Ok(Value::Int(emacs_get_random_fixnum(lim)));
+                return Ok(Value::fixnum(emacs_get_random_fixnum(lim)));
             }
             _ => {}
         }
@@ -748,10 +748,10 @@ fn emacs_init_random() {
 pub(crate) fn builtin_isnan(args: Vec<Value>) -> EvalResult {
     expect_args("isnan", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::bool_val(f.is_nan())),
+        ValueKind::Float => Ok(Value::bool_val(f.is_nan())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("floatp"), *other],
+            vec![Value::symbol("floatp"), args[0]],
         )),
     }
 }

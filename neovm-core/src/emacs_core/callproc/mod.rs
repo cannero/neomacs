@@ -103,7 +103,7 @@ fn parse_real_buffer_destination_in_state(
                 Err(signal_wrong_type_string(first))
             }
         }
-        other => Err(signal_wrong_type_string(*other)),
+        other => Err(signal_wrong_type_string(*value)),
     }
 }
 
@@ -115,7 +115,7 @@ fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<Strin
             StderrTarget::File,
             Some(with_heap(|h| h.get_string(*s).to_owned())),
         )),
-        other => Err(signal_wrong_type_string(*other)),
+        other => Err(signal_wrong_type_string(*value)),
     }
 }
 
@@ -123,7 +123,7 @@ fn parse_call_process_destination(
     buffers: &BufferManager,
     destination: &Value,
 ) -> Result<DestinationSpec, Flow> {
-    if destination.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
+    if destination.is_cons() {
         let items =
             list_to_vec(destination).ok_or_else(|| signal_wrong_type_string(*destination))?;
         let first = items.first().cloned().unwrap_or(Value::NIL);
@@ -553,7 +553,7 @@ pub(crate) fn builtin_call_process(
     args: Vec<Value>,
 ) -> EvalResult {
     let destination = args.get(2).copied().unwrap_or(Value::NIL);
-    let display = args.get(3).is_some_and(Value::is_truthy);
+    let display = args.get(3).is_some_and(|v| v.is_truthy());
     let result = builtin_call_process_impl(&mut eval.buffers, args)?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
     Ok(result)
@@ -567,7 +567,7 @@ pub(crate) fn builtin_call_process_shell_command(
     let command = super::process::sequence_value_to_env_string(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
     let destination = args.get(2).copied().unwrap_or(Value::NIL);
-    let display = args.get(3).is_some_and(Value::is_truthy);
+    let display = args.get(3).is_some_and(|v| v.is_truthy());
     let cmd_args = if args.len() > 4 {
         parse_sequence_args(&args[4..])?
     } else {
@@ -589,7 +589,7 @@ pub(crate) fn builtin_process_file(
     let program = super::process::expect_string_strict(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
     let destination = args.get(2).copied().unwrap_or(Value::NIL);
-    let display = args.get(3).is_some_and(Value::is_truthy);
+    let display = args.get(3).is_some_and(|v| v.is_truthy());
     let cmd_args = if args.len() > 4 {
         super::process::parse_string_args_strict(&args[4..])?
     } else {
@@ -609,7 +609,7 @@ pub(crate) fn builtin_process_file_shell_command(
     let command = super::process::sequence_value_to_env_string(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
     let destination = args.get(2).copied().unwrap_or(Value::NIL);
-    let display = args.get(3).is_some_and(Value::is_truthy);
+    let display = args.get(3).is_some_and(|v| v.is_truthy());
     let cmd_args = if args.len() > 4 {
         parse_sequence_args(&args[4..])?
     } else {
@@ -674,7 +674,7 @@ pub(crate) fn builtin_call_process_region(
 ) -> EvalResult {
     expect_min_args("call-process-region", &args, 3)?;
     let destination = args.get(4).copied().unwrap_or(Value::NIL);
-    let display = args.get(5).is_some_and(Value::is_truthy);
+    let display = args.get(5).is_some_and(|v| v.is_truthy());
     let result = builtin_call_process_region_impl(&mut eval.buffers, args)?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
     Ok(result)

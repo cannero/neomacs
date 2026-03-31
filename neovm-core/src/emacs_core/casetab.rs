@@ -453,7 +453,7 @@ use crate::emacs_core::value::{ValueKind};
     if !is_char_table(v) {
         return false;
     }
-    if v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
+    if v.is_vector() {
         let vec = with_heap(|h| h.get_vector(*arc).clone());
         vec.len() > CT_SUBTYPE
             && vec[CT_SUBTYPE].is_symbol_named("case-table")

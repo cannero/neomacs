@@ -5,7 +5,7 @@ use crate::emacs_core::{
 };
 use std::cell::RefCell;
 use std::rc::Rc;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 /// Evaluate all forms with a fresh evaluator that has a frame+window set up.
 fn eval_with_frame(src: &str) -> Vec<String> {
@@ -2720,7 +2720,7 @@ fn frame_old_selected_window_direct_wrapper_matches_batch_nil_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(999999)]
+                vec![Value::symbol("frame-live-p"), Value::fixnum(999999)]
             );
         }
         other => panic!("expected wrong-type-argument, got {other:?}"),

@@ -20,7 +20,7 @@ fn make_category_table_matches_gnu_shape() {
     );
     let docs =
         super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)]).unwrap();
-    if !docs.is_vector() /* TODO(tagged): `docs_arc` was Value::Vector(docs_arc), rewrite let-else */ {
+    if !docs.is_vector() {
         panic!("expected docstring vector");
     };
     assert_eq!(with_heap(|h| h.get_vector(docs_arc).len()), 95);
@@ -78,7 +78,7 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
         super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)]).unwrap();
     let copy_docs =
         super::super::chartable::builtin_char_table_extra_slot(vec![copy, Value::fixnum(0)]).unwrap();
-    let (Value::Vector(table_docs_arc) /* TODO(tagged): convert Value::Vector to new API */, Value::Vector(copy_docs_arc) /* TODO(tagged): convert Value::Vector to new API */) = (table_docs, copy_docs)
+    let (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) = (table_docs, copy_docs)
     else {
         panic!("expected category docstring vectors");
     };

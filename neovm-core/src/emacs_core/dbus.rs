@@ -44,7 +44,7 @@ fn expect_symbolp(value: &Value) -> Result<String, Flow> {
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), *value],
         )),
     }
 }
@@ -55,7 +55,7 @@ fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("wholenump"), *other],
+            vec![Value::symbol("wholenump"), *value],
         )),
     }
 }
@@ -108,7 +108,7 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
             } else if args.len() == 4 {
                 Err(signal(
                     "wrong-number-of-arguments",
-                    vec![Value::symbol("dbus-message-internal"), ValueKind::Fixnum(4)],
+                    vec![Value::symbol("dbus-message-internal"), Value::fixnum(4)],
                 ))
             } else {
                 Ok(ValueKind::Nil)
@@ -116,7 +116,7 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), args[1]],
         )),
     }
 }

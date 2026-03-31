@@ -297,7 +297,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -309,7 +309,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -400,7 +400,7 @@ pub(crate) fn builtin_bookmark_jump(
                 Some(f) => Value::string(f.clone()),
                 None => Value::NIL,
             };
-            let position_val = Value::Int(bm.position as i64);
+            let position_val = Value::fixnum(bm.position as i64);
             let annotation_val = match &bm.annotation {
                 Some(a) => Value::string(a.clone()),
                 None => Value::NIL,
@@ -436,7 +436,7 @@ pub(crate) fn builtin_bookmark_delete(
 
     // GNU Emacs accepts non-string NAME payloads and simply returns nil.
     // Only string names are actionable for deletion.
-    if &args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    if args[0].is_string() {
         let name = with_heap(|h| h.get_string(*id).to_owned());
         let _ = eval.bookmarks.delete(&name);
     }
@@ -459,7 +459,7 @@ pub(crate) fn builtin_bookmark_rename(
     }
 
     // Batch-mode prompt fallbacks in GNU Emacs become end-of-file.
-    if args.len() == 1 || args.get(1).is_some_and(Value::is_nil) {
+    if args.len() == 1 || args.get(1).is_some_and(|v| v.is_nil()) {
         return Err(signal(
             "end-of-file",
             vec![Value::string("Error reading from stdin")],
@@ -469,7 +469,7 @@ pub(crate) fn builtin_bookmark_rename(
     let old = &args[0];
     let new_name = &args[1];
 
-    if old.is_string() /* TODO(tagged): `old_id` was Value::Str(old_id), now use accessor */ {
+    if old.is_string() {
         let old_name_str = with_heap(|h| h.get_string(*old_id).to_owned());
         if eval.bookmarks.get(&old_name_str).is_none() {
             return Err(signal(
@@ -498,7 +498,7 @@ pub(crate) fn builtin_bookmark_rename(
     }
 
     if old.is_cons() {
-        if new_name.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+        if new_name.is_string() {
             let name_str = with_heap(|h| h.get_string(*id).to_owned());
             return Err(signal(
                 "error",
@@ -542,7 +542,7 @@ pub(crate) fn builtin_bookmark_get_filename(
 
     if let Some(items) = super::value::list_to_vec(&args[0]) {
         for item in &items {
-            if item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            if item.is_cons() {
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 if let Some(id) = &pair.car.as_symbol_id() {
                     if resolve_sym(*id) == "filename" {
@@ -576,7 +576,7 @@ pub(crate) fn builtin_bookmark_get_position(
 
     if let Some(items) = super::value::list_to_vec(&args[0]) {
         for item in &items {
-            if item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            if item.is_cons() {
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 if let Some(id) = &pair.car.as_symbol_id() {
                     if resolve_sym(*id) == "position" {
@@ -609,7 +609,7 @@ pub(crate) fn builtin_bookmark_get_annotation(
 
     if let Some(items) = super::value::list_to_vec(&args[0]) {
         for item in &items {
-            if item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            if item.is_cons() {
                 let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 if let Some(id) = &pair.car.as_symbol_id() {
                     if resolve_sym(*id) == "annotation" {
@@ -668,7 +668,7 @@ fn default_bookmark_file() -> String {
 }
 
 fn active_bookmark_default_file(eval: &super::eval::Context) -> String {
-    if let Some(Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) = eval.obarray.symbol_value("bookmark-default-file") {
+    if let Some(ValueKind::String) = eval.obarray.symbol_value("bookmark-default-file") {
         return with_heap(|h| h.get_string(*id).to_owned());
     }
     default_bookmark_file()
@@ -676,7 +676,7 @@ fn active_bookmark_default_file(eval: &super::eval::Context) -> String {
 
 fn bookmark_timestamp_file(eval: &super::eval::Context) -> Option<String> {
     let value = eval.obarray.symbol_value("bookmark-bookmarks-timestamp")?;
-    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !value.is_cons() {
         return None;
     };
     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -747,7 +747,7 @@ pub(crate) fn builtin_bookmark_save(
         )?;
     }
 
-    let path = if &file_arg.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    let path = if file_arg.is_string() {
         with_heap(|h| h.get_string(*id).to_owned())
     } else {
         if !parg.is_nil() {
@@ -802,7 +802,7 @@ pub(crate) fn builtin_bookmark_load(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };

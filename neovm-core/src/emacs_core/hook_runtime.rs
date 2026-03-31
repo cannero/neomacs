@@ -47,7 +47,7 @@ fn collect_hook_functions_impl(
         ValueKind::Cons => {
             let mut cursor = hook_value;
             let mut saw_global_marker = false;
-            while cursor.is_cons() /* TODO(tagged): `cell` was ValueKind::Cons, now use accessor */ {
+            while cursor.is_cons() {
                 let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if pair.car.as_symbol_name() == Some("t") {
                     saw_global_marker = true;

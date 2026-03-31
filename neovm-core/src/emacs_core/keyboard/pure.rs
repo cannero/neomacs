@@ -240,7 +240,7 @@ pub(crate) fn key_sequence_values(value: &Value) -> Result<Vec<Value>, Flow> {
         ValueKind::Nil => Ok(vec![]),
         ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
-            Ok(s.chars().map(|ch| Value::Int(ch as i64)).collect())
+            Ok(s.chars().map(|ch| Value::fixnum(ch as i64)).collect())
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
@@ -248,7 +248,7 @@ pub(crate) fn key_sequence_values(value: &Value) -> Result<Vec<Value>, Flow> {
             let converted: Vec<Value> = elems
                 .into_iter()
                 .map(|e| {
-                    if &e.is_cons() /* TODO(tagged): `_` was ValueKind::Cons, now use accessor */ {
+                    if e.is_cons() {
                         if let Some(items) = list_to_vec(&e) {
                             if items.len() > 1 {
                                 if let Some(c) = convert_lucid_event_list(&items) {
@@ -361,7 +361,7 @@ pub(crate) fn convert_lucid_event_list(items: &[Value]) -> Option<Value> {
                     mod_bits &= !KEY_CHAR_CTRL;
                 }
             }
-            Some(Value::Int(code | mod_bits))
+            Some(Value::fixnum(code | mod_bits))
         }
         ValueKind::Symbol(id) => {
             let name = resolve_sym(id);

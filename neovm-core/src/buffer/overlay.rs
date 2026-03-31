@@ -501,11 +501,11 @@ fn priority_component(value: Value) -> i64 {
 pub(crate) fn plist_get_eq(plist: Value, prop: &Value) -> Option<Value> {
     let mut tail = plist;
     loop {
-        if !tail.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+        if !tail.is_cons() {
             return None;
         };
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if !pair.cdr.is_cons() /* TODO(tagged): `value_cell` was Value::Cons(value_cell), rewrite let-else */ {
+        if !pair.cdr.is_cons() {
             return None;
         };
         if eq_value(&pair.car, prop) {
@@ -518,11 +518,11 @@ pub(crate) fn plist_get_eq(plist: Value, prop: &Value) -> Option<Value> {
 fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
     let mut tail = plist;
     loop {
-        if !tail.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+        if !tail.is_cons() {
             return None;
         };
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if !pair.cdr.is_cons() /* TODO(tagged): `value_cell` was Value::Cons(value_cell), rewrite let-else */ {
+        if !pair.cdr.is_cons() {
             return None;
         };
         if pair.car.as_symbol_name() == Some(prop_name) {
@@ -535,12 +535,12 @@ fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
 pub(crate) fn plist_put_eq(plist: Value, prop: Value, value: Value) -> (Value, bool) {
     let mut tail = plist;
     loop {
-        if !tail.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+        if !tail.is_cons() {
             let changed = !value.is_nil();
             return (Value::cons(prop, Value::cons(value, plist)), changed);
         };
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if !pair.cdr.is_cons() /* TODO(tagged): `value_cell` was Value::Cons(value_cell), rewrite let-else */ {
+        if !pair.cdr.is_cons() {
             let changed = !value.is_nil();
             return (Value::cons(prop, Value::cons(value, plist)), changed);
         };
@@ -562,7 +562,7 @@ impl Default for OverlayList {
 impl GcTrace for OverlayList {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for overlay in &self.overlays {
-            roots.push(Value::Overlay(*overlay) /* TODO(tagged): convert Value::Overlay to new API */);
+            roots.push(Value::Overlay(*overlay));
         }
     }
 }

@@ -70,7 +70,7 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *val],
         )),
     }
 }
@@ -858,7 +858,7 @@ fn symbol_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
 }
 
 fn intern_symbol_reader_result(result: Value) -> Value {
-    if result.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    if result.is_string() {
         let name = super::value::with_heap(|h| h.get_string(id).to_owned());
         return Value::symbol(&name);
     }
@@ -1052,7 +1052,7 @@ pub(crate) fn builtin_minibufferp_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     validate_minibufferp_args(&args)?;
-    let live_only = args.get(1).is_some_and(Value::is_truthy);
+    let live_only = args.get(1).is_some_and(|v| v.is_truthy());
     let Some(buffer_id) = resolve_minibuffer_buffer_arg(&eval.buffers, args.first())? else {
         return Ok(Value::NIL);
     };
@@ -1225,7 +1225,7 @@ fn resolve_minibuffer_buffer_arg(
         None | Some(ValueKind::Nil) => Ok(buffers.current_buffer_id()),
         Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(Some(*id)),
         Some(ValueKind::String) => Ok(bufferish
-            .and_then(Value::as_str)
+            .and_then(|v| v.as_str())
             .and_then(|name| buffers.find_buffer_by_name(name))),
         Some(other) => Err(signal(
             "wrong-type-argument",
@@ -1350,7 +1350,7 @@ fn completion_candidates_from_list_value(collection: &Value) -> Vec<CompletionCa
 }
 
 fn completion_candidates_from_vector_value(collection: &Value) -> Vec<CompletionCandidate> {
-    if !collection.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
+    if !collection.is_vector() {
         return Vec::new();
     };
     let items = with_heap(|h| h.get_vector(*id).clone());
@@ -1398,12 +1398,12 @@ pub(crate) fn completion_candidates_from_collection_in_state(
 ) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
     let obarray = &ctx.obarray;
     Ok(match collection {
-        Value::NIL | Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ => Some(completion_candidates_from_list_value(collection)),
-        Value::HashTable(table_id) /* TODO(tagged): convert Value::HashTable to new API */ => Some(completion_candidates_from_hash_table(*table_id)),
-        Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ if is_global_obarray_proxy_in_state(obarray, collection) => {
+        Value::NIL | Value::Cons(_) => Some(completion_candidates_from_list_value(collection)),
+        ValueKind::Veclike(VecLikeType::HashTable) => Some(completion_candidates_from_hash_table(*table_id)),
+        ValueKind::Veclike(VecLikeType::Vector) if is_global_obarray_proxy_in_state(obarray, collection) => {
             Some(completion_candidates_from_global_obarray_in_state(obarray))
         }
-        Value::Vector(vec_id) /* TODO(tagged): convert Value::Vector to new API */ => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             super::builtins::symbols::expect_obarray_vector_id(collection)?;
             Some(completion_candidates_from_custom_obarray(*vec_id))
         }
@@ -1630,7 +1630,7 @@ fn completion_regexp_list(obarray: &Obarray) -> Vec<String> {
     items
         .iter()
         .filter_map(|item| match item {
-            Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(with_heap(|h| h.get_string(*id).to_owned())),
+            ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
             _ => None,
         })
         .collect()

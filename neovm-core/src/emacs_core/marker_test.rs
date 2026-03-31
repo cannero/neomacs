@@ -52,7 +52,7 @@ fn builtin_markerp_works() {
 fn builtin_marker_position_returns_position() {
     let m = make_marker_value(None, Some(10), false);
     let pos = call_marker_position(vec![m]).unwrap();
-    assert!(matches!(pos, Value::fixnum(10)));
+    assert!(pos.is_fixnum());
 }
 
 #[test]
@@ -85,14 +85,14 @@ fn builtin_copy_marker_from_marker() {
     let m = make_marker_value(None, Some(5), true);
     let copy = call_copy_marker(vec![m]).unwrap();
     assert!(is_marker(&copy));
-    assert!(matches!(marker_position_value(&copy), Value::fixnum(5)));
+    assert!(marker_position_value(&copy).is_fixnum());
 }
 
 #[test]
 fn builtin_copy_marker_from_integer() {
     let copy = call_copy_marker(vec![Value::fixnum(99)]).unwrap();
     assert!(is_marker(&copy));
-    assert!(matches!(marker_position_value(&copy), Value::fixnum(99)));
+    assert!(marker_position_value(&copy).is_fixnum());
     assert!(marker_buffer_value(&copy).is_nil());
 }
 

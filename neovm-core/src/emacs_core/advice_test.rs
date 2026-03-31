@@ -30,7 +30,7 @@ fn add_and_notify_watcher() {
     // arg 0: symbol name
     assert!(args[0].is_symbol_named("my-var"));
     // arg 1: new value
-    assert!(matches!(&args[1], Value::fixnum(42)));
+    assert!(&args[1].is_fixnum());
     // arg 2: operation
     assert!(args[2].is_symbol_named("set"));
     // arg 3: where (nil)

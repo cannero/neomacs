@@ -639,7 +639,7 @@ pub(crate) fn resolve_fontset_name_arg(value: &Value) -> Result<String, Flow> {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -801,7 +801,7 @@ fn parse_font_spec_entry(
         }
         other => Err(signal(
             "font",
-            vec![Value::string("Invalid font-spec"), *other],
+            vec![Value::string("Invalid font-spec"), *value],
         )),
     }
 }
@@ -902,7 +902,7 @@ fn resolve_font_repertory(
 
 fn lookup_font_encoding(font_encoding_alist: &Value, font_name: &str) -> Option<Value> {
     for entry in list_to_vec(font_encoding_alist) {
-        if !entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+        if !entry.is_cons() {
             continue;
         };
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -973,7 +973,7 @@ fn expand_target(
             }
             Ok(vec![FontsetTarget::Range(code, code)])
         }
-        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(code) => {
+        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => {
             let code = code as u32;
             if enforce_ascii_rules && code < 0x80 {
                 return Err(signal(
@@ -1064,7 +1064,7 @@ fn lookup_charset_script(alist: &Value, charset_name: &str) -> Option<String> {
             ValueKind::Nil => return None,
             ValueKind::Cons => {
                 let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                if pair.car.is_cons() /* TODO(tagged): `entry_cell` was ValueKind::Cons, now use accessor */ {
+                if pair.car.is_cons() {
                     let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
                     if entry.car == target {
                         return value_text(&entry.cdr);
@@ -1080,7 +1080,7 @@ fn lookup_charset_script(alist: &Value, charset_name: &str) -> Option<String> {
 fn value_to_range(value: &Value) -> Option<(u32, u32)> {
     match value.kind() {
         ValueKind::Char(ch) => Some((ch as u32, ch as u32)),
-        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(code) => Some((code as u32, code as u32)),
+        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => Some((code as u32, code as u32)),
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let from = expect_target_char(&pair.car).ok()?;
@@ -1094,7 +1094,7 @@ fn value_to_range(value: &Value) -> Option<(u32, u32)> {
 fn expect_target_char(value: &Value) -> Result<u32, Flow> {
     match value.kind() {
         ValueKind::Char(ch) => Ok(ch as u32),
-        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(code) => Ok(code as u32),
+        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => Ok(code as u32),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],

@@ -30,7 +30,7 @@ fn frame_default_left_fringe_width(frame: &Frame) -> i32 {
     frame
         .parameters
         .get("left-fringe")
-        .and_then(Value::as_int)
+        .and_then(|v| v.as_int())
         .and_then(|value| i32::try_from(value).ok())
         .unwrap_or(8)
 }
@@ -39,7 +39,7 @@ fn frame_default_right_fringe_width(frame: &Frame) -> i32 {
     frame
         .parameters
         .get("right-fringe")
-        .and_then(Value::as_int)
+        .and_then(|v| v.as_int())
         .and_then(|value| i32::try_from(value).ok())
         .unwrap_or(8)
 }
@@ -78,7 +78,7 @@ fn frame_config_scroll_bar_width(frame: &Frame) -> i32 {
     frame
         .parameters
         .get("scroll-bar-width")
-        .and_then(Value::as_int)
+        .and_then(|v| v.as_int())
         .and_then(|value| i32::try_from(value).ok())
         .filter(|value| *value > 0)
         .unwrap_or_else(|| frame.char_width.max(1.0).round() as i32)
@@ -88,7 +88,7 @@ fn frame_config_scroll_bar_height(frame: &Frame) -> i32 {
     frame
         .parameters
         .get("scroll-bar-height")
-        .and_then(Value::as_int)
+        .and_then(|v| v.as_int())
         .and_then(|value| i32::try_from(value).ok())
         .filter(|value| *value > 0)
         .unwrap_or_else(|| frame.char_height.max(1.0).round() as i32)

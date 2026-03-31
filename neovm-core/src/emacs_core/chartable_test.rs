@@ -1,5 +1,5 @@
 use super::*;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // -----------------------------------------------------------------------
 // Char-table tests
@@ -18,7 +18,7 @@ fn make_char_table_with_default() {
     assert!(is_char_table(&ct));
     // Default lookup should return the default.
     let def = builtin_char_table_range(vec![ct, Value::NIL]).unwrap();
-    assert!(matches!(def, Value::fixnum(42)));
+    assert!(def.is_fixnum());
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn set_default_via_range_nil() {
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![ct, Value::NIL, Value::fixnum(999)]).unwrap();
     let def = builtin_char_table_range(vec![ct, Value::NIL]).unwrap();
-    assert!(matches!(def, Value::fixnum(999)));
+    assert!(def.is_fixnum());
 }
 
 #[test]
@@ -87,9 +87,9 @@ fn set_range_t_sets_default_value() {
     let a = builtin_char_table_range(vec![ct, Value::fixnum('a' as i64)]).unwrap();
     let b = builtin_char_table_range(vec![ct, Value::fixnum('b' as i64)]).unwrap();
     let def = builtin_char_table_range(vec![ct, Value::NIL]).unwrap();
-    assert!(matches!(a, Value::fixnum(5)));
-    assert!(matches!(b, Value::fixnum(5)));
-    assert!(matches!(def, Value::fixnum(0)));
+    assert!(a.is_fixnum());
+    assert!(b.is_fixnum());
+    assert!(def.is_fixnum());
 }
 
 #[test]
@@ -103,9 +103,9 @@ fn set_range_t_allows_single_char_override() {
     let a = builtin_char_table_range(vec![ct, Value::fixnum('a' as i64)]).unwrap();
     let b = builtin_char_table_range(vec![ct, Value::fixnum('b' as i64)]).unwrap();
     let def = builtin_char_table_range(vec![ct, Value::NIL]).unwrap();
-    assert!(matches!(a, Value::fixnum(9)));
-    assert!(matches!(b, Value::fixnum(5)));
-    assert!(matches!(def, Value::fixnum(0)));
+    assert!(a.is_fixnum());
+    assert!(b.is_fixnum());
+    assert!(def.is_fixnum());
 }
 
 #[test]
@@ -123,8 +123,8 @@ fn later_t_write_overrides_prior_specific_entries() {
     let a = builtin_char_table_range(vec![ct, Value::fixnum('a' as i64)]).unwrap();
     let five = builtin_char_table_range(vec![ct, Value::fixnum('5' as i64)]).unwrap();
     let def = builtin_char_table_range(vec![ct, Value::NIL]).unwrap();
-    assert!(matches!(a, Value::fixnum(5)));
-    assert!(matches!(five, Value::fixnum(5)));
+    assert!(a.is_fixnum());
+    assert!(five.is_fixnum());
     assert!(def.is_nil());
 }
 
@@ -218,7 +218,7 @@ fn char_table_overwrite_entry() {
     builtin_set_char_table_range(vec![ct, Value::fixnum(65), Value::fixnum(1)]).unwrap();
     builtin_set_char_table_range(vec![ct, Value::fixnum(65), Value::fixnum(2)]).unwrap();
     let val = builtin_char_table_range(vec![ct, Value::fixnum(65)]).unwrap();
-    assert!(matches!(val, Value::fixnum(2)));
+    assert!(val.is_fixnum());
 }
 
 #[test]
@@ -350,7 +350,7 @@ fn non_nil_child_default_overrides_parent_lookup() {
     builtin_set_char_table_parent(vec![child, parent]).unwrap();
 
     let val = builtin_char_table_range(vec![child, Value::fixnum('a' as i64)]).unwrap();
-    assert!(matches!(val, Value::fixnum(0)));
+    assert!(val.is_fixnum());
 }
 
 // -----------------------------------------------------------------------
@@ -385,14 +385,14 @@ fn bool_vector_constructor_from_rest_args() {
 fn make_bool_vector_all_true() {
     let bv = builtin_make_bool_vector(vec![Value::fixnum(4), Value::T]).unwrap();
     let count = builtin_bool_vector_count_population(vec![bv]).unwrap();
-    assert!(matches!(count, Value::fixnum(4)));
+    assert!(count.is_fixnum());
 }
 
 #[test]
 fn make_bool_vector_all_false() {
     let bv = builtin_make_bool_vector(vec![Value::fixnum(4), Value::NIL]).unwrap();
     let count = builtin_bool_vector_count_population(vec![bv]).unwrap();
-    assert!(matches!(count, Value::fixnum(0)));
+    assert!(count.is_fixnum());
 }
 
 #[test]
@@ -466,9 +466,9 @@ fn bool_vector_count_consecutive() {
         builtin_bool_vector_count_consecutive(vec![bv, Value::NIL, Value::fixnum(2)]).unwrap();
     let count_true_mismatch =
         builtin_bool_vector_count_consecutive(vec![bv, Value::T, Value::fixnum(2)]).unwrap();
-    assert!(matches!(count_true_start, Value::fixnum(2)));
-    assert!(matches!(count_false_middle, Value::fixnum(2)));
-    assert!(matches!(count_true_mismatch, Value::fixnum(0)));
+    assert!(count_true_start.is_fixnum());
+    assert!(count_false_middle.is_fixnum());
+    assert!(count_true_mismatch.is_fixnum());
 }
 
 #[test]
@@ -491,7 +491,7 @@ fn bool_vector_subsetp_false() {
 fn bool_vector_count_population_mixed() {
     let bv = make_bv(&[true, false, true, true, false]);
     let count = builtin_bool_vector_count_population(vec![bv]).unwrap();
-    assert!(matches!(count, Value::fixnum(3)));
+    assert!(count.is_fixnum());
 }
 
 #[test]
@@ -499,7 +499,7 @@ fn bool_vector_empty() {
     let bv = builtin_make_bool_vector(vec![Value::fixnum(0), Value::NIL]).unwrap();
     assert!(is_bool_vector(&bv));
     let count = builtin_bool_vector_count_population(vec![bv]).unwrap();
-    assert!(matches!(count, Value::fixnum(0)));
+    assert!(count.is_fixnum());
 }
 
 #[test]

@@ -8,7 +8,7 @@ use crate::emacs_core::parse_forms;
 use crate::emacs_core::{format_eval_result, parse_forms as parse_bootstrap_forms};
 use std::collections::VecDeque;
 use std::time::Duration;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 fn install_mouse_help_echo_snapshot_with_value(eval: &mut Context, help: Value) -> Value {
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
@@ -96,8 +96,8 @@ fn read_from_string_integer() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Fixnum(42)));
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(2)));
+            assert!(matches!(&pair.car, Value::fixnum(42)));
+            assert!(matches!(&pair.cdr, Value::fixnum(2)));
         }
         _ => panic!("Expected cons, got {:?}", result),
     }
@@ -111,7 +111,7 @@ fn read_from_string_symbol() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             assert!(matches!(&pair.car, ValueKind::Symbol(id) if resolve_sym(*id) == "hello"));
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(5)));
+            assert!(matches!(&pair.cdr, Value::fixnum(5)));
         }
         _ => panic!("Expected cons, got {:?}", result),
     }
@@ -126,7 +126,7 @@ fn read_from_string_string_value() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             assert_eq!(pair.car.as_str(), Some("hello world"));
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(13)));
+            assert!(matches!(&pair.cdr, Value::fixnum(13)));
         }
         _ => panic!("Expected cons"),
     }
@@ -141,7 +141,7 @@ fn read_from_string_list() {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             // car should be a list (+ 1 2)
             assert!(pair.car.is_cons());
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(7)));
+            assert!(matches!(&pair.cdr, Value::fixnum(7)));
         }
         _ => panic!("Expected cons"),
     }
@@ -156,8 +156,8 @@ fn read_from_string_with_start() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Fixnum(42)));
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(4)));
+            assert!(matches!(&pair.car, Value::fixnum(42)));
+            assert!(matches!(&pair.cdr, Value::fixnum(4)));
         }
         _ => panic!("Expected cons"),
     }
@@ -170,7 +170,7 @@ fn read_from_string_float() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ if (*f - 3.14).abs() < 1e-10));
+            assert!(matches!(&pair.car, ValueKind::Float if (*f - 3.14).abs() < 1e-10));
         }
         _ => panic!("Expected cons"),
     }
@@ -183,7 +183,7 @@ fn read_from_string_char() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, Value::Char('a')));
+            assert!(&pair.car.is_char());
         }
         _ => panic!("Expected cons"),
     }
@@ -237,7 +237,7 @@ fn read_from_string_quoted() {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             // Should be (quote foo) as a list
             assert!(pair.car.is_cons());
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(4)));
+            assert!(matches!(&pair.cdr, Value::fixnum(4)));
         }
         _ => panic!("Expected cons"),
     }
@@ -310,7 +310,7 @@ fn read_from_string_multiple_forms_reads_first() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Fixnum(42)));
+            assert!(matches!(&pair.car, Value::fixnum(42)));
             // End position should be after "42" (position 2), not after "99"
             match pair.cdr.kind() {
                 ValueKind::Fixnum(n) => assert!(n <= 3, "end pos {} should be <= 3", n),
@@ -333,8 +333,8 @@ fn read_from_string_with_start_and_end() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Fixnum(42)));
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(5)));
+            assert!(matches!(&pair.car, Value::fixnum(42)));
+            assert!(matches!(&pair.cdr, Value::fixnum(5)));
         }
         _ => panic!("Expected cons"),
     }
@@ -348,7 +348,7 @@ fn read_from_string_with_start_and_end() {
 fn read_from_string_stream() {
     let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::string("42")]).unwrap();
-    assert!(matches!(result, Value::fixnum(42)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
@@ -499,7 +499,7 @@ fn shared_read_from_minibuffer_runtime_runs_setup_and_exit_hooks_around_edit() {
     )
     .expect("shared read-from-minibuffer should exit normally");
 
-    if !result.is_string() /* TODO(tagged): `result_id` was Value::Str(result_id), rewrite let-else */ {
+    if !result.is_string() {
         panic!("expected string result, got {result:?}");
     };
     assert_eq!(
@@ -1423,11 +1423,11 @@ fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
 
     let pixel = crate::emacs_core::builtins::symbols::builtin_mouse_pixel_position(&mut ev, vec![])
         .expect("mouse-pixel-position should succeed");
-    if !pixel.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !pixel.is_cons() {
         panic!("expected dotted mouse pixel position");
     };
     let outer = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    if !outer.cdr.is_cons() /* TODO(tagged): `inner` was Value::Cons(inner), rewrite let-else */ {
+    if !outer.cdr.is_cons() {
         panic!("expected inner cons");
     };
     let inner = read_cons(inner);  // TODO(tagged): replace read_cons with cons accessors
@@ -2593,7 +2593,7 @@ fn read_from_string_nested_list() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             assert!(pair.car.is_cons());
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(13)));
+            assert!(matches!(&pair.cdr, Value::fixnum(13)));
         }
         _ => panic!("Expected cons"),
     }
@@ -2606,9 +2606,9 @@ fn read_from_string_with_leading_whitespace() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Fixnum(42)));
+            assert!(matches!(&pair.car, Value::fixnum(42)));
             // End position should be 5 (after "   42")
-            assert!(matches!(&pair.cdr, ValueKind::Fixnum(5)));
+            assert!(matches!(&pair.cdr, Value::fixnum(5)));
         }
         _ => panic!("Expected cons"),
     }
@@ -2621,7 +2621,7 @@ fn read_from_string_negative_number() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, Value::Int(-7)));
+            assert!(&pair.car.is_fixnum());
         }
         _ => panic!("Expected cons"),
     }
@@ -2648,7 +2648,7 @@ fn read_from_string_hash_syntax() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert!(matches!(&pair.car, ValueKind::Fixnum(255)));
+            assert!(matches!(&pair.car, Value::fixnum(255)));
         }
         _ => panic!("Expected cons"),
     }
@@ -2807,7 +2807,7 @@ fn read_from_string_hash_hash_reads_empty_symbol() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             assert_eq!(pair.car.as_symbol_name(), Some(""));
-            assert_eq!(pair.cdr, ValueKind::Fixnum(2));
+            assert_eq!(pair.cdr, Value::fixnum(2));
         }
         _ => panic!("Expected cons"),
     }
@@ -2821,7 +2821,7 @@ fn read_from_string_escaped_hash_hash_reads_literal_symbol() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             assert_eq!(pair.car.as_symbol_name(), Some("##"));
-            assert_eq!(pair.cdr, ValueKind::Fixnum(4));
+            assert_eq!(pair.cdr, Value::fixnum(4));
         }
         _ => panic!("Expected cons"),
     }
@@ -2843,7 +2843,7 @@ fn read_from_string_hash_bracket_end_position() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            assert_eq!(pair.cdr, ValueKind::Fixnum(expected_end));
+            assert_eq!(pair.cdr, Value::fixnum(expected_end));
         }
         _ => panic!("Expected cons"),
     }
@@ -2854,11 +2854,11 @@ fn read_from_string_hash_table_literal_returns_hash_table() {
     let mut ev = Context::new();
     let input = "#s(hash-table size 3 test equal data (\"a\" 1 \"b\" 2))";
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
-    if !result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !result.is_cons() {
         panic!("Expected cons");
     };
     let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-    if !&pair.car.is_hash_table() /* TODO(tagged): `table_ref` was Value::HashTable(table_ref), rewrite let-else */ {
+    if !&pair.car.is_hash_table() {
         panic!("expected hash table object");
     };
     let table = with_heap(|h| h.get_hash_table(*table_ref).clone());
@@ -2886,7 +2886,7 @@ fn read_buffer_hash_table_literal_returns_hash_table() {
         buf.goto_byte(0);
     }
     let value = builtin_read(&mut ev, vec![Value::make_buffer(buf_id)]).expect("read from buffer");
-    if !value.is_hash_table() /* TODO(tagged): `table_ref` was Value::HashTable(table_ref), rewrite let-else */ {
+    if !value.is_hash_table() {
         panic!("expected hash table object");
     };
     let table = with_heap(|h| h.get_hash_table(table_ref).clone());
@@ -2985,7 +2985,7 @@ fn read_from_buffer_invalid_read_syntax_reports_line_and_column_like_gnu_emacs()
             assert_eq!(sig.symbol_name(), "invalid-read-syntax");
             assert_eq!(
                 sig.data,
-                vec![Value::string("?"), ValueKind::Fixnum(1), ValueKind::Fixnum(2)]
+                vec![Value::string("?"), Value::fixnum(1), Value::fixnum(2)]
             );
         }
         other => panic!("expected invalid-read-syntax, got {other:?}"),
@@ -3008,7 +3008,7 @@ fn read_from_buffer_unmatched_close_paren_reports_post_consumption_column_like_g
             assert_eq!(sig.symbol_name(), "invalid-read-syntax");
             assert_eq!(
                 sig.data,
-                vec![Value::string(")"), ValueKind::Fixnum(1), ValueKind::Fixnum(1)]
+                vec![Value::string(")"), Value::fixnum(1), Value::fixnum(1)]
             );
         }
         other => panic!("expected invalid-read-syntax, got {other:?}"),
@@ -3031,7 +3031,7 @@ fn read_from_buffer_invalid_hash_dispatch_reports_post_consumption_column_like_g
             assert_eq!(sig.symbol_name(), "invalid-read-syntax");
             assert_eq!(
                 sig.data,
-                vec![Value::string("#t"), ValueKind::Fixnum(1), ValueKind::Fixnum(2)]
+                vec![Value::string("#t"), Value::fixnum(1), Value::fixnum(2)]
             );
         }
         other => panic!("expected invalid-read-syntax, got {other:?}"),
@@ -3061,7 +3061,7 @@ fn read_from_string_hash_dollar_inside_dotted_pair_uses_load_file_name() {
     match result.kind() {
         ValueKind::Cons => {
             let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            if !pair.car.is_cons() /* TODO(tagged): `data_cell` was ValueKind::Cons, rewrite let-else */ {
+            if !pair.car.is_cons() {
                 panic!("expected dotted pair");
             };
             let data = read_cons(data_cell);  // TODO(tagged): replace read_cons with cons accessors

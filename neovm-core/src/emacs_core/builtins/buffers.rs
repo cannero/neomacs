@@ -7,7 +7,7 @@ use super::*;
 use crate::buffer::{BufferId, BufferManager};
 use crate::emacs_core::filelock;
 use crate::window::FrameManager;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 #[derive(Clone, Copy)]
 pub(crate) struct MakeIndirectBufferPlan {
@@ -21,7 +21,7 @@ pub(super) fn expect_buffer_id(value: &Value) -> Result<BufferId, Flow> {
         ValueKind::Veclike(VecLikeType::Buffer) => Ok(*id),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("bufferp"), *other],
+            vec![Value::symbol("bufferp"), *value],
         )),
     }
 }
@@ -79,7 +79,7 @@ pub(crate) fn expect_integer_or_marker_in_buffers(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -223,7 +223,7 @@ pub(crate) fn builtin_get_buffer(eval: &mut super::eval::Context, args: Vec<Valu
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), args[0]],
         )),
     }
 }
@@ -500,7 +500,7 @@ pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Valu
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -649,7 +649,7 @@ pub(crate) fn builtin_buffer_substring(
     let result = Value::string(buf.buffer_substring(byte_lo, byte_hi));
     // Copy buffer text properties to the result string
     if !buf.text.text_props_is_empty() {
-        if &result.is_string() /* TODO(tagged): `new_id` was Value::Str(new_id), now use accessor */ {
+        if result.is_string() {
             let sliced = buf.text.text_props_slice(byte_lo, byte_hi);
             if !sliced.is_empty() {
                 set_string_text_properties_table(*new_id, sliced);
@@ -672,7 +672,7 @@ pub(crate) fn builtin_buffer_string(
     let byte_end = buf.point_max();
     let result = Value::string(buf.buffer_string());
     if !buf.text.text_props_is_empty()
-        && let Value::Str(new_id) /* TODO(tagged): convert Value::Str to new API */ = &result
+        && let ValueKind::String = &result
     {
         let sliced = buf.text.text_props_slice(byte_start, byte_end);
         if !sliced.is_empty() {
@@ -716,7 +716,7 @@ fn resolve_buffer_designator_allow_nil_current(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *arg],
         )),
     }
 }
@@ -808,7 +808,7 @@ pub(crate) fn resolve_buffer_designator_allow_nil_current_in_manager(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *arg],
         )),
     }
 }
@@ -874,7 +874,7 @@ fn checked_buffer_substring_for_char_region_in_manager(
     let to_byte = buf.lisp_pos_to_accessible_byte(to);
     let result = Value::string(buf.buffer_substring(from_byte, to_byte));
     if !buf.text.text_props_is_empty()
-        && let Value::Str(new_id) /* TODO(tagged): convert Value::Str to new API */ = &result
+        && let ValueKind::String = &result
     {
         let sliced = buf.text.text_props_slice(from_byte, to_byte);
         if !sliced.is_empty() {
@@ -997,8 +997,8 @@ fn replace_region_source_value_in_state(
                 Some(*id),
                 buf.point_min_char() as i64 + 1,
                 buf.point_max_char() as i64 + 1,
-                Value::Int(buf.point_min_char() as i64 + 1),
-                Value::Int(buf.point_max_char() as i64 + 1),
+                Value::fixnum(buf.point_min_char() as i64 + 1),
+                Value::fixnum(buf.point_max_char() as i64 + 1),
             )
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
@@ -1029,7 +1029,7 @@ fn replace_region_source_value_in_state(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![replace_region_contents_type_predicate(), *other],
+            vec![replace_region_contents_type_predicate(), *source],
         )),
     }
 }
@@ -1519,14 +1519,14 @@ pub(crate) fn builtin_compute_motion(
     expect_args("compute-motion", &args, 7)?;
 
     let from = expect_integer_or_marker(&args[0])?;
-    if !matches!(&args[1], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */) {
+    if !matches!(&args[1], Value::Cons(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("consp"), args[1]],
         ));
     }
     let to = expect_integer_or_marker(&args[2])?;
-    if !args[3].is_nil() && !matches!(&args[3], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */) {
+    if !args[3].is_nil() && !matches!(&args[3], Value::Cons(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("consp"), args[3]],
@@ -1535,7 +1535,7 @@ pub(crate) fn builtin_compute_motion(
     if !args[4].is_nil() {
         let _ = expect_fixnum(&args[4])?;
     }
-    if !args[5].is_nil() && !matches!(&args[5], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */) {
+    if !args[5].is_nil() && !matches!(&args[5], Value::Cons(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("consp"), args[5]],
@@ -1708,25 +1708,25 @@ pub(crate) fn builtin_coordinates_in_window_p(
     expect_args("coordinates-in-window-p", &args, 2)?;
 
     let (x, y) = match &args[0] {
-        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+        Value::Cons(cell) => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let x = match pair.car.kind() {
                 ValueKind::Fixnum(n) => n as f64,
-                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f,
+                ValueKind::Float => *f,
                 other => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("numberp"), *other],
+                        vec![Value::symbol("numberp"), pair.car],
                     ));
                 }
             };
             let y = match pair.cdr.kind() {
                 ValueKind::Fixnum(n) => n as f64,
-                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f,
+                ValueKind::Float => *f,
                 other => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("numberp"), *other],
+                        vec![Value::symbol("numberp"), pair.cdr],
                     ));
                 }
             };
@@ -2092,7 +2092,7 @@ pub(crate) fn builtin_field_beginning(
         Some(limit_value) if !limit_value.is_nil() => {
             let limit = expect_integer_or_marker_in_buffers(&eval.buffers, limit_value)?;
             if limit <= 0 {
-                return Err(signal("args-out-of-range", vec![ValueKind::Fixnum(limit)]));
+                return Err(signal("args-out-of-range", vec![Value::fixnum(limit)]));
             }
             Some(limit)
         }
@@ -2190,7 +2190,7 @@ pub(crate) fn builtin_delete_field(
 pub(crate) fn builtin_clear_string(args: Vec<Value>) -> EvalResult {
     expect_args("clear-string", &args, 1)?;
     let _ = expect_strict_string(&args[0])?;
-    if &args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    if args[0].is_string() {
         with_heap_mut(|h| {
             let s = h.get_string_mut(*id);
             let len = s.len();
@@ -2281,7 +2281,7 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
                 if !(0..=KEY_CHAR_CODE_MASK).contains(n) {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("char-or-string-p"), Value::Int(n)],
+                        vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
                     ));
                 }
                 if let Some(c) = char::from_u32(n as u32) {
@@ -2297,14 +2297,14 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
                 } else {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("char-or-string-p"), Value::Int(n)],
+                        vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
                     ));
                 }
             }
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), *other],
+                    vec![Value::symbol("char-or-string-p"), *arg],
                 ));
             }
         }
@@ -2448,7 +2448,7 @@ pub(super) fn insert_char_code_from_value(value: &Value) -> Result<i64, Flow> {
         ValueKind::Fixnum(n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *value],
         )),
     }
 }
@@ -2686,7 +2686,7 @@ pub(crate) fn builtin_buffer_enable_undo(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), args[0]],
                 ));
             }
         }
@@ -2742,7 +2742,7 @@ pub(crate) fn builtin_buffer_disable_undo(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), args[0]],
                 ));
             }
         }
@@ -3030,7 +3030,7 @@ pub(crate) fn builtin_generate_new_buffer_name(
     if args.len() == 2
         && !matches!(
             &args[1],
-            Value::NIL | Value::T | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ | Value::symbol(_) | Value::keyword(_)
+            Value::NIL | Value::T | ValueKind::String | Value::symbol(_) | Value::keyword(_)
         )
     {
         return Err(signal(
@@ -3039,7 +3039,7 @@ pub(crate) fn builtin_generate_new_buffer_name(
         ));
     }
     let base = expect_string(&args[0])?;
-    let ignore = args.get(1).and_then(Value::as_str);
+    let ignore = args.get(1).and_then(|v| v.as_str());
     Ok(Value::string(
         eval.buffers
             .generate_new_buffer_name_ignoring(&base, ignore),

@@ -51,17 +51,17 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
 
 fn expect_number(value: &Value) -> Result<(), Flow> {
     match value.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ | ValueKind::Char(_) => Ok(()),
+        ValueKind::Fixnum(_) | ValueKind::Float | ValueKind::Char(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), *value],
         )),
     }
 }
@@ -104,7 +104,7 @@ fn expect_initial_input_stringish(value: &Value) -> Result<(), Flow> {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -120,7 +120,7 @@ fn expect_completing_read_initial_input(value: &Value) -> Result<(), Flow> {
                     vec![Value::symbol("stringp"), pair.car],
                 ));
             }
-            if !matches!(pair.cdr, ValueKind::Fixnum(_) | ValueKind::Char(_)) {
+            if !matches!(pair.cdr, Value::fixnum(_) | ValueKind::Char(_)) {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("number-or-marker-p"), pair.cdr],
@@ -130,7 +130,7 @@ fn expect_completing_read_initial_input(value: &Value) -> Result<(), Flow> {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -321,7 +321,7 @@ pub(crate) fn read_from_string_impl(
             }
             other => Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("integerp"), *other],
+                vec![Value::symbol("integerp"), *value],
             )),
         }
     };
@@ -496,7 +496,7 @@ fn first_form_hash_table_literal_value(
 
     let table_value =
         Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
-    if &table_value.is_hash_table() /* TODO(tagged): `table_ref` was Value::HashTable(table_ref), now use accessor */ {
+    if table_value.is_hash_table() {
         with_heap_mut(|h| {
             let table = h.get_hash_table_mut(*table_ref);
             table.test_name = test_name;
@@ -793,7 +793,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let prompt = expect_string(&args[0])?;
     // Extract optional arguments
     let initial_input = args.get(1).and_then(|v| match v {
-        Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -950,7 +950,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
                 let read_result =
                     read_from_string_impl(obarray, vec![Value::string(&result_string)])?;
                 // read-from-string returns (OBJECT . END-POS), extract OBJECT
-                if read_result.is_cons() /* TODO(tagged): `id` was ValueKind::Cons, now use accessor */ {
+                if read_result.is_cons() {
                     let snap = super::value::read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
                     return Ok(snap.car);
                 }
@@ -969,7 +969,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
 }
 
 fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<String> {
-    match hist_arg.copied().unwrap_or(Value::Nil).kind() {
+    match hist_arg.copied().unwrap_or(Value::NIL).kind() {
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         ValueKind::Cons => read_cons(id).car.as_symbol_name().map(str::to_string),  // TODO(tagged): replace read_cons with cons accessors
         _ => None,
@@ -1293,7 +1293,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
 
     let prompt = expect_string(&args[0])?;
     let initial_input = args.get(1).and_then(|v| match v {
-        Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::String => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -1455,7 +1455,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
             if !read_arg.is_nil() && !result_string.is_empty() {
                 let read_result =
                     read_from_string_impl(&shared.obarray, vec![Value::string(&result_string)])?;
-                if read_result.is_cons() /* TODO(tagged): `id` was ValueKind::Cons, now use accessor */ {
+                if read_result.is_cons() {
                     let snap = super::value::read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
                     return Ok(snap.car);
                 }
@@ -1688,8 +1688,8 @@ pub(crate) fn read_key_sequence_options_from_args(
 ) -> crate::keyboard::ReadKeySequenceOptions {
     crate::keyboard::ReadKeySequenceOptions::new(
         args.first().copied().unwrap_or(Value::NIL),
-        args.get(2).is_some_and(Value::is_truthy),
-        args.get(3).is_some_and(Value::is_truthy),
+        args.get(2).is_some_and(|v| v.is_truthy()),
+        args.get(3).is_some_and(|v| v.is_truthy()),
     )
 }
 
@@ -1735,7 +1735,7 @@ pub(crate) fn builtin_input_pending_p(
         return Ok(Value::T);
     }
 
-    if args.first().is_some_and(Value::is_truthy) {
+    if args.first().is_some_and(|v| v.is_truthy()) {
         // GNU `input-pending-p' can run due timers here, but it does not
         // force a redisplay the way `detect_input_pending_run_timers' does.
         let _ = ctx.service_pending_timers_with_wait_policy(false);
@@ -2001,7 +2001,7 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("sequencep"), *other],
+                vec![Value::symbol("sequencep"), args[0]],
             ));
         }
     }
@@ -2009,7 +2009,7 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>
     // Interactive mode: read single character
     if eval.input_rx.is_some() {
         // Display prompt in echo area (message)
-        if &args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+        if args[0].is_string() {
             let prompt_str = super::value::with_heap(|h| h.get_string(*id).to_owned());
             let msg = format!("{} (y or n) ", prompt_str);
             eval.assign("minibuffer-message", Value::string(&msg));
@@ -2061,7 +2061,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
     args: &[Value],
     mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
 ) -> EvalResult {
-    let prompt_str = if &args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+    let prompt_str = if args[0].is_string() {
         super::value::with_heap(|h| h.get_string(*id).to_owned())
     } else {
         String::new()
@@ -2069,7 +2069,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
     loop {
         let full_prompt = format!("{} (yes or no) ", prompt_str);
         let result = read_from_minibuffer(&[Value::string(&full_prompt)])?;
-        if result.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+        if result.is_string() {
             let answer = super::value::with_heap(|h| h.get_string(id).to_owned());
             match answer.trim() {
                 "yes" => return Ok(Value::T),

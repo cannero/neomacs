@@ -190,7 +190,7 @@ fn register_ccl_program_requires_vector_when_program_non_nil() {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data[0], Value::symbol("vectorp"));
-            assert_eq!(sig.data[1], ValueKind::Fixnum(1));
+            assert_eq!(sig.data[1], Value::fixnum(1));
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -282,7 +282,7 @@ fn register_code_conversion_map_requires_vector_map() {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data[0], Value::symbol("vectorp"));
-            assert_eq!(sig.data[1], ValueKind::Fixnum(1));
+            assert_eq!(sig.data[1], Value::fixnum(1));
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }

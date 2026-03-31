@@ -66,7 +66,7 @@ fn expect_integer_or_marker(val: &Value) -> Result<(), Flow> {
         v if super::marker::is_marker(v) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *val],
         )),
     }
 }
@@ -107,7 +107,7 @@ fn coding_system_name(val: &Value) -> Result<String, Flow> {
         ValueKind::Nil => Ok("nil".to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), *val],
         )),
     }
 }
@@ -960,7 +960,7 @@ pub(crate) fn builtin_coding_system_put(
                 other => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("characterp"), *other],
+                        vec![Value::symbol("characterp"), *val],
                     ));
                 }
             };
@@ -1104,7 +1104,7 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
                     ValueKind::Nil
                 }
             }
-            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+            ValueKind::Float => {
                 if *f == 0.0 {
                     if is_nil_coding {
                         ValueKind::Nil
@@ -1137,7 +1137,7 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("number-or-marker-p"), *other],
+                    vec![Value::symbol("number-or-marker-p"), args[1]],
                 ));
             }
         };
@@ -1153,7 +1153,7 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("fixnump"), *other],
+                vec![Value::symbol("fixnump"), args[1]],
             ));
         }
     };
@@ -1285,7 +1285,7 @@ pub(crate) fn builtin_check_coding_system(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), args[0]],
         )),
     }
 }
@@ -1460,7 +1460,7 @@ fn coding_symbol_name_required(val: &Value) -> Result<String, Flow> {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), *val],
         )),
     }
 }
@@ -1479,7 +1479,7 @@ pub(crate) fn builtin_define_coding_system_alias(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[0]],
             ));
         }
     };
@@ -1495,7 +1495,7 @@ pub(crate) fn builtin_define_coding_system_alias(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[1]],
             ));
         }
     };
@@ -1574,7 +1574,7 @@ pub(crate) fn builtin_detect_coding_string(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     }
@@ -2061,7 +2061,7 @@ fn marker_or_integer_position(value: &Value) -> Result<i64, Flow> {
         v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -2073,7 +2073,7 @@ pub(crate) fn builtin_find_coding_systems_region_internal(
     expect_min_args("find-coding-systems-region-internal", &args, 2)?;
     expect_max_args("find-coding-systems-region-internal", &args, 3)?;
 
-    if args[0].is_string() /* TODO(tagged): `string` was Value::Str(string), now use accessor */ {
+    if args[0].is_string() {
         let exclude = args.get(2).and_then(super::value::list_to_vec);
         let (text, multibyte) = with_heap(|heap| {
             (

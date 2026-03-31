@@ -4,7 +4,7 @@ use crate::emacs_core::value::{ValueKind};
 // Helper to make float comparison with epsilon
 fn assert_float_eq(val: &Value, expected: f64, epsilon: f64) {
     match val.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+        ValueKind::Float => {
             assert!(
                 (f - expected).abs() < epsilon,
                 "expected {} but got {}",
@@ -46,7 +46,7 @@ fn test_copysign() {
 fn test_frexp() {
     let result = builtin_frexp(vec![Value::make_float(8.0)]).unwrap();
     // 8.0 = 0.5 * 2^4
-    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if result.is_cons() {
         let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_float_eq(&pair.car, 0.5, 1e-10);
         assert_int_eq(&pair.cdr, 4);
@@ -56,7 +56,7 @@ fn test_frexp() {
 
     // frexp(0.0) = (0.0 . 0)
     let result = builtin_frexp(vec![Value::make_float(0.0)]).unwrap();
-    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if result.is_cons() {
         let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_float_eq(&pair.car, 0.0, 1e-10);
         assert_int_eq(&pair.cdr, 0);
@@ -66,10 +66,10 @@ fn test_frexp() {
 
     // frexp(-0.0) preserves signed-zero in significand.
     let result = builtin_frexp(vec![Value::make_float(-0.0)]).unwrap();
-    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if result.is_cons() {
         let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         match pair.car.kind() {
-            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+            ValueKind::Float => {
                 assert_eq!(f, 0.0);
                 assert!(f.is_sign_negative(), "expected negative zero");
             }
@@ -85,7 +85,7 @@ fn test_frexp() {
 fn test_frexp_negative() {
     let result = builtin_frexp(vec![Value::make_float(-6.0)]).unwrap();
     // -6.0 = -0.75 * 2^3
-    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if result.is_cons() {
         let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_float_eq(&pair.car, -0.75, 1e-10);
         assert_int_eq(&pair.cdr, 3);
@@ -159,7 +159,7 @@ fn test_fround() {
 
     let result = builtin_fround(vec![Value::make_float(-0.5)]).unwrap();
     match result.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+        ValueKind::Float => {
             assert_eq!(f, 0.0);
             assert!(f.is_sign_negative(), "expected negative zero");
         }

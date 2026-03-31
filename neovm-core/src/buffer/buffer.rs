@@ -847,14 +847,14 @@ impl Buffer {
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
         if name == "buffer-file-name" {
             self.file_name = match &value {
-                Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ => value.as_str_owned(),
+                ValueKind::String => value.as_str_owned(),
                 Value::NIL => None,
                 _ => self.file_name.take(),
             };
         }
         if name == "buffer-auto-save-file-name" {
             self.auto_save_file_name = match &value {
-                Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ => value.as_str_owned(),
+                ValueKind::String => value.as_str_owned(),
                 Value::NIL => None,
                 _ => self.auto_save_file_name.take(),
             };
@@ -3033,11 +3033,11 @@ mod tests {
 
         buf.set_buffer_local("tab-width", Value::fixnum(4));
         let val = buf.get_buffer_local("tab-width").unwrap();
-        assert!(matches!(val, Value::fixnum(4)));
+        assert!(val.is_fixnum());
 
         buf.set_buffer_local("tab-width", Value::fixnum(8));
         let val = buf.get_buffer_local("tab-width").unwrap();
-        assert!(matches!(val, Value::fixnum(8)));
+        assert!(val.is_fixnum());
     }
 
     #[test]

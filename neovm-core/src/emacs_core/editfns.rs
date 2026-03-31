@@ -339,7 +339,7 @@ fn collect_overlay_modification_hooks(
     let mut result = Vec::new();
     for ov_id in overlay_ids {
         if let Some(hooks_val) = buf.overlays.overlay_get_named(ov_id, "modification-hooks") {
-            let ov_val = Value::Overlay(ov_id) /* TODO(tagged): convert Value::Overlay to new API */;
+            let ov_val = ValueKind::Veclike(VecLikeType::Overlay);
             for func in value_list_iter(hooks_val) {
                 result.push((func, ov_val));
             }
@@ -378,7 +378,7 @@ fn run_overlay_after_change_hooks(
                     .overlays
                     .overlay_get_named(*ov_id, "insert-in-front-hooks")
                 {
-                    let ov_val = Value::Overlay(*ov_id) /* TODO(tagged): convert Value::Overlay to new API */;
+                    let ov_val = Value::Overlay(*ov_id);
                     for func in value_list_iter(hook_val) {
                         hooks.push((func, ov_val, "front"));
                     }
@@ -398,7 +398,7 @@ fn run_overlay_after_change_hooks(
                     .overlays
                     .overlay_get_named(*ov_id, "insert-behind-hooks")
                 {
-                    let ov_val = Value::Overlay(*ov_id) /* TODO(tagged): convert Value::Overlay to new API */;
+                    let ov_val = Value::Overlay(*ov_id);
                     for func in value_list_iter(hook_val) {
                         hooks.push((func, ov_val, "behind"));
                     }
@@ -410,7 +410,7 @@ fn run_overlay_after_change_hooks(
         let mod_overlays = buf.overlays.overlays_in(beg, search_end);
         for ov_id in &mod_overlays {
             if let Some(hook_val) = buf.overlays.overlay_get_named(*ov_id, "modification-hooks") {
-                let ov_val = Value::Overlay(*ov_id) /* TODO(tagged): convert Value::Overlay to new API */;
+                let ov_val = Value::Overlay(*ov_id);
                 for func in value_list_iter(hook_val) {
                     hooks.push((func, ov_val, "mod"));
                 }
@@ -450,7 +450,7 @@ fn run_overlay_after_change_hooks(
 fn value_list_iter(list: Value) -> Vec<Value> {
     let mut result = Vec::new();
     let mut cursor = list;
-    while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    while cursor.is_cons() {
         let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         result.push(pair.car);
         cursor = pair.cdr;
@@ -474,7 +474,7 @@ fn expect_integer_or_marker_in_buffers(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -538,7 +538,7 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), *other],
+                    vec![Value::symbol("char-or-string-p"), *arg],
                 ));
             }
         }

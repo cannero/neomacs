@@ -554,7 +554,7 @@ fn preserve_partial_permanent_local_hook_binding(
 
             let mut preserved = Vec::new();
             let mut cursor = value;
-            while cursor.is_cons() /* TODO(tagged): `cell` was ValueKind::Cons, now use accessor */ {
+            while cursor.is_cons() {
                 let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 let elt = pair.car;
                 if elt.is_symbol_named("t")

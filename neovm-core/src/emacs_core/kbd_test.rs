@@ -1,5 +1,5 @@
 use super::*;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 fn expect_vector_ints(value: Value) -> Vec<i64> {
     match value.kind() {

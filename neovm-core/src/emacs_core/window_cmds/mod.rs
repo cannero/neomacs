@@ -84,7 +84,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -93,11 +93,11 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*n),
+        ValueKind::Float => Ok(*n),
         ValueKind::Char(c) => Ok(c as i64 as f64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), *value],
         )),
     }
 }
@@ -131,7 +131,7 @@ fn parse_integer_or_marker_arg(value: &Value) -> Result<IntegerOrMarkerArg, Flow
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -140,7 +140,7 @@ fn expect_number_or_marker_count(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(n.floor() as i64),
+        ValueKind::Float => Ok(n.floor() as i64),
         marker if super::marker::is_marker(marker) => match parse_integer_or_marker_arg(marker)? {
             IntegerOrMarkerArg::Marker {
                 position: Some(pos),
@@ -154,7 +154,7 @@ fn expect_number_or_marker_count(value: &Value) -> Result<i64, Flow> {
         },
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), *value],
         )),
     }
 }
@@ -198,7 +198,7 @@ fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("fixnump"), *other],
+            vec![Value::symbol("fixnump"), *value],
         )),
     }
 }
@@ -208,10 +208,10 @@ fn expect_number_or_marker(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Char(c) => Ok(c as i64 as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Float => Ok(*f),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), *value],
         )),
     }
 }
@@ -225,7 +225,7 @@ fn expect_margin_width(value: &Value) -> Result<usize, Flow> {
             if n < 0 || n > MAX_MARGIN {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::Int(n), ValueKind::Fixnum(0), ValueKind::Fixnum(MAX_MARGIN)],
+                    vec![Value::fixnum(n), Value::fixnum(0), Value::fixnum(MAX_MARGIN)],
                 ));
             }
             Ok(n as usize)
@@ -235,14 +235,14 @@ fn expect_margin_width(value: &Value) -> Result<usize, Flow> {
             if n > MAX_MARGIN {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![ValueKind::Fixnum(n), ValueKind::Fixnum(0), ValueKind::Fixnum(MAX_MARGIN)],
+                    vec![Value::fixnum(n), Value::fixnum(0), Value::fixnum(MAX_MARGIN)],
                 ));
             }
             Ok(n as usize)
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -555,7 +555,7 @@ pub(crate) fn resolve_frame_id_in_state(
             } else {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol(predicate), Value::Int(*n)],
+                    vec![Value::symbol(predicate), Value::fixnum(*n)],
                 ))
             }
         }
@@ -618,7 +618,7 @@ fn resolve_frame_or_window_frame_id_in_state(
             }
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol(predicate), Value::Int(*n)],
+                vec![Value::symbol(predicate), Value::fixnum(*n)],
             ))
         }
         Some(ValueKind::Veclike(VecLikeType::Window)) => {
@@ -1436,7 +1436,7 @@ pub(crate) fn builtin_window_normal_size(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
-    let horizontal = args.get(1).is_some_and(Value::is_truthy);
+    let horizontal = args.get(1).is_some_and(|v| v.is_truthy());
     let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
@@ -1574,13 +1574,13 @@ pub(crate) fn builtin_window_end(eval: &mut super::eval::Context, args: Vec<Valu
                 .and_then(|frame| frame.window_display_snapshot(wid))
                 .and_then(|snapshot| snapshot.visible_buffer_span().map(|(_, end)| end))
             {
-                return Ok(Value::Int(snapshot_end as i64));
+                return Ok(Value::fixnum(snapshot_end as i64));
             }
             if !update_requested && (*window_end_valid || stored_end > *window_start) {
-                return Ok(Value::Int(stored_end as i64));
+                return Ok(Value::fixnum(stored_end as i64));
             }
 
-            Ok(Value::Int(estimated_window_end_from_body_lines(
+            Ok(Value::fixnum(estimated_window_end_from_body_lines(
                 frames,
                 buffers,
                 fid,
@@ -1612,10 +1612,10 @@ pub(crate) fn builtin_window_point(
             });
             if selected_live_window {
                 if let Some(buffer) = buffers.get(*buffer_id) {
-                    return Ok(Value::Int(buffer.point_char().saturating_add(1) as i64));
+                    return Ok(Value::fixnum(buffer.point_char().saturating_add(1) as i64));
                 }
             }
-            Ok(Value::Int(*point as i64))
+            Ok(Value::fixnum(*point as i64))
         }
         _ => Ok(Value::fixnum(0)),
     }
@@ -1702,7 +1702,7 @@ pub(crate) fn builtin_set_window_group_start(
                     }
                 }
             }
-            Ok(ValueKind::Fixnum(pos))
+            Ok(Value::fixnum(pos))
         }
         IntegerOrMarkerArg::Marker { raw, position } => {
             if !is_minibuffer {
@@ -1770,7 +1770,7 @@ pub(crate) fn builtin_set_window_point(
                     }
                 }
             }
-            Ok(ValueKind::Fixnum(pos))
+            Ok(Value::fixnum(pos))
         }
         IntegerOrMarkerArg::Marker { raw, position } => {
             if is_minibuffer {
@@ -1805,9 +1805,9 @@ pub(crate) fn builtin_set_window_point(
                 if let Some((buffer_id, byte_pos)) = buffer_to_move {
                     let _ = buffers.goto_buffer_byte(buffer_id, byte_pos);
                 }
-                Ok(Value::Int(clamped as i64))
+                Ok(Value::fixnum(clamped as i64))
             } else {
-                Ok(ValueKind::Fixnum(1))
+                Ok(Value::fixnum(1))
             }
         }
     }
@@ -2111,7 +2111,7 @@ pub(crate) fn builtin_set_window_hscroll(
 fn scroll_prefix_value(value: &Value) -> i64 {
     match value.kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f as i64,
+        ValueKind::Float => *f as i64,
         ValueKind::Char(c) => c as i64,
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Cons => {
@@ -2121,7 +2121,7 @@ fn scroll_prefix_value(value: &Value) -> i64 {
             };
             match car.kind() {
                 ValueKind::Fixnum(n) => n,
-                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => f as i64,
+                ValueKind::Float => f as i64,
                 ValueKind::Char(c) => c as i64,
                 _ => 1,
             }
@@ -2226,7 +2226,7 @@ pub(crate) fn builtin_window_vscroll(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(1).is_some_and(|v| v.is_truthy());
     Ok(frames
         .window_vscroll(wid, pixelwise)
         .unwrap_or(Value::fixnum(0)))
@@ -2242,8 +2242,8 @@ pub(crate) fn builtin_set_window_vscroll(
     let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let next_vscroll = expect_number(&args[1])?;
-    let pixelwise = args.get(2).is_some_and(Value::is_truthy);
-    let preserve = args.get(3).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(2).is_some_and(|v| v.is_truthy());
+    let preserve = args.get(3).is_some_and(|v| v.is_truthy());
     Ok(frames
         .set_window_vscroll(wid, next_vscroll, pixelwise, preserve)
         .unwrap_or(Value::fixnum(0)))
@@ -2652,7 +2652,7 @@ fn window_body_height_impl(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(1).is_some_and(|v| v.is_truthy());
     if pixelwise {
         let total = window_height_pixels(w);
         let body = if is_minibuffer_window(frames, fid, wid) {
@@ -2685,7 +2685,7 @@ pub(crate) fn builtin_window_body_width(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(1).is_some_and(|v| v.is_truthy());
     if pixelwise {
         Ok(Value::fixnum(window_body_width_pixels(frames, fid, w)))
     } else {
@@ -2710,7 +2710,7 @@ pub(crate) fn builtin_window_text_height(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(1).is_some_and(|v| v.is_truthy());
     if pixelwise {
         let total = window_height_pixels(w);
         let body = if is_minibuffer_window(frames, fid, wid) {
@@ -2739,7 +2739,7 @@ pub(crate) fn builtin_window_text_width(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(1).is_some_and(|v| v.is_truthy());
     if pixelwise {
         Ok(Value::fixnum(window_body_width_pixels(frames, fid, w)))
     } else {
@@ -2765,9 +2765,9 @@ pub(crate) fn builtin_window_edges(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-edges", &args, 4)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let body = args.get(1).is_some_and(Value::is_truthy);
-    let _absolute = args.get(2).is_some_and(Value::is_truthy);
-    let pixelwise = args.get(3).is_some_and(Value::is_truthy);
+    let body = args.get(1).is_some_and(|v| v.is_truthy());
+    let _absolute = args.get(2).is_some_and(|v| v.is_truthy());
+    let pixelwise = args.get(3).is_some_and(|v| v.is_truthy());
     let live_only = body;
     let (fid, wid) =
         resolve_window_id_or_window_error_in_state(frames, buffers, args.first(), live_only)?;
@@ -3716,7 +3716,7 @@ pub(crate) fn builtin_set_window_buffer(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), args[1]],
                 ));
             }
         };
@@ -3927,7 +3927,7 @@ pub(crate) fn builtin_switch_to_buffer(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), args[0]],
                 ));
             }
         };
@@ -3997,7 +3997,7 @@ pub(crate) fn builtin_display_buffer(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -4037,7 +4037,7 @@ pub(crate) fn builtin_display_buffer(
         }
         // ... or a list of symbols.
         let mut cursor = car;
-        while cursor.is_cons() /* TODO(tagged): `id` was Value::Cons(id), now use accessor */ {
+        while cursor.is_cons() {
             let snap = read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
             if let Some(sym_name) = snap.car.as_symbol_name() {
                 if sym_name == name {
@@ -4142,7 +4142,7 @@ pub(crate) fn builtin_pop_to_buffer(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -4172,7 +4172,7 @@ fn frame_total_cols(frame: &crate::window::Frame) -> i64 {
     frame
         .parameters
         .get("width")
-        .and_then(Value::as_int)
+        .and_then(|v| v.as_int())
         .unwrap_or(frame.columns() as i64)
 }
 
@@ -4240,7 +4240,7 @@ fn frame_total_lines(frame: &crate::window::Frame) -> i64 {
     frame
         .parameters
         .get("height")
-        .and_then(Value::as_int)
+        .and_then(|v| v.as_int())
         .unwrap_or(frame.lines() as i64)
 }
 
@@ -4248,7 +4248,7 @@ fn frame_text_lines(frame: &crate::window::Frame) -> i64 {
     frame
         .parameters
         .get(FRAME_TEXT_LINES_PARAM)
-        .and_then(Value::as_int)
+        .and_then(|v| v.as_int())
         .unwrap_or_else(|| frame_total_lines(frame))
 }
 
@@ -4701,7 +4701,7 @@ pub(crate) fn builtin_select_frame(
             if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), Value::Int(n)],
+                    vec![Value::symbol("frame-live-p"), Value::fixnum(n)],
                 ));
             }
             fid
@@ -4719,7 +4719,7 @@ pub(crate) fn builtin_select_frame(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *other],
+                vec![Value::symbol("frame-live-p"), args[0]],
             ));
         }
     };
@@ -4755,7 +4755,7 @@ pub(crate) fn builtin_select_frame_set_input_focus(
             if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), Value::Int(n)],
+                    vec![Value::symbol("frame-live-p"), Value::fixnum(n)],
                 ));
             }
             fid
@@ -4773,7 +4773,7 @@ pub(crate) fn builtin_select_frame_set_input_focus(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *other],
+                vec![Value::symbol("frame-live-p"), args[0]],
             ));
         }
     };
@@ -5022,8 +5022,8 @@ pub(crate) fn builtin_set_frame_height(
         Some(&args[0]),
         "frame-live-p",
     )?;
-    let pretend = args.get(2).is_some_and(Value::is_truthy);
-    let pixelwise = args.get(3).is_some_and(Value::is_truthy);
+    let pretend = args.get(2).is_some_and(|v| v.is_truthy());
+    let pixelwise = args.get(3).is_some_and(|v| v.is_truthy());
     let (current_text_width_px, char_height, uses_window_system_pixels) = {
         let frame = &mut ctx
             .frames
@@ -5077,8 +5077,8 @@ pub(crate) fn builtin_set_frame_width(
         Some(&args[0]),
         "frame-live-p",
     )?;
-    let pretend = args.get(2).is_some_and(Value::is_truthy);
-    let pixelwise = args.get(3).is_some_and(Value::is_truthy);
+    let pretend = args.get(2).is_some_and(|v| v.is_truthy());
+    let pixelwise = args.get(3).is_some_and(|v| v.is_truthy());
     let (current_text_height_px, char_width, uses_window_system_pixels) = {
         let frame = &mut ctx
             .frames
@@ -5132,7 +5132,7 @@ pub(crate) fn builtin_set_frame_size(
         Some(&args[0]),
         "frame-live-p",
     )?;
-    let pixelwise = args.get(3).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(3).is_some_and(|v| v.is_truthy());
     let (char_width, char_height, uses_window_system_pixels) = {
         let frame = &mut ctx
             .frames
@@ -5256,7 +5256,7 @@ fn resolve_make_frame_backend_request(
     let mut requested_terminal = false;
 
     for item in items {
-        if !item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+        if !item.is_cons() {
             continue;
         };
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -5325,7 +5325,7 @@ fn make_frame_plain(
     if let Some(params) = args.first() {
         if let Some(items) = super::value::list_to_vec(params) {
             for item in &items {
-                if item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                if item.is_cons() {
                     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                     if let Some(key) = &pair.car.as_symbol_id() {
                         match resolve_sym(*key) {
@@ -5404,7 +5404,7 @@ fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
         return parsed;
     };
     for item in items {
-        if !item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+        if !item.is_cons() {
             continue;
         };
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -5820,14 +5820,14 @@ pub(crate) fn builtin_frame_parameter(
                 .parameters
                 .get("width")
                 .cloned()
-                .unwrap_or(Value::Int(frame.columns() as i64)));
+                .unwrap_or(Value::fixnum(frame.columns() as i64)));
         }
         "height" => {
             return Ok(frame
                 .parameters
                 .get("height")
                 .cloned()
-                .unwrap_or(Value::Int(frame.lines() as i64)));
+                .unwrap_or(Value::fixnum(frame.lines() as i64)));
         }
         "visibility" => {
             return Ok(if frame.visible {
@@ -5908,7 +5908,7 @@ pub(crate) fn builtin_modify_frame_parameters(
     }
 
     for item in items.into_iter().rev() {
-        if &item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        if item.is_cons() {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             if let Some(key) = &pair.car.as_symbol_id() {
                 let key_name = resolve_sym(*key).to_owned();
@@ -5930,14 +5930,14 @@ pub(crate) fn builtin_modify_frame_parameters(
                     "width" => {
                         if let Some(n) = pair.cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.parameters.insert("width".to_string(), ValueKind::Fixnum(n));
+                                frame.parameters.insert("width".to_string(), Value::fixnum(n));
                             }
                         }
                     }
                     "height" => {
                         if let Some(n) = pair.cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.parameters.insert("height".to_string(), ValueKind::Fixnum(n));
+                                frame.parameters.insert("height".to_string(), Value::fixnum(n));
                             }
                         }
                     }
@@ -6145,7 +6145,7 @@ pub(crate) fn builtin_window_resize_apply(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-resize-apply", &args, 2)?;
     let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
-    let horflag = args.get(1).is_some_and(Value::is_truthy);
+    let horflag = args.get(1).is_some_and(|v| v.is_truthy());
 
     let new_pixel_map = super::builtins::snapshot_window_new_pixel();
     let new_normal_map = super::builtins::snapshot_window_new_normal();
@@ -6207,7 +6207,7 @@ pub(crate) fn builtin_window_resize_apply_total(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-resize-apply-total", &args, 2)?;
     let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
-    let horflag = args.get(1).is_some_and(Value::is_truthy);
+    let horflag = args.get(1).is_some_and(|v| v.is_truthy());
 
     let new_total_map = super::builtins::snapshot_window_new_total();
 
@@ -6533,10 +6533,10 @@ pub(crate) fn builtin_window_tree(eval: &mut super::eval::Context, args: Vec<Val
                     ValueKind::Nil
                 };
                 // Edges: top left right bottom (in pixel coordinates)
-                let top = Value::Int(bounds.y as i64);
-                let left = Value::Int(bounds.x as i64);
-                let right = Value::Int(bounds.right() as i64);
-                let bottom = Value::Int(bounds.bottom() as i64);
+                let top = Value::fixnum(bounds.y as i64);
+                let left = Value::fixnum(bounds.x as i64);
+                let right = Value::fixnum(bounds.right() as i64);
+                let bottom = Value::fixnum(bounds.bottom() as i64);
 
                 let mut elts = vec![horizontal_p, top, left, right, bottom];
                 for child in children {

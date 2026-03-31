@@ -7,7 +7,7 @@ use crate::emacs_core::load::{
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 /// Create evaluator with minimal Elisp shims for interactive testing.
 fn eval_with_interactive_shims() -> Context {
@@ -287,7 +287,7 @@ fn gnu_simple_eval_expression_eval() -> Context {
 fn read_first_object(ev: &mut Context, src: &str) -> Value {
     let result = crate::emacs_core::reader::builtin_read_from_string(ev, vec![Value::string(src)])
         .unwrap_or_else(|err| panic!("read-from-string failed for {src:?}: {err:?}"));
-    if !result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !result.is_cons() {
         panic!("expected cons from read-from-string, got {result:?}");
     };
     crate::emacs_core::value::read_cons(cell).car  // TODO(tagged): replace read_cons with cons accessors
@@ -1356,7 +1356,7 @@ fn this_command_keys_vector_after_set() {
     let mut ev = Context::new();
     ev.set_this_command_keys_from_string("x").unwrap();
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
-    if result.is_vector() /* TODO(tagged): `v` was Value::Vector(v), now use accessor */ {
+    if result.is_vector() {
         let v = with_heap(|h| h.get_vector(v).clone());
         assert_eq!(v.len(), 1);
         assert_eq!(v[0], Value::fixnum('x' as i64));
@@ -1423,7 +1423,7 @@ fn this_single_command_raw_keys_tracks_raw_sequence() {
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
-            assert_eq!(items.as_slice(), &[Value::Int('a' as i64)]);
+            assert_eq!(items.as_slice(), &[Value::fixnum('a' as i64)]);
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -1460,11 +1460,11 @@ fn set_this_command_keys_clears_raw_sequence_history() {
     match translated.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
-            assert_eq!(items[0], Value::Int(('x' as i64) | ((1u32 << 27) as i64)));
-            assert_eq!(items[1], Value::Int('f' as i64));
-            assert_eq!(items[2], Value::Int('o' as i64));
-            assert_eq!(items[3], Value::Int('o' as i64));
-            assert_eq!(items[4], Value::Int('\r' as i64));
+            assert_eq!(items[0], Value::fixnum(('x' as i64) | ((1u32 << 27) as i64)));
+            assert_eq!(items[1], Value::fixnum('f' as i64));
+            assert_eq!(items[2], Value::fixnum('o' as i64));
+            assert_eq!(items[3], Value::fixnum('o' as i64));
+            assert_eq!(items[4], Value::fixnum('\r' as i64));
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -3656,7 +3656,7 @@ fn eval_expression_rejects_too_many_args() {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(sig.data.len(), 2);
-            assert_eq!(sig.data[1], ValueKind::Fixnum(5));
+            assert_eq!(sig.data[1], Value::fixnum(5));
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3726,7 +3726,7 @@ fn self_insert_command_argument_validation() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("self-insert-command"), ValueKind::Fixnum(0)]
+                vec![Value::symbol("self-insert-command"), Value::fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -3740,7 +3740,7 @@ fn self_insert_command_argument_validation() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("self-insert-command"), ValueKind::Fixnum(3)]
+                vec![Value::symbol("self-insert-command"), Value::fixnum(3)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),

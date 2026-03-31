@@ -6,7 +6,7 @@ use crate::window::{FrameManager, WindowId};
 use arboard::Clipboard;
 #[cfg(target_os = "linux")]
 use arboard::{Clipboard, GetExtLinux, LinuxClipboardKind, SetExtLinux};
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // =========================================================================
 // fontset.c gap-fill stubs
@@ -466,7 +466,7 @@ pub(crate) fn snapshot_window_new_normal() -> HashMap<u64, f64> {
         slot.borrow()
             .iter()
             .filter_map(|(&id, v)| match v {
-                Value::make_float(f) /* TODO(tagged): dropped float id `_` */ => Some((id, *f)),
+                Value::make_float(f) => Some((id, *f)),
                 Value::fixnum(i) => Some((id, *i as f64)),
                 _ => None,
             })
@@ -568,7 +568,7 @@ pub(super) fn set_window_new_total_value(window: &Value, size: i64, add: bool) -
 }
 
 fn sqlite_handle_id(value: &Value) -> Option<i64> {
-    if !value.is_vector() /* TODO(tagged): `items` was Value::Vector(items), rewrite let-else */ {
+    if !value.is_vector() {
         return None;
     };
     let items = with_heap(|h| h.get_vector(*items).clone());
@@ -821,7 +821,7 @@ fn fillarray_character_from_value(value: &Value) -> Result<char, Flow> {
         ValueKind::Char(c) => Ok(c),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *value],
         )),
     }
 }
@@ -851,7 +851,7 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
                 with_heap_mut(|h| {
                     let vec = h.get_vector_mut(*items);
                     for bit in vec.iter_mut().skip(BOOL_VECTOR_BITS_START).take(bit_count) {
-                        *bit = ValueKind::Fixnum(fill_bit);
+                        *bit = Value::fixnum(fill_bit);
                     }
                 });
                 return Ok(args[0]);
@@ -882,7 +882,7 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("arrayp"), *other],
+            vec![Value::symbol("arrayp"), args[0]],
         )),
     }
 }
@@ -895,7 +895,7 @@ pub(crate) fn builtin_define_fringe_bitmap(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("symbolp"), args[0]],
         ));
     }
-    if !matches!(args[1], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */) {
+    if !matches!(args[1], ValueKind::Veclike(VecLikeType::Vector) | ValueKind::String) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("arrayp"), args[1]],
@@ -1101,7 +1101,7 @@ pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
         if !prefixes.is_nil()
             && !matches!(
                 prefixes,
-                Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ | Value::NIL
+                Value::Cons(_) | Value::Vector(_) | ValueKind::String | Value::NIL
             )
         {
             return Err(signal(
@@ -1115,7 +1115,7 @@ pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_describe_vector(args: Vec<Value>) -> EvalResult {
     expect_range_args("describe-vector", &args, 1, 2)?;
-    if !matches!(args[0], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */) {
+    if !matches!(args[0], ValueKind::Veclike(VecLikeType::Vector)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vector-or-char-table-p"), args[0]],
@@ -1559,7 +1559,7 @@ fn expect_characterp_from_int(value: &Value) -> Result<char, Flow> {
         ValueKind::Char(c) => Ok(c),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *value],
         )),
     }
 }
@@ -1670,7 +1670,7 @@ pub(crate) fn builtin_font_match_p(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_font_shape_gstring(args: Vec<Value>) -> EvalResult {
     expect_args("font-shape-gstring", &args, 2)?;
-    if !matches!(args[0], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */) {
+    if !matches!(args[0], ValueKind::Veclike(VecLikeType::Vector)) {
         return Err(signal(
             "error",
             vec![Value::string("Invalid glyph-string: ")],
@@ -1852,7 +1852,7 @@ thread_local! {
 }
 
 fn inotify_watch_descriptor_parts(value: &Value) -> Option<(i64, i64)> {
-    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !value.is_cons() {
         return None;
     };
     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -1969,7 +1969,7 @@ pub(crate) fn builtin_internal_decode_string_utf_8(args: Vec<Value>) -> EvalResu
         return Ok(Value::NIL);
     }
     // GNU: CHECK_FIXNUM(count)
-    if !matches!(args[6], Value::fixnum(_)) {
+    if !args[6].is_fixnum() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), args[6]],
@@ -1987,7 +1987,7 @@ pub(crate) fn builtin_internal_encode_string_utf_8(args: Vec<Value>) -> EvalResu
     if args[0].as_str().is_none() {
         return Ok(Value::NIL);
     }
-    if !matches!(args[6], Value::fixnum(_)) {
+    if !args[6].is_fixnum() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), args[6]],

@@ -451,7 +451,7 @@ fn unquote_command_modes_value(value: Value) -> Value {
 }
 
 fn command_modes_from_quoted_interactive_form(form: &Value) -> Result<Option<Value>, Flow> {
-    if !form.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !form.is_cons() {
         return Ok(None);
     };
     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -476,12 +476,12 @@ fn command_modes_from_quoted_lambda(value: &Value) -> Result<Option<Value>, Flow
     let Some(items) = value_list_to_vec(value) else {
         return Ok(None);
     };
-    if items.first().and_then(Value::as_symbol_name) != Some("lambda") {
+    if items.first().and_then(|v| v.as_symbol_name()) != Some("lambda") {
         return Ok(None);
     }
 
     let mut body_index = 2;
-    if matches!(items.get(body_index), Some(Value::Str(_) /* TODO(tagged): convert Value::Str to new API */)) {
+    if matches!(items.get(body_index), Some(ValueKind::String)) {
         body_index += 1;
     }
     while items.get(body_index).is_some_and(value_is_declare_form) {
@@ -869,12 +869,12 @@ fn quoted_lambda_has_interactive_form(value: &Value) -> bool {
     let Some(items) = value_list_to_vec(value) else {
         return false;
     };
-    if items.first().and_then(Value::as_symbol_name) != Some("lambda") {
+    if items.first().and_then(|v| v.as_symbol_name()) != Some("lambda") {
         return false;
     }
 
     let mut body_index = 2;
-    if matches!(items.get(body_index), Some(Value::Str(_) /* TODO(tagged): convert Value::Str to new API */)) {
+    if matches!(items.get(body_index), Some(ValueKind::String)) {
         body_index += 1;
     }
     while items.get(body_index).is_some_and(value_is_declare_form) {
@@ -1037,7 +1037,7 @@ impl InteractiveInvocationContext {
 
     fn from_keys_arg_in_state(read_command_keys: &[Value], keys: Option<&Value>) -> Self {
         let mut context = Self::default();
-        if let Some(Value::Vector(values) /* TODO(tagged): convert Value::Vector to new API */) = keys {
+        if let Some(ValueKind::Veclike(VecLikeType::Vector)) = keys {
             let values = with_heap(|h| h.get_vector(*values).clone());
             if !values.is_empty() {
                 context.command_keys = values.clone();
@@ -1188,7 +1188,7 @@ fn prefix_numeric_value(value: &Value) -> i64 {
     match value.kind() {
         ValueKind::Nil => 1,
         ValueKind::Fixnum(n) => n,
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f as i64,
+        ValueKind::Float => *f as i64,
         ValueKind::Char(c) => c as i64,
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Cons => {
@@ -1198,7 +1198,7 @@ fn prefix_numeric_value(value: &Value) -> i64 {
             };
             match car.kind() {
                 ValueKind::Fixnum(n) => n,
-                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => f as i64,
+                ValueKind::Float => f as i64,
                 ValueKind::Char(c) => c as i64,
                 _ => 1,
             }
@@ -1363,7 +1363,7 @@ fn interactive_args_from_string_code_in_state(
                 if raw.is_nil() {
                     return Ok(None);
                 }
-                args.push(Value::Int(prefix_numeric_value(&raw)));
+                args.push(Value::fixnum(prefix_numeric_value(&raw)));
             }
             'p' => args.push(interactive_prefix_numeric_arg_in_state(
                 obarray,
@@ -1562,7 +1562,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                         &letter_args,
                     )?);
                 } else {
-                    args.push(Value::Int(prefix_numeric_value(&raw)));
+                    args.push(Value::fixnum(prefix_numeric_value(&raw)));
                 }
             }
             'p' => args.push(interactive_prefix_numeric_arg_in_state(
@@ -1723,7 +1723,7 @@ fn default_command_execute_args_in_state(
         "upcase-initials-region" => interactive_region_args_in_buffers(buffers, "error"),
         "upcase-region" | "downcase-region" => Err(signal(
             "args-out-of-range",
-            vec![Value::string(""), ValueKind::Fixnum(0)],
+            vec![Value::string(""), Value::fixnum(0)],
         )),
         _ => Ok(Vec::new()),
     }
@@ -1963,7 +1963,7 @@ fn interactive_select_window_from_prefix_context(
     let Some(window_value) = interactive_event_target_window(&event) else {
         return Ok(());
     };
-    if !window_value.is_window() /* TODO(tagged): `window_id` was Value::Window(window_id), rewrite let-else */ {
+    if !window_value.is_window() {
         return Ok(());
     };
     let window_id = crate::window::WindowId(window_id);
@@ -2262,7 +2262,7 @@ fn interactive_args_from_string_code(
                         vec![Value::string(prompt)],
                     )?);
                 } else {
-                    args.push(Value::Int(prefix_numeric_value(&raw)));
+                    args.push(Value::fixnum(prefix_numeric_value(&raw)));
                 }
             }
             'p' => args.push(interactive_prefix_numeric_arg(eval, kind)),
@@ -2389,7 +2389,7 @@ fn resolve_interactive_invocation_args(
     if let Some(bc) = func.get_bytecode_data() {
         if let Some(spec) = &bc.interactive {
             // If it's a vector [spec, modes], extract just the spec
-            let spec_val = if spec.is_vector() /* TODO(tagged): `vid` was Value::Vector(vid), now use accessor */ {
+            let spec_val = if spec.is_vector() {
                 super::value::with_heap(|h| {
                     if h.vector_len(*vid) > 0 {
                         h.vector_ref(*vid, 0)
@@ -2474,7 +2474,7 @@ pub(crate) fn callable_form_needs_instantiation(value: &Value) -> bool {
         return false;
     };
     matches!(
-        items.first().and_then(Value::as_symbol_name),
+        items.first().and_then(|v| v.as_symbol_name()),
         Some("lambda" | "closure")
     )
 }
@@ -2635,7 +2635,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     if let Some(bc) = func.get_bytecode_data()
         && let Some(spec) = &bc.interactive
     {
-        let spec_val = if spec.is_vector() /* TODO(tagged): `vid` was Value::Vector(vid), now use accessor */ {
+        let spec_val = if spec.is_vector() {
             super::value::with_heap(|h| {
                 if h.vector_len(*vid) > 0 {
                     h.vector_ref(*vid, 0)
@@ -2727,7 +2727,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     if let Some(bc) = func.get_bytecode_data()
         && let Some(spec) = &bc.interactive
     {
-        let spec_val = if spec.is_vector() /* TODO(tagged): `vid` was Value::Vector(vid), now use accessor */ {
+        let spec_val = if spec.is_vector() {
             super::value::with_heap(|h| {
                 if h.vector_len(*vid) > 0 {
                     h.vector_ref(*vid, 0)
@@ -2893,7 +2893,7 @@ pub(crate) fn builtin_key_binding_impl(
     }
 
     let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
-    let accept_default = args.get(1).is_some_and(Value::is_truthy);
+    let accept_default = args.get(1).is_some_and(|v| v.is_truthy());
     Ok(
         resolve_active_key_binding(ctx, &emacs_events, accept_default, no_remap, args.get(3))?
             .binding,

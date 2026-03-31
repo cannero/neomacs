@@ -231,7 +231,7 @@ pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
         ValueKind::Subr(id) => Ok(Value::string(resolve_sym(id))),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("subrp"), *other],
+            vec![Value::symbol("subrp"), args[0]],
         )),
     }
 }
@@ -246,7 +246,7 @@ pub(crate) fn builtin_subr_arity(ctx: &mut super::eval::Context, args: Vec<Value
         ValueKind::Subr(id) => Ok(subr_arity_from_registry(ctx, id)),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("subrp"), *other],
+            vec![Value::symbol("subrp"), args[0]],
         )),
     }
 }
@@ -297,7 +297,7 @@ pub(crate) fn builtin_subr_primitive_p(args: Vec<Value>) -> EvalResult {
 /// `Value::ByteCode`).
 pub(crate) fn builtin_interpreted_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("interpreted-function-p", &args, 1)?;
-    Ok(Value::bool_val(matches!(&args[0], Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */)))
+    Ok(Value::bool_val(matches!(&args[0], ValueKind::Veclike(VecLikeType::Lambda))))
 }
 
 /// `(special-form-p OBJECT)` -- return t if OBJECT is a special form.
@@ -370,7 +370,7 @@ pub(crate) fn builtin_func_arity_ctx(
             let max = ld.params.max_arity();
             Ok(arity_cons(min, max))
         }
-        other => Err(signal("invalid-function", vec![*other])),
+        other => Err(signal("invalid-function", vec![args[0]])),
     }
 }
 
@@ -397,7 +397,7 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
             let ld = args[0].get_lambda_data().unwrap();
             Ok(arity_cons(ld.params.min_arity(), ld.params.max_arity()))
         }
-        other => Err(signal("invalid-function", vec![*other])),
+        other => Err(signal("invalid-function", vec![args[0]])),
     }
 }
 

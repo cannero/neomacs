@@ -6,7 +6,7 @@ use crate::emacs_core::builtins::{
 #[test]
 fn hash_table_keys_values_basics() {
     let table = Value::hash_table(HashTableTest::Equal);
-    if &table.is_hash_table() /* TODO(tagged): `ht` was Value::HashTable(ht), now use accessor */ {
+    if table.is_hash_table() {
         with_heap_mut(|h| {
             let raw = h.get_hash_table_mut(*ht);
             let test = raw.test.clone();
@@ -310,7 +310,7 @@ fn hash_table_nan_payloads_remain_distinct_for_eql_and_equal() {
         for bucket in outer {
             let entries = list_to_vec(&bucket).expect("bucket alist");
             for entry in entries {
-                if !entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+                if !entry.is_cons() {
                     panic!("expected alist cons entry");
                 };
                 let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -443,7 +443,7 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
         Value::fixnum(3),
     ])
     .expect("hash table");
-    if &table.is_hash_table() /* TODO(tagged): `ht` was Value::HashTable(ht), now use accessor */ {
+    if table.is_hash_table() {
         with_heap_mut(|h| {
             let raw = h.get_hash_table_mut(*ht);
             let test = raw.test.clone();
@@ -464,7 +464,7 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
     for bucket in outer {
         let entries = list_to_vec(&bucket).expect("bucket alist");
         for entry in entries {
-            if !entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+            if !entry.is_cons() {
                 panic!("expected alist cons entry");
             };
             let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -582,7 +582,7 @@ fn internal_hash_table_buckets_eq_pointer_keys_keep_distinct_hashes() {
     for bucket in outer {
         let entries = list_to_vec(&bucket).expect("bucket alist");
         for entry in entries {
-            if !entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+            if !entry.is_cons() {
                 panic!("expected alist cons entry");
             };
             let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -625,7 +625,7 @@ fn internal_hash_table_buckets_equal_preserve_first_key_identity_on_overwrite() 
     assert_eq!(outer.len(), 1);
     let entries = list_to_vec(&outer[0]).expect("bucket alist");
     assert_eq!(entries.len(), 1);
-    if !&entries[0].is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !&entries[0].is_cons() {
         panic!("expected alist cons entry");
     };
     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -643,7 +643,7 @@ fn internal_hash_table_buckets_match_oracle_small_float_hashes() {
         for bucket in outer {
             let entries = list_to_vec(&bucket).expect("bucket alist");
             for entry in entries {
-                if !entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+                if !entry.is_cons() {
                     panic!("expected alist cons entry");
                 };
                 let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -694,7 +694,7 @@ fn internal_hash_table_buckets_match_oracle_float_special_hashes() {
         for bucket in outer {
             let entries = list_to_vec(&bucket).expect("bucket alist");
             for entry in entries {
-                if !entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+                if !entry.is_cons() {
                     panic!("expected alist cons entry");
                 };
                 let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors

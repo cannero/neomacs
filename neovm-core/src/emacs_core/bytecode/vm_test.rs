@@ -1402,7 +1402,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
     let mut eval = Context::new_minimal_vm_harness();
 
     let table = Value::hash_table(HashTableTest::Eq);
-    if !table.is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), rewrite let-else */ {
+    if !table.is_hash_table() {
         panic!("expected hash table constant");
     };
     crate::emacs_core::value::with_heap_mut(|heap| {
@@ -7215,7 +7215,7 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(
                 data,
-                vec![Value::cons(ValueKind::Fixnum(2), ValueKind::Fixnum(3)), ValueKind::Fixnum(1)]
+                vec![Value::cons(Value::fixnum(2), Value::fixnum(3)), Value::fixnum(1)]
             );
         }
         other => panic!("unexpected error: {other:?}"),

@@ -66,7 +66,7 @@ fn libxml_parse_xml_region_arity_and_type_subset() {
     match wrong_base {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -84,7 +84,7 @@ fn libxml_parse_xml_region_arity_and_type_subset() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("libxml-parse-xml-region"), ValueKind::Fixnum(5)]
+                vec![Value::symbol("libxml-parse-xml-region"), Value::fixnum(5)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -140,7 +140,7 @@ fn libxml_parse_html_region_arity_and_type_subset() {
     match wrong_base {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -158,7 +158,7 @@ fn libxml_parse_html_region_arity_and_type_subset() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("libxml-parse-html-region"), ValueKind::Fixnum(5)]
+                vec![Value::symbol("libxml-parse-html-region"), Value::fixnum(5)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -176,7 +176,7 @@ fn availability_probes_return_true_and_validate_arity() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("libxml-available-p"), ValueKind::Fixnum(1)]
+                vec![Value::symbol("libxml-available-p"), Value::fixnum(1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -188,7 +188,7 @@ fn availability_probes_return_true_and_validate_arity() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("zlib-available-p"), ValueKind::Fixnum(1)]
+                vec![Value::symbol("zlib-available-p"), Value::fixnum(1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),

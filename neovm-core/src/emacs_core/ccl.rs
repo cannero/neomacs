@@ -18,7 +18,7 @@ fn is_integer(value: &Value) -> bool {
 }
 
 fn is_valid_ccl_program(program: &Value) -> bool {
-    if !program.is_vector() /* TODO(tagged): `program` was Value::Vector(program), rewrite let-else */ {
+    if !program.is_vector() {
         return false;
     };
 
@@ -289,7 +289,7 @@ pub(crate) fn builtin_ccl_execute_on_string_impl(args: Vec<Value>) -> EvalResult
             // Type error: STRING must be a string or nil
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[2]],
             ))
         }
     }

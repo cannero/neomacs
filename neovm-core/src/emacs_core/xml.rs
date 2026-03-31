@@ -81,7 +81,7 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
         v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -96,7 +96,7 @@ pub(crate) fn builtin_libxml_parse_html_region(args: Vec<Value>) -> EvalResult {
     expect_min_args("libxml-parse-html-region", &args, 0)?;
     expect_max_args("libxml-parse-html-region", &args, 4)?;
     if args.len() >= 2 {
-        if args.first().is_some_and(Value::is_nil) {
+        if args.first().is_some_and(|v| v.is_nil()) {
             return Ok(Value::NIL);
         }
         let start_pos = expect_integer_or_marker(

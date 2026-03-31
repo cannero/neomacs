@@ -505,7 +505,7 @@ impl Face {
                 }
                 "height" => match val {
                     ValueKind::Fixnum(n) => face.height = Some(FaceHeight::Absolute(*n as i32)),
-                    ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => face.height = Some(FaceHeight::Relative(*f)),
+                    ValueKind::Float => face.height = Some(FaceHeight::Relative(*f)),
                     _ => {}
                 },
                 "family" => {
@@ -778,7 +778,7 @@ impl FaceRemapping {
 
         for entry in &alist {
             // Each entry is (FACE . SPEC) — a cons cell
-            if !entry.is_cons() /* TODO(tagged): `cons_id` was Value::Cons(cons_id), rewrite let-else */ {
+            if !entry.is_cons() {
                 continue;
             };
             let cell = read_cons(*cons_id);  // TODO(tagged): replace read_cons with cons accessors

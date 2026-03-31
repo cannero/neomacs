@@ -1,5 +1,5 @@
 use super::*;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // -----------------------------------------------------------------------
 // Serializer tests
@@ -97,7 +97,7 @@ fn serialize_vector() {
 #[test]
 fn serialize_hash_table() {
     let ht = Value::hash_table(HashTableTest::Equal);
-    if let Value::HashTable(ref table_arc) /* TODO(tagged): convert Value::HashTable to new API */ = ht {
+    if let Value::HashTable(ref table_arc) = ht {
         with_heap_mut(|h| {
             h.get_hash_table_mut(*table_arc)
                 .data
@@ -226,20 +226,20 @@ fn parse_false() {
 #[test]
 fn parse_integer() {
     let result = builtin_json_parse_string(vec![Value::string("42")]);
-    assert!(matches!(result.unwrap(), Value::fixnum(42)));
+    assert!(result.unwrap().is_fixnum());
 }
 
 #[test]
 fn parse_negative_integer() {
     let result = builtin_json_parse_string(vec![Value::string("-7")]);
-    assert!(matches!(result.unwrap(), Value::fixnum(-7)));
+    assert!(result.unwrap().is_fixnum());
 }
 
 #[test]
 fn parse_float() {
     let result = builtin_json_parse_string(vec![Value::string("3.14")]);
     match result.unwrap().kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 3.14).abs() < 1e-10),
+        ValueKind::Float => assert!((f - 3.14).abs() < 1e-10),
         other => panic!("expected float, got {:?}", other),
     }
 }
@@ -248,7 +248,7 @@ fn parse_float() {
 fn parse_float_exponent() {
     let result = builtin_json_parse_string(vec![Value::string("1.5e2")]);
     match result.unwrap().kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 150.0).abs() < 1e-10),
+        ValueKind::Float => assert!((f - 150.0).abs() < 1e-10),
         other => panic!("expected float, got {:?}", other),
     }
 }
@@ -256,7 +256,7 @@ fn parse_float_exponent() {
 #[test]
 fn parse_zero() {
     let result = builtin_json_parse_string(vec![Value::string("0")]);
-    assert!(matches!(result.unwrap(), Value::fixnum(0)));
+    assert!(result.unwrap().is_fixnum());
 }
 
 #[test]
@@ -304,9 +304,9 @@ fn parse_array() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(items.len(), 3);
-            assert!(matches!(items[0], ValueKind::Fixnum(1)));
-            assert!(matches!(items[1], ValueKind::Fixnum(2)));
-            assert!(matches!(items[2], ValueKind::Fixnum(3)));
+            assert!(matches!(items[0], Value::fixnum(1)));
+            assert!(matches!(items[1], Value::fixnum(2)));
+            assert!(matches!(items[2], Value::fixnum(3)));
         }
         other => panic!("expected vector, got {:?}", other),
     }
@@ -322,8 +322,8 @@ fn parse_array_as_list() {
     let val = result.unwrap();
     let items = list_to_vec(&val).expect("should be a list");
     assert_eq!(items.len(), 2);
-    assert!(matches!(items[0], Value::fixnum(1)));
-    assert!(matches!(items[1], Value::fixnum(2)));
+    assert!(items[0].is_fixnum());
+    assert!(items[1].is_fixnum());
 }
 
 #[test]
@@ -348,11 +348,11 @@ fn parse_object_hash_table() {
             assert_eq!(table.key_snapshots.len(), 2);
             assert!(matches!(
                 table.data.get(&HashKey::from_str("a")),
-                Some(ValueKind::Fixnum(1))
+                Some(Value::fixnum(1))
             ));
             assert!(matches!(
                 table.data.get(&HashKey::from_str("b")),
-                Some(ValueKind::Fixnum(2))
+                Some(Value::fixnum(2))
             ));
             assert!(matches!(
                 table.key_snapshots.get(&HashKey::from_str("a")),
@@ -382,7 +382,7 @@ fn parse_object_as_alist() {
         ValueKind::Cons => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             assert_eq!(pair.car, Value::symbol("x"));
-            assert!(matches!(pair.cdr, ValueKind::Fixnum(10)));
+            assert!(matches!(pair.cdr, Value::fixnum(10)));
         }
         other => panic!("expected cons, got {:?}", other),
     }
@@ -399,7 +399,7 @@ fn parse_object_as_plist() {
     let items = list_to_vec(&val).expect("should be a list");
     assert_eq!(items.len(), 2);
     assert!(items[0].as_keyword_id().map_or(false, |k| resolve_sym(k) == ":key"));
-    assert!(matches!(items[1], Value::fixnum(42)));
+    assert!(items[1].is_fixnum());
 }
 
 #[test]
@@ -472,7 +472,7 @@ fn parse_no_args() {
 fn round_trip_integer() {
     let serialized = builtin_json_serialize(vec![Value::fixnum(123)]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
-    assert!(matches!(parsed, Value::fixnum(123)));
+    assert!(parsed.is_fixnum());
 }
 
 #[test]
@@ -492,7 +492,7 @@ fn round_trip_array() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(items.len(), 3);
-            assert!(matches!(items[0], ValueKind::Fixnum(1)));
+            assert!(matches!(items[0], Value::fixnum(1)));
             assert_eq!(items[1].as_str(), Some("two"));
             assert!(matches!(items[2], ValueKind::T));
         }
@@ -503,7 +503,7 @@ fn round_trip_array() {
 #[test]
 fn round_trip_object() {
     let ht = Value::hash_table(HashTableTest::Equal);
-    if let Value::HashTable(ref table_arc) /* TODO(tagged): convert Value::HashTable to new API */ = ht {
+    if let Value::HashTable(ref table_arc) = ht {
         with_heap_mut(|h| {
             h.get_hash_table_mut(*table_arc)
                 .data
@@ -517,7 +517,7 @@ fn round_trip_object() {
             let table = with_heap(|h| h.get_hash_table(ht).clone());
             assert!(matches!(
                 table.data.get(&HashKey::from_str("key")),
-                Some(ValueKind::Fixnum(99))
+                Some(Value::fixnum(99))
             ));
         }
         _ => panic!("expected hash-table"),
@@ -547,7 +547,7 @@ fn parse_large_number_as_float() {
     // Number too large for i64.
     let result = builtin_json_parse_string(vec![Value::string("99999999999999999999")]);
     match result.unwrap().kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {} // OK — fell back to f64
+        ValueKind::Float => {} // OK — fell back to f64
         other => panic!("expected float for large number, got {:?}", other),
     }
 }

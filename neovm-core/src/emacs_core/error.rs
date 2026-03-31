@@ -156,7 +156,7 @@ pub(crate) fn make_signal_binding_value(sig: &SignalData) -> Value {
 
 /// Reconstruct a signal flow from a condition-case/thread error binding form.
 pub(crate) fn signal_from_binding_value(value: Value) -> Option<Flow> {
-    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !value.is_cons() {
         return None;
     };
     let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -215,7 +215,7 @@ fn format_opaque_handle_in_state(
         return Some(handle);
     }
     if super::marker::is_marker(value) {
-        if !value.is_marker() /* TODO(tagged): `marker_id` was Value::Marker(marker_id), rewrite let-else */ {
+        if !value.is_marker() {
             unreachable!("marker predicate accepted a non-marker value");
         };
         let marker = with_heap(|heap| heap.get_marker(*marker_id).clone());
@@ -234,7 +234,7 @@ fn format_opaque_handle_in_state(
         out.push('>');
         return Some(out);
     }
-    if value.is_overlay() /* TODO(tagged): `id` was Value::Overlay(id), now use accessor */ {
+    if value.is_overlay() {
         let overlay = with_heap(|heap| heap.get_overlay(*id).clone());
         if let Some(buffer_id) = overlay.buffer
             && let Some(buffer) = buffers.get(buffer_id)
@@ -248,7 +248,7 @@ fn format_opaque_handle_in_state(
         }
         return Some("#<overlay in no buffer>".to_string());
     }
-    if value.is_window() /* TODO(tagged): `id` was Value::Window(id), now use accessor */ {
+    if value.is_window() {
         return Some(format_window_handle_in_state(buffers, frames, *id));
     }
     if let Some(id) = threads.thread_id_from_handle(value) {
@@ -260,7 +260,7 @@ fn format_opaque_handle_in_state(
     if let Some(id) = threads.condition_variable_id_from_handle(value) {
         return Some(format!("#<condvar {id}>"));
     }
-    if value.is_buffer() /* TODO(tagged): `id` was Value::Buffer(id), now use accessor */ {
+    if value.is_buffer() {
         if let Some(buf) = buffers.get(*id) {
             return Some(format!("#<buffer {}>", buf.name));
         }
@@ -298,13 +298,13 @@ fn format_window_handle_in_state(
 pub(crate) fn print_options_from_state(obarray: &super::symbol::Obarray) -> PrintOptions {
     let print_gensym = obarray
         .symbol_value("print-gensym")
-        .is_some_and(Value::is_truthy);
+        .is_some_and(|v| v.is_truthy());
     let print_circle = obarray
         .symbol_value("print-circle")
-        .is_some_and(Value::is_truthy);
+        .is_some_and(|v| v.is_truthy());
     let print_escape_newlines = obarray
         .symbol_value("print-escape-newlines")
-        .is_some_and(Value::is_truthy);
+        .is_some_and(|v| v.is_truthy());
     let print_level = match obarray.symbol_value("print-level") {
         Some(ValueKind::Fixnum(n)) if *n >= 0 => Some(*n),
         _ => None,
@@ -315,13 +315,13 @@ pub(crate) fn print_options_from_state(obarray: &super::symbol::Obarray) -> Prin
     };
     let print_escape_nonascii = obarray
         .symbol_value("print-escape-nonascii")
-        .is_some_and(Value::is_truthy);
+        .is_some_and(|v| v.is_truthy());
     let print_escape_multibyte = obarray
         .symbol_value("print-escape-multibyte")
-        .is_some_and(Value::is_truthy);
+        .is_some_and(|v| v.is_truthy());
     let print_escape_control_characters = obarray
         .symbol_value("print-escape-control-characters")
-        .is_some_and(Value::is_truthy);
+        .is_some_and(|v| v.is_truthy());
     let mut opts = PrintOptions::new(print_gensym, print_circle, print_level, print_length);
     opts.print_escape_newlines = print_escape_newlines;
     opts.print_escape_nonascii = print_escape_nonascii;
@@ -576,7 +576,7 @@ fn format_vector_bytes_in_state(
     }
     let mut out = Vec::new();
     out.push(b'[');
-    if !value.is_vector() /* TODO(tagged): `items` was Value::Vector(items), rewrite let-else */ {
+    if !value.is_vector() {
         return out;
     };
     let values = with_heap(|h| h.get_vector(*items).clone());

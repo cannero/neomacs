@@ -466,7 +466,7 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
     .expect("format-mode-line propertize");
 
     assert_eq!(rendered.as_str(), Some("abc"));
-    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+    if !rendered.is_string() {
         panic!("expected string result");
     };
     let props = get_string_text_properties_table(id).expect("mode-line text properties");
@@ -487,7 +487,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
     eval.buffers.set_current(buffer_id);
 
     let format = Value::string("%b!");
-    if !format.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+    if !format.is_string() {
         panic!("expected string format");
     };
     set_string_text_properties(
@@ -508,7 +508,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
         builtin_format_mode_line_ctx(&mut eval, vec![format]).expect("format-mode-line props");
 
     assert_eq!(rendered.as_str(), Some("fmt-prop-buffer!"));
-    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+    if !rendered.is_string() {
         panic!("expected string result");
     };
     let props = get_string_text_properties_table(id).expect("mode-line text properties");
@@ -580,7 +580,7 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
     .expect("format-mode-line face arg");
 
     assert_eq!(rendered.as_str(), Some("ab"));
-    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+    if !rendered.is_string() {
         panic!("expected string result");
     };
     let props = get_string_text_properties_table(id).expect("mode-line text properties");
@@ -617,7 +617,7 @@ fn test_format_mode_line_integer_face_argument_discards_text_properties() {
     .expect("format-mode-line face int");
 
     assert_eq!(rendered, Value::string("abc"));
-    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+    if !rendered.is_string() {
         panic!("expected string result");
     };
     assert!(
@@ -644,7 +644,7 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
     .expect("format-mode-line fixnum padding");
 
     assert_eq!(rendered.as_str(), Some("x    "));
-    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+    if !rendered.is_string() {
         panic!("expected string result");
     };
     let props = get_string_text_properties_table(id).expect("mode-line text properties");
@@ -947,7 +947,7 @@ fn test_line_pixel_height() {
 #[test]
 fn test_window_text_pixel_size() {
     let result = builtin_window_text_pixel_size(vec![]).unwrap();
-    if result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if result.is_cons() {
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car, Value::fixnum(0));
         assert_eq!(pair.cdr, Value::fixnum(0));
@@ -1584,7 +1584,7 @@ fn test_bidi_find_overridden_directionality() {
     match third_arg_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(3)]);
         }
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }

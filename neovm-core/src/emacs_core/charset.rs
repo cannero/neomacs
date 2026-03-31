@@ -648,7 +648,7 @@ fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -659,7 +659,7 @@ fn require_known_charset(value: &Value) -> Result<String, Flow> {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("charsetp"), *other],
+                vec![Value::symbol("charsetp"), *value],
             ));
         }
     };
@@ -677,7 +677,7 @@ fn require_known_charset(value: &Value) -> Result<String, Flow> {
 fn decode_char_codepoint_arg(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Ok(n),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */
+        ValueKind::Float
             if f.is_finite() && *f >= 0.0 && f.fract() == 0.0 && *f <= i64::MAX as f64 =>
         {
             Ok(*f as i64)
@@ -696,7 +696,7 @@ fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
         ValueKind::Fixnum(n) if n >= 0 => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("wholenump"), *other],
+            vec![Value::symbol("wholenump"), *value],
         )),
     }
 }
@@ -706,7 +706,7 @@ fn expect_fixnump(value: &Value) -> Result<i64, Flow> {
         ValueKind::Fixnum(n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("fixnump"), *other],
+            vec![Value::symbol("fixnump"), *value],
         )),
     }
 }
@@ -714,10 +714,10 @@ fn expect_fixnump(value: &Value) -> Result<i64, Flow> {
 fn encode_char_input(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(n) => Ok(n),
+        ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(&n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *value],
         )),
     }
 }
@@ -753,7 +753,7 @@ fn parse_superset_spec(value: &Value) -> Option<Vec<(String, i64)>> {
         .into_iter()
         .map(|item| match item {
             Value::symbol(id) | Value::keyword(id) => Some((resolve_sym(id).to_string(), 0)),
-            Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+            Value::Cons(cell) => {
                 let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 let name = pair.car.as_symbol_name()?.to_string();
                 Some((name, int_or_zero(&pair.cdr)))
@@ -1010,7 +1010,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[0]],
             ));
         }
     };
@@ -1022,7 +1022,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let vec = with_heap(|h| h.get_vector(*id).clone());
             if vec.is_empty() {
-                return Err(signal("args-out-of-range", vec![args[1], ValueKind::Fixnum(0)]));
+                return Err(signal("args-out-of-range", vec![args[1], Value::fixnum(0)]));
             }
             int_or_zero(&vec[0])
         }
@@ -1041,7 +1041,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
             if vec.len() < 2 {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![args[2], Value::Int(vec.len() as i64)],
+                    vec![args[2], Value::fixnum(vec.len() as i64)],
                 ));
             }
             let mut cs = [0i64; 8];

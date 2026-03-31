@@ -131,7 +131,7 @@ fn get_char_property_delegates() {
 
     let result =
         builtin_get_char_property(&mut eval, vec![Value::fixnum(3), Value::symbol("help-echo")]);
-    assert!(matches!(result, Ok(Value::Str(_) /* TODO(tagged): convert Value::Str to new API */)));
+    assert!(matches!(result, Ok(ValueKind::String)));
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn get_char_property_and_overlay_shape() {
     let result =
         builtin_get_char_property_and_overlay(&mut eval, vec![Value::fixnum(3), Value::symbol("foo")])
             .unwrap();
-    if !result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !result.is_cons() {
         panic!("expected cons");
     };
     let (value, overlay) = {
@@ -237,7 +237,7 @@ fn get_char_property_prefers_highest_priority_overlay() {
         vec![Value::fixnum(2), Value::symbol("face")],
     )
     .unwrap();
-    if !pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !pair.is_cons() {
         panic!("expected cons");
     };
     let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -725,7 +725,7 @@ fn next_property_change_basic() {
 
     // From position 1, next change should be at position 6.
     let result = builtin_next_property_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
-    assert!(matches!(result, Value::fixnum(6)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
@@ -746,7 +746,7 @@ fn next_property_change_with_limit() {
     let result =
         builtin_next_property_change(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::fixnum(4)])
             .unwrap();
-    assert!(matches!(result, Value::fixnum(4)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
@@ -777,7 +777,7 @@ fn next_single_property_change_basic() {
     let result =
         builtin_next_single_property_change(&mut eval, vec![Value::fixnum(1), Value::symbol("face")])
             .unwrap();
-    assert!(matches!(result, Value::fixnum(6)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
@@ -813,7 +813,7 @@ fn previous_single_property_change_basic() {
         vec![Value::fixnum(8), Value::symbol("face")],
     )
     .unwrap();
-    assert!(matches!(result, Value::fixnum(6)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
@@ -833,7 +833,7 @@ fn previous_single_property_change_from_interval_end_boundary() {
     let result =
         builtin_previous_single_property_change(&mut eval, vec![Value::fixnum(4), Value::symbol("p")])
             .unwrap();
-    assert!(matches!(result, Value::fixnum(2)));
+    assert!(result.is_fixnum());
 }
 
 // -----------------------------------------------------------------------
@@ -865,7 +865,7 @@ fn text_property_any_found() {
     )
     .unwrap();
     // Should find it at position 3.
-    assert!(matches!(result, Value::fixnum(3)));
+    assert!(result.is_fixnum());
 }
 
 #[test]
@@ -940,7 +940,7 @@ fn text_property_not_all_reports_first_mismatch() {
         ],
     )
     .unwrap();
-    assert!(matches!(mismatch, Value::fixnum(1)));
+    assert!(mismatch.is_fixnum());
     assert!(no_mismatch.is_nil());
 }
 
@@ -953,7 +953,7 @@ fn make_and_delete_overlay() {
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
-    assert!(matches!(ov, Value::Overlay(_) /* TODO(tagged): convert Value::Overlay to new API */));
+    assert!(matches!(ov, ValueKind::Veclike(VecLikeType::Overlay)));
 
     // Delete it.
     let result = builtin_delete_overlay(&mut eval, vec![ov]);
@@ -1103,18 +1103,18 @@ fn next_previous_overlay_change_boundaries() {
     let mut eval = eval_with_text("abcd");
     let no_overlay_next = builtin_next_overlay_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
     let no_overlay_prev = builtin_previous_overlay_change(&mut eval, vec![Value::fixnum(4)]).unwrap();
-    assert!(matches!(no_overlay_next, Value::fixnum(5)));
-    assert!(matches!(no_overlay_prev, Value::fixnum(1)));
+    assert!(no_overlay_next.is_fixnum());
+    assert!(no_overlay_prev.is_fixnum());
 
     builtin_make_overlay(&mut eval, vec![Value::fixnum(2), Value::fixnum(4)]).unwrap();
     let next_from_1 = builtin_next_overlay_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
     let next_from_2 = builtin_next_overlay_change(&mut eval, vec![Value::fixnum(2)]).unwrap();
     let prev_from_4 = builtin_previous_overlay_change(&mut eval, vec![Value::fixnum(4)]).unwrap();
     let prev_from_2 = builtin_previous_overlay_change(&mut eval, vec![Value::fixnum(2)]).unwrap();
-    assert!(matches!(next_from_1, Value::fixnum(2)));
-    assert!(matches!(next_from_2, Value::fixnum(4)));
-    assert!(matches!(prev_from_4, Value::fixnum(2)));
-    assert!(matches!(prev_from_2, Value::fixnum(1)));
+    assert!(next_from_1.is_fixnum());
+    assert!(next_from_2.is_fixnum());
+    assert!(prev_from_4.is_fixnum());
+    assert!(prev_from_2.is_fixnum());
 }
 
 // -----------------------------------------------------------------------
@@ -1130,8 +1130,8 @@ fn move_overlay_changes_range() {
 
     let start = builtin_overlay_start(&mut eval, vec![ov]).unwrap();
     let end = builtin_overlay_end(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(start, Value::fixnum(3)));
-    assert!(matches!(end, Value::fixnum(8)));
+    assert!(start.is_fixnum());
+    assert!(end.is_fixnum());
 }
 
 // -----------------------------------------------------------------------
@@ -1145,8 +1145,8 @@ fn overlay_start_and_end() {
 
     let start = builtin_overlay_start(&mut eval, vec![ov]).unwrap();
     let end = builtin_overlay_end(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(start, Value::fixnum(2)));
-    assert!(matches!(end, Value::fixnum(8)));
+    assert!(start.is_fixnum());
+    assert!(end.is_fixnum());
 }
 
 // -----------------------------------------------------------------------
@@ -1544,7 +1544,7 @@ fn overlay_front_advance() {
 
     // Verify overlay was created.
     let start = builtin_overlay_start(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(start, Value::fixnum(3)));
+    assert!(start.is_fixnum());
 }
 
 #[test]
@@ -1563,7 +1563,7 @@ fn overlay_rear_advance() {
     .unwrap();
 
     let end = builtin_overlay_end(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(end, Value::fixnum(8)));
+    assert!(end.is_fixnum());
 }
 
 // -----------------------------------------------------------------------

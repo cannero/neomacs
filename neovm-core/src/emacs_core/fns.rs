@@ -62,7 +62,7 @@ fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *val],
         )),
     }
 }
@@ -72,7 +72,7 @@ fn require_int(val: &Value) -> Result<i64, Flow> {
         ValueKind::Fixnum(n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *val],
         )),
     }
 }
@@ -84,7 +84,7 @@ fn require_int_or_marker(val: &Value) -> Result<i64, Flow> {
         v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *val],
         )),
     }
 }
@@ -436,11 +436,11 @@ pub(crate) fn builtin_base64_decode_region(
         Ok(bytes) => {
             let decoded = String::from_utf8_lossy(&bytes).into_owned();
             replace_buffer_region(eval, buffer_id, start_byte, end_byte, &decoded)?;
-            Ok(Value::Int(bytes.len() as i64))
+            Ok(Value::fixnum(bytes.len() as i64))
         }
         Err(()) if noerror => {
             replace_buffer_region(eval, buffer_id, start_byte, end_byte, "")?;
-            Ok(ValueKind::Fixnum(0))
+            Ok(Value::fixnum(0))
         }
         Err(()) => Err(signal("error", vec![Value::string("Invalid base64 data")])),
     }
@@ -680,7 +680,7 @@ fn secure_hash_algorithm_name(val: &Value) -> Result<String, Flow> {
         ValueKind::Keyword(id) => Ok(format!(":{}", resolve_sym(id))),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *other],
+            vec![Value::symbol("symbolp"), *val],
         )),
     }
 }
@@ -844,7 +844,7 @@ pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Val
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), args[0]],
                 ));
             }
         }
@@ -908,7 +908,7 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
     let value = &args[2];
 
     // Walk the cdr of WIDGET (skip the type cons cell) looking for PROPERTY.
-    if widget.is_cons() /* TODO(tagged): `first_cell` was Value::Cons(first_cell), now use accessor */ {
+    if widget.is_cons() {
         let mut cursor = {
             let cell = read_cons(*first_cell);  // TODO(tagged): replace read_cons with cons accessors
             cell.cdr
@@ -926,7 +926,7 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
                             let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
                             cell.cdr
                         };
-                        if next.is_cons() /* TODO(tagged): `val_cell_arc` was ValueKind::Cons, now use accessor */ {
+                        if next.is_cons() {
                             with_heap_mut(|h| h.set_car(val_cell_arc, *value));
                             return Ok(*value);
                         }
@@ -937,7 +937,7 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
                         let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
                         cell.cdr
                     };
-                    if after_key.is_cons() /* TODO(tagged): `val_arc` was ValueKind::Cons, now use accessor */ {
+                    if after_key.is_cons() {
                         let val_cell = read_cons(val_arc);  // TODO(tagged): replace read_cons with cons accessors
                         cursor = val_cell.cdr;
                     } else {
@@ -1028,7 +1028,7 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), args[0]],
         )),
     }
 }
@@ -1049,7 +1049,7 @@ pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), args[0]],
         )),
     }
 }

@@ -36,7 +36,7 @@ fn expect_string(_name: &str, value: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -1081,13 +1081,13 @@ fn extract_car_string(_name: &str, val: &Value) -> Result<String, Flow> {
                 ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
                 other => Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), *val],
                 )),
             }
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("consp"), *other],
+            vec![Value::symbol("consp"), *val],
         )),
     }
 }

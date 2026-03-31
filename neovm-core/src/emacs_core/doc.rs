@@ -53,7 +53,7 @@ pub(crate) fn builtin_documentation(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let raw = args.get(1).is_some_and(Value::is_truthy);
+    let raw = args.get(1).is_some_and(|v| v.is_truthy());
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
     let plan = documentation_plan(unsafe { &*obarray }, args)?;
@@ -134,7 +134,7 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
     vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
-    let raw = args.get(1).is_some_and(Value::is_truthy);
+    let raw = args.get(1).is_some_and(|v| v.is_truthy());
     let args_roots = args.clone();
     let plan = documentation_plan(&shared.obarray, args)?;
     finish_documentation_result(
@@ -227,7 +227,7 @@ If COND yields nil, and there are no ELSE’s, the value is nil.\n\
 }
 
 fn quoted_lambda_documentation(function: &Value) -> Option<EvalResult> {
-    if !function.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !function.is_cons() {
         return None;
     };
 
@@ -238,7 +238,7 @@ fn quoted_lambda_documentation(function: &Value) -> Option<EvalResult> {
 
     let mut tail = pair.cdr;
 
-    if !tail.is_cons() /* TODO(tagged): `param_cell` was Value::Cons(param_cell), rewrite let-else */ {
+    if !tail.is_cons() {
         return Some(Err(signal("invalid-function", vec![*function])));
     };
     let params_and_body = read_cons(param_cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -262,7 +262,7 @@ fn quoted_lambda_documentation(function: &Value) -> Option<EvalResult> {
 }
 
 fn quoted_macro_invalid_designator(function: &Value) -> Option<EvalResult> {
-    if !function.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !function.is_cons() {
         return None;
     };
 
@@ -303,7 +303,7 @@ fn documentation_plan_from_property_value(
 }
 
 fn compiled_doc_ref(value: &Value) -> Option<(String, i64)> {
-    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !value.is_cons() {
         return None;
     };
     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -10524,7 +10524,7 @@ pub(crate) fn builtin_documentation_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let raw = args.get(2).is_some_and(Value::is_truthy);
+    let raw = args.get(2).is_some_and(|v| v.is_truthy());
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
     let plan = documentation_property_plan(unsafe { &*obarray }, args)?;
@@ -10553,7 +10553,7 @@ fn documentation_property_plan(
     let Some(prop) = args[1].as_symbol_name() else {
         return Ok(DocumentationPlan::Final(Value::NIL));
     };
-    let raw = args.get(2).is_some_and(Value::is_truthy);
+    let raw = args.get(2).is_some_and(|v| v.is_truthy());
 
     match obarray.get_property(sym, prop).cloned() {
         Some(value) if startup_variable_doc_offset_symbol(sym, prop, &value) => {
@@ -10588,7 +10588,7 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
     vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
-    let raw = args.get(2).is_some_and(Value::is_truthy);
+    let raw = args.get(2).is_some_and(|v| v.is_truthy());
     let args_roots = args.clone();
     let plan = documentation_property_plan(&shared.obarray, args)?;
     finish_documentation_result(

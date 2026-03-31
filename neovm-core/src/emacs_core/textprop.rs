@@ -82,7 +82,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         marker if super::marker::is_marker(marker) => super::marker::marker_position_as_int(marker),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -96,7 +96,7 @@ fn expect_int_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Fl
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -108,7 +108,7 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
         marker if super::marker::is_marker(marker) => super::marker::marker_position_as_int(marker),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -122,7 +122,7 @@ fn expect_integer_or_marker_eval(eval: &super::eval::Context, value: &Value) -> 
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -139,7 +139,7 @@ fn expect_integer_or_marker_in_buffers(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }
@@ -188,11 +188,11 @@ fn current_textprop_variable_value(
 fn plist_get_named_value(plist: Value, prop_name: &str) -> Option<Value> {
     let mut tail = plist;
     loop {
-        if !tail.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+        if !tail.is_cons() {
             return None;
         };
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if !pair.cdr.is_cons() /* TODO(tagged): `value_cell` was Value::Cons(value_cell), rewrite let-else */ {
+        if !pair.cdr.is_cons() {
             return None;
         };
         if pair.car.as_symbol_name() == Some(prop_name) {
@@ -204,9 +204,9 @@ fn plist_get_named_value(plist: Value, prop_name: &str) -> Option<Value> {
 
 fn assq_rest(list: Value, prop_name: &str) -> Option<Value> {
     let mut cursor = list;
-    while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    while cursor.is_cons() {
         let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-        if pair.car.is_cons() /* TODO(tagged): `entry_cell` was Value::Cons(entry_cell), now use accessor */ {
+        if pair.car.is_cons() {
             let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
             if entry.car.as_symbol_name() == Some(prop_name) {
                 return Some(entry.cdr);
@@ -249,7 +249,7 @@ where
             .and_then(|value| assq_rest(value, prop))
     {
         let mut cursor = aliases;
-        while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        while cursor.is_cons() {
             let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             if let Some(alias_name) = pair.car.as_symbol_name()
                 && let Some(value) = direct_get(alias_name)
@@ -724,7 +724,7 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
     let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let new_face = args[2];
-    let append = args.get(3).is_some_and(Value::is_truthy);
+    let append = args.get(3).is_some_and(|v| v.is_truthy());
 
     let object = args.get(4);
 
@@ -1017,7 +1017,7 @@ pub(crate) fn builtin_next_single_property_change_in_state(
                         lookup_string_text_property(obarray, buffers, &table, next, &prop);
                     let changed = !equal_value(&current_val, &new_val, 0);
                     if changed {
-                        return Ok(Value::Int(string_byte_to_elisp_pos(&s, next)));
+                        return Ok(Value::fixnum(string_byte_to_elisp_pos(&s, next)));
                     }
                     cursor = next;
                 }
@@ -1066,7 +1066,7 @@ pub(crate) fn builtin_next_single_property_change_in_state(
                 let new_val = lookup_buffer_text_property(obarray, buffers, buf, next, &prop);
                 let changed = !equal_value(&current_val, &new_val, 0);
                 if changed {
-                    return Ok(Value::Int(byte_to_elisp_pos(buf, next)));
+                    return Ok(Value::fixnum(byte_to_elisp_pos(buf, next)));
                 }
                 cursor = next;
             }
@@ -1128,7 +1128,7 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
                         lookup_string_text_property(obarray, buffers, &table, check, &prop);
                     let changed = !equal_value(&current_val, &new_val, 0);
                     if changed {
-                        return Ok(Value::Int(string_byte_to_elisp_pos(&s, prev)));
+                        return Ok(Value::fixnum(string_byte_to_elisp_pos(&s, prev)));
                     }
                     if prev == 0 {
                         break;
@@ -1178,7 +1178,7 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
                 let new_val = lookup_buffer_text_property(obarray, buffers, buf, check, &prop);
                 let changed = !equal_value(&current_val, &new_val, 0);
                 if changed {
-                    return Ok(Value::Int(byte_to_elisp_pos(buf, prev)));
+                    return Ok(Value::fixnum(byte_to_elisp_pos(buf, prev)));
                 }
                 if prev == 0 {
                     break;
@@ -1286,7 +1286,7 @@ pub(crate) fn builtin_next_property_change_in_buffers(
                     None => Value::NIL,
                 });
             }
-            Ok(Value::Int(byte_to_elisp_pos(buf, next)))
+            Ok(Value::fixnum(byte_to_elisp_pos(buf, next)))
         }
         None => Ok(match limit_val {
             Some(lv) => Value::fixnum(lv),
@@ -1456,7 +1456,7 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_state(
         if let Some((value, ov_id)) =
             buffer_overlay_property_at_byte_pos(obarray, buffers, buf, byte_pos, &prop)
         {
-            return Ok(Value::cons(value, Value::Overlay(ov_id) /* TODO(tagged): convert Value::Overlay to new API */));
+            return Ok(Value::cons(value, Value::Overlay(ov_id)));
         }
     }
 
@@ -1588,7 +1588,7 @@ pub(crate) fn builtin_make_overlay_in_buffers(
         })
     });
     buf.overlays.insert_overlay(overlay);
-    Ok(Value::Overlay(overlay) /* TODO(tagged): convert Value::Overlay to new API */)
+    Ok(Value::Overlay(overlay))
 }
 
 /// (delete-overlay OVERLAY)
@@ -1682,7 +1682,7 @@ pub(crate) fn builtin_overlayp(_eval: &mut super::eval::Context, args: Vec<Value
 
 pub(crate) fn builtin_overlayp_pure(args: Vec<Value>) -> EvalResult {
     expect_args("overlayp", &args, 1)?;
-    if matches!(args[0], Value::Overlay(_) /* TODO(tagged): convert Value::Overlay to new API */) {
+    if matches!(args[0], ValueKind::Veclike(VecLikeType::Overlay)) {
         return Ok(Value::T);
     }
     Ok(Value::NIL)

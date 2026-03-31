@@ -291,7 +291,7 @@ fn builtin_current_time_wrong_arity() {
 fn builtin_float_time_no_args() {
     let result = builtin_float_time(vec![]).unwrap();
     match result.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f > 1_000_000_000.0),
+        ValueKind::Float => assert!(f > 1_000_000_000.0),
         _ => panic!("expected float"),
     }
 }
@@ -308,7 +308,7 @@ fn builtin_float_time_from_list() {
     ]);
     let result = builtin_float_time(vec![list]).unwrap();
     match result.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 1_700_000_000.5).abs() < 1e-3),
+        ValueKind::Float => assert!((f - 1_700_000_000.5).abs() < 1e-3),
         _ => panic!("expected float"),
     }
 }
@@ -317,7 +317,7 @@ fn builtin_float_time_from_list() {
 fn builtin_float_time_from_integer() {
     let result = builtin_float_time(vec![Value::fixnum(42)]).unwrap();
     match result.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 42.0).abs() < 1e-9),
+        ValueKind::Float => assert!((f - 42.0).abs() < 1e-9),
         _ => panic!("expected float"),
     }
 }
@@ -547,7 +547,7 @@ fn builtin_time_convert_to_integer() {
 fn builtin_time_convert_to_float() {
     let result = builtin_time_convert(vec![Value::fixnum(1000), Value::symbol("float")]).unwrap();
     match result.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 1000.0).abs() < 1e-9),
+        ValueKind::Float => assert!((f - 1000.0).abs() < 1e-9),
         _ => panic!("expected float"),
     }
 }
@@ -658,7 +658,7 @@ fn builtin_current_time_zone_with_zone_arg() {
         Value::list(vec![Value::fixnum(3600), Value::string("+01")])
     );
 
-    match builtin_current_time_zone(vec![Value::Nil, Value::Keyword(intern(":x"))]) {
+    match builtin_current_time_zone(vec![Value::NIL, Value::Keyword(intern(":x"))]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
@@ -745,7 +745,7 @@ fn time_subtract_with_usec_borrow() {
 fn float_time_nil_arg() {
     let result = builtin_float_time(vec![Value::NIL]).unwrap();
     match result.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f > 1_000_000_000.0),
+        ValueKind::Float => assert!(f > 1_000_000_000.0),
         _ => panic!("expected float"),
     }
 }

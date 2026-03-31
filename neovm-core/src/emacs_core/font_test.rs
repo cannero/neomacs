@@ -9,7 +9,7 @@ use crate::face::{Color, FaceAttrValue};
 use crate::window::FRAME_ID_BASE;
 use std::cell::RefCell;
 use std::rc::Rc;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 fn call_face_font(args: Vec<Value>) -> EvalResult {
     let mut eval = Context::new();
@@ -549,7 +549,7 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
     .unwrap();
 
     let string = Value::string("a好b");
-    if !string.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
+    if !string.is_string() {
         panic!("expected string value");
     };
     let mut table = crate::buffer::TextPropertyTable::new();
@@ -612,7 +612,7 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
     // float value from the face spec instead of converting to decipoints.
     let height = builtin_font_get(vec![font, Value::keyword("height")]).unwrap();
     match height.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((v - 1.2).abs() < 1e-9, "expected 1.2, got {v}"),
+        ValueKind::Float => assert!((v - 1.2).abs() < 1e-9, "expected 1.2, got {v}"),
         other => panic!("expected Float(1.2), got {other:?}"),
     }
 }
@@ -1211,7 +1211,7 @@ fn font_info_eval_accepts_font_object_on_live_gui_frame() {
 
     let font = builtin_font_at(&mut eval, vec![Value::fixnum(1)]).unwrap();
     let info = builtin_font_info(&mut eval, vec![font]).unwrap();
-    if !info.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
+    if !info.is_vector() {
         panic!("expected font info vector");
     };
     let values = with_heap(|heap| heap.get_vector(id).clone());
@@ -1481,7 +1481,7 @@ fn merge_face_attribute_height_relative_over_relative() {
     ])
     .unwrap();
     match result.kind() {
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((value - 1.8).abs() < 1e-9),
+        ValueKind::Float => assert!((value - 1.8).abs() < 1e-9),
         other => panic!("expected float result, got {other:?}"),
     }
 }
@@ -1972,7 +1972,7 @@ fn color_values_from_color_spec_semantics() {
     match type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2006,7 +2006,7 @@ fn color_gray_and_supported_semantics() {
     match gray_color_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2016,7 +2016,7 @@ fn color_gray_and_supported_semantics() {
     match gray_frame_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("framep"), ValueKind::Fixnum(0)]);
+            assert_eq!(sig.data, vec![Value::symbol("framep"), Value::fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2042,7 +2042,7 @@ fn color_gray_and_supported_semantics() {
     match supported_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2053,7 +2053,7 @@ fn color_gray_and_supported_semantics() {
     match supported_frame_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("framep"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("framep"), Value::fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2144,7 +2144,7 @@ fn color_distance_errors_match_oracle_shape() {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
                 sig.data,
-                vec![Value::string("Invalid color"), ValueKind::Fixnum(1)]
+                vec![Value::string("Invalid color"), Value::fixnum(1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),

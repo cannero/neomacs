@@ -208,7 +208,7 @@ pub(crate) fn ensure_face_new_frame_defaults_entry(
 }
 
 fn upsert_frame_face_hash_entry(table: Value, key: Value, value: Value) {
-    if !table.is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), rewrite let-else */ {
+    if !table.is_hash_table() {
         unreachable!("frame face hash table must be a hash table");
     };
     with_heap_mut(|heap| {
@@ -257,7 +257,7 @@ mod tests {
             .symbol_value("face--new-frame-defaults")
             .copied()
             .expect("face--new-frame-defaults");
-        if !table.is_hash_table() /* TODO(tagged): `id` was Value::HashTable(id), rewrite let-else */ {
+        if !table.is_hash_table() {
             panic!("face--new-frame-defaults must be a hash table");
         };
         let test = with_heap(|heap| heap.get_hash_table(id).test.clone());
@@ -269,7 +269,7 @@ mod tests {
         let mut eval = crate::emacs_core::eval::Context::new();
         let out = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
             .expect("live frame face hash table");
-        if !out.is_hash_table() /* TODO(tagged): `id` was Value::HashTable(id), rewrite let-else */ {
+        if !out.is_hash_table() {
             panic!("expected hash table");
         };
         let len = with_heap(|heap| heap.get_hash_table(id).data.len());
@@ -314,7 +314,7 @@ mod tests {
             .symbol_value("face--new-frame-defaults")
             .copied()
             .expect("face hash table backfilled");
-        if !table.is_hash_table() /* TODO(tagged): `id` was Value::HashTable(id), rewrite let-else */ {
+        if !table.is_hash_table() {
             panic!("face--new-frame-defaults must be a hash table");
         };
         let has_seeded_faces = with_heap(|heap| {

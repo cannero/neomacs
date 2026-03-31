@@ -457,7 +457,7 @@ fn eol_type_undecided_returns_vector() {
     let m = mgr();
     let result = builtin_coding_system_eol_type(&m, vec![Value::symbol("utf-8")]).unwrap();
     // Should be a vector of [utf-8-unix utf-8-dos utf-8-mac]
-    if result.is_vector() /* TODO(tagged): `v` was Value::Vector(v), now use accessor */ {
+    if result.is_vector() {
         let locked = with_heap(|h| h.get_vector(v).clone());
         assert_eq!(locked.len(), 3);
         assert!(locked[0].is_symbol_named("utf-8-unix"));
@@ -472,7 +472,7 @@ fn eol_type_undecided_returns_vector() {
 fn eol_type_latin_alias_uses_iso_latin_display_variants() {
     let m = mgr();
     let result = builtin_coding_system_eol_type(&m, vec![Value::symbol("latin-1")]).unwrap();
-    if result.is_vector() /* TODO(tagged): `v` was Value::Vector(v), now use accessor */ {
+    if result.is_vector() {
         let locked = with_heap(|h| h.get_vector(v).clone());
         assert_eq!(locked.len(), 3);
         assert_eq!(locked[0], Value::symbol("iso-latin-1-unix"));

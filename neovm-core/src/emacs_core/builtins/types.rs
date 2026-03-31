@@ -1,5 +1,5 @@
 use super::*;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Type predicates
@@ -86,14 +86,14 @@ pub(crate) fn builtin_string_or_null_p(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_integer_or_marker_p(args: Vec<Value>) -> EvalResult {
     expect_args("integer-or-marker-p", &args, 1)?;
     let is_integer_or_marker =
-        matches!(args[0], Value::fixnum(_) | Value::char(_)) || super::marker::is_marker(&args[0]);
+        args[0].is_fixnum() || args[0].is_char() || super::marker::is_marker(&args[0]);
     Ok(Value::bool_val(is_integer_or_marker))
 }
 
 pub(crate) fn builtin_number_or_marker_p(args: Vec<Value>) -> EvalResult {
     expect_args("number-or-marker-p", &args, 1)?;
     let is_number_or_marker =
-        matches!(args[0], Value::fixnum(_) | Value::make_float(_) /* TODO(tagged): dropped float id `_` */ | Value::char(_))
+        matches!(args[0], Value::fixnum(_) | Value::make_float(_) | Value::char(_))
             || super::marker::is_marker(&args[0]);
     Ok(Value::bool_val(is_number_or_marker))
 }
@@ -318,9 +318,9 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     // return slot 1 of that inner record (the class name symbol).
     // This is how EIEIO objects work: slot 0 is the eieio--class
     // record, and slot 1 of that record is the class name.
-    if &args[0].is_record() /* TODO(tagged): `id` was Value::Record(id), now use accessor */ {
+    if args[0].is_record() {
         let tag = with_heap(|h| h.get_vector(*id).first().copied());
-        if let Some(Value::Record(tag_id) /* TODO(tagged): convert Value::Record to new API */) = tag {
+        if let Some(ValueKind::Veclike(VecLikeType::Record)) = tag {
             let tag_vec = with_heap(|h| h.get_vector(tag_id).clone());
             if tag_vec.len() > 1 {
                 return Ok(tag_vec[1]);
@@ -339,7 +339,7 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         ValueKind::Nil => "null",
         ValueKind::T => "boolean",
         ValueKind::Fixnum(_) | ValueKind::Char(_) => "fixnum",
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => "float",
+        ValueKind::Float => "float",
         ValueKind::String => "string",
         ValueKind::Symbol(_) | ValueKind::Keyword(_) => "symbol",
         ValueKind::Cons => "cons",

@@ -13,7 +13,7 @@ use crate::emacs_core::terminal::pure::{
 use crate::emacs_core::value::*;
 use crate::window::WindowId;
 use std::cell::{Cell, RefCell};
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Thread-local cursor state
@@ -266,7 +266,7 @@ pub(crate) fn builtin_send_string_to_terminal(
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), args[0]],
         )),
     }
 }

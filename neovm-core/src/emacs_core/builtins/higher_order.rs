@@ -132,7 +132,7 @@ where
         ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             for cp in decode_storage_char_codes(&s) {
-                f(Value::Int(cp as i64))?;
+                f(Value::fixnum(cp as i64))?;
             }
             Ok(())
         }
@@ -473,7 +473,7 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("list-or-vector-p"), *other],
+            vec![Value::symbol("list-or-vector-p"), args[0]],
         )),
     }
 }
@@ -492,7 +492,7 @@ pub(crate) fn stable_sort_values_with(
     reverse: bool,
 ) -> Result<Vec<Value>, Flow> {
     use std::cmp::Ordering;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
     if values.len() < 2 {
         return Ok(values.to_vec());

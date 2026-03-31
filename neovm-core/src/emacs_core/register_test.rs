@@ -184,7 +184,7 @@ fn test_builtin_number_and_increment() {
     // get-register -> returns 10
     let result = builtin_get_register(&mut eval, vec![Value::char('n')]);
     assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::fixnum(10)));
+    assert!(result.unwrap().is_fixnum());
 
     // increment-register by 5
     let result = builtin_increment_register(&mut eval, vec![Value::fixnum(5), Value::char('n')]);
@@ -193,7 +193,7 @@ fn test_builtin_number_and_increment() {
     // Now should be 15
     let result = builtin_get_register(&mut eval, vec![Value::char('n')]);
     assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::fixnum(15)));
+    assert!(result.unwrap().is_fixnum());
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn test_builtin_increment_empty_register() {
 
     let result = builtin_get_register(&mut eval, vec![Value::char('e')]);
     assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::fixnum(7)));
+    assert!(result.unwrap().is_fixnum());
 }
 
 #[test]

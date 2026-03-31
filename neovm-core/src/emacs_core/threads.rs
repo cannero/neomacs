@@ -574,7 +574,7 @@ fn tagged_object_value(tag: &str, id: u64) -> Value {
 }
 
 fn tagged_object_id(value: &Value, expected_tag: &str) -> Option<u64> {
-    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !value.is_cons() {
         return None;
     };
     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -598,7 +598,7 @@ fn canonical_handle_id(handles: &HashMap<u64, Value>, value: &Value, tag: &str) 
 }
 
 fn split_signal_binding_value(value: Value) -> Option<(Value, Value)> {
-    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !value.is_cons() {
         return None;
     };
     let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -671,7 +671,7 @@ pub(crate) fn prepare_make_thread(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), args[1]],
                 ));
             }
         }
@@ -1008,7 +1008,7 @@ pub(crate) fn builtin_make_mutex(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), *v],
                 ));
             }
         }
@@ -1121,7 +1121,7 @@ pub(crate) fn builtin_make_condition_variable(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), args[1]],
                 ));
             }
         }

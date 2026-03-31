@@ -210,12 +210,12 @@ fn composition_get_gstring_returns_vector_shape() {
         Value::string("ab"),
     ]);
     assert!(result.is_ok());
-    if !result.unwrap().is_vector() /* TODO(tagged): `gs` was Value::Vector(gs), rewrite let-else */ {
+    if !result.unwrap().is_vector() {
         panic!("expected vector gstring");
     };
     let gs = with_heap(|h| h.get_vector(gs).clone());
     assert!(!gs.is_empty());
-    assert!(matches!(gs[0], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */));
+    assert!(matches!(gs[0], ValueKind::Veclike(VecLikeType::Vector)));
 }
 
 #[test]

@@ -51,7 +51,7 @@ fn test_directory_files_and_attributes_basic() {
     // Find our file.
     let mut found = false;
     for item in &items {
-        if item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        if item.is_cons() {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             if pair.car.as_str() == Some("test.txt") {
                 found = true;
@@ -83,7 +83,7 @@ fn test_directory_files_and_attributes_order_and_count() {
     let unsorted_names: Vec<String> = unsorted_items
         .iter()
         .map(|pair| {
-            if pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            if pair.is_cons() {
                 read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
             } else {
                 panic!("expected cons pair");
@@ -106,7 +106,7 @@ fn test_directory_files_and_attributes_order_and_count() {
         .unwrap()
         .iter()
         .map(|pair| {
-            if pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            if pair.is_cons() {
                 read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
             } else {
                 panic!("expected cons pair");
@@ -129,7 +129,7 @@ fn test_directory_files_and_attributes_order_and_count() {
         .unwrap()
         .iter()
         .map(|pair| {
-            if pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            if pair.is_cons() {
                 read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
             } else {
                 panic!("expected cons pair");
@@ -179,7 +179,7 @@ fn test_directory_files_and_attributes_count_and_id_format() {
     .unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
-    let attrs = if &items[0].is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    let attrs = if items[0].is_cons() {
         with_heap(|h| h.cons_cdr(*cell))
     } else {
         panic!("expected cons pair");
@@ -219,7 +219,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
         .unwrap()
         .iter()
         .map(|pair| {
-            if pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            if pair.is_cons() {
                 read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
             } else {
                 panic!("expected cons pair");

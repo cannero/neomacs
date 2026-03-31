@@ -870,7 +870,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -880,7 +880,7 @@ fn expect_string_strict(value: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -894,7 +894,7 @@ fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), *value],
         )),
     }
 }
@@ -905,7 +905,7 @@ fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("fixnump"), *other],
+            vec![Value::symbol("fixnump"), *value],
         )),
     }
 }
@@ -925,7 +925,7 @@ fn normalize_secs_nanos(mut secs: i64, mut nanos: i64) -> (i64, i64) {
 fn parse_timestamp_arg(value: &Value) -> Result<(i64, i64), Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok((n, 0)),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
+        ValueKind::Float => {
             let secs = f.floor() as i64;
             let nanos = ((f - f.floor()) * 1_000_000_000.0).round() as i64;
             Ok(normalize_secs_nanos(secs, nanos))
@@ -963,7 +963,7 @@ fn parse_timestamp_arg(value: &Value) -> Result<(i64, i64), Flow> {
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("numberp"), *other],
+            vec![Value::symbol("numberp"), *value],
         )),
     }
 }
@@ -978,9 +978,9 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
             vec![Value::symbol("listp"), *counter],
         ));
     }
-    if counter.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+    if counter.is_cons() {
         let first = with_heap(|h| h.cons_car(*cell));
-        if !matches!(first, Value::fixnum(_) | Value::make_float(_) /* TODO(tagged): dropped float id `_` */ | Value::char(_)) {
+        if !matches!(first, Value::fixnum(_) | Value::make_float(_) | Value::char(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("number-or-marker-p"), first],
@@ -1349,7 +1349,7 @@ pub(crate) fn default_directory_in_state(
     buffers: &crate::buffer::BufferManager,
 ) -> Option<String> {
     if let Some(buf) = buffers.current_buffer()
-        && let Some(Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) = buf.get_buffer_local("default-directory")
+        && let Some(ValueKind::String) = buf.get_buffer_local("default-directory")
     {
         return Some(with_heap(|h| h.get_string(*id).to_owned()));
     }
@@ -1939,13 +1939,13 @@ fn validate_set_visited_file_modtime_arg(arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => Err(signal(
             "args-out-of-range",
-            vec![*arg, Value::Int(-1), ValueKind::Fixnum(0)],
+            vec![*arg, Value::fixnum(-1), Value::fixnum(0)],
         )),
         ValueKind::String => Err(signal(
             "error",
             vec![Value::string("Invalid time specification")],
         )),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ | ValueKind::Cons => Ok(()),
+        ValueKind::Float | ValueKind::Cons => Ok(()),
         _ => Err(signal(
             "error",
             vec![Value::string("Invalid time specification")],
@@ -2352,7 +2352,7 @@ pub(crate) fn builtin_directory_files_impl(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("natnump"), *other],
+                    vec![Value::symbol("natnump"), *val],
                 ));
             }
         }
@@ -2379,7 +2379,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -2474,7 +2474,7 @@ fn write_region_content_in_state(
     start: &Value,
     end: Option<&Value>,
 ) -> Result<String, Flow> {
-    if start.is_string() /* TODO(tagged): `_` was Value::Str(_), now use accessor */ {
+    if start.is_string() {
         return expect_string_strict(start);
     }
 
@@ -2695,7 +2695,7 @@ pub(crate) fn builtin_insert_file_contents(
     {
         Value::NIL => None,
         Value::symbol(id) => Some(resolve_sym(id).to_owned()),
-        Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(with_heap(|h| h.get_string(id).to_owned())),
+        ValueKind::String => Some(with_heap(|h| h.get_string(id).to_owned())),
         _ => None,
     };
     let source_load_context = eval
@@ -2821,7 +2821,7 @@ fn lookup_backup_directory(obarray: &Obarray, filename: &str) -> Option<String> 
     let alist_val = obarray.symbol_value("backup-directory-alist")?;
     let entries = list_to_vec(alist_val)?;
     for entry in &entries {
-        if entry.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
+        if entry.is_cons() {
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
             let pattern = match car.kind() {

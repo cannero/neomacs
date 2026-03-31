@@ -97,7 +97,7 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[0]],
             ));
         }
     };
@@ -132,7 +132,7 @@ pub(crate) fn builtin_make_local_variable(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[0]],
             ));
         }
     };
@@ -213,7 +213,7 @@ pub(crate) fn builtin_local_variable_p(
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("bufferp"), *other],
+                    vec![Value::symbol("bufferp"), args[1]],
                 ));
             }
         }
@@ -309,7 +309,7 @@ pub(crate) fn builtin_kill_local_variable_impl(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[0]],
             ));
         }
     };

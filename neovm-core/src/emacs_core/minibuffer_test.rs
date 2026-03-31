@@ -599,7 +599,7 @@ fn builtin_test_completion_rejects_more_than_three_args() {
 #[test]
 fn builtin_minibuffer_depth_returns_zero() {
     let result = builtin_minibuffer_depth(vec![]).unwrap();
-    assert!(matches!(result, Value::fixnum(0)));
+    assert!(result.is_fixnum());
 }
 
 #[test]

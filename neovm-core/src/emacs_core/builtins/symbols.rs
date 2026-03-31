@@ -261,7 +261,7 @@ fn sync_visible_symbol_plist_entries(
                 let Some(key_id) = symbol_id(&key) else {
                     return;
                 };
-                if !rest.is_cons() /* TODO(tagged): `value_cell` was ValueKind::Cons, rewrite let-else */ {
+                if !rest.is_cons() {
                     return;
                 };
 
@@ -315,7 +315,7 @@ pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
                 let key = pair.car;
                 let rest = pair.cdr;
                 drop(pair);
-                if !rest.is_cons() /* TODO(tagged): `value_cell` was ValueKind::Cons, rewrite let-else */ {
+                if !rest.is_cons() {
                     return None;
                 };
                 let value_pair = read_cons(value_cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -725,7 +725,7 @@ fn dispatch_symbol_func_arity_override_in_obarray(
     }
 
     if super::autoload::is_autoload_value(function)
-        || (matches!(function, Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */)
+        || (matches!(function, ValueKind::Veclike(VecLikeType::ByteCode))
             && has_startup_subr_wrapper_in_obarray(obarray, name))
     {
         return Some(super::subr_info::dispatch_subr_arity_value(name));
@@ -993,7 +993,7 @@ pub(super) fn builtin_ccl_program_p(
 
 pub(super) fn builtin_ccl_execute(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let obarray = eval.obarray();
-    if args.first().is_some_and(Value::is_symbol)
+    if args.first().is_some_and(|v| v.is_symbol())
         && !symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?
     {
         let mut forced = args.clone();
@@ -1008,7 +1008,7 @@ pub(super) fn builtin_ccl_execute_on_string(
     args: Vec<Value>,
 ) -> EvalResult {
     let obarray = eval.obarray();
-    if args.first().is_some_and(Value::is_symbol)
+    if args.first().is_some_and(|v| v.is_symbol())
         && !symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?
     {
         let mut forced = args.clone();
@@ -1025,7 +1025,7 @@ pub(super) fn builtin_register_ccl_program(
     let obarray = eval.obarray_mut();
     let was_registered = args
         .first()
-        .and_then(Value::as_symbol_name)
+        .and_then(|v| v.as_symbol_name())
         .is_some_and(super::ccl::is_registered_ccl_program);
     let program_id = super::ccl::builtin_register_ccl_program_impl(args.clone())?;
 
@@ -1089,7 +1089,7 @@ fn macroexpand_environment_binding_by_id(env: &Value, target: SymId) -> Option<V
                 let entry = pair.car;
                 cursor = pair.cdr;
                 drop(pair);
-                if !entry.is_cons() /* TODO(tagged): `entry_cell` was ValueKind::Cons, rewrite let-else */ {
+                if !entry.is_cons() {
                     continue;
                 };
                 let entry_pair = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -1112,7 +1112,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     form: Value,
     environment: Option<&Value>,
 ) -> Result<(Value, bool), Flow> {
-    if !form.is_cons() /* TODO(tagged): `form_cell` was Value::Cons(form_cell), rewrite let-else */ {
+    if !form.is_cons() {
         return Ok((form, false));
     };
     let form_pair = read_cons(form_cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -1153,7 +1153,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
             // Check for Value::Macro (native macros) AND cons-cell macros
             // `(macro . fn)` — matches real Emacs eval.c which checks
             // `EQ (XCAR (def), Qmacro)`.
-            let is_macro = matches!(global, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
+            let is_macro = matches!(global, ValueKind::Veclike(VecLikeType::Macro))
                 || (global.is_cons() && global.cons_car().is_symbol_named("macro"));
             if is_macro {
                 function = Some(if global.is_cons() {
@@ -1174,7 +1174,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
                 if let Some((resolved_id2, global2)) =
                     runtime.resolve_indirect_symbol_by_id(head_id)
                 {
-                    let is_macro2 = matches!(global2, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
+                    let is_macro2 = matches!(global2, ValueKind::Veclike(VecLikeType::Macro))
                         || (global2.is_cons() && global2.cons_car().is_symbol_named("macro"));
                     if is_macro2 {
                         function = Some(if global2.is_cons() {
@@ -1386,7 +1386,7 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
     let name = expect_string(&args[0])?;
 
     // Custom obarray path
-    if let Some(Value::Vector(vec_id) /* TODO(tagged): convert Value::Vector to new API */) = args
+    if let Some(ValueKind::Veclike(VecLikeType::Vector)) = args
         .get(1)
         .filter(|v| !v.is_nil() && !is_global_obarray_proxy(eval, v))
     {
@@ -1441,7 +1441,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     }
 
     // Custom obarray path
-    if let Some(Value::Vector(vec_id) /* TODO(tagged): convert Value::Vector to new API */) = args.get(1).filter(|v| !v.is_nil()) {
+    if let Some(ValueKind::Veclike(VecLikeType::Vector)) = args.get(1).filter(|v| !v.is_nil()) {
         let vec_id = *vec_id;
         let name = match args[0].kind() {
             ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
@@ -1451,7 +1451,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
             other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *other],
+                    vec![Value::symbol("stringp"), args[0]],
                 ));
             }
         };
@@ -1473,7 +1473,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -1495,7 +1495,7 @@ pub(crate) fn builtin_obarray_make(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn expect_obarray_vector_id(value: &Value) -> Result<ObjId, Flow> {
-    if !value.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
+    if !value.is_vector() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("obarrayp"), *value],
@@ -1633,11 +1633,11 @@ pub(crate) fn builtin_vertical_motion(
     // When (COLS . LINES), move LINES then position at column COLS.
     let (cols, lines) = match args[0] {
         Value::fixnum(n) => (None, n),
-        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+        Value::Cons(cell) => {
             let pair = super::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             let cols_val = match pair.car.kind() {
                 ValueKind::Fixnum(n) => Some(n),
-                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Some(f as i64),
+                ValueKind::Float => Some(f as i64),
                 _ => None,
             };
             let lines_val = match pair.cdr.kind() {
@@ -1855,7 +1855,7 @@ pub(crate) fn builtin_make_record(args: Vec<Value>) -> EvalResult {
         items.push(args[2]); // init value
     }
     let id = with_heap_mut(|h| h.alloc_vector(items));
-    Ok(Value::Record(id) /* TODO(tagged): convert Value::Record to new API */)
+    Ok(Value::Record(id))
 }
 
 pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
@@ -1869,10 +1869,10 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*vec).clone());
-            if let Some(ValueKind::Fixnum(pos)) = items.get(2) {
-                Ok(Value::Int(pos))
+            if let Some(Value::fixnum(pos)) = items.get(2) {
+                Ok(Value::fixnum(pos))
             } else {
-                Ok(ValueKind::Fixnum(0))
+                Ok(Value::fixnum(0))
             }
         }
         _ => unreachable!("markerp check above guarantees marker vector"),
@@ -2130,7 +2130,7 @@ pub(crate) fn builtin_open_dribble_file(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_object_intervals(args: Vec<Value>) -> EvalResult {
     expect_args("object-intervals", &args, 1)?;
-    if !matches!(args[0], Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ | Value::make_buffer(_)) {
+    if !matches!(args[0], ValueKind::String | Value::make_buffer(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("buffer-or-string-p"), args[0]],
@@ -2224,7 +2224,7 @@ pub(crate) fn builtin_record(args: Vec<Value>) -> EvalResult {
         ));
     }
     let id = with_heap_mut(|h| h.alloc_vector(args));
-    Ok(Value::Record(id) /* TODO(tagged): convert Value::Record to new API */)
+    Ok(Value::Record(id))
 }
 
 pub(crate) fn builtin_recordp(args: Vec<Value>) -> EvalResult {
@@ -2243,7 +2243,7 @@ pub(crate) fn builtin_query_fontset(args: Vec<Value>) -> EvalResult {
     if pattern.is_empty() {
         return Ok(Value::NIL);
     }
-    let regexpp = args.get(1).is_some_and(Value::is_truthy);
+    let regexpp = args.get(1).is_some_and(|v| v.is_truthy());
     Ok(fontset::query_fontset_registry(&pattern, regexpp).map_or(Value::NIL, Value::string))
 }
 
@@ -2348,7 +2348,7 @@ pub(crate) fn builtin_set_charset_plist(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("charsetp"), *other],
+                vec![Value::symbol("charsetp"), args[0]],
             ));
         }
     };
@@ -2523,7 +2523,7 @@ pub(crate) fn builtin_set_window_new_pixel(args: Vec<Value>) -> EvalResult {
     Ok(super::stubs::set_window_new_pixel_value(
         &args[0],
         size,
-        args.get(2).is_some_and(Value::is_truthy),
+        args.get(2).is_some_and(|v| v.is_truthy()),
     ))
 }
 
@@ -2534,7 +2534,7 @@ pub(crate) fn builtin_set_window_new_total(args: Vec<Value>) -> EvalResult {
     Ok(super::stubs::set_window_new_total_value(
         &args[0],
         size,
-        args.get(2).is_some_and(Value::is_truthy),
+        args.get(2).is_some_and(|v| v.is_truthy()),
     ))
 }
 
@@ -2745,7 +2745,7 @@ fn as_number_for_value_lt(value: &Value) -> Option<f64> {
     match value.kind() {
         ValueKind::Fixnum(n) => Some(n as f64),
         ValueKind::Char(c) => Some(c as u32 as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Some(*f),
+        ValueKind::Float => Some(*f),
         _ => None,
     }
 }
@@ -2864,7 +2864,7 @@ fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> 
 }
 
 fn interactive_form_from_quoted_interactive_form(form: &Value) -> Result<Option<Value>, Flow> {
-    if !form.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !form.is_cons() {
         return Ok(None);
     };
     let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -2892,14 +2892,14 @@ fn interactive_form_from_quoted_interactive_form(form: &Value) -> Result<Option<
 }
 
 fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, Flow> {
-    if !value.is_cons() /* TODO(tagged): `lambda_cell` was Value::Cons(lambda_cell), rewrite let-else */ {
+    if !value.is_cons() {
         return Ok(None);
     };
     let lambda_pair = read_cons(*lambda_cell);  // TODO(tagged): replace read_cons with cons accessors
     if lambda_pair.car.as_symbol_name() != Some("lambda") {
         return Ok(None);
     }
-    if !lambda_pair.cdr.is_cons() /* TODO(tagged): `params_cell` was Value::Cons(params_cell), rewrite let-else */ {
+    if !lambda_pair.cdr.is_cons() {
         return Ok(None);
     };
     let params_pair = read_cons(params_cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -2935,12 +2935,12 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
 }
 
 fn interactive_form_from_bytecode_value(function: Value) -> Option<Value> {
-    if !function.is_bytecode() /* TODO(tagged): `id` was Value::ByteCode(id), rewrite let-else */ {
+    if !function.is_bytecode() {
         return None;
     };
     let spec = with_heap(|h| h.get_bytecode(id).interactive);
     spec.map(|s| {
-        let spec_val = if s.is_vector() /* TODO(tagged): `vid` was Value::Vector(vid), now use accessor */ {
+        let spec_val = if s.is_vector() {
             with_heap(|h| {
                 if h.vector_len(vid) > 0 {
                     h.vector_ref(vid, 0)
@@ -3378,7 +3378,7 @@ pub(crate) fn builtin_internal_handle_focus_in(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal-handle-focus-in", &args, 1)?;
-    if !args[0].is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
+    if !args[0].is_cons() {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
@@ -3391,14 +3391,14 @@ pub(crate) fn builtin_internal_handle_focus_in(
             vec![Value::string("invalid focus-in event")],
         ));
     }
-    if !pair.cdr.is_cons() /* TODO(tagged): `cdr_cell` was Value::Cons(cdr_cell), rewrite let-else */ {
+    if !pair.cdr.is_cons() {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
         ));
     };
     let frame_value = read_cons(cdr_cell).car;  // TODO(tagged): replace read_cons with cons accessors
-    if !frame_value.is_frame() /* TODO(tagged): `frame_raw` was Value::Frame(frame_raw), rewrite let-else */ {
+    if !frame_value.is_frame() {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
@@ -3783,13 +3783,13 @@ pub(crate) fn builtin_keymap_prompt(args: Vec<Value>) -> EvalResult {
     let map = args[0];
     // A keymap is (keymap [PROMPT] . BINDINGS).
     // If the arg is a cons whose car is the symbol `keymap`, check if cadr is a string.
-    if map.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
+    if map.is_cons() {
         let car = map.cons_car();
         if car.is_symbol_named("keymap") {
             let cdr = map.cons_cdr();
-            if cdr.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
+            if cdr.is_cons() {
                 let cadr = cdr.cons_car();
-                if cadr.is_string() /* TODO(tagged): `_` was Value::Str(_), now use accessor */ {
+                if cadr.is_string() {
                     return Ok(cadr);
                 }
             }
@@ -3802,12 +3802,12 @@ pub(crate) fn plan_kill_emacs_request(
     args: &[Value],
 ) -> Result<super::eval::ShutdownRequest, Flow> {
     expect_range_args("kill-emacs", args, 0, 2)?;
-    let exit_code = match args.first().copied().unwrap_or(Value::Nil).kind() {
+    let exit_code = match args.first().copied().unwrap_or(Value::NIL).kind() {
         ValueKind::Fixnum(n) => n as i32,
         ValueKind::Nil | ValueKind::T => 0,
         _ => 0,
     };
-    let restart = args.get(1).is_some_and(Value::is_truthy);
+    let restart = args.get(1).is_some_and(|v| v.is_truthy());
     Ok(super::eval::ShutdownRequest { exit_code, restart })
 }
 
@@ -3877,7 +3877,7 @@ pub(crate) fn make_byte_code_from_parts(
 
     // 3. Extract constants from vector
     let mut constants: Vec<Value> = match constants_vec {
-        Value::Vector(id) /* TODO(tagged): convert Value::Vector to new API */ => with_heap(|h| h.get_vector(*id).clone()),
+        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(*id).clone()),
         _ => Vec::new(),
     };
 
@@ -3968,7 +3968,7 @@ pub(crate) fn make_interpreted_closure_from_parts(
     };
 
     let (docstring, doc_form) = match &docstring_value {
-        Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => (Some(with_heap(|h| h.get_string(*id).to_owned())), None),
+        ValueKind::String => (Some(with_heap(|h| h.get_string(*id).to_owned())), None),
         Value::NIL => (None, None),
         other => (None, Some(*other)),
     };
@@ -4043,8 +4043,8 @@ pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
     }
 
     let looks_interpreted_closure = matches!(items.len(), 3 | 5 | 6)
-        && matches!(items[0], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::NIL)
-        && matches!(items[1], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */)
+        && matches!(items[0], Value::Cons(_) | Value::NIL)
+        && matches!(items[1], Value::Cons(_))
         && (items.len() < 4 || items[3].is_nil());
     if !looks_interpreted_closure {
         return val;
@@ -4126,7 +4126,7 @@ fn try_convert_hash_table_literal(val: Value) -> Option<Value> {
 
     let table_value =
         Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
-    if !table_value.is_hash_table() /* TODO(tagged): `table_ref` was Value::HashTable(table_ref), rewrite let-else */ {
+    if !table_value.is_hash_table() {
         return None;
     };
 
@@ -4256,7 +4256,7 @@ pub(crate) fn builtin_make_interpreted_closure(args: Vec<Value>) -> EvalResult {
 
 fn parse_lambda_params_from_expr(expr: &super::super::expr::Expr) -> Result<LambdaParams, Flow> {
     use super::super::expr::Expr;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
     match expr {
         Expr::Symbol(id) if resolve_sym(*id) == "nil" => Ok(LambdaParams::simple(vec![])),
         Expr::List(items) => {

@@ -59,7 +59,7 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *val],
         )),
     }
 }
@@ -70,7 +70,7 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *val],
         )),
     }
 }
@@ -89,10 +89,10 @@ fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Char(c) => Ok(c as u32 as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Float => Ok(*f),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), *value],
         )),
     }
 }
@@ -103,7 +103,7 @@ fn list_car_or_signal(value: &Value) -> Result<Value, Flow> {
         ValueKind::Nil => Ok(Value::NIL),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("listp"), *other],
+            vec![Value::symbol("listp"), *value],
         )),
     }
 }
@@ -165,11 +165,11 @@ fn collect_sequence_strict(val: &Value) -> Result<Vec<Value>, Flow> {
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(with_heap(|h| h.get_vector(*v).clone())),
         ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
-            Ok(s.chars().map(|ch| Value::Int(ch as i64)).collect())
+            Ok(s.chars().map(|ch| Value::fixnum(ch as i64)).collect())
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *other],
+            vec![Value::symbol("sequencep"), *val],
         )),
     }
 }
@@ -271,7 +271,7 @@ pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
             // Convert the absolute byte position back to a character position.
             let abs_byte = start_byte + byte_pos;
             let char_pos = storage_byte_to_char(&haystack, abs_byte);
-            Ok(Value::Int(char_pos as i64))
+            Ok(Value::fixnum(char_pos as i64))
         }
         None => Ok(Value::NIL),
     }
@@ -337,7 +337,7 @@ pub(crate) fn builtin_assoc_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("assoc-string", &args, 2)?;
     expect_max_args("assoc-string", &args, 3)?;
     let needle = assoc_string_key_name(&args[0])?;
-    let fold_case = args.get(2).is_some_and(Value::is_truthy);
+    let fold_case = args.get(2).is_some_and(|v| v.is_truthy());
 
     let mut cursor = args[1];
     loop {
@@ -348,7 +348,7 @@ pub(crate) fn builtin_assoc_string(args: Vec<Value>) -> EvalResult {
                 let entry = pair.car;
                 cursor = pair.cdr;
 
-                if !entry.is_cons() /* TODO(tagged): `entry_cell` was ValueKind::Cons, rewrite let-else */ {
+                if !entry.is_cons() {
                     continue;
                 };
                 let entry_pair = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
@@ -377,13 +377,13 @@ pub(crate) fn builtin_car_less_than_car(args: Vec<Value>) -> EvalResult {
 /// `(byte-code-function-p OBJ)` -> t if compiled.
 pub(crate) fn builtin_byte_code_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("byte-code-function-p", &args, 1)?;
-    Ok(Value::bool_val(matches!(&args[0], Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */)))
+    Ok(Value::bool_val(matches!(&args[0], ValueKind::Veclike(VecLikeType::ByteCode))))
 }
 
 /// `(compiled-function-p OBJ)` -> t if compiled function.
 pub(crate) fn builtin_compiled_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("compiled-function-p", &args, 1)?;
-    Ok(Value::bool_val(matches!(&args[0], Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */)))
+    Ok(Value::bool_val(matches!(&args[0], ValueKind::Veclike(VecLikeType::ByteCode))))
 }
 
 /// `(closurep OBJ)` -> t if closure.
@@ -391,7 +391,7 @@ pub(crate) fn builtin_closurep(args: Vec<Value>) -> EvalResult {
     expect_args("closurep", &args, 1)?;
     Ok(Value::bool_val(matches!(
         &args[0],
-        Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */ | Value::ByteCode(_)
+        Value::Lambda(_) | Value::ByteCode(_)
     )))
 }
 
@@ -420,7 +420,7 @@ pub(crate) fn builtin_zerop(args: Vec<Value>) -> EvalResult {
     expect_args("zerop", &args, 1)?;
     let is_zero = match args[0].kind() {
         ValueKind::Fixnum(0) => true,
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f == 0.0,
+        ValueKind::Float => *f == 0.0,
         _ => false,
     };
     Ok(Value::bool_val(is_zero))
@@ -595,7 +595,7 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
                     .map(Value::string)
                     .unwrap_or(Value::NIL)
             }
-            Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => {
+            ValueKind::String => {
                 let login = with_heap(|h| h.get_string(*id).to_owned());
                 lookup_full_name_by_login(&login)
                     .map(Value::string)

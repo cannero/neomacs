@@ -678,7 +678,7 @@ fn documentation_empty_quoted_macro_errors_void_function_nil() {
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "void-function");
-            assert!(sig.data.first().is_some_and(Value::is_nil));
+            assert!(sig.data.first().is_some_and(|v| v.is_nil()));
         }
         other => panic!("expected void-function signal, got {other:?}"),
     }

@@ -62,7 +62,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *value],
         )),
     }
 }
@@ -164,7 +164,7 @@ pub(crate) fn builtin_defining_kbd_macro(
     expect_min_args("defining-kbd-macro", &args, 1)?;
     expect_max_args("defining-kbd-macro", &args, 2)?;
     let append = args[0].is_truthy();
-    let no_exec = args.get(1).is_some_and(Value::is_truthy);
+    let no_exec = args.get(1).is_some_and(|v| v.is_truthy());
     start_kbd_macro_impl(eval, append, no_exec)?;
     Ok(Value::NIL)
 }
@@ -285,7 +285,7 @@ pub(crate) fn builtin_start_kbd_macro(
 ) -> EvalResult {
     expect_max_args("start-kbd-macro", &args, 2)?;
     let append = args.first().is_some_and(|v| v.is_truthy());
-    let no_exec = args.get(1).is_some_and(Value::is_truthy);
+    let no_exec = args.get(1).is_some_and(|v| v.is_truthy());
     start_kbd_macro_impl(eval, append, no_exec)?;
     Ok(Value::NIL)
 }
@@ -371,7 +371,7 @@ fn name_last_kbd_macro_impl(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("symbolp"), *other],
+                vec![Value::symbol("symbolp"), args[0]],
             ));
         }
     };
@@ -456,7 +456,7 @@ pub(crate) fn builtin_kmacro_p(args: Vec<Value>) -> EvalResult {
     expect_args("kmacro-p", &args, 1)?;
     Ok(Value::bool_val(matches!(
         args[0],
-        Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ | Value::Str(_)
+        Value::Vector(_) | Value::Str(_)
     )))
 }
 
@@ -495,7 +495,7 @@ pub(crate) fn builtin_kmacro_set_format(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };

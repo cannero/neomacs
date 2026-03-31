@@ -53,7 +53,7 @@ fn expect_integerp(arg: &Value) -> Result<(), Flow> {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *arg],
         )),
     }
 }
@@ -63,7 +63,7 @@ fn expect_integer_or_marker_p(arg: &Value) -> Result<(), Flow> {
         ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *arg],
         )),
     }
 }

@@ -65,7 +65,7 @@ fn expect_optional_live_frame_designator_in_state(
     if value.is_nil() {
         return Ok(());
     }
-    if value.is_frame() /* TODO(tagged): `id` was Value::Frame(id), now use accessor */ {
+    if value.is_frame() {
         if frames.get(crate::window::FrameId(*id)).is_some() {
             return Ok(());
         }
@@ -476,7 +476,7 @@ pub(super) fn expect_optional_live_window_designator(
     if value.is_nil() {
         return Ok(());
     }
-    if value.is_window() /* TODO(tagged): `id` was Value::Window(id), now use accessor */ {
+    if value.is_window() {
         if eval.frames.is_live_window_id(crate::window::WindowId(*id)) {
             return Ok(());
         }
@@ -554,7 +554,7 @@ pub(super) fn reset_hooks_thread_locals() {
 }
 
 fn window_configuration_parts_from_value(value: &Value) -> Option<(Value, i64)> {
-    if !value.is_vector() /* TODO(tagged): `data` was Value::Vector(data), rewrite let-else */ {
+    if !value.is_vector() {
         return None;
     };
     let items = with_heap(|h| h.get_vector(*data).clone());
@@ -573,7 +573,7 @@ fn window_configuration_frame_from_value(value: &Value) -> Option<Value> {
 
 fn next_window_configuration_serial() -> i64 {
     use std::sync::atomic::{AtomicU64, Ordering};
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
     static NEXT_WINDOW_CONFIGURATION_ID: AtomicU64 = AtomicU64::new(1);
     NEXT_WINDOW_CONFIGURATION_ID.fetch_add(1, Ordering::Relaxed) as i64
 }
@@ -637,7 +637,7 @@ pub(crate) fn builtin_current_window_configuration(
         super::window_cmds::selected_frame_impl(&mut eval.frames, &mut eval.buffers, vec![])?
     };
 
-    if !frame.is_frame() /* TODO(tagged): `frame_raw_id` was Value::Frame(frame_raw_id), rewrite let-else */ {
+    if !frame.is_frame() {
         return Ok(make_window_configuration_value(
             frame,
             next_window_configuration_serial(),
@@ -721,7 +721,7 @@ pub(crate) fn builtin_set_window_configuration(
 fn save_selected_window_state_from_value(
     value: &Value,
 ) -> Option<(Value, Value, Option<crate::buffer::BufferId>)> {
-    if !value.is_vector() /* TODO(tagged): `data` was Value::Vector(data), rewrite let-else */ {
+    if !value.is_vector() {
         return None;
     };
     let items = with_heap(|h| h.get_vector(*data).clone());
@@ -792,13 +792,13 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
     if let Some(frame) = args.first() {
         expect_optional_live_frame_designator(frame, eval)?;
     }
-    let frame = match args.first().copied().unwrap_or(Value::Nil).kind() {
+    let frame = match args.first().copied().unwrap_or(Value::NIL).kind() {
         ValueKind::Nil => {
             super::window_cmds::selected_frame_impl(&mut eval.frames, &mut eval.buffers, vec![])?
         }
         value => value,
     };
-    if !frame.is_frame() /* TODO(tagged): `frame_raw_id` was Value::Frame(frame_raw_id), rewrite let-else */ {
+    if !frame.is_frame() {
         return Ok(Value::NIL);
     };
     let frame_id = crate::window::FrameId(frame_raw_id);
@@ -859,11 +859,11 @@ pub(crate) fn builtin_run_window_scroll_functions(
         expect_optional_live_window_designator(window, eval)?;
     }
 
-    let window_arg = match args.first().copied().unwrap_or(Value::Nil).kind() {
+    let window_arg = match args.first().copied().unwrap_or(Value::NIL).kind() {
         ValueKind::Nil => super::window_cmds::builtin_selected_window(eval, vec![])?,
         value => value,
     };
-    if !window_arg.is_window() /* TODO(tagged): `window_raw_id` was Value::Window(window_raw_id), rewrite let-else */ {
+    if !window_arg.is_window() {
         return Ok(Value::NIL);
     };
     let window_id = crate::window::WindowId(window_raw_id);

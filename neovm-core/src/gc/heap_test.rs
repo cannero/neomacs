@@ -45,7 +45,7 @@ fn collect_unreachable() {
     let b = heap.alloc_cons(Value::fixnum(2), Value::NIL);
     assert_eq!(heap.allocated_count(), 2);
     // Only b is a root
-    heap.collect([Value::Cons(b) /* TODO(tagged): convert Value::Cons to new API */].into_iter());
+    heap.collect([Value::Cons(b)].into_iter());
     assert_eq!(heap.allocated_count(), 1);
     assert_eq!(heap.cons_car(b), Value::fixnum(2));
 }
@@ -54,8 +54,8 @@ fn collect_unreachable() {
 fn collect_nested() {
     let mut heap = LispHeap::new();
     let inner = heap.alloc_cons(Value::fixnum(1), Value::NIL);
-    let outer = heap.alloc_cons(Value::Cons(inner) /* TODO(tagged): convert Value::Cons to new API */, Value::NIL);
-    heap.collect([Value::Cons(outer) /* TODO(tagged): convert Value::Cons to new API */].into_iter());
+    let outer = heap.alloc_cons(Value::Cons(inner), Value::NIL);
+    heap.collect([Value::Cons(outer)].into_iter());
     assert_eq!(heap.allocated_count(), 2);
     // inner is reachable through outer
     assert_eq!(heap.cons_car(inner), Value::fixnum(1));
@@ -65,11 +65,11 @@ fn collect_nested() {
 fn collect_cycle() {
     let mut heap = LispHeap::new();
     let a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
-    let b = heap.alloc_cons(Value::fixnum(2), Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */);
-    heap.set_cdr(a, Value::Cons(b) /* TODO(tagged): convert Value::Cons to new API */); // create cycle a <-> b
+    let b = heap.alloc_cons(Value::fixnum(2), Value::Cons(a));
+    heap.set_cdr(a, Value::Cons(b)); // create cycle a <-> b
 
     // Both reachable from a
-    heap.collect([Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */].into_iter());
+    heap.collect([Value::Cons(a)].into_iter());
     assert_eq!(heap.allocated_count(), 2);
 
     // Remove root — both should be collected
@@ -91,9 +91,9 @@ fn vector_ops() {
 fn list_helpers() {
     let mut heap = LispHeap::new();
     let c3 = heap.alloc_cons(Value::fixnum(3), Value::NIL);
-    let c2 = heap.alloc_cons(Value::fixnum(2), Value::Cons(c3) /* TODO(tagged): convert Value::Cons to new API */);
-    let c1 = heap.alloc_cons(Value::fixnum(1), Value::Cons(c2) /* TODO(tagged): convert Value::Cons to new API */);
-    let list = Value::Cons(c1) /* TODO(tagged): convert Value::Cons to new API */;
+    let c2 = heap.alloc_cons(Value::fixnum(2), Value::Cons(c3));
+    let c1 = heap.alloc_cons(Value::fixnum(1), Value::Cons(c2));
+    let list = Value::Cons(c1);
 
     let vec = heap.list_to_vec(&list).unwrap();
     assert_eq!(vec, vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
@@ -105,9 +105,9 @@ fn structural_equality() {
     let mut heap = LispHeap::new();
     let a = heap.alloc_cons(Value::fixnum(1), Value::fixnum(2));
     let b = heap.alloc_cons(Value::fixnum(1), Value::fixnum(2));
-    assert!(heap.equal_value(&Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */, &Value::Cons(b) /* TODO(tagged): convert Value::Cons to new API */, 0));
+    assert!(heap.equal_value(&Value::Cons(a), &Value::Cons(b), 0));
     let c = heap.alloc_cons(Value::fixnum(1), Value::fixnum(3));
-    assert!(!heap.equal_value(&Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */, &Value::Cons(c) /* TODO(tagged): convert Value::Cons to new API */, 0));
+    assert!(!heap.equal_value(&Value::Cons(a), &Value::Cons(c), 0));
 }
 
 #[test]
@@ -143,8 +143,8 @@ fn should_collect_tracks_allocations_against_threshold() {
 fn mark_some_incremental() {
     let mut heap = LispHeap::new();
     let a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
-    let b = heap.alloc_cons(Value::fixnum(2), Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */);
-    let c = heap.alloc_cons(Value::fixnum(3), Value::Cons(b) /* TODO(tagged): convert Value::Cons to new API */);
+    let b = heap.alloc_cons(Value::fixnum(2), Value::Cons(a));
+    let c = heap.alloc_cons(Value::fixnum(3), Value::Cons(b));
 
     // Manually start marking
     heap.gc_phase = GcPhase::Marking;
@@ -153,7 +153,7 @@ fn mark_some_incremental() {
     }
     heap.marks.resize(heap.objects.len(), false);
     heap.gray_queue.clear();
-    LispHeap::push_value_ids(&Value::Cons(c) /* TODO(tagged): convert Value::Cons to new API */, &mut heap.gray_queue);
+    LispHeap::push_value_ids(&Value::Cons(c), &mut heap.gray_queue);
 
     // Process one object at a time
     let done = heap.mark_some(1);
@@ -181,7 +181,7 @@ fn write_barrier_regays_black_object() {
     heap.marks[a.index as usize] = true;
 
     // Mutate `a` — write barrier should push it back to gray
-    heap.set_cdr(a, Value::Cons(new_child) /* TODO(tagged): convert Value::Cons to new API */);
+    heap.set_cdr(a, Value::Cons(new_child));
 
     assert!(
         !heap.marks[a.index as usize],
@@ -224,7 +224,7 @@ fn alloc_string_and_collect() {
 fn alloc_string_survives_when_rooted() {
     let mut heap = LispHeap::new();
     let id = heap.alloc_string("world".to_string());
-    let root = Value::Str(id) /* TODO(tagged): convert Value::Str to new API */;
+    let root = ValueKind::String;
 
     heap.collect(std::iter::once(root));
     assert_eq!(heap.allocated_count(), 1);
@@ -237,13 +237,13 @@ fn multi_cycle_gc() {
 
     // Cycle 1: allocate and collect
     let a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
-    heap.collect(std::iter::once(Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */));
+    heap.collect(std::iter::once(Value::Cons(a)));
     assert_eq!(heap.allocated_count(), 1);
 
     // Cycle 2: allocate more, drop old root
     let _b = heap.alloc_cons(Value::fixnum(2), Value::NIL);
     let c = heap.alloc_cons(Value::fixnum(3), Value::NIL);
-    heap.collect(std::iter::once(Value::Cons(c) /* TODO(tagged): convert Value::Cons to new API */));
+    heap.collect(std::iter::once(Value::Cons(c)));
     // Only c survives, a and b are collected
     assert_eq!(heap.allocated_count(), 1);
 }
@@ -267,18 +267,18 @@ fn free_list_reuse_after_collect() {
 fn collect_preserves_cons_chain() {
     let mut heap = LispHeap::new();
     let c3 = heap.alloc_cons(Value::fixnum(3), Value::NIL);
-    let c2 = heap.alloc_cons(Value::fixnum(2), Value::Cons(c3) /* TODO(tagged): convert Value::Cons to new API */);
-    let c1 = heap.alloc_cons(Value::fixnum(1), Value::Cons(c2) /* TODO(tagged): convert Value::Cons to new API */);
+    let c2 = heap.alloc_cons(Value::fixnum(2), Value::Cons(c3));
+    let c1 = heap.alloc_cons(Value::fixnum(1), Value::Cons(c2));
 
     // Also allocate an unreachable cons
     let _orphan = heap.alloc_cons(Value::fixnum(99), Value::NIL);
 
     // Root is c1 — entire chain should survive
-    heap.collect(std::iter::once(Value::Cons(c1) /* TODO(tagged): convert Value::Cons to new API */));
+    heap.collect(std::iter::once(Value::Cons(c1)));
     assert_eq!(heap.allocated_count(), 3); // c1, c2, c3
 
     // Verify chain is still intact
-    let vec = heap.list_to_vec(&Value::Cons(c1) /* TODO(tagged): convert Value::Cons to new API */).unwrap();
+    let vec = heap.list_to_vec(&Value::Cons(c1)).unwrap();
     assert_eq!(vec, vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
 }
 
@@ -296,8 +296,8 @@ fn sweep_after_incremental_marking() {
     heap.marks.resize(heap.objects.len(), false);
     heap.gray_queue.clear();
     // Root a and b
-    LispHeap::push_value_ids(&Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */, &mut heap.gray_queue);
-    LispHeap::push_value_ids(&Value::Cons(b) /* TODO(tagged): convert Value::Cons to new API */, &mut heap.gray_queue);
+    LispHeap::push_value_ids(&Value::Cons(a), &mut heap.gray_queue);
+    LispHeap::push_value_ids(&Value::Cons(b), &mut heap.gray_queue);
 
     // Drain marking
     heap.mark_all();

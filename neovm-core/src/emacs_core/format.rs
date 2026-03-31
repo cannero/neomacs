@@ -41,7 +41,7 @@ fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *val],
         )),
     }
 }
@@ -57,7 +57,7 @@ fn require_char(val: &Value) -> Result<char, Flow> {
         }),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *val],
         )),
     }
 }
@@ -250,7 +250,7 @@ pub(crate) fn builtin_format_time_string(args: Vec<Value>) -> EvalResult {
     let timestamp: i64 = if args.len() >= 2 && !args[1].is_nil() {
         match args[1].kind() {
             ValueKind::Fixnum(n) => n,
-            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f as i64,
+            ValueKind::Float => *f as i64,
             ValueKind::Cons => {
                 // Emacs time value: (HIGH LOW) or (HIGH LOW USEC) or (HIGH LOW USEC PSEC).
                 // Decode as HIGH * 65536 + LOW.

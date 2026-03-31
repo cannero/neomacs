@@ -814,7 +814,7 @@ fn test_last_kbd_macro_builtin() {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
-            assert_eq!(*items, vec![Value::Char('x'), Value::Char('y')]);
+            assert_eq!(*items, vec![Value::char('x'), Value::char('y')]);
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -975,7 +975,7 @@ fn test_name_last_kbd_macro() {
 #[test]
 fn test_name_last_kbd_macro_wrong_type() {
     use super::super::eval::Context;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
     let mut eval = Context::new();
 
@@ -1032,7 +1032,7 @@ fn test_resolve_macro_events_string() {
     let events = resolve_macro_events(&eval, &s).unwrap();
     assert_eq!(events.len(), 5);
     match events[0].kind() {
-        Value::Char('h') => {}
+        Value::char('h') => {}
         other => panic!("Expected Char('h'), got {:?}", other),
     }
 }

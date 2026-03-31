@@ -60,7 +60,7 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integerp"), *val],
         )),
     }
 }
@@ -71,7 +71,7 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
         ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *val],
         )),
     }
 }
@@ -81,7 +81,7 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
         ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *val],
         )),
     }
 }
@@ -227,8 +227,8 @@ fn flatten_match_data(md: &super::regex::MatchData) -> Value {
             Some((start, end)) => {
                 // For string searches, positions are already character positions.
                 // For buffer searches, positions are byte positions (returned as-is).
-                flat.push(Value::Int(*start as i64));
-                flat.push(Value::Int(*end as i64));
+                flat.push(Value::fixnum(*start as i64));
+                flat.push(Value::fixnum(*end as i64));
             }
             None => {
                 flat.push(ValueKind::Nil);

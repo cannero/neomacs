@@ -98,7 +98,7 @@ fn extract_char_opt(value: &Value, fn_name: &str) -> Result<Option<char>, Flow> 
         }
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *value],
         )),
     }
 }
@@ -118,7 +118,7 @@ fn extract_char(value: &Value, fn_name: &str) -> Result<char, Flow> {
 fn extract_char_code(value: &Value, fn_name: &str) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if (0..=0x3F_FFFF).contains(n) => Ok(n),
+        ValueKind::Fixnum(n) if (0..=0x3F_FFFF).contains(&n) => Ok(n),
         ValueKind::Fixnum(n) => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -128,7 +128,7 @@ fn extract_char_code(value: &Value, fn_name: &str) -> Result<i64, Flow> {
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), *other],
+            vec![Value::symbol("characterp"), *value],
         )),
     }
 }
@@ -142,7 +142,7 @@ fn clone_vector_value(value: &Value) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("vectorp"), *other],
+            vec![Value::symbol("vectorp"), *value],
         )),
     }
 }
@@ -193,7 +193,7 @@ fn clone_char_table_object(value: &Value) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("category-table-p"), *other],
+            vec![Value::symbol("category-table-p"), *value],
         )),
     }
 }
@@ -251,7 +251,7 @@ fn category_docstrings(table: Value) -> Result<Value, Flow> {
 
 fn category_docstring_in_table(table: Value, category: char) -> Result<Value, Flow> {
     let docs = category_docstrings(table)?;
-    if !docs.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
+    if !docs.is_vector() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vectorp"), docs],
@@ -270,7 +270,7 @@ fn set_category_docstring_in_table(
     docstring: Value,
 ) -> Result<(), Flow> {
     let docs = category_docstrings(table)?;
-    if !docs.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
+    if !docs.is_vector() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vectorp"), docs],
@@ -344,7 +344,7 @@ fn set_current_buffer_category_table_in_buffers(
 }
 
 fn category_set_contains(category_set: &Value, category: char) -> Result<bool, Flow> {
-    if !category_set.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
+    if !category_set.is_vector() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("categorysetp"), *category_set],
@@ -360,7 +360,7 @@ fn set_category_set_member(
     category: char,
     present: bool,
 ) -> Result<(), Flow> {
-    if !category_set.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
+    if !category_set.is_vector() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("categorysetp"), *category_set],
@@ -413,7 +413,7 @@ pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
@@ -435,7 +435,7 @@ pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
     expect_args("category-set-mnemonics", &args, 1)?;
 
-    if !&args[0].is_vector() /* TODO(tagged): `bits_arc` was Value::Vector(bits_arc), rewrite let-else */ {
+    if !&args[0].is_vector() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("categorysetp"), args[0]],
@@ -445,7 +445,7 @@ pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
     let bits = with_heap(|h| h.get_vector(*bits_arc).clone());
     let valid_shape = bits.len() >= 130
         && bits[0].is_symbol_named("--bool-vector--")
-        && matches!(&bits[1], Value::fixnum(128));
+        && &bits[1].is_fixnum();
     if !valid_shape {
         return Err(signal(
             "wrong-type-argument",
@@ -493,10 +493,10 @@ pub(crate) fn builtin_modify_category_entry(
             vec![Value::string(format!("Undefined category: {}", category))],
         ));
     }
-    let reset = args.get(3).is_some_and(Value::is_truthy);
+    let reset = args.get(3).is_some_and(|v| v.is_truthy());
 
     let (start, end) = match &args[0] {
-        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+        Value::Cons(cell) => {
             let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             (
                 extract_char_code(&pair.car, "modify-category-entry")?,
@@ -555,7 +555,7 @@ pub(crate) fn builtin_define_category(
         other => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), args[1]],
             ));
         }
     };

@@ -387,7 +387,7 @@ pub(crate) fn builtin_put_image(args: Vec<Value>) -> EvalResult {
     }
 
     // Validate POINT is integer-or-marker in batch.
-    if !matches!(&args[1], Value::fixnum(_) | Value::char(_)) {
+    if !&args[1].is_fixnum() || &args[1].is_char() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[1]],
@@ -456,13 +456,13 @@ pub(crate) fn builtin_remove_images(args: Vec<Value>) -> EvalResult {
     expect_max_args("remove-images", &args, 3)?;
 
     // Validate START and END are integer-or-marker in batch.
-    if !matches!(&args[0], Value::fixnum(_) | Value::char(_)) {
+    if !&args[0].is_fixnum() || &args[0].is_char() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[0]],
         ));
     }
-    if !matches!(&args[1], Value::fixnum(_) | Value::char(_)) {
+    if !&args[1].is_fixnum() || &args[1].is_char() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[1]],

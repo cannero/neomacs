@@ -152,7 +152,7 @@ impl Compiler {
         match expr {
             Expr::Int(n) => {
                 if for_value {
-                    let idx = func.add_constant(Value::Int(*n));
+                    let idx = func.add_constant(Value::fixnum(*n));
                     self.emit_tracked(func, Op::Constant(idx));
                 }
             }
@@ -170,7 +170,7 @@ impl Compiler {
             }
             Expr::Char(c) => {
                 if for_value {
-                    let idx = func.add_constant(Value::Char(*c));
+                    let idx = func.add_constant(Value::char(*c));
                     self.emit_tracked(func, Op::Constant(idx));
                 }
             }
@@ -575,7 +575,7 @@ impl Compiler {
             // Variadic + and *
             ("+", n) if n != 2 => {
                 if n == 0 {
-                    let idx = func.add_constant(ValueKind::Fixnum(0));
+                    let idx = func.add_constant(Value::fixnum(0));
                     self.emit_tracked(func, Op::Constant(idx));
                 } else {
                     self.compile_expr(func, &args[0], true);
@@ -588,7 +588,7 @@ impl Compiler {
             }
             ("*", n) if n != 2 => {
                 if n == 0 {
-                    let idx = func.add_constant(ValueKind::Fixnum(1));
+                    let idx = func.add_constant(Value::fixnum(1));
                     self.emit_tracked(func, Op::Constant(idx));
                 } else {
                     self.compile_expr(func, &args[0], true);

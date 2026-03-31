@@ -687,8 +687,8 @@ impl<'a> Vm<'a> {
 
                 // -- Arithmetic --
                 Op::Add => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -704,8 +704,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Sub => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -721,8 +721,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Mul => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(1));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(1));
+                    let b = stack.pop().unwrap_or(Value::fixnum(1));
+                    let a = stack.pop().unwrap_or(Value::fixnum(1));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -738,8 +738,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Div => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(1));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(1));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -755,8 +755,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Rem => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(1));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(1));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -772,7 +772,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Add1 => {
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -788,7 +788,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Sub1 => {
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -804,7 +804,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Negate => {
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -822,8 +822,8 @@ impl<'a> Vm<'a> {
 
                 // -- Comparison --
                 Op::Eqlsign => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -843,8 +843,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Gtr => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -862,8 +862,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Lss => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -881,8 +881,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Leq => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -900,8 +900,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Geq => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -919,8 +919,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Max => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -942,8 +942,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::Min => {
-                    let b = stack.pop().unwrap_or(ValueKind::Fixnum(0));
-                    let a = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let b = stack.pop().unwrap_or(Value::fixnum(0));
+                    let a = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
                     if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1116,7 +1116,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::Nth => {
                     let list = stack.pop().unwrap_or(ValueKind::Nil);
-                    let n = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let n = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![n, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1134,7 +1134,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::Nthcdr => {
                     let list = stack.pop().unwrap_or(ValueKind::Nil);
-                    let n = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let n = stack.pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![n, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
@@ -1171,7 +1171,7 @@ impl<'a> Vm<'a> {
                 Op::Setcar => {
                     let newcar = stack.pop().unwrap_or(ValueKind::Nil);
                     let cell = stack.pop().unwrap_or(ValueKind::Nil);
-                    if &cell.is_cons() /* TODO(tagged): `c` was ValueKind::Cons, now use accessor */ {
+                    if cell.is_cons() {
                         with_heap_mut(|h| h.set_car(*c, newcar));
                         stack.push(newcar);
                     } else {
@@ -1184,7 +1184,7 @@ impl<'a> Vm<'a> {
                 Op::Setcdr => {
                     let newcdr = stack.pop().unwrap_or(ValueKind::Nil);
                     let cell = stack.pop().unwrap_or(ValueKind::Nil);
-                    if &cell.is_cons() /* TODO(tagged): `c` was ValueKind::Cons, now use accessor */ {
+                    if cell.is_cons() {
                         with_heap_mut(|h| h.set_cdr(*c, newcdr));
                         stack.push(newcdr);
                     } else {
@@ -1458,7 +1458,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::Substring => {
                     let to = stack.pop().unwrap_or(ValueKind::Nil);
-                    let from = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let from = stack.pop().unwrap_or(Value::fixnum(0));
                     let array = stack.pop().unwrap_or(ValueKind::Nil);
                     let call_args = vec![array, from, to];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
@@ -1514,7 +1514,7 @@ impl<'a> Vm<'a> {
 
                 // -- Vector operations --
                 Op::Aref => {
-                    let idx_val = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let idx_val = stack.pop().unwrap_or(Value::fixnum(0));
                     let vec_val = stack.pop().unwrap_or(ValueKind::Nil);
                     let call_args = vec![vec_val, idx_val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
@@ -1533,7 +1533,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::Aset => {
                     let val = stack.pop().unwrap_or(ValueKind::Nil);
-                    let idx_val = stack.pop().unwrap_or(ValueKind::Fixnum(0));
+                    let idx_val = stack.pop().unwrap_or(Value::fixnum(0));
                     let vec_val = stack.pop().unwrap_or(ValueKind::Nil);
                     let call_args = vec![vec_val, idx_val, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
@@ -2243,7 +2243,7 @@ impl<'a> Vm<'a> {
 
     fn builtin_set_default_shared(&mut self, args: &[Value]) -> EvalResult {
         use crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
         if args.len() != 2 {
             return Err(signal(
@@ -2424,7 +2424,7 @@ use super::value::{ValueKind, VecLikeType};
                 } else {
                     Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol(predicate), Value::Int(*n)],
+                        vec![Value::symbol(predicate), Value::fixnum(*n)],
                     ))
                 }
             }
@@ -2715,12 +2715,12 @@ use super::value::{ValueKind, VecLikeType};
                 .parameters
                 .get("width")
                 .cloned()
-                .unwrap_or(Value::Int(frame.columns() as i64))),
+                .unwrap_or(Value::fixnum(frame.columns() as i64))),
             "height" => Ok(frame
                 .parameters
                 .get("height")
                 .cloned()
-                .unwrap_or(Value::Int(frame.lines() as i64))),
+                .unwrap_or(Value::fixnum(frame.lines() as i64))),
             "visibility" => Ok(if frame.visible {
                 ValueKind::T
             } else {
@@ -4487,7 +4487,7 @@ fn arith_rem(a: &Value, b: &Value) -> EvalResult {
 fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_add(1))),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(f + 1.0)),
+        ValueKind::Float => Ok(Value::make_float(f + 1.0)),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::fixnum(
             crate::emacs_core::marker::marker_position_as_int_with_buffers(
                 &vm.ctx.buffers,
@@ -4505,7 +4505,7 @@ fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
 fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_sub(1))),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(f - 1.0)),
+        ValueKind::Float => Ok(Value::make_float(f - 1.0)),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::fixnum(
             crate::emacs_core::marker::marker_position_as_int_with_buffers(
                 &vm.ctx.buffers,
@@ -4523,7 +4523,7 @@ fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
 fn arith_negate(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(-n)),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(-f)),
+        ValueKind::Float => Ok(Value::make_float(-f)),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::fixnum(
             -crate::emacs_core::marker::marker_position_as_int_with_buffers(
                 &vm.ctx.buffers,
@@ -4568,7 +4568,7 @@ fn num_cmp(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<i32, Flow> {
 fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Float => Ok(*f),
         ValueKind::Char(c) => Ok(c as u32 as f64),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(
             crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, marker)?
@@ -4576,7 +4576,7 @@ fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
         ),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *other],
+            vec![Value::symbol("number-or-marker-p"), *value],
         )),
     }
 }
@@ -4589,7 +4589,7 @@ fn length_value(val: &Value) -> EvalResult {
         )),
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::fixnum(with_heap(|h| h.vector_len(*v)) as i64)),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
-            Ok(Value::Int(builtins::closure_vector_length(val).unwrap()))
+            Ok(Value::fixnum(builtins::closure_vector_length(val).unwrap()))
         }
         ValueKind::Cons => {
             let mut len: i64 = 0;

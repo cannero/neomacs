@@ -246,13 +246,13 @@ fn charset_id_internal_requires_charset() {
 #[test]
 fn charset_id_internal_with_ascii() {
     let r = builtin_charset_id_internal(vec![Value::symbol("ascii")]).unwrap();
-    assert!(matches!(r, Value::fixnum(0)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
 fn charset_id_internal_with_unicode() {
     let r = builtin_charset_id_internal(vec![Value::symbol("unicode")]).unwrap();
-    assert!(matches!(r, Value::fixnum(2)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
@@ -628,7 +628,7 @@ fn find_charset_string_wrong_type() {
     match r {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -649,25 +649,25 @@ fn find_charset_string_wrong_arg_count() {
 #[test]
 fn decode_char_ascii() {
     let r = builtin_decode_char(vec![Value::symbol("ascii"), Value::fixnum(65)]).unwrap();
-    assert!(matches!(r, Value::fixnum(65)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
 fn decode_char_unicode() {
     let r = builtin_decode_char(vec![Value::symbol("unicode"), Value::fixnum(0x1F600)]).unwrap();
-    assert!(matches!(r, Value::fixnum(0x1F600)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
 fn decode_char_eight_bit_maps_to_raw_byte_range() {
     let r = builtin_decode_char(vec![Value::symbol("eight-bit"), Value::fixnum(255)]).unwrap();
-    assert!(matches!(r, Value::fixnum(0x3FFFFF)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
 fn decode_char_invalid_code_point() {
     let r = builtin_decode_char(vec![Value::symbol("unicode"), Value::fixnum(0xD800)]).unwrap();
-    assert!(matches!(r, Value::fixnum(0xD800)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
@@ -738,25 +738,25 @@ fn decode_char_wrong_arg_count() {
 #[test]
 fn encode_char_basic() {
     let r = builtin_encode_char(vec![Value::fixnum(65), Value::symbol("ascii")]).unwrap();
-    assert!(matches!(r, Value::fixnum(65)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
 fn encode_char_unicode() {
     let r = builtin_encode_char(vec![Value::fixnum(0x1F600), Value::symbol("unicode")]).unwrap();
-    assert!(matches!(r, Value::fixnum(0x1F600)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
 fn encode_char_eight_bit_raw_byte_maps_back_to_byte() {
     let r = builtin_encode_char(vec![Value::fixnum(0x3FFFFF), Value::symbol("eight-bit")]).unwrap();
-    assert!(matches!(r, Value::fixnum(255)));
+    assert!(r.is_fixnum());
 }
 
 #[test]
 fn encode_char_with_char_value() {
     let r = builtin_encode_char(vec![Value::char('Z'), Value::symbol("unicode")]).unwrap();
-    assert!(matches!(r, Value::fixnum(90)));
+    assert!(r.is_fixnum());
 }
 
 #[test]

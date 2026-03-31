@@ -715,7 +715,7 @@ pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Va
     // When it starts with `skip`, eager expansion is suppressed (mirrors
     // the check in `internal-macroexpand-for-load` in macroexp.el).
     if let Some(val) = eval.obarray().symbol_value("macroexp--pending-eager-loads") {
-        if val.is_cons() /* TODO(tagged): `id` was Value::Cons(id), now use accessor */ {
+        if val.is_cons() {
             if eval.heap.cons_car(*id).is_symbol_named("skip") {
                 return None;
             }
@@ -778,7 +778,7 @@ pub(crate) fn eager_expand_eval(
     // Step 2: if result is (progn ...), recurse into subforms.
     // Root `val` during iteration: the recursive `eager_expand_eval`
     // call triggers evaluation + GC, which could free val's cons cells.
-    if val.is_cons() /* TODO(tagged): `id` was Value::Cons(id), now use accessor */ {
+    if val.is_cons() {
         let car = eval.heap.cons_car(id);
         let cdr = eval.heap.cons_cdr(id);
         if car.is_symbol_named("progn") {
@@ -786,7 +786,7 @@ pub(crate) fn eager_expand_eval(
                 ctx.root(val);
                 let mut result = Value::NIL;
                 let mut tail = cdr;
-                while tail.is_cons() /* TODO(tagged): `sub_id` was Value::Cons(sub_id), now use accessor */ {
+                while tail.is_cons() {
                     let sub_form = ctx.heap.cons_car(sub_id);
                     tail = ctx.heap.cons_cdr(sub_id);
                     result = eager_expand_eval(ctx, sub_form, macroexpand_fn)?;
@@ -805,7 +805,7 @@ pub(crate) fn eager_expand_eval(
         ctx.root(val);
         ctx.root(macroexpand_fn);
         let t3 = std::time::Instant::now();
-        let expanded = match ctx.apply(macroexpand_fn, vec![val, Value::True]) {
+        let expanded = match ctx.apply(macroexpand_fn, vec![val, Value::T]) {
             Ok(v) => v,
             Err(_) => {
                 // Full expansion failed; use the one-level-expanded form.
@@ -1279,7 +1279,7 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
             .unwrap_or_default()
             .into_iter()
             .filter(|existing| match existing {
-                Value::Cons(id) /* TODO(tagged): convert Value::Cons to new API */ => with_heap(|heap| {
+                Value::Cons(id) => with_heap(|heap| {
                     heap.cons_car(*id)
                         .as_str()
                         .is_none_or(|loaded| loaded != path_str)
@@ -1892,7 +1892,7 @@ fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
         let mut paths = std::collections::BTreeSet::new();
 
         for entry in list_to_vec(&history).unwrap_or_default() {
-            if !entry.is_cons() /* TODO(tagged): `id` was Value::Cons(id), rewrite let-else */ {
+            if !entry.is_cons() {
                 continue;
             };
             let Some(path) = with_heap(|heap| heap.cons_car(id).as_str().map(ToOwned::to_owned))

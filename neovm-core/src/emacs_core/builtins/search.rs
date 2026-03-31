@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::regex::char_pos_to_byte;
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Search / Regex builtins (evaluator-dependent)
@@ -752,7 +752,7 @@ pub(crate) fn builtin_match_string(
 
     // If an optional second arg is a string, use that first.
     if args.len() > 1 {
-        if args[1].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
+        if args[1].is_string() {
             return with_heap(|h| {
                 let string = h.get_lisp_string(id);
                 let text = string.as_str();
@@ -848,19 +848,19 @@ pub(crate) fn builtin_match_beginning_with_state(
             match md.groups.get(group) {
                 Some(Some((start, _end))) => {
                     if md.searched_string.is_some() {
-                        Ok(Value::Int(*start as i64))
+                        Ok(Value::fixnum(*start as i64))
                     } else if let Some(buf) = md
                         .searched_buffer
                         .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
                     {
                         if *start <= buf.text.len() {
                             let pos = buf.text.byte_to_char(*start) as i64 + 1;
-                            Ok(ValueKind::Fixnum(pos))
+                            Ok(Value::fixnum(pos))
                         } else {
-                            Ok(Value::Int(*start as i64))
+                            Ok(Value::fixnum(*start as i64))
                         }
                     } else {
-                        Ok(Value::Int(*start as i64))
+                        Ok(Value::fixnum(*start as i64))
                     }
                 }
                 Some(None) => Ok(Value::NIL),
@@ -903,19 +903,19 @@ pub(crate) fn builtin_match_end_with_state(
             match md.groups.get(group) {
                 Some(Some((_start, end))) => {
                     if md.searched_string.is_some() {
-                        Ok(Value::Int(*end as i64))
+                        Ok(Value::fixnum(*end as i64))
                     } else if let Some(buf) = md
                         .searched_buffer
                         .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
                     {
                         if *end <= buf.text.len() {
                             let pos = buf.text.byte_to_char(*end) as i64 + 1;
-                            Ok(ValueKind::Fixnum(pos))
+                            Ok(Value::fixnum(pos))
                         } else {
-                            Ok(Value::Int(*end as i64))
+                            Ok(Value::fixnum(*end as i64))
                         }
                     } else {
-                        Ok(Value::Int(*end as i64))
+                        Ok(Value::fixnum(*end as i64))
                     }
                 }
                 Some(None) => Ok(Value::NIL),
@@ -962,8 +962,8 @@ pub(crate) fn builtin_match_data_with_state(
         match grp {
             Some((start, end)) => {
                 if md.searched_string.is_some() {
-                    flat.push(Value::Int(*start as i64));
-                    flat.push(Value::Int(*end as i64));
+                    flat.push(Value::fixnum(*start as i64));
+                    flat.push(Value::fixnum(*end as i64));
                     continue;
                 }
 
@@ -984,11 +984,11 @@ pub(crate) fn builtin_match_data_with_state(
 
                 if integers {
                     if let Some((start_pos, end_pos)) = buffer_positions {
-                        flat.push(ValueKind::Fixnum(start_pos));
-                        flat.push(ValueKind::Fixnum(end_pos));
+                        flat.push(Value::fixnum(start_pos));
+                        flat.push(Value::fixnum(end_pos));
                     } else {
-                        flat.push(Value::Int(*start as i64));
-                        flat.push(Value::Int(*end as i64));
+                        flat.push(Value::fixnum(*start as i64));
+                        flat.push(Value::fixnum(*end as i64));
                     }
                     continue;
                 }
@@ -1005,8 +1005,8 @@ pub(crate) fn builtin_match_data_with_state(
                     continue;
                 }
 
-                flat.push(Value::Int(*start as i64));
-                flat.push(Value::Int(*end as i64));
+                flat.push(Value::fixnum(*start as i64));
+                flat.push(Value::fixnum(*end as i64));
             }
             None => {
                 flat.push(ValueKind::Nil);
@@ -1049,7 +1049,7 @@ fn expect_match_data_item_in_manager(
         )),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integer-or-marker-p"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *value],
         )),
     }
 }

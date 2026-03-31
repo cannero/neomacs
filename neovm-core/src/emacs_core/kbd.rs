@@ -7,7 +7,7 @@
 //! - string return when all events are plain chars, otherwise vector.
 
 use super::{
-use super::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
     intern::resolve_sym,
     keymap::KeyEvent,
     value::{Value, read_cons, with_heap},
@@ -161,7 +161,7 @@ pub(crate) fn key_events_from_designator(
         ValueKind::Veclike(VecLikeType::Vector) => {
             decode_encoded_key_events(designator).map_err(KeyDesignatorError::Parse)
         }
-        other => Err(KeyDesignatorError::WrongType(*other)),
+        other => Err(KeyDesignatorError::WrongType(*designator)),
     }
 }
 

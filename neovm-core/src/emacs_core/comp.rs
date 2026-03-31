@@ -40,7 +40,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
         })),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
+            vec![Value::symbol("stringp"), *value],
         )),
     }
 }
@@ -50,7 +50,7 @@ fn expect_subr(value: &Value) -> Result<(), Flow> {
         ValueKind::Subr(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("subrp"), *other],
+            vec![Value::symbol("subrp"), *value],
         )),
     }
 }
